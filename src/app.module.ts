@@ -13,6 +13,7 @@ import { TimeEntriesModule } from './time-entries/time-entries.module';
 import { RatesModule } from './rates/rates.module';
 import { SyncModule } from './sync/sync.module';
 import { WorkersModule } from './workers/workers.module';
+import { AdminModule } from './admin/admin.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -32,6 +33,7 @@ import { HealthController } from './health/health.controller';
     RatesModule,
     SyncModule,
     WorkersModule,
+    AdminModule,
   ],
   controllers: [HealthController],
 })
