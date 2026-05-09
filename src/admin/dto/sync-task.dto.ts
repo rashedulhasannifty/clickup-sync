@@ -5,5 +5,5 @@ export class SyncTaskDto {
   @ApiProperty({ example: '86abc123', description: 'ClickUp task ID' })
   @IsString()
   @MinLength(1)
-  taskId: string;
+  taskId!: string;
 }

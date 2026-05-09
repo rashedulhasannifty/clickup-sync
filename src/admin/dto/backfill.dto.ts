@@ -6,7 +6,7 @@ export class BackfillDto {
   @ApiProperty({ example: '3577824', description: 'ClickUp space ID — must be one of the configured spaces' })
   @IsString()
   @MinLength(1)
-  spaceId: string;
+  spaceId!: string;
 
   @ApiPropertyOptional({ example: 90, minimum: 1, maximum: 365, description: 'Defaults to the configured lookback for the space' })
   @IsOptional()
