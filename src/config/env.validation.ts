@@ -15,6 +15,7 @@ const schema = z.object({
   GOOGLE_RATES_SHEET_ID: z.string().optional().default(''),
   GOOGLE_RATES_SHEET_NAME: z.string().default('rates'),
   GOOGLE_ASSIGNEE_SHEET_NAME: z.string().default('assignee'),
+  ADMIN_API_KEY: z.string().optional().default(''),
   JOB_ATTEMPTS: z.coerce.number().default(5),
   JOB_BACKOFF_DELAY_MS: z.coerce.number().default(30000),
   RECONCILE_EVERY_MINUTES: z.coerce.number().default(15),
