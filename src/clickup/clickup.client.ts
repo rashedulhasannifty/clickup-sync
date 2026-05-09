@@ -62,6 +62,9 @@ export class ClickupClient {
     const res: any = await this.request('GET', `/team/${teamId}/webhook`);
     return res.webhooks || [];
   }
-  async createWebhook(teamId: string, endpoint: string, events: string[]): Promise<void> { await this.request('POST', `/team/${teamId}/webhook`, { endpoint, events }); }
+  async createWebhook(teamId: string, endpoint: string, events: string[]): Promise<{ id: string; secret: string }> {
+    const res: any = await this.request('POST', `/team/${teamId}/webhook`, { endpoint, events });
+    return { id: res.webhook?.id ?? res.id, secret: res.webhook?.secret ?? res.secret ?? '' };
+  }
   async deleteWebhook(webhookId: string): Promise<void> { await this.request('DELETE', `/webhook/${webhookId}`); }
 }
