@@ -53,6 +53,18 @@ describe('AdminController', () => {
       ctrl.backfill({ spaceId: '3525433' });
       expect(queues.get).toHaveBeenCalledWith('clickup-backfills');
     });
+
+    it('allows unknown spaceId when allowUnknownSpaces is true', () => {
+      const ctrl = new AdminController(makeQueues(), makeDeadLetters(), makeWebhooks());
+      const result = ctrl.backfill({ spaceId: 'test-space-999', allowUnknownSpaces: true });
+      expect(result).toEqual({ queued: true, spaceId: 'test-space-999', lookbackDays: 30 });
+    });
+
+    it('uses provided lookbackDays for unknown space instead of default 30', () => {
+      const ctrl = new AdminController(makeQueues(), makeDeadLetters(), makeWebhooks());
+      const result = ctrl.backfill({ spaceId: 'test-space-999', allowUnknownSpaces: true, lookbackDays: 7 });
+      expect(result).toEqual({ queued: true, spaceId: 'test-space-999', lookbackDays: 7 });
+    });
   });
 
   describe('syncRates', () => {

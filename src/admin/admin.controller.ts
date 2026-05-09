@@ -33,8 +33,8 @@ export class AdminController {
   @ApiOperation({ summary: 'Trigger a space backfill' })
   backfill(@Body() dto: BackfillDto) {
     const space = CLICKUP_SPACES.find((s) => s.id === dto.spaceId);
-    if (!space) throw new BadRequestException(`Unknown spaceId: ${dto.spaceId}. Valid: ${CLICKUP_SPACES.map((s) => s.id).join(', ')}`);
-    const lookbackDays = dto.lookbackDays ?? space.backfillLookbackDays;
+    if (!space && !dto.allowUnknownSpaces) throw new BadRequestException(`Unknown spaceId: ${dto.spaceId}. Valid: ${CLICKUP_SPACES.map((s) => s.id).join(', ')}. Pass allowUnknownSpaces: true to override.`);
+    const lookbackDays = dto.lookbackDays ?? space?.backfillLookbackDays ?? 30;
     this.queues.get(QUEUES.CLICKUP_BACKFILLS).add(JOBS.BACKFILL_CLICKUP_SPACE, { spaceId: dto.spaceId, lookbackDays }, this.queues.defaultJobOptions());
     return { queued: true, spaceId: dto.spaceId, lookbackDays };
   }
