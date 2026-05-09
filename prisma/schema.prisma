@@ -1,0 +1,184 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model ClickupTask {
+  taskId          String   @id @map("task_id")
+  parentTaskId    String?  @map("parent_task_id")
+  taskName        String   @map("task_name")
+  description     String?
+  url             String?
+  status          String?
+  statusType      String?  @map("status_type")
+  statusColor     String?  @map("status_color")
+  priority        String?
+  orderIndex      Int?     @map("order_index")
+  archived        Boolean  @default(false)
+  isDeleted       Boolean  @default(false) @map("is_deleted")
+  createdDate     DateTime? @map("created_date")
+  updatedDate     DateTime? @map("updated_date")
+  closedDate      DateTime? @map("closed_date")
+  dueDate         DateTime? @map("due_date")
+  startDate       DateTime? @map("start_date")
+  deletedAt       DateTime? @map("deleted_at")
+  syncedAt        DateTime @default(now()) @updatedAt @map("synced_at")
+  syncCount       Int      @default(0) @map("sync_count")
+  timeEstimate    BigInt?  @map("time_estimate")
+  timeSpent       BigInt?  @map("time_spent")
+  spaceId         String?  @map("space_id")
+  spaceName       String?  @map("space_name")
+  folderId        String?  @map("folder_id")
+  folderName      String?  @map("folder_name")
+  listId          String?  @map("list_id")
+  listName        String?  @map("list_name")
+  assigneesNames  String?  @map("assignees_names")
+  assigneesEmails String?  @map("assignees_emails")
+  watchersNames   String?  @map("watchers_names")
+  watchersEmails  String?  @map("watchers_emails")
+  creatorId       String?  @map("creator_id")
+  creatorName     String?  @map("creator_name")
+  executiveName   String?  @map("executive_name")
+  department      String?
+  client          String?
+  cost            Decimal  @default(0) @db.Decimal(14, 2)
+  estimation      Decimal  @default(0) @db.Decimal(14, 2)
+  sprintName      String?  @map("sprint_name")
+  sprintPoints    Int      @default(0) @map("sprint_points")
+  tags            String?
+  customTags      String?  @map("custom_tags")
+  raw             Json?
+
+  timeEntries     ClickupTimeEntry[]
+
+  @@index([parentTaskId])
+  @@index([spaceId])
+  @@index([updatedDate])
+  @@map("clickup_tasks")
+}
+
+model ClickupTimeEntry {
+  timeEntryId      String   @id @map("time_entry_id")
+  taskId           String?  @map("task_id")
+  userId           String?  @map("user_id")
+  userName         String?  @map("user_name")
+  userEmail        String?  @map("user_email")
+  startTime        DateTime? @map("start_time")
+  endTime          DateTime? @map("end_time")
+  durationHours    Decimal  @default(0) @map("duration_hours") @db.Decimal(12, 4)
+  billable         Boolean  @default(false)
+  description      String?
+  rateId           BigInt?  @map("rate_id")
+  currency         String   @default("AUD")
+  hourlyRateCents  BigInt   @default(0) @map("hourly_rate_cents")
+  costCents        BigInt   @default(0) @map("cost_cents")
+  status           String   @default("SYNCED")
+  raw              Json?
+  syncedAt         DateTime @default(now()) @updatedAt @map("synced_at")
+
+  task             ClickupTask? @relation(fields: [taskId], references: [taskId], onDelete: SetNull)
+  rate             AssigneeRate? @relation(fields: [rateId], references: [rateId], onDelete: SetNull)
+
+  @@index([taskId])
+  @@index([userId])
+  @@index([startTime])
+  @@map("clickup_time_entries")
+}
+
+model AssigneeRate {
+  rateId           BigInt   @id @default(autoincrement()) @map("rate_id")
+  assigneeId       String   @map("assignee_id")
+  assigneeName     String?  @map("assignee_name")
+  assigneeEmail    String?  @map("assignee_email")
+  currency         String   @default("AUD")
+  hourlyRateCents  BigInt   @map("hourly_rate_cents")
+  validFrom        DateTime @map("valid_from") @db.Date
+  validTo          DateTime? @map("valid_to") @db.Date
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
+
+  timeEntries      ClickupTimeEntry[]
+
+  @@unique([assigneeId, validFrom])
+  @@index([assigneeId, validFrom, validTo])
+  @@map("assignee_rates")
+}
+
+model ClickupWebhookEvent {
+  id           BigInt   @id @default(autoincrement())
+  fingerprint  String   @unique
+  eventType    String?  @map("event_type")
+  taskId       String?  @map("task_id")
+  rawPayload   Json     @map("raw_payload")
+  status       String   @default("received")
+  receivedAt   DateTime @default(now()) @map("received_at")
+  processedAt  DateTime? @map("processed_at")
+  errorMessage String?  @map("error_message")
+
+  @@index([eventType])
+  @@index([taskId])
+  @@index([receivedAt])
+  @@map("clickup_webhook_events")
+}
+
+model ClickupWebhookSeen {
+  fingerprint String   @id
+  seenAt      DateTime @default(now()) @map("seen_at")
+  @@map("clickup_webhook_seen")
+}
+
+model SyncCheckpoint {
+  id                     BigInt   @id @default(autoincrement())
+  source                 String
+  scopeType              String   @map("scope_type")
+  scopeId                String   @map("scope_id")
+  lastSuccessfulSyncAt   DateTime? @map("last_successful_sync_at")
+  lastAttemptedSyncAt    DateTime? @map("last_attempted_sync_at")
+  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([source, scopeType, scopeId])
+  @@map("sync_checkpoints")
+}
+
+model SyncJobLog {
+  id           BigInt   @id @default(autoincrement())
+  jobId        String?  @map("job_id")
+  queueName    String   @map("queue_name")
+  jobName      String   @map("job_name")
+  status       String
+  entityType   String?  @map("entity_type")
+  entityId     String?  @map("entity_id")
+  attemptsMade Int      @default(0) @map("attempts_made")
+  errorMessage String?  @map("error_message")
+  errorStack   String?  @map("error_stack")
+  payload      Json?
+  startedAt    DateTime? @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([queueName, jobName])
+  @@index([status])
+  @@index([entityType, entityId])
+  @@map("sync_job_logs")
+}
+
+model DeadLetterJob {
+  id           BigInt   @id @default(autoincrement())
+  queueName    String   @map("queue_name")
+  jobName      String   @map("job_name")
+  entityType   String?  @map("entity_type")
+  entityId     String?  @map("entity_id")
+  payload      Json
+  errorMessage String?  @map("error_message")
+  errorStack   String?  @map("error_stack")
+  attemptsMade Int?     @map("attempts_made")
+  failedAt     DateTime @default(now()) @map("failed_at")
+  retriedAt    DateTime? @map("retried_at")
+  resolvedAt   DateTime? @map("resolved_at")
+
+  @@index([queueName, jobName])
+  @@index([entityType, entityId])
+  @@map("dead_letter_jobs")
+}

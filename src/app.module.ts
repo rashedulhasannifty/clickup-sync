@@ -1,0 +1,38 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
+import { TerminusModule } from '@nestjs/terminus';
+import { BullModule } from '@nestjs/bullmq';
+import { validateEnv } from './config/env.validation';
+import { DatabaseModule } from './database/database.module';
+import { ClickupModule } from './clickup/clickup.module';
+import { QueuesModule } from './queues/queues.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
+import { TasksModule } from './tasks/tasks.module';
+import { TimeEntriesModule } from './time-entries/time-entries.module';
+import { RatesModule } from './rates/rates.module';
+import { SyncModule } from './sync/sync.module';
+import { WorkersModule } from './workers/workers.module';
+import { HealthController } from './health/health.controller';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
+    ScheduleModule.forRoot(),
+    TerminusModule,
+    BullModule.forRootAsync({
+      useFactory: () => ({ connection: { url: process.env.REDIS_URL } }),
+    }),
+    DatabaseModule,
+    ClickupModule,
+    QueuesModule,
+    WebhooksModule,
+    TasksModule,
+    TimeEntriesModule,
+    RatesModule,
+    SyncModule,
+    WorkersModule,
+  ],
+  controllers: [HealthController],
+})
+export class AppModule {}

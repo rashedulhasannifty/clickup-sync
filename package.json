@@ -1,0 +1,84 @@
+{
+  "name": "clickup-sync-nestjs",
+  "version": "0.1.0",
+  "description": "NestJS backend replacement for n8n ClickUp to PostgreSQL sync workflows.",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "nest build",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"prisma/**/*.prisma\"",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main.js",
+    "lint": "eslint \"{src,test}/**/*.ts\"",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "prisma:generate": "prisma generate --config ./prisma.config.ts",
+    "prisma:migrate": "prisma migrate dev --config ./prisma.config.ts",
+    "prisma:deploy": "prisma migrate deploy --config ./prisma.config.ts",
+    "prisma:studio": "prisma studio --config ./prisma.config.ts",
+    "dev:deps": "docker compose up -d postgres redis",
+    "dev:reset": "docker compose down -v && docker compose up -d postgres redis && npm run prisma:deploy"
+  },
+  "dependencies": {
+    "@nestjs/axios": "4.0.1",
+    "@nestjs/bullmq": "11.0.4",
+    "@nestjs/common": "11.1.19",
+    "@nestjs/config": "4.0.4",
+    "@nestjs/core": "11.1.19",
+    "@nestjs/platform-express": "11.1.19",
+    "@nestjs/schedule": "6.1.3",
+    "@nestjs/swagger": "11.4.2",
+    "@nestjs/terminus": "11.1.1",
+    "@prisma/client": "7.8.0",
+    "axios": "1.16.0",
+    "bullmq": "5.76.6",
+    "class-transformer": "0.5.1",
+    "class-validator": "0.15.1",
+    "compression": "1.8.1",
+    "googleapis": "171.4.0",
+    "helmet": "8.1.0",
+    "ioredis": "5.10.1",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "11.0.21",
+    "@nestjs/schematics": "11.1.0",
+    "@nestjs/testing": "11.1.19",
+    "@types/compression": "1.8.1",
+    "@types/express": "5.0.6",
+    "@types/jest": "30.0.0",
+    "@types/node": "25.6.2",
+    "@types/supertest": "7.2.0",
+    "eslint": "10.3.0",
+    "jest": "30.4.2",
+    "prettier": "3.8.3",
+    "prisma": "7.8.0",
+    "supertest": "7.2.2",
+    "ts-jest": "29.4.9",
+    "tsx": "4.21.0",
+    "typescript": "6.0.3"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": ".",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "collectCoverageFrom": [
+      "src/**/*.(t|j)s"
+    ],
+    "coverageDirectory": "coverage",
+    "testEnvironment": "node"
+  }
+}

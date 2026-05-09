@@ -1,0 +1,372 @@
+{
+  "name": "Sync Assignee Rates",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "0512a190-d7b4-49ec-a161-33aced582968",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 1,
+              "minute": 15
+            }
+          ]
+        }
+      },
+      "id": "bba9e802-193f-4262-b9c8-cd049e138845",
+      "name": "Cron (Daily 01:15)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        0,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1HmHES7b8bK3K252_fijWW9K_UHMwIJZWmqfszwIB6BA/edit?usp=sharing",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "rates",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1HmHES7b8bK3K252_fijWW9K_UHMwIJZWmqfszwIB6BA/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "04ae9a02-7960-42d9-839d-f78b1da63107",
+      "name": "Google Sheets → Read Rates",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        304,
+        112
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "KVUjWyTnjMrH2PN8",
+          "name": "Serenergy Drive Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst normalized = [];\n\nitems.forEach(({ json }) => {\n  // Skip header row or empty rows\n  if (!json.assignee_id || json.assignee_id === 'assignee_id') {\n    return;\n  }\n  \n  // Validate required fields\n  if (!json.valid_from) {\n    console.error(`Missing valid_from for ${json.assignee_name}`);\n    return;\n  }\n  \n  // Convert rate to integer\n  const hourlyRateCents = parseInt(json.hourly_rate_cents, 10);\n  if (isNaN(hourlyRateCents)) {\n    console.error(`Invalid rate for ${json.assignee_name}: ${json.hourly_rate_cents}`);\n    return;\n  }\n  \n  // Parse valid_to - convert empty/null to null, otherwise validate date\n  let validTo = null;\n  if (json.valid_to && String(json.valid_to).trim() !== '') {\n    validTo = String(json.valid_to).slice(0, 10).trim();\n    // Validate date format\n    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(validTo)) {\n      console.error(`Invalid valid_to date for ${json.assignee_name}: ${validTo}`);\n      return;\n    }\n  }\n  \n  normalized.push({\n    json: {\n      assignee_id: String(json.assignee_id).trim(),\n      assignee_name: String(json.assignee_name || '').trim(),\n      assignee_email: String(json.assignee_email || '').trim(),\n      currency: String(json.currency || 'AUD').trim(),\n      hourly_rate_cents: hourlyRateCents,\n      valid_from: String(json.valid_from).slice(0, 10).trim(),\n      valid_to: validTo  // Will be null if empty/invalid\n    }\n  });\n});\n\nreturn normalized;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        112
+      ],
+      "id": "d9fda8a4-7783-4945-9f08-de2ed9ef7e33",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH upsert AS (\n    UPDATE assignee_rates\n    SET\n        assignee_name = $2,\n        assignee_email = $3,\n        currency = $4,\n        hourly_rate_cents = $5,\n        valid_to = $7,\n        updated_at = NOW()\n    WHERE assignee_id = $1\n      AND valid_from = $6\n    RETURNING rate_id, assignee_id, valid_from, hourly_rate_cents\n)\nINSERT INTO assignee_rates (\n    assignee_id,\n    assignee_name,\n    assignee_email,\n    currency,\n    hourly_rate_cents,\n    valid_from,\n    valid_to,\n    updated_at\n)\nSELECT $1, $2, $3, $4, $5, $6, $7, NOW()\nWHERE NOT EXISTS (SELECT 1 FROM upsert)\nRETURNING rate_id, assignee_id, valid_from, hourly_rate_cents;",
+        "options": {
+          "queryReplacement": "={{ $json.assignee_id }},{{ $json.assignee_name }},{{ $json.assignee_email }},{{ $json.currency }},{{ $json.hourly_rate_cents }},{{ $json.valid_from }},{{ $json.valid_to ? $json.valid_to : null }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1104,
+        192
+      ],
+      "id": "a83c0187-3513-41e2-bf23-95fc52e093c7",
+      "name": "Execute a SQL query",
+      "retryOnFail": true,
+      "credentials": {
+        "postgres": {
+          "id": "QzdUfydTldd67O8y",
+          "name": "Neon Postgres Dev"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0474d37d-c7d9-4c60-9443-c2a510820d4e",
+              "leftValue": "={{ $json.valid_to }}",
+              "rightValue": "null",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        112
+      ],
+      "id": "800bb1e0-70ab-439f-a53a-d648a83f983a",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH upsert AS (\n    UPDATE assignee_rates\n    SET\n        assignee_name = $2,\n        assignee_email = $3,\n        currency = $4,\n        hourly_rate_cents = $5,\n        valid_to = NULL,\n        updated_at = NOW()\n    WHERE assignee_id = $1\n      AND valid_from = $6\n    RETURNING rate_id, assignee_id, valid_from, hourly_rate_cents\n)\nINSERT INTO assignee_rates (\n    assignee_id,\n    assignee_name,\n    assignee_email,\n    currency,\n    hourly_rate_cents,\n    valid_from,\n    valid_to,\n    updated_at\n)\nSELECT $1, $2, $3, $4, $5, $6, NULL, NOW()\nWHERE NOT EXISTS (SELECT 1 FROM upsert)\nRETURNING rate_id, assignee_id, valid_from, hourly_rate_cents;",
+        "options": {
+          "queryReplacement": "={{ $json.assignee_id }},{{ $json.assignee_name }},{{ $json.assignee_email }},{{ $json.currency }},{{ $json.hourly_rate_cents }},{{ $json.valid_from }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1216,
+        -32
+      ],
+      "id": "e8d7669c-9482-45a6-b480-b9cf01ac4301",
+      "name": "Execute a SQL query1",
+      "retryOnFail": true,
+      "credentials": {
+        "postgres": {
+          "id": "QzdUfydTldd67O8y",
+          "name": "Neon Postgres Dev"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.clickup.com/api/v2/team/3450636",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "clickUpApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        32,
+        -320
+      ],
+      "id": "abd4629e-915b-4157-adb6-a8b83f34959d",
+      "name": "Check users",
+      "credentials": {
+        "clickUpApi": {
+          "id": "9O2S09cdkssm2E8k",
+          "name": "Nifty ClickUp [Ahmad]"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return items[0].json.team.members.map(m => {\n    return {\n        json: {\n            id: m.user.id,\n            name: m.user.username,\n            email: m.user.email\n        }\n    }\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        -320
+      ],
+      "id": "af605048-889b-42a4-a4f7-cb29e2036ecc",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1HmHES7b8bK3K252_fijWW9K_UHMwIJZWmqfszwIB6BA/edit?usp=sharing",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1712796144,
+          "mode": "list",
+          "cachedResultName": "assignee",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1HmHES7b8bK3K252_fijWW9K_UHMwIJZWmqfszwIB6BA/edit#gid=1712796144"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "assignee_id": "={{ $json.id }}",
+            "assignee_name": "={{ $json.name }}",
+            "assignee_email": "={{ $json.email }}"
+          },
+          "matchingColumns": [
+            "assignee_id"
+          ],
+          "schema": [
+            {
+              "id": "assignee_id",
+              "displayName": "assignee_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "assignee_name",
+              "displayName": "assignee_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "assignee_email",
+              "displayName": "assignee_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        448,
+        -320
+      ],
+      "id": "4a406296-cabf-4130-a793-c9a28289c358",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleApi": {
+          "id": "KVUjWyTnjMrH2PN8",
+          "name": "Serenergy Drive Account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets → Read Rates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cron (Daily 01:15)": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets → Read Rates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets → Read Rates": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check users": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "b1f7962d-96b5-41ef-95fe-645cff24c4be",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1352e9dda535e5a744681c30c98e7513b69d233e245e11c3d2127d248502604d"
+  },
+  "id": "CLNTYEBY4cHeVfHQ",
+  "tags": []
+}

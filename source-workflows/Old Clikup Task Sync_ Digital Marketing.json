@@ -1,0 +1,1105 @@
+{
+  "name": "Old Clikup Task Sync: Digital Marketing",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "a1f3fa7c-d45b-4c23-ba53-d78f033e7c25",
+      "name": "Split Spaces Loop",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -4128,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        816,
+        -160
+      ],
+      "id": "94fce2fe-6a58-4ab7-88fb-074d5081b7ed",
+      "name": "Wait Before Next Space",
+      "webhookId": "abc123-next-space-wait"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtHour": 1
+            }
+          ]
+        }
+      },
+      "id": "11ea6e0a-cfc4-4d1c-b28a-28587b865cf4",
+      "name": "Schedule Trigger4",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -4576,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate date 60 days ago in milliseconds\nconst sixtyDaysAgo = new Date();\nsixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 90);\nconst dateUpdatedGt = sixtyDaysAgo.getTime();\n\nconst teamId = '3450636';\n\n// ✨ Define multiple spaces here - ADD YOUR SPACE IDs\nconst spaces = [\n  // { spaceId: '3589129', spaceName: 'R&D Apps' },\n  { spaceId: '3577824', spaceName: 'Digital Marketing' },\n  // { spaceId: '3525433', spaceName: 'Projects' },\n  // { spaceId: 'YOUR_SPACE_ID_3', spaceName: 'Space Name 3' },\n];\n\n// Create an item for each space\nconst items = spaces.map(space => ({\n  json: {\n    teamId: teamId,\n    spaceId: space.spaceId,\n    spaceName: space.spaceName,\n    dateUpdatedGt: dateUpdatedGt,\n    dateUpdatedGtReadable: sixtyDaysAgo.toISOString(),\n    currentDate: new Date().toISOString(),\n    message: `Fetching tasks from \"${space.spaceName}\" (${space.spaceId}) updated after ${sixtyDaysAgo.toISOString()}`\n  }\n}));\n\nconsole.log(`📦 Configured ${items.length} spaces to sync`);\nreturn items;"
+      },
+      "id": "8c8e554c-22ae-4ad6-b4a7-bcebd5ad043f",
+      "name": "Calculate 30 Days Ago4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4352,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const spaceId = $json.spaceId;\nconst spaceName = $json.spaceName;\nconst teamId = $json.teamId;\nconst dateUpdatedGt = $json.dateUpdatedGt;\n\nconsole.log(`🚀 Starting sync for space: ${spaceName} (${spaceId})`);\n\nreturn [{\n  json: {\n    teamId: teamId,\n    spaceId: spaceId,\n    spaceName: spaceName,\n    dateUpdatedGt: dateUpdatedGt,\n    page: 0,\n    allTasks: [],\n    hasMore: true\n  }\n}];"
+      },
+      "id": "3074673c-0768-4c4e-b91d-7e2a7739a70d",
+      "name": "Init Pagination4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3904,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/team/{{ $json.teamId }}/task",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "clickUpApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "space_ids[]",
+              "value": "={{ $json.spaceId }}"
+            },
+            {
+              "name": "date_updated_gt",
+              "value": "={{ $json.dateUpdatedGt }}"
+            },
+            {
+              "name": "include_closed",
+              "value": "true"
+            },
+            {
+              "name": "subtasks",
+              "value": "true"
+            },
+            {
+              "name": "page",
+              "value": "={{ $json.page }}"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f0e55e4c-f98f-4dea-81a3-0d26195aa65e",
+      "name": "Fetch Tasks4",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -3680,
+        48
+      ],
+      "credentials": {
+        "clickUpApi": {
+          "id": "9O2S09cdkssm2E8k",
+          "name": "Nifty ClickUp [Ahmad]"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ✅ CORRECTED VERSION - Accumulates all pages correctly\n\nconst apiResponse = $json; // Current page from Fetch Tasks\n\n// Get the accumulated state - check if this is a loop iteration\nlet previousState;\n\ntry {\n  const allItems = $('Check Next Page4').all();\n  if (allItems.length > 0) {\n    previousState = allItems[allItems.length - 1].json;\n  } else {\n    previousState = $('Init Pagination4').first().json;\n  }\n} catch (error) {\n  previousState = $('Init Pagination4').first().json;\n}\n\nif (!apiResponse) {\n  throw new Error('No API response found');\n}\n\n// Combine previous accumulated tasks with current page\nconst previousAllTasks = previousState.allTasks || [];\nconst currentTasks = apiResponse.tasks || [];\nconst allTasks = previousAllTasks.concat(currentTasks);\n\n// Determine if more pages exist\nconst hasMore = currentTasks.length === 100;\n\nconst totalTaskCount = allTasks.length;\n\nconsole.log(`📄 Space ${previousState.spaceId} - Page ${previousState.page}: fetched ${currentTasks.length} | total so far ${totalTaskCount} | hasMore=${hasMore}`);\n\nreturn [\n  {\n    json: {\n      teamId: previousState.teamId,\n      spaceId: previousState.spaceId,\n      spaceName: previousState.spaceName,\n      dateUpdatedGt: previousState.dateUpdatedGt,\n      page: previousState.page + 1,\n      allTasks,\n      hasMore,\n      totalTaskCount,\n    },\n  },\n];"
+      },
+      "id": "63ac4cdf-cf8d-4c91-a13a-9ef75c536add",
+      "name": "Check Next Page4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3456,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "has-more",
+              "leftValue": "={{ $json.hasMore }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7f342115-74a9-4e8a-893f-b59579f871c3",
+      "name": "IF More Pages4",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -3232,
+        -112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract and separate parent tasks from subtasks\nconst allTasks = $json.allTasks || [];\n\n// 🔗 Get space info from Check Next Page3 output\nconst currentSpaceId = $json.spaceId;\nconst currentSpaceName = $json.spaceName;\n\nconsole.log(`🔄 Processing space: ${currentSpaceName} (${currentSpaceId})`);\n\n// ✅ REMOVED hardcoded space filter - process ALL tasks\n\n// Separate parent tasks (no parent_id) and subtasks (has parent_id)\nconst parentTasks = [];\nconst subtasks = [];\n\nfor (const task of allTasks) {\n  if (task.parent) {\n    subtasks.push(task);\n  } else {\n    parentTasks.push(task);\n  }\n}\n\nconsole.log(`✅ Space ${currentSpaceName}: Total ${allTasks.length} tasks | Parents: ${parentTasks.length} | Subtasks: ${subtasks.length}`);\n\n// ✨ IMPORTANT: Pass spaceName through to downstream nodes\nreturn [{\n  json: {\n    parentTasks: parentTasks,\n    subtasks: subtasks,\n    totalTasks: allTasks.length,\n    spaceId: currentSpaceId,\n    spaceName: currentSpaceName  // ✅ Pass this through!\n  }\n}];"
+      },
+      "id": "f66cc2d1-9072-4f8e-bff3-bd09065c53c9",
+      "name": "Separate Parents & Subtasks4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3008,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Convert parent tasks to individual items\nconst parentTasks = $json.parentTasks || [];\n\nif (parentTasks.length === 0) {\n  console.log('⚠️ No parent tasks found');\n  return [];\n}\n\nconst items = parentTasks.map(task => ({\n  json: task\n}));\n\nconsole.log(`📦 Prepared ${items.length} parent tasks for insert`);\nreturn items;"
+      },
+      "id": "43aed8b4-cb0f-4ff2-84b7-3971eceb3b5c",
+      "name": "Split Parent Tasks4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2784,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ✅ Normalizes all parent tasks from multiple inputs\nconst allInputs = $input.all();\n\n// 🔗 Get space name from pagination state\nconst spaceName = $('Separate Parents & Subtasks4').first().json.spaceName;\n\nconst results = allInputs.map(item => {\n  const task = item.json;\n  \n  // Extract assignees and tags\n  const assigneesNames = task.assignees?.map(a => a.username).join(', ') || null;\n  const tags = task.tags?.map(t => t.name).join(', ') || null;\n  \n  // ✅ Extract custom fields\n  let executiveName = null;\n  let department = null;\n  let cost = 0;\n  let estimation = 0;\n  let sprintName = null;\n  let sprintPoints = 0;\n  let client = '';\n\n  if (task.points !== undefined && task.points !== null) {\n    sprintPoints = parseInt(task.points) || 0;\n  }\n  if (sprintPoints === 0 && task.story_points !== undefined && task.story_points !== null) {\n    sprintPoints = parseInt(task.story_points) || 0;\n  }\n  \n  if (task.custom_fields && Array.isArray(task.custom_fields)) {\n    task.custom_fields.forEach(cf => {\n      const name = (cf.name || '').toLowerCase();\n      const value = cf.value;\n      \n      if (!value && value !== 0) return;\n\n          //Client Check \n    if (name === 'client' && cf.type === 'drop_down') {\n      const selectedIndex = value;\n\n    if (cf.type_config?.options && selectedIndex !== null) {\n      const selectedOption = cf.type_config.options.find(\n        opt => opt.orderindex === selectedIndex\n      );\n  \n      client = selectedOption?.name || '';\n    }\n  }\n\n      \n      if (name.includes('executive')) executiveName = value?.toString() || null;\n      if (name.includes('department')) department = value?.toString() || null;\n      if (name.includes('cost')) cost = parseFloat(value) || 0;\n      if (name.includes('estimation') || name.includes('estimate')) estimation = parseFloat(value) || 0;\n      if (name.includes('sprint') && !name.includes('point')) sprintName = value?.toString() || null;\n      \n      if (name.includes('point') || name.includes('story point') || name === 'sprint points') {\n        sprintPoints = parseInt(value) || 0;\n      }\n    });\n  }\n  \n  return {\n    json: {\n      task_id: task.id,\n      task_name: task.name || 'Untitled',\n      description: task.description || null,\n      status: task.status?.status || 'unknown',\n      priority: task.priority?.priority || null,\n      due_date: task.due_date ? new Date(parseInt(task.due_date)).toISOString() : null,\n      start_date: task.start_date ? new Date(parseInt(task.start_date)).toISOString() : null,\n      created_date: task.date_created ? new Date(parseInt(task.date_created)).toISOString() : null,\n      updated_date: task.date_updated ? new Date(parseInt(task.date_updated)).toISOString() : null,\n      closed_date: task.date_closed ? new Date(parseInt(task.date_closed)).toISOString() : null,\n      creator_id: task.creator?.id?.toString() || null,\n      creator_name: task.creator?.username || null,\n      assignees_names: assigneesNames,\n      tags: tags,\n      parent_task_id: null,\n      list_id: task.list?.id || null,\n      list_name: task.list?.name || null,\n      folder_id: task.folder?.id || null,\n      folder_name: task.folder?.name || null,\n      space_id: task.space?.id || null,\n      space_name: spaceName,  // ✅ From pagination state\n      url: task.url || null,\n      time_estimate: task.time_estimate || null,\n      time_spent: task.time_spent || null,\n      archived: task.archived || false,\n      \n      executive_name: executiveName,\n      department: department,\n      client: client,\n      cost: cost,\n      estimation: estimation,\n      sprint_name: sprintName,\n      sprint_points: sprintPoints\n    }\n  };\n});\n\nconsole.log(`📦 Normalized ${results.length} parent tasks for space: ${spaceName}`);\nreturn results;"
+      },
+      "id": "d6da974b-9e05-4a95-b248-b3b818a3ec26",
+      "name": "Normalize Parent Tasks4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2560,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO clickup_tasks (\n  task_id, task_name, description, status, priority,\n  due_date, start_date, created_date, updated_date, closed_date,\n  creator_id, creator_name, assignees_names,\n  tags, parent_task_id,\n  list_id, list_name, folder_id, folder_name, space_id, space_name,\n  url, time_estimate, time_spent, archived,\n  executive_name, department, client, cost, estimation, sprint_name, sprint_points\n)\nVALUES (\n  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,\n  $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,\n  $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32\n)\nON CONFLICT (task_id) DO UPDATE SET\n  task_name = EXCLUDED.task_name,\n  description = EXCLUDED.description,\n  status = EXCLUDED.status,\n  priority = EXCLUDED.priority,\n  due_date = EXCLUDED.due_date,\n  start_date = EXCLUDED.start_date,\n  updated_date = EXCLUDED.updated_date,\n  closed_date = EXCLUDED.closed_date,\n  creator_name = EXCLUDED.creator_name,\n  assignees_names = EXCLUDED.assignees_names,\n  tags = EXCLUDED.tags,\n  list_name = EXCLUDED.list_name,\n  folder_name = EXCLUDED.folder_name,\n  space_name = EXCLUDED.space_name,\n  url = EXCLUDED.url,\n  time_estimate = EXCLUDED.time_estimate,\n  time_spent = EXCLUDED.time_spent,\n  archived = EXCLUDED.archived,\n  executive_name = EXCLUDED.executive_name,\n  department = EXCLUDED.department,\n  client = EXCLUDED.client,\n  cost = EXCLUDED.cost,\n  estimation = EXCLUDED.estimation,\n  sprint_name = EXCLUDED.sprint_name,\n  sprint_points = EXCLUDED.sprint_points,\n  synced_at = NOW();",
+        "options": {
+          "queryReplacement": "={{ $json.task_id }},={{ $json.task_name }},={{ $json.description }},={{ $json.status }},={{ $json.priority }},={{ $json.due_date }},={{ $json.start_date }},={{ $json.created_date }},={{ $json.updated_date }},={{ $json.closed_date }},={{ $json.creator_id }},={{ $json.creator_name }},={{ $json.assignees_names }},={{ $json.tags }},={{ $json.parent_task_id }},={{ $json.list_id }},={{ $json.list_name }},={{ $json.folder_id }},={{ $json.folder_name }},={{ $json.space_id }},={{ $json.space_name }},={{ $json.url }},={{ $json.time_estimate }},={{ $json.time_spent }},={{ $json.archived }},={{ $json.executive_name }},={{ $json.department }},={{ $json.client }},={{ $json.cost }},={{ $json.estimation }},={{ $json.sprint_name }},={{ $json.sprint_points }}"
+        }
+      },
+      "id": "8b129158-88c2-42d1-9482-4e9b2209187d",
+      "name": "Upsert Parent Tasks4",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        -2336,
+        -208
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "QzdUfydTldd67O8y",
+          "name": "Neon Postgres Dev"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get subtasks and check for missing parents\nconst subtasks = $('Separate Parents & Subtasks4').first().json.subtasks || [];\n\nif (subtasks.length === 0) {\n  console.log('ℹ️ No subtasks to process');\n  return [{ json: { noSubtasks: true } }];\n}\n\n// Extract unique parent IDs from subtasks\nconst parentIds = [...new Set(subtasks.map(t => t.parent).filter(id => id))];\n\nconsole.log(`🔍 Found ${subtasks.length} subtasks with ${parentIds.length} unique parent IDs`);\n\nreturn [{\n  json: {\n    subtasks: subtasks,\n    parentIds: parentIds,\n    subtaskCount: subtasks.length\n  }\n}];"
+      },
+      "id": "43b0b4c0-9d4d-46dc-aa64-1a770ce3b371",
+      "name": "Prepare Subtasks4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2112,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Check which parent IDs are missing from database\nWITH parent_ids AS (\n  SELECT unnest(ARRAY[{{ $json.parentIds.map(id => \"'\" + id + \"'\").join(',') }}]) as parent_id\n)\nSELECT parent_id \nFROM parent_ids\nWHERE parent_id NOT IN (SELECT task_id FROM clickup_tasks);",
+        "options": {}
+      },
+      "id": "19f767eb-e4e8-43f8-9ec9-504c875abf91",
+      "name": "Check Missing Parents4",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        -1888,
+        -208
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "QzdUfydTldd67O8y",
+          "name": "Neon Postgres Dev"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if any parents are missing\nconst missingParents = $input.all();\nconst subtaskData = $('Prepare Subtasks4').first().json;\n\nif (missingParents.length > 0 && missingParents[0].json.parent_id) {\n  const missingIds = missingParents.map(item => item.json.parent_id);\n  console.log(`⚠️ Missing ${missingIds.length} parent tasks: ${missingIds.join(', ')}`);\n  \n  return [{\n    json: {\n      hasMissing: true,\n      missingIds: missingIds,\n      subtasks: subtaskData.subtasks\n    }\n  }];\n} else {\n  console.log('✅ All parent tasks exist in database');\n  \n  return [{\n    json: {\n      hasMissing: false,\n      subtasks: subtaskData.subtasks\n    }\n  }];\n}"
+      },
+      "id": "c572bd98-1178-4564-ba55-15730b08d0d5",
+      "name": "Evaluate Missing Parents4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1664,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Split missing parent IDs to fetch individually\nconst missingIds = $json.missingIds || [];\nconst items = missingIds.map(taskId => ({\n  json: { taskId: taskId }\n}));\n\nconsole.log(`📥 Fetching ${items.length} missing parent tasks`);\nreturn items;"
+      },
+      "id": "612316c4-728f-438c-a038-0803cd2222fd",
+      "name": "Split Missing IDs4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1216,
+        -336
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/task/{{ $json.taskId }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "clickUpApi",
+        "options": {}
+      },
+      "id": "ea85224f-fa00-4284-a40d-aaf314386803",
+      "name": "Fetch Missing Parent Task4",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -768,
+        -240
+      ],
+      "credentials": {
+        "clickUpApi": {
+          "id": "9O2S09cdkssm2E8k",
+          "name": "Nifty ClickUp [Ahmad]"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ✅ Process ALL incoming tasks\nconst allItems = $input.all();\n\n// 🔗 Get space name from pagination state\nconst spaceName = $('Separate Parents & Subtasks4').first().json.spaceName;\n\nreturn allItems.map(item => {\n  const task = item.json;\n  \n  const assigneesNames = task.assignees?.map(a => a.username).join(', ') || null;\n  const tags = task.tags?.map(t => t.name).join(', ') || null;\n  \n  // ✅ Extract custom fields\n  let executiveName = null;\n  let department = null;\n  let cost = 0;\n  let estimation = 0;\n  let sprintName = null;\n  let sprintPoints = 0;\n  let client = '';\n\n  if (task.points !== undefined && task.points !== null) {\n    sprintPoints = parseInt(task.points) || 0;\n  }\n  if (sprintPoints === 0 && task.story_points !== undefined && task.story_points !== null) {\n    sprintPoints = parseInt(task.story_points) || 0;\n  }\n  \n  if (task.custom_fields && Array.isArray(task.custom_fields)) {\n    task.custom_fields.forEach(cf => {\n      const name = (cf.name || '').toLowerCase();\n      const value = cf.value;\n      \n      if (!value && value !== 0) return;\n\n          //Client Check \n    if (name === 'client' && cf.type === 'drop_down') {\n      const selectedIndex = value;\n\n    if (cf.type_config?.options && selectedIndex !== null) {\n      const selectedOption = cf.type_config.options.find(\n        opt => opt.orderindex === selectedIndex\n      );\n  \n      client = selectedOption?.name || '';\n    }\n  }\n      \n      if (name.includes('executive')) executiveName = value?.toString() || null;\n      if (name.includes('department')) department = value?.toString() || null;\n      if (name.includes('cost')) cost = parseFloat(value) || 0;\n      if (name.includes('estimation') || name.includes('estimate')) estimation = parseFloat(value) || 0;\n      if (name.includes('sprint') && !name.includes('point')) sprintName = value?.toString() || null;\n      \n      if (name.includes('point') || name.includes('story point') || name === 'sprint points') {\n        sprintPoints = parseInt(value) || 0;\n      }\n    });\n  }\n  \n  const parent_task_id = null;\n  \n  console.log(`📥 Inserting missing parent: ${task.id} (${task.name}) for space: ${spaceName}`);\n  \n  return {\n    json: {\n      task_id: task.id,\n      task_name: task.name || 'Untitled',\n      description: task.description || null,\n      status: task.status?.status || 'unknown',\n      priority: task.priority?.priority || null,\n      due_date: task.due_date ? new Date(parseInt(task.due_date)).toISOString() : null,\n      start_date: task.start_date ? new Date(parseInt(task.start_date)).toISOString() : null,\n      created_date: task.date_created ? new Date(parseInt(task.date_created)).toISOString() : null,\n      updated_date: task.date_updated ? new Date(parseInt(task.date_updated)).toISOString() : null,\n      closed_date: task.date_closed ? new Date(parseInt(task.date_closed)).toISOString() : null,\n      creator_id: task.creator?.id?.toString() || null,\n      creator_name: task.creator?.username || null,\n      assignees_names: assigneesNames,\n      tags: tags,\n      parent_task_id: parent_task_id,\n      list_id: task.list?.id || null,\n      list_name: task.list?.name || null,\n      folder_id: task.folder?.id || null,\n      folder_name: task.folder?.name || null,\n      space_id: task.space?.id || null,\n      space_name: spaceName,  // ✅ From pagination state\n      url: task.url || null,\n      time_estimate: task.time_estimate || null,\n      time_spent: task.time_spent || null,\n      archived: task.archived || false,\n      \n      executive_name: executiveName,\n      department: department,\n      client: client,\n      cost: cost,\n      estimation: estimation,\n      sprint_name: sprintName,\n      sprint_points: sprintPoints\n    }\n  };\n});"
+      },
+      "id": "998bc1f8-b656-4f9c-9117-a75456ed2c75",
+      "name": "Normalize Missing Parent4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -768,
+        -432
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO clickup_tasks (\n  task_id, task_name, description, status, priority,\n  due_date, start_date, created_date, updated_date, closed_date,\n  creator_id, creator_name, assignees_names,\n  tags, parent_task_id,\n  list_id, list_name, folder_id, folder_name, space_id, space_name,\n  url, time_estimate, time_spent, archived,\n  executive_name, department, client, cost, estimation, sprint_name, sprint_points\n)\nVALUES (\n  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,\n  $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,\n  $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32\n)\nON CONFLICT (task_id) DO UPDATE SET\n  task_name = EXCLUDED.task_name,\n  description = EXCLUDED.description,\n  status = EXCLUDED.status,\n  priority = EXCLUDED.priority,\n  due_date = EXCLUDED.due_date,\n  start_date = EXCLUDED.start_date,\n  updated_date = EXCLUDED.updated_date,\n  closed_date = EXCLUDED.closed_date,\n  executive_name = EXCLUDED.executive_name,\n  department = EXCLUDED.department,\n  client = EXCLUDED.client,\n  cost = EXCLUDED.cost,\n  estimation = EXCLUDED.estimation,\n  sprint_name = EXCLUDED.sprint_name,\n  sprint_points = EXCLUDED.sprint_points,\n  space_name = EXCLUDED.space_name,\n  synced_at = NOW();",
+        "options": {
+          "queryReplacement": "={{ $('Normalize Missing Parent4').item.json.task_id }},={{ $('Normalize Missing Parent4').item.json.task_name }},={{ $('Normalize Missing Parent4').item.json.description }},={{ $('Normalize Missing Parent4').item.json.status }},={{ $('Normalize Missing Parent4').item.json.priority }},={{ $('Normalize Missing Parent4').item.json.due_date }},={{ $('Normalize Missing Parent4').item.json.start_date }},={{ $('Normalize Missing Parent4').item.json.created_date }},={{ $('Normalize Missing Parent4').item.json.updated_date }},={{ $('Normalize Missing Parent4').item.json.closed_date }},={{ $('Normalize Missing Parent4').item.json.creator_id }},={{ $('Normalize Missing Parent4').item.json.creator_name }},={{ $('Normalize Missing Parent4').item.json.assignees_names }},={{ $('Normalize Missing Parent4').item.json.tags }},={{ $('Normalize Missing Parent4').item.json.parent_task_id }},={{ $('Normalize Missing Parent4').item.json.list_id }},={{ $('Normalize Missing Parent4').item.json.list_name }},={{ $('Normalize Missing Parent4').item.json.folder_id }},={{ $('Normalize Missing Parent4').item.json.folder_name }},={{ $('Normalize Missing Parent4').item.json.space_id }},={{ $('Normalize Missing Parent4').item.json.space_name }},={{ $('Normalize Missing Parent4').item.json.url }},={{ $('Normalize Missing Parent4').item.json.time_estimate }},={{ $('Normalize Missing Parent4').item.json.time_spent }},={{ $('Normalize Missing Parent4').item.json.archived }},={{ $('Normalize Missing Parent4').item.json.executive_name }},={{ $('Normalize Missing Parent4').item.json.department }},={{ $('Normalize Missing Parent4').item.json.client }},={{ $('Normalize Missing Parent4').item.json.cost }},={{ $('Normalize Missing Parent4').item.json.estimation }},={{ $('Normalize Missing Parent4').item.json.sprint_name }},={{ $('Normalize Missing Parent4').item.json.sprint_points }}"
+        }
+      },
+      "id": "013f67be-4957-44ef-b0a9-d6dcadd84a92",
+      "name": "Upsert Missing Parent4",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        -544,
+        -432
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "QzdUfydTldd67O8y",
+          "name": "Neon Postgres Dev"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get subtasks from the appropriate source\nlet subtasks = [];\n\nif ($('Evaluate Missing Parents4').first().json.subtasks) {\n  subtasks = $('Evaluate Missing Parents4').first().json.subtasks;\n} else {\n  const missingIdsData = $('Split Missing IDs4').first()?.json;\n  subtasks = missingIdsData?.subtasks || [];\n}\n\nif (subtasks.length === 0) {\n  console.log('ℹ️ No subtasks to insert');\n  return [];\n}\n\nconst items = subtasks.map(task => ({\n  json: task\n}));\n\nconsole.log(`📦 Prepared ${items.length} subtasks for insert`);\nreturn items;"
+      },
+      "id": "3d0cbc57-48eb-4b11-970f-b07dbb0a19d5",
+      "name": "Split Subtasks4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        -208
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize subtask data for an array input\nconst tasks = Array.isArray($input.all()) ? $input.all().map(i => i.json) : [$json];\n\n// 🔗 Get space name from pagination state\nconst spaceName = $('Separate Parents & Subtasks4').first().json.spaceName;\n\nreturn tasks.map(task => {\n  const assigneesNames = task.assignees?.map(a => a.username).join(', ') || null;\n  const tags = task.tags?.map(t => t.name).join(', ') || null;\n  \n  // ✅ Extract custom fields\n  let executiveName = null;\n  let department = null;\n  let cost = 0;\n  let estimation = 0;\n  let sprintName = null;\n  let sprintPoints = 0;\n  let client = '';\n\n  if (task.points !== undefined && task.points !== null) {\n    sprintPoints = parseInt(task.points) || 0;\n  }\n  if (sprintPoints === 0 && task.story_points !== undefined && task.story_points !== null) {\n    sprintPoints = parseInt(task.story_points) || 0;\n  }\n  \n  if (task.custom_fields && Array.isArray(task.custom_fields)) {\n    task.custom_fields.forEach(cf => {\n      const name = (cf.name || '').toLowerCase();\n      const value = cf.value;\n      \n      if (!value && value !== 0) return;\n\n          //Client Check \n    if (name === 'client' && cf.type === 'drop_down') {\n      const selectedIndex = value;\n\n    if (cf.type_config?.options && selectedIndex !== null) {\n      const selectedOption = cf.type_config.options.find(\n        opt => opt.orderindex === selectedIndex\n      );\n  \n      client = selectedOption?.name || '';\n    }\n  }\n      \n      if (name.includes('executive')) executiveName = value?.toString() || null;\n      if (name.includes('department')) department = value?.toString() || null;\n      if (name.includes('cost')) cost = parseFloat(value) || 0;\n      if (name.includes('estimation') || name.includes('estimate')) estimation = parseFloat(value) || 0;\n      if (name.includes('sprint') && !name.includes('point')) sprintName = value?.toString() || null;\n      \n      if (name.includes('point') || name.includes('story point') || name === 'sprint points') {\n        sprintPoints = parseInt(value) || 0;\n      }\n    });\n  }\n  \n  return {\n    json: {\n      task_id: task.id,\n      task_name: task.name || 'Untitled',\n      description: task.description || null,\n      status: task.status?.status || 'unknown',\n      priority: task.priority?.priority || null,\n      due_date: task.due_date ? new Date(parseInt(task.due_date)).toISOString() : null,\n      start_date: task.start_date ? new Date(parseInt(task.start_date)).toISOString() : null,\n      created_date: task.date_created ? new Date(parseInt(task.date_created)).toISOString() : null,\n      updated_date: task.date_updated ? new Date(parseInt(task.date_updated)).toISOString() : null,\n      closed_date: task.date_closed ? new Date(parseInt(task.date_closed)).toISOString() : null,\n      creator_id: task.creator?.id?.toString() || null,\n      creator_name: task.creator?.username || null,\n      assignees_names: assigneesNames,\n      tags: tags,\n      parent_task_id: task.parent || null,\n      list_id: task.list?.id || null,\n      list_name: task.list?.name || null,\n      folder_id: task.folder?.id || null,\n      folder_name: task.folder?.name || null,\n      space_id: task.space?.id || null,\n      space_name: spaceName,  // ✅ From pagination state\n      url: task.url || null,\n      time_estimate: task.time_estimate || null,\n      time_spent: task.time_spent || null,\n      archived: task.archived || false,\n      \n      executive_name: executiveName,\n      department: department,\n      client: client,\n      cost: cost,\n      estimation: estimation,\n      sprint_name: sprintName,\n      sprint_points: sprintPoints\n    }\n  };\n});"
+      },
+      "id": "28837839-50df-41cf-a9ed-8028e9f7d0dc",
+      "name": "Normalize Subtasks4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO clickup_tasks (\n  task_id, task_name, description, status, priority,\n  due_date, start_date, created_date, updated_date, closed_date,\n  creator_id, creator_name, assignees_names,\n  tags, parent_task_id,\n  list_id, list_name, folder_id, folder_name, space_id, space_name,\n  url, time_estimate, time_spent, archived,\n  executive_name, department, client, cost, estimation, sprint_name, sprint_points\n)\nVALUES (\n  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,\n  $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,\n  $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32\n)\nON CONFLICT (task_id) DO UPDATE SET\n  task_name = EXCLUDED.task_name,\n  description = EXCLUDED.description,\n  status = EXCLUDED.status,\n  priority = EXCLUDED.priority,\n  due_date = EXCLUDED.due_date,\n  start_date = EXCLUDED.start_date,\n  updated_date = EXCLUDED.updated_date,\n  closed_date = EXCLUDED.closed_date,\n  creator_name = EXCLUDED.creator_name,\n  assignees_names = EXCLUDED.assignees_names,\n  tags = EXCLUDED.tags,\n  parent_task_id = EXCLUDED.parent_task_id,\n  list_name = EXCLUDED.list_name,\n  folder_name = EXCLUDED.folder_name,\n  space_name = EXCLUDED.space_name,\n  url = EXCLUDED.url,\n  time_estimate = EXCLUDED.time_estimate,\n  time_spent = EXCLUDED.time_spent,\n  archived = EXCLUDED.archived,\n  executive_name = EXCLUDED.executive_name,\n  department = EXCLUDED.department,\n  client = EXCLUDED.client,\n  cost = EXCLUDED.cost,\n  estimation = EXCLUDED.estimation,\n  sprint_name = EXCLUDED.sprint_name,\n  sprint_points = EXCLUDED.sprint_points,\n  synced_at = NOW();",
+        "options": {
+          "queryReplacement": "={{ $json.task_id }},={{ $json.task_name }},={{ $json.description }},={{ $json.status }},={{ $json.priority }},={{ $json.due_date }},={{ $json.start_date }},={{ $json.created_date }},={{ $json.updated_date }},={{ $json.closed_date }},={{ $json.creator_id }},={{ $json.creator_name }},={{ $json.assignees_names }},={{ $json.tags }},={{ $json.parent_task_id }},={{ $json.list_id }},={{ $json.list_name }},={{ $json.folder_id }},={{ $json.folder_name }},={{ $json.space_id }},={{ $json.space_name }},={{ $json.url }},={{ $json.time_estimate }},={{ $json.time_spent }},={{ $json.archived }},={{ $json.executive_name }},={{ $json.department }},={{ $json.client }},={{ $json.cost }},={{ $json.estimation }},={{ $json.sprint_name }},={{ $json.sprint_points }}"
+        }
+      },
+      "id": "5b37b898-bdac-4594-9d1f-203571729e88",
+      "name": "Upsert Subtasks4",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        144,
+        -208
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "QzdUfydTldd67O8y",
+          "name": "Neon Postgres Dev"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.hasMissing }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "id": "338bc1f3-ff5e-4833-a69d-46ff038bff29"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "true"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "a2b69312-51e6-4275-b4eb-7f7b16dda094",
+                    "leftValue": "={{ $json.hasMissing }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "false",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "false"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -1440,
+        -208
+      ],
+      "id": "385b8627-a5ee-410a-81ec-d5f050ff49b9",
+      "name": "Switch4"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -3008,
+        48
+      ],
+      "id": "f33c90b2-08ac-480c-9686-69b654e937ec",
+      "name": "Wait4",
+      "webhookId": "e5998a60-32fd-4a36-a1cd-2021aa9b0749"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -992,
+        -336
+      ],
+      "id": "7207198f-e762-440d-96ec-76b05e9fb30e",
+      "name": "Loop Over Items2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract all tasks from previous pagination\nconst allTasks = $('Check Next Page4').first().json.allTasks || [];\nreturn allTasks.map(t => ({ json: { taskId: t.id, taskName: t.name } }));"
+      },
+      "id": "23c17c54-d327-47b8-a2bd-5f7a1aa27e52",
+      "name": "Extract Tasks1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        368,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "1a1f9ca2-9874-499e-b295-a00f4426f909",
+      "name": "Loop Tasks1",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        592,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { taskId: $json.taskId, taskName: $json.taskName } }];"
+      },
+      "id": "200d803c-a10e-49ec-81ab-34b84cb2a7a2",
+      "name": "Get Current Task1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        816,
+        -352
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const users = $json.data || [];\nconst out = [];\n\n// 🔗 Pull task metadata from \"Get Current Task\"\nconst taskId = $('Get Current Task1').first().json.taskId;\nconst taskName = $('Get Current Task1').first().json.taskName;\n\nconst toISO = v => v ? new Date(Number(v)).toISOString() : null;\nconst clean = v => (v && v.toString().trim() !== '') ? v.toString() : null;\n\nfor (const block of users) {\n  const user = block.user || {};\n  const intervals = block.intervals || [];\n\n  for (const i of intervals) {\n    out.push({\n      json: {\n        time_entry_id: i.id?.toString() || null,\n        task_id: taskId || null,\n        task_name: taskName || null,\n        user_id: user.id?.toString() || null,\n        user_name: clean(user.username),\n        user_email: clean(user.email),\n        start_time: toISO(i.start),\n        end_time: toISO(i.end),\n        duration_hours: i.time ? Number(i.time) / 3600000 : 0,\n        billable: !!i.billable,\n        description: clean(i.description),\n        tags: Array.isArray(i.tags) ? i.tags : null\n      }\n    });\n  }\n}\n\nconsole.log(`✅ Normalized ${out.length} interval entries`);\nreturn out;"
+      },
+      "id": "89b3b578-e4a8-474d-a386-dbdfd515fe93",
+      "name": "Normalize Time Entries1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1712,
+        -432
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH picked_rate AS (\n    SELECT r.rate_id, r.currency, r.hourly_rate_cents\n    FROM assignee_rates r\n    WHERE r.assignee_id = $3::text\n      AND daterange(date_trunc('day', $6::timestamptz)::date,\n                    date_trunc('day', $6::timestamptz)::date + 1, '[]') && r.valid_daterange\n    ORDER BY r.valid_from DESC\n    LIMIT 1\n),\ncalc AS (\n    SELECT \n        pr.rate_id,\n        pr.currency,\n        pr.hourly_rate_cents,\n        ROUND(COALESCE(pr.hourly_rate_cents, 0) * $8::numeric)::bigint AS cost_cents\n    FROM picked_rate pr\n)\nINSERT INTO clickup_time_entries (\n    time_entry_id, task_id, user_id, user_name, user_email,\n    start_time, end_time, duration_hours, billable, description,\n    rate_id, currency, hourly_rate_cents, cost_cents\n)\nVALUES (\n    $1::text, $2::text, $3::text, $4, $5,\n    $6::timestamptz, $7::timestamptz, $8::numeric, $9::boolean, $10,\n    (SELECT rate_id FROM calc),\n    (SELECT currency FROM calc),\n    (SELECT hourly_rate_cents FROM calc),\n    (SELECT cost_cents FROM calc)\n)\nON CONFLICT (time_entry_id) DO UPDATE SET\n    user_name = EXCLUDED.user_name,\n    user_email = EXCLUDED.user_email,\n    start_time = EXCLUDED.start_time,\n    end_time = EXCLUDED.end_time,\n    duration_hours = EXCLUDED.duration_hours,\n    billable = EXCLUDED.billable,\n    description = EXCLUDED.description,\n    rate_id = EXCLUDED.rate_id,\n    currency = EXCLUDED.currency,\n    hourly_rate_cents = EXCLUDED.hourly_rate_cents,\n    cost_cents = EXCLUDED.cost_cents,\n    synced_at = NOW();",
+        "options": {
+          "queryReplacement": "={{ $json.time_entry_id }},={{ $json.task_id }},={{ $json.user_id }},={{ $json.user_name }},={{ $json.user_email }},={{ $json.start_time }},={{ $json.end_time }},={{ $json.duration_hours }},={{ $json.billable }},={{ $json.description }}"
+        }
+      },
+      "id": "b340ce6c-2ab2-4065-b2c4-618cc2e26715",
+      "name": "Upsert Time Entry1",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [
+        1936,
+        -432
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "QzdUfydTldd67O8y",
+          "name": "Neon Postgres Dev"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "bdaeeec7-deb5-47ed-90dc-da1cd9217558",
+      "name": "Next Task1",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2160,
+        -352
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "id": "b872c2c1-99f5-4f20-8c56-788236abf696",
+      "name": "Wait 1s1",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2384,
+        -256
+      ],
+      "webhookId": "d9d77134-8c1f-4cdd-897b-9c1ed9fb8187"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.clickup.com/api/v2/task/{{$json.taskId}}/time",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "clickUpApi",
+        "options": {}
+      },
+      "id": "112cba7c-592d-4307-9dd0-02ab57df3835",
+      "name": "Fetch Time Entries4",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1264,
+        -352
+      ],
+      "credentials": {
+        "clickUpApi": {
+          "id": "9O2S09cdkssm2E8k",
+          "name": "Nifty ClickUp [Ahmad]"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "has-data",
+              "leftValue": "={{ ($json.data && Array.isArray($json.data)) ? $json.data.length : 0 }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "00a9133c-aada-4a30-abe5-a2b1cad6bc2c",
+      "name": "Check Has Entries1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1488,
+        -352
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        -352
+      ],
+      "id": "0794cd7d-9fb6-454f-b531-70f2b3ecc844",
+      "name": "Wait5",
+      "webhookId": "c6d0238d-eeb6-4448-b16d-a71a4245c12e"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Split Spaces Loop": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Init Pagination4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Before Next Space": {
+      "main": [
+        [
+          {
+            "node": "Split Spaces Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger4": {
+      "main": [
+        [
+          {
+            "node": "Calculate 30 Days Ago4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate 30 Days Ago4": {
+      "main": [
+        [
+          {
+            "node": "Split Spaces Loop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init Pagination4": {
+      "main": [
+        [
+          {
+            "node": "Fetch Tasks4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Tasks4": {
+      "main": [
+        [
+          {
+            "node": "Check Next Page4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Next Page4": {
+      "main": [
+        [
+          {
+            "node": "IF More Pages4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF More Pages4": {
+      "main": [
+        [
+          {
+            "node": "Wait4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Separate Parents & Subtasks4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separate Parents & Subtasks4": {
+      "main": [
+        [
+          {
+            "node": "Split Parent Tasks4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Parent Tasks4": {
+      "main": [
+        [
+          {
+            "node": "Normalize Parent Tasks4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Parent Tasks4": {
+      "main": [
+        [
+          {
+            "node": "Upsert Parent Tasks4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Parent Tasks4": {
+      "main": [
+        [
+          {
+            "node": "Prepare Subtasks4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Subtasks4": {
+      "main": [
+        [
+          {
+            "node": "Check Missing Parents4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Missing Parents4": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Missing Parents4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Missing Parents4": {
+      "main": [
+        [
+          {
+            "node": "Switch4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Missing IDs4": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Missing Parent Task4": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Missing Parent4": {
+      "main": [
+        [
+          {
+            "node": "Upsert Missing Parent4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Missing Parent4": {
+      "main": [
+        [
+          {
+            "node": "Split Subtasks4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Subtasks4": {
+      "main": [
+        [
+          {
+            "node": "Normalize Subtasks4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Subtasks4": {
+      "main": [
+        [
+          {
+            "node": "Upsert Subtasks4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Subtasks4": {
+      "main": [
+        [
+          {
+            "node": "Extract Tasks1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch4": {
+      "main": [
+        [
+          {
+            "node": "Split Missing IDs4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Split Subtasks4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait4": {
+      "main": [
+        [
+          {
+            "node": "Fetch Tasks4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items2": {
+      "main": [
+        [
+          {
+            "node": "Normalize Missing Parent4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Missing Parent Task4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Tasks1": {
+      "main": [
+        [
+          {
+            "node": "Loop Tasks1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Tasks1": {
+      "main": [
+        [
+          {
+            "node": "Wait Before Next Space",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Current Task1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Current Task1": {
+      "main": [
+        [
+          {
+            "node": "Wait5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Time Entries1": {
+      "main": [
+        [
+          {
+            "node": "Upsert Time Entry1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Time Entry1": {
+      "main": [
+        [
+          {
+            "node": "Next Task1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Next Task1": {
+      "main": [
+        [
+          {
+            "node": "Wait 1s1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 1s1": {
+      "main": [
+        [
+          {
+            "node": "Loop Tasks1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Time Entries4": {
+      "main": [
+        [
+          {
+            "node": "Check Has Entries1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Has Entries1": {
+      "main": [
+        [
+          {
+            "node": "Normalize Time Entries1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Next Task1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait5": {
+      "main": [
+        [
+          {
+            "node": "Fetch Time Entries4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true
+  },
+  "versionId": "436fb445-9fb9-4ad2-a130-3750feb39a4e",
+  "meta": {
+    "instanceId": "1352e9dda535e5a744681c30c98e7513b69d233e245e11c3d2127d248502604d"
+  },
+  "id": "nyMwZDDx6X3dV0Oq",
+  "tags": []
+}

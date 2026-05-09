@@ -1,0 +1,31 @@
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../database/prisma.service';
+import { NormalizedTask } from '../clickup/clickup-normalizer';
+
+@Injectable()
+export class TasksRepository {
+  constructor(private readonly prisma: PrismaService) {}
+
+  upsert(task: NormalizedTask) {
+    return this.prisma.clickupTask.upsert({
+      where: { taskId: task.taskId },
+      create: { ...task, isDeleted: false, syncCount: 1 },
+      update: { ...task, isDeleted: false, deletedAt: null, syncCount: { increment: 1 } },
+    });
+  }
+
+  softDelete(taskId: string) {
+    return this.prisma.clickupTask.upsert({
+      where: { taskId },
+      create: { taskId, taskName: 'Unknown Task', isDeleted: true, deletedAt: new Date() },
+      update: { isDeleted: true, deletedAt: new Date(), syncedAt: new Date(), syncCount: { increment: 1 } },
+    });
+  }
+
+  async findMissingParentIds(parentIds: string[]): Promise<string[]> {
+    if (!parentIds.length) return [];
+    const rows = await this.prisma.clickupTask.findMany({ where: { taskId: { in: parentIds } }, select: { taskId: true } });
+    const existing = new Set(rows.map((r) => r.taskId));
+    return parentIds.filter((id) => !existing.has(id));
+  }
+}
