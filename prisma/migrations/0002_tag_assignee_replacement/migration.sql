@@ -22,9 +22,11 @@ CREATE TABLE IF NOT EXISTS time_entry_replacements (
   replaced_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_ter_task_id ON time_entry_replacements(task_id);
-CREATE INDEX IF NOT EXISTS idx_ter_original_user_id ON time_entry_replacements(original_user_id);
+CREATE INDEX IF NOT EXISTS idx_time_entry_replacements_task_id ON time_entry_replacements(task_id);
+CREATE INDEX IF NOT EXISTS idx_time_entry_replacements_original_user_id ON time_entry_replacements(original_user_id);
 
+-- Note: 'expense' tag is intentionally omitted from seed data.
+-- The ClickUp user ID for the expense tag will be added via the admin API once confirmed.
 -- Seed known tag→user mappings (agency user = 3584055 / Ahmad)
 INSERT INTO tag_assignee_map (tag_name, clickup_user_id, clickup_user_name, clickup_email, active)
 VALUES
