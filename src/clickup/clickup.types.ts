@@ -17,6 +17,14 @@ export interface ClickUpTask {
 }
 export interface ClickUpCustomField { name?: string; type?: string; value?: unknown; type_config?: { options?: Array<{ orderindex?: number; name?: string }> }; }
 export interface ClickUpTimeEntry { id: string; task?: { id?: string; name?: string }; start?: string | number; end?: string | number; duration?: string | number; billable?: boolean; description?: string; user?: { id?: string | number; username?: string; email?: string }; tags?: Array<{ name?: string }> }
+export interface CreateTimeEntryPayload {
+  start: number;          // Unix ms
+  stop: number;           // Unix ms
+  description?: string;
+  billable?: boolean;
+  tid?: string;           // task id
+  assignee?: number;      // real user's ClickUp user ID (numeric)
+}
 export interface ClickUpMember { user: { id: string | number; username?: string; email?: string } }
 export interface ClickUpWebhook {
   id: string;

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { ClickUpMember, ClickUpTask, ClickUpTaskPage, ClickUpTimeEntry, ClickUpWebhook } from './clickup.types';
+import { ClickUpMember, ClickUpTask, ClickUpTaskPage, ClickUpTimeEntry, ClickUpWebhook, CreateTimeEntryPayload } from './clickup.types';
 
 @Injectable()
 export class ClickupClient {
@@ -67,4 +67,13 @@ export class ClickupClient {
     return { id: res.webhook?.id ?? res.id, secret: res.webhook?.secret ?? res.secret ?? '' };
   }
   async deleteWebhook(webhookId: string): Promise<void> { await this.request('DELETE', `/webhook/${webhookId}`); }
+
+  async createTimeEntry(teamId: string, payload: CreateTimeEntryPayload): Promise<ClickUpTimeEntry> {
+    const res: any = await this.request('POST', `/team/${teamId}/time_entries`, payload);
+    return res.data || res;
+  }
+
+  async deleteTimeEntry(teamId: string, entryId: string): Promise<void> {
+    await this.request('DELETE', `/team/${teamId}/time_entries/${entryId}`);
+  }
 }
