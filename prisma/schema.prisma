@@ -182,3 +182,33 @@ model DeadLetterJob {
   @@index([entityType, entityId])
   @@map("dead_letter_jobs")
 }
+
+model TagAssigneeMap {
+  id              BigInt   @id @default(autoincrement())
+  tagName         String   @unique @map("tag_name")
+  clickupUserId   String   @map("clickup_user_id")
+  clickupUserName String?  @map("clickup_user_name")
+  clickupEmail    String?  @map("clickup_email")
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("tag_assignee_map")
+}
+
+model TimeEntryReplacement {
+  id                 BigInt   @id @default(autoincrement())
+  originalEntryId    String   @unique @map("original_entry_id")
+  replacementEntryId String?  @map("replacement_entry_id")
+  taskId             String?  @map("task_id")
+  originalUserId     String?  @map("original_user_id")
+  replacedUserId     String?  @map("replaced_user_id")
+  tagName            String?  @map("tag_name")
+  status             String   @default("replaced")
+  errorMessage       String?  @map("error_message")
+  replacedAt         DateTime @default(now()) @map("replaced_at")
+
+  @@index([taskId])
+  @@index([originalUserId])
+  @@map("time_entry_replacements")
+}

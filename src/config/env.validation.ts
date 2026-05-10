@@ -10,6 +10,7 @@ const schema = z.object({
   CLICKUP_WEBHOOK_ENDPOINT: z.string().optional().default(''),
   CLICKUP_WEBHOOK_SECRET: z.string().optional().default(''),
   CLICKUP_WEBHOOK_EVENTS: z.string().default('taskCreated,taskUpdated,taskDeleted,taskTimeTrackedUpdated'),
+  CLICKUP_AGENCY_USER_ID: z.string().default('3584055'),
   GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().optional().default(''),
   GOOGLE_PRIVATE_KEY: z.string().optional().default(''),
   GOOGLE_RATES_SHEET_ID: z.string().optional().default(''),
