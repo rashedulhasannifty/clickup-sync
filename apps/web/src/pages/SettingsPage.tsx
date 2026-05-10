@@ -1,13 +1,22 @@
-import { useState } from 'react';
-import { Lock } from 'lucide-react';
-import { useSyncHealth } from '../hooks/useReports';
+import { useState, type ReactNode } from 'react';
+import {
+  CircleCheck,
+  Edit,
+  Info,
+  Key,
+  Lock,
+  Plus,
+  RefreshCw,
+  Unlink,
+  X,
+} from 'lucide-react';
+import { useSpaces, useSyncHealth } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
 import { useRegisterWebhook } from '../hooks/useAdmin';
 import type { TagAssignee } from '../api/tag-assignee';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Tabs } from '../components/ui/Tabs';
 import { Card } from '../components/ui/Card';
-import { SectionHeader } from '../components/ui/SectionHeader';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Switch } from '../components/ui/Switch';
@@ -15,11 +24,9 @@ import { Pill } from '../components/ui/Pill';
 import { Avatar } from '../components/ui/Avatar';
 import { Callout } from '../components/ui/Callout';
 import { EmptyState } from '../components/ui/EmptyState';
-import { DataTable } from '../components/ui/DataTable';
-import type { Column } from '../components/ui/DataTable';
+import { Field } from '../components/ui/Field';
+import { Select } from '../components/ui/Select';
 import { fmt } from '../lib/formatters';
-
-type TagRow = TagAssignee & { [key: string]: unknown };
 
 const TAB_ITEMS = [
   { value: 'connection', label: 'Connection' },
@@ -29,7 +36,74 @@ const TAB_ITEMS = [
   { value: 'notifications', label: 'Notifications' },
 ];
 
-const WEBHOOK_EVENTS = ['taskCreated', 'taskUpdated', 'taskDeleted', 'taskTimeTrackedUpdated'];
+const WEBHOOK_EVENTS = [
+  'taskCreated',
+  'taskUpdated',
+  'taskDeleted',
+  'taskStatusUpdated',
+  'taskAssigneeUpdated',
+  'taskTimeTrackedUpdated',
+];
+
+const PALETTE = ['#7B68EE', '#FF02F0', '#49CCF9', '#10b981', '#f59e0b', '#ef4444'];
+
+function spaceColor(spaceId: string | null | undefined): string {
+  const id = spaceId ?? '';
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return PALETTE[h % PALETTE.length];
+}
+
+function SectionTitle({ title, subtitle }: { title: string; subtitle?: ReactNode }) {
+  return (
+    <div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{title}</div>
+      {subtitle != null && subtitle !== '' && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{subtitle}</div>
+      )}
+    </div>
+  );
+}
+
+function SettingRow({ label, desc, control }: { label: string; desc?: string; control: ReactNode }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+        padding: '10px 0',
+        borderBottom: '1px solid var(--border-soft)',
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{label}</div>
+        {desc && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{desc}</div>}
+      </div>
+      <div style={{ flexShrink: 0 }}>{control}</div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ padding: '10px 14px', background: 'var(--muted-bg)', borderRadius: 8 }}>
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+          color: 'var(--text-muted)',
+          marginBottom: 4,
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{value}</div>
+    </div>
+  );
+}
 
 interface TagFormState {
   tagName: string;
@@ -50,6 +124,7 @@ const emptyForm: TagFormState = {
 export function SettingsPage() {
   const [activeTab, setActiveTab] = useState('connection');
   const syncHealth = useSyncHealth();
+  const spacesQuery = useSpaces();
   const tagAssignee = useTagAssignee();
   const createTagAssignee = useCreateTagAssignee();
   const updateTagAssignee = useUpdateTagAssignee();
@@ -60,11 +135,26 @@ export function SettingsPage() {
   const [editingTagId, setEditingTagId] = useState<string | null>(null);
   const [tagForm, setTagForm] = useState<TagFormState>(emptyForm);
 
+  const [reconcileCadence, setReconcileCadence] = useState('hourly');
+  const [defaultCurrency, setDefaultCurrency] = useState('USD');
+  const [rateMatch, setRateMatch] = useState('start');
+  const [webhookRetries, setWebhookRetries] = useState('5');
+
+  const [alertSyncFail, setAlertSyncFail] = useState(true);
+  const [alertWebhookSpike, setAlertWebhookSpike] = useState(true);
+  const [alertMissingRate, setAlertMissingRate] = useState(true);
+  const [alertToken, setAlertToken] = useState(true);
+  const [chEmail, setChEmail] = useState(true);
+  const [chSlack, setChSlack] = useState(true);
+  const [chPager, setChPager] = useState(false);
+
   const lastSyncAt = syncHealth.data?.[0]?.lastSuccessfulSyncAt;
   const webhookStatus = syncHealth.data?.[0]?.status ?? 'Unknown';
   const webhookUrl = import.meta.env.VITE_WEBHOOK_URL ?? 'https://your-domain.com/webhooks/clickup';
 
-  const tagItems: TagRow[] = (tagAssignee.data ?? []) as TagRow[];
+  const spaceRows = Array.isArray(spacesQuery.data) ? spacesQuery.data : [];
+
+  const tagItems: TagAssignee[] = tagAssignee.data ?? [];
 
   function startAddTag() {
     setEditingTagId(null);
@@ -99,10 +189,7 @@ export function SettingsPage() {
       active: tagForm.active,
     };
     if (editingTagId) {
-      updateTagAssignee.mutate(
-        { id: editingTagId, data: payload },
-        { onSuccess: () => cancelTagForm() },
-      );
+      updateTagAssignee.mutate({ id: editingTagId, data: payload }, { onSuccess: () => cancelTagForm() });
     } else {
       createTagAssignee.mutate(payload, { onSuccess: () => cancelTagForm() });
     }
@@ -113,197 +200,137 @@ export function SettingsPage() {
     deleteTagAssignee.mutate(id);
   }
 
-  const tagColumns: Column<TagRow>[] = [
-    { key: 'tagName', header: 'Tag Name', render: (row) => <Pill tone="purple">{row.tagName}</Pill> },
-    {
-      key: 'clickupUserId',
-      header: 'ClickUp User ID',
-      render: (row) => <span className="font-mono text-xs">{row.clickupUserId}</span>,
-    },
-    {
-      key: 'clickupUserName',
-      header: 'User Name',
-      render: (row) => <span className="text-sm">{row.clickupUserName ?? '—'}</span>,
-    },
-    {
-      key: 'clickupEmail',
-      header: 'Email',
-      render: (row) => (
-        <span className="text-xs text-[var(--text-muted)]">{row.clickupEmail ?? '—'}</span>
-      ),
-    },
-    {
-      key: 'active',
-      header: 'Active',
-      render: (row) => (
-        <Switch
-          checked={row.active as boolean}
-          onChange={(v) =>
-            updateTagAssignee.mutate({ id: row.id as string, data: { active: v } })
-          }
-        />
-      ),
-    },
-    {
-      key: 'edit',
-      header: '',
-      render: (row) => (
-        <Button size="sm" variant="ghost" onClick={() => startEditTag(row as TagAssignee)}>
-          Edit
-        </Button>
-      ),
-    },
-    {
-      key: 'delete',
-      header: '',
-      render: (row) => (
-        <Button
-          size="sm"
-          variant="danger"
-          onClick={() => deleteTag(row.id as string)}
-        >
-          Delete
-        </Button>
-      ),
-    },
-  ];
+  const webhookEndpointLabel =
+    webhookStatus === 'Fresh' ? 'active' : webhookStatus === 'Stale' ? 'stale' : '—';
 
   return (
-    <div className="flex flex-col gap-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <PageHeader
         title="Settings"
         description="ClickUp connection, sync configuration, and access controls."
       />
       <Tabs items={TAB_ITEMS} value={activeTab} onChange={setActiveTab} variant="underline" />
 
-      {/* CONNECTION TAB */}
       {activeTab === 'connection' && (
-        <div className="flex flex-col gap-6">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
           <Card>
-            <div style={{ marginBottom: 6 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>ClickUp workspace</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Source of truth for tasks, time tracking, and rates.</div>
-            </div>
-
-            {/* Workspace identity row */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 0', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', margin: '16px 0' }}>
-              <div style={{
-                width: 36, height: 36, borderRadius: 8, flexShrink: 0,
-                background: 'var(--accent-grad)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: '#fff', fontSize: 16, fontWeight: 700,
-                boxShadow: '0 2px 6px rgba(123,104,238,0.28)',
-              }}>C</div>
+            <SectionTitle title="ClickUp workspace" subtitle="Source of truth for tasks, time tracking, and rates." />
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 14,
+                padding: 14,
+                background: 'var(--muted-bg)',
+                borderRadius: 10,
+                marginTop: 12,
+              }}
+            >
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 10,
+                  background: 'linear-gradient(135deg, #FF02F0 0%, #7B68EE 50%, #49CCF9 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontWeight: 700,
+                  fontSize: 18,
+                  flexShrink: 0,
+                }}
+              >
+                C
+              </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Nifty IT</div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
-                  workspace_id: 3450636 · Connected by API key
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--text-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    marginTop: 2,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <span style={{ fontFamily: 'ui-monospace, monospace' }}>workspace_id: 3450636</span>
+                  <span>·</span>
+                  <span>Connected by API key</span>
                 </div>
               </div>
-              <Pill tone="green">Connected</Pill>
+              <Pill tone="green" icon={<CircleCheck size={11} />}>
+                Connected
+              </Pill>
             </div>
 
-            {/* Operational metrics grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 20 }}>
-              <div style={{ padding: '10px 14px', background: 'var(--muted-bg)', borderRadius: 8 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Last Successful Sync</div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{lastSyncAt ? fmt.relative(lastSyncAt) : '—'}</div>
-              </div>
-              <div style={{ padding: '10px 14px', background: 'var(--muted-bg)', borderRadius: 8 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Webhook Endpoint</div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: webhookStatus === 'Fresh' ? 'var(--green)' : 'var(--text-muted)' }}>
-                  {webhookStatus === 'Fresh' ? 'active' : webhookStatus === 'Stale' ? 'stale' : '—'}
-                </div>
-              </div>
-              <div style={{ padding: '10px 14px', background: 'var(--muted-bg)', borderRadius: 8 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Token Expires</div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-muted)' }}>—</div>
-              </div>
-              <div style={{ padding: '10px 14px', background: 'var(--muted-bg)', borderRadius: 8 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>API Quota (Today)</div>
-                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-muted)' }}>—</div>
-              </div>
+            <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+              <Stat label="Last successful sync" value={lastSyncAt ? fmt.relative(lastSyncAt) : '—'} />
+              <Stat label="Webhook endpoint" value={webhookEndpointLabel} />
+              <Stat label="Token expires" value="—" />
+              <Stat label="API quota (today)" value="—" />
             </div>
 
-            {/* Action buttons */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Button variant="ghost" disabled>Test connection</Button>
-              <Button variant="ghost" disabled>Rotate token</Button>
-              <div style={{ flex: 1 }} />
-              <button style={{ border: 0, background: 'transparent', color: 'var(--red)', cursor: 'not-allowed', fontSize: 13, fontWeight: 500, padding: '6px 8px', borderRadius: 6, opacity: 0.5 }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                marginTop: 14,
+                paddingTop: 14,
+                borderTop: '1px solid var(--border-soft)',
+                flexWrap: 'wrap',
+              }}
+            >
+              <Button variant="default" icon={<RefreshCw size={13} />} disabled>
+                Test connection
+              </Button>
+              <Button variant="default" icon={<Key size={13} />} disabled>
+                Rotate token
+              </Button>
+              <span style={{ flex: 1 }} />
+              <Button variant="ghost" style={{ color: 'var(--red)' }} icon={<Unlink size={13} />} disabled>
                 Disconnect
-              </button>
+              </Button>
             </div>
           </Card>
 
           <Card>
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Webhook</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                Real-time event delivery from{' '}
-                <a href="https://clickup.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>ClickUp</a>.
-              </div>
-            </div>
-            <div className="flex flex-col gap-5">
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Endpoint URL
-                </label>
-                <div style={{ position: 'relative' }}>
-                  <Lock size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none', zIndex: 1 }} />
-                  <input
-                    value={webhookUrl}
-                    readOnly
-                    onChange={() => undefined}
-                    style={{
-                      width: '100%', paddingLeft: 28, paddingRight: 10, height: 36,
-                      border: '1px solid var(--border)', borderRadius: 7,
-                      background: 'var(--muted-bg)', color: 'var(--text)',
-                      fontSize: 13, fontFamily: 'inherit',
-                    }}
-                  />
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4 }}>Configured in ClickUp Apps</div>
-              </div>
-
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Subscribed events
-                </label>
-                <div className="flex flex-wrap gap-2">
+            <SectionTitle
+              title="Webhook"
+              subtitle={
+                <>
+                  Real-time event delivery from{' '}
+                  <a href="https://clickup.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+                    ClickUp
+                  </a>
+                  .
+                </>
+              }
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+              <Field label="Endpoint URL" hint="Configured in ClickUp Apps">
+                <Input value={webhookUrl} readOnly icon={<Lock size={14} />} onChange={() => undefined} />
+              </Field>
+              <Field label="Subscribed events">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {WEBHOOK_EVENTS.map((ev) => (
-                    <Pill key={ev} tone="blue">{ev}</Pill>
+                    <Pill key={ev} tone="blue" size="sm">
+                      {ev}
+                    </Pill>
                   ))}
                 </div>
-              </div>
-
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Signing secret
-                </label>
-                <input
-                  value="••••••••••••••••••••••••"
-                  readOnly
-                  onChange={() => undefined}
-                  style={{
-                    width: '100%', padding: '0 10px', height: 36,
-                    border: '1px solid var(--border)', borderRadius: 7,
-                    background: 'var(--muted-bg)', color: 'var(--text-muted)',
-                    fontSize: 16, fontFamily: 'inherit', letterSpacing: '0.05em',
-                  }}
-                />
-              </div>
-
-              <div className="flex items-center gap-3">
-                <Button
-                  variant="accent"
-                  onClick={() => registerWebhook.mutate(undefined)}
-                  loading={registerWebhook.isPending}
-                >
+              </Field>
+              <Field label="Signing secret">
+                <Input value="whsec_••••••••••••••••3a91" readOnly type="password" onChange={() => undefined} />
+              </Field>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <Button variant="accent" onClick={() => registerWebhook.mutate(undefined)} loading={registerWebhook.isPending}>
                   Register Webhook
                 </Button>
                 {registerWebhook.data && (
-                  <span className="text-xs text-[var(--text-muted)]">
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     Webhook ID: {(registerWebhook.data as { webhookId?: string }).webhookId ?? '—'}
                   </span>
                 )}
@@ -313,100 +340,179 @@ export function SettingsPage() {
         </div>
       )}
 
-      {/* SYNC RULES TAB */}
       {activeTab === 'sync' && (
-        <div className="flex flex-col gap-6">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
           <Card>
-            <SectionHeader title="Schedule" />
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-[var(--text)]">Real-time webhooks</p>
-                  <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                    Events are processed via ClickUp webhooks in real time.
-                  </p>
-                </div>
-                <Switch checked onChange={() => undefined} disabled />
-              </div>
-              <p className="text-xs text-[var(--text-muted)]">
-                Reconciliation backfills run on a scheduled interval per space lookback window.
-              </p>
+            <SectionTitle title="Sync schedule" subtitle="When to perform full reconciliation runs." />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 12 }}>
+              <SettingRow
+                label="Real-time webhooks"
+                desc="Apply changes as ClickUp events arrive."
+                control={<Switch checked disabled onChange={() => undefined} />}
+              />
+              <SettingRow
+                label="Full reconciliation"
+                desc="Runs in addition to webhook events to catch drift."
+                control={
+                  <Select
+                    size="sm"
+                    value={reconcileCadence}
+                    onChange={setReconcileCadence}
+                    options={[
+                      { value: 'never', label: 'Disabled' },
+                      { value: 'hourly', label: 'Every hour' },
+                      { value: 'daily', label: 'Daily at 03:00 UTC' },
+                      { value: 'weekly', label: 'Weekly' },
+                    ]}
+                  />
+                }
+              />
+              <SettingRow
+                label="Backfill on connect"
+                desc="When connecting a new space, fetch all historical tasks and entries."
+                control={<Switch checked disabled onChange={() => undefined} />}
+              />
             </div>
           </Card>
 
           <Card>
-            <SectionHeader title="Cost Calculation" />
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-[var(--text)]">Currency</p>
-                </div>
-                <span className="text-sm font-mono">USD</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-[var(--text)]">Auto-recalculate on rate change</p>
-                  <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                    Recalculate entry costs when assignee rates are updated.
-                  </p>
-                </div>
-                <Switch checked onChange={() => undefined} disabled />
-              </div>
+            <SectionTitle title="Cost calculation" subtitle="How labor cost is computed from time entries." />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 12 }}>
+              <SettingRow
+                label="Default currency"
+                control={
+                  <Select
+                    size="sm"
+                    value={defaultCurrency}
+                    onChange={setDefaultCurrency}
+                    options={[
+                      { value: 'USD', label: 'USD ($)' },
+                      { value: 'EUR', label: 'EUR (€)' },
+                      { value: 'GBP', label: 'GBP (£)' },
+                    ]}
+                  />
+                }
+              />
+              <SettingRow
+                label="Rate matching"
+                desc="Pick rate by time entry start date (recommended) or by task due date."
+                control={
+                  <Select
+                    size="sm"
+                    value={rateMatch}
+                    onChange={setRateMatch}
+                    options={[
+                      { value: 'start', label: 'Start date' },
+                      { value: 'due', label: 'Task due date' },
+                    ]}
+                  />
+                }
+              />
+              <SettingRow
+                label="Auto-recalculate on rate change"
+                desc="Recompute affected entries when rates are added or edited."
+                control={<Switch checked disabled onChange={() => undefined} />}
+              />
+              <SettingRow
+                label="Treat non-billable as zero cost"
+                desc="Skip cost calc for non-billable entries."
+                control={<Switch checked={false} disabled onChange={() => undefined} />}
+              />
             </div>
           </Card>
 
           <Card>
-            <SectionHeader
-              title="Tag-Assignee Map"
-              action={
-                <Button variant="ghost" size="sm" onClick={startAddTag}>
-                  Add mapping
-                </Button>
-              }
-            />
+            <SectionTitle title="Failure handling" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 12 }}>
+              <SettingRow
+                label="Webhook retry"
+                desc="Exponential backoff up to N attempts before parking in dead-letter."
+                control={
+                  <Select
+                    size="sm"
+                    value={webhookRetries}
+                    onChange={setWebhookRetries}
+                    options={[
+                      { value: '3', label: '3 attempts' },
+                      { value: '5', label: '5 attempts' },
+                      { value: '10', label: '10 attempts' },
+                    ]}
+                  />
+                }
+              />
+              <SettingRow
+                label="Pause syncing on repeated failure"
+                desc="If 25+ webhooks fail consecutively, pause and alert."
+                control={<Switch checked disabled onChange={() => undefined} />}
+              />
+            </div>
+          </Card>
+
+          <Card>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+              <SectionTitle title="Tag–assignee map" subtitle="Map ClickUp tags to assignees for tracked-time replacement." />
+              <Button variant="ghost" size="sm" onClick={startAddTag}>
+                Add mapping
+              </Button>
+            </div>
 
             {showTagForm && (
               <div
-                className="border border-[var(--border)] rounded-[var(--radius)] p-4 mb-4 flex flex-col gap-3"
-                style={{ background: 'var(--surface-alt)' }}
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  padding: 14,
+                  marginBottom: 14,
+                  background: 'var(--muted-bg)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10,
+                }}
               >
-                <div
-                  style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}
-                >
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium text-[var(--text-muted)]">Tag Name</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <Field label="Tag name">
                     <Input
                       value={tagForm.tagName}
                       onChange={(e) => setTagForm((f) => ({ ...f, tagName: e.target.value }))}
                       placeholder="e.g. rashedul"
                     />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium text-[var(--text-muted)]">User ID</label>
+                  </Field>
+                  <Field label="User ID">
                     <Input
                       value={tagForm.clickupUserId}
                       onChange={(e) => setTagForm((f) => ({ ...f, clickupUserId: e.target.value }))}
                       placeholder="ClickUp user ID"
                     />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium text-[var(--text-muted)]">User Name</label>
+                  </Field>
+                  <Field label="User name">
                     <Input
                       value={tagForm.clickupUserName}
                       onChange={(e) => setTagForm((f) => ({ ...f, clickupUserName: e.target.value }))}
                       placeholder="Display name"
                     />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium text-[var(--text-muted)]">Email</label>
+                  </Field>
+                  <Field label="Email">
                     <Input
                       value={tagForm.clickupEmail}
                       onChange={(e) => setTagForm((f) => ({ ...f, clickupEmail: e.target.value }))}
                       placeholder="user@example.com"
                     />
-                  </div>
+                  </Field>
                 </div>
-                <div className="flex items-center gap-2">
+                <label
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 13,
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <Switch checked={tagForm.active} onChange={(v) => setTagForm((f) => ({ ...f, active: v }))} />
+                  Active
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
                   <Button
                     variant="accent"
                     size="sm"
@@ -423,108 +529,278 @@ export function SettingsPage() {
             )}
 
             {tagAssignee.isLoading ? (
-              <p className="text-sm text-[var(--text-muted)]">Loading…</p>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading…</p>
             ) : tagItems.length === 0 ? (
-              <EmptyState
-                title="No mappings"
-                body="Add tag-to-assignee mappings to enable tracked-time replacement."
-              />
+              <EmptyState title="No mappings" body="Add tag-to-assignee mappings to enable tracked-time replacement." />
             ) : (
-              <DataTable<TagRow>
-                columns={tagColumns}
-                data={tagItems}
-                emptyTitle="No mappings"
-                pageSize={50}
-              />
+              <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr
+                      style={{
+                        background: 'var(--muted-bg)',
+                        textTransform: 'uppercase',
+                        fontSize: 10,
+                        color: 'var(--text-muted)',
+                        letterSpacing: '0.05em',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <th style={{ textAlign: 'left', padding: '8px 16px' }}>Tag</th>
+                      <th style={{ textAlign: 'left', padding: '8px 12px' }}>User ID</th>
+                      <th style={{ textAlign: 'left', padding: '8px 12px' }}>Name</th>
+                      <th style={{ textAlign: 'left', padding: '8px 12px' }}>Email</th>
+                      <th style={{ textAlign: 'left', padding: '8px 12px' }}>Active</th>
+                      <th style={{ width: 100, padding: '8px 16px' }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tagItems.map((row, i) => (
+                      <tr key={row.id} style={{ borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined }}>
+                        <td style={{ padding: '10px 16px' }}>
+                          <Pill tone="purple" size="sm">
+                            {row.tagName}
+                          </Pill>
+                        </td>
+                        <td style={{ padding: '10px 12px', fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+                          {row.clickupUserId}
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>{row.clickupUserName ?? '—'}</td>
+                        <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{row.clickupEmail ?? '—'}</td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <Switch
+                            checked={row.active}
+                            onChange={(v) => updateTagAssignee.mutate({ id: row.id, data: { active: v } })}
+                          />
+                        </td>
+                        <td style={{ padding: '10px 16px', textAlign: 'right' }}>
+                          <Button size="sm" variant="ghost" onClick={() => startEditTag(row)}>
+                            Edit
+                          </Button>
+                          <Button size="sm" variant="danger" onClick={() => deleteTag(row.id)}>
+                            Delete
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </Card>
         </div>
       )}
 
-      {/* SCOPE FILTERS TAB */}
       {activeTab === 'scopes' && (
-        <div className="flex flex-col gap-6">
-          <Callout tone="info">
-            Scope filters control which ClickUp spaces are synced. Contact an administrator to change space configuration.
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
+          <Callout tone="blue" icon={<Info size={13} />}>
+            Only checked spaces are included in syncing. Excluded spaces will not generate tasks, time entries, or cost rows.
           </Callout>
           <Card>
-            <SectionHeader title="Spaces" />
-            <div className="flex flex-col gap-4">
-              {[
-                { label: 'Digital Marketing', id: '3577824' },
-                { label: 'R&D Apps', id: '3589129' },
-                { label: 'Projects', id: '3525433' },
-              ].map((space) => (
-                <div key={space.id} className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-[var(--text)]">{space.label}</p>
-                    <p className="text-xs text-[var(--text-muted)]">ID: {space.id}</p>
-                  </div>
-                  <Switch checked onChange={() => undefined} disabled />
-                </div>
-              ))}
+            <SectionTitle
+              title="Synced spaces"
+              subtitle={
+                spaceRows.length > 0 ? `${spaceRows.length} of ${spaceRows.length} included` : '0 of 0 included'
+              }
+            />
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {spaceRows.length === 0 ? (
+                <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No spaces loaded yet. Sync data to see spaces here.</p>
+              ) : (
+                spaceRows.map((s) => {
+                  const name = (s as { spaceName?: string | null }).spaceName?.trim() || (s as { spaceId?: string }).spaceId || 'Space';
+                  const sid = (s as { spaceId?: string }).spaceId ?? '';
+                  const taskCount = (s as { taskCount?: number }).taskCount ?? 0;
+                  const hours = (s as { hoursLogged?: number }).hoursLogged ?? 0;
+                  return (
+                    <div
+                      key={sid}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: 10,
+                        borderRadius: 8,
+                        background: 'var(--muted-bg)',
+                        marginBottom: 4,
+                      }}
+                    >
+                      <Switch checked disabled onChange={() => undefined} />
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 2,
+                          background: spaceColor(sid),
+                          flexShrink: 0,
+                        }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                          {fmt.number(taskCount)} tasks · — members · {fmt.hours(hours)}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </Card>
+
           <Card>
-            <SectionHeader title="Status Filters" description="Excluded statuses" />
-            <EmptyState
-              title="No excluded statuses"
-              body="All task statuses are synced. Exclusion rules will be configurable in a future release."
-            />
+            <SectionTitle title="Status filters" subtitle="Tasks in these statuses are excluded from cost rollups." />
+            <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              {['cancelled', 'archived', 'duplicate'].map((st) => (
+                <Pill key={st} tone="gray" size="sm">
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    {st}
+                    <X size={10} />
+                  </span>
+                </Pill>
+              ))}
+              <button
+                type="button"
+                style={{
+                  padding: '4px 10px',
+                  border: '1px dashed var(--border)',
+                  borderRadius: 999,
+                  background: 'transparent',
+                  color: 'var(--text-muted)',
+                  fontSize: 12,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontFamily: 'inherit',
+                }}
+              >
+                <Plus size={11} /> Add status
+              </button>
+            </div>
+          </Card>
+
+          <Card>
+            <SectionTitle title="Tag filters" subtitle="Optional — only include tasks with these tags (leave blank to include all)." />
+            <div style={{ marginTop: 12 }}>
+              <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>No tag filters set — all tags included.</span>
+            </div>
           </Card>
         </div>
       )}
 
-      {/* MEMBERS & ACCESS TAB */}
       {activeTab === 'members' && (
-        <Card>
-          <SectionHeader title="Members & Access" />
-          <div className="flex items-center gap-3">
-            <Avatar name="Admin" size="md" />
-            <div>
-              <p className="text-sm font-bold text-[var(--text)]">Admin</p>
-              <p className="text-xs text-[var(--text-muted)]">API key holder</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 860 }}>
+          <Card padding={0}>
+            <div
+              style={{
+                padding: '14px 16px',
+                borderBottom: '1px solid var(--border-soft)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Members & access</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  1 person with access to this dashboard.
+                </div>
+              </div>
+              <Button variant="accent" icon={<Plus size={13} />} disabled>
+                Invite member
+              </Button>
             </div>
-          </div>
-        </Card>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr
+                  style={{
+                    background: 'var(--muted-bg)',
+                    textTransform: 'uppercase',
+                    fontSize: 10,
+                    color: 'var(--text-muted)',
+                    letterSpacing: '0.05em',
+                    fontWeight: 600,
+                  }}
+                >
+                  <th style={{ textAlign: 'left', padding: '8px 16px' }}>Member</th>
+                  <th style={{ textAlign: 'left', padding: '8px 12px' }}>Role</th>
+                  <th style={{ textAlign: 'left', padding: '8px 12px' }}>Last active</th>
+                  <th style={{ textAlign: 'left', padding: '8px 12px' }}>2FA</th>
+                  <th style={{ width: 60, padding: '8px 16px' }} />
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ padding: '12px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <Avatar name="Admin" size={28} />
+                      <div>
+                        <div style={{ fontWeight: 600, color: 'var(--text)' }}>Admin</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>API key holder</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td style={{ padding: '12px' }}>
+                    <Pill tone="purple" size="sm">
+                      Owner
+                    </Pill>
+                  </td>
+                  <td style={{ padding: '12px', color: 'var(--text-muted)' }}>just now</td>
+                  <td style={{ padding: '12px' }}>
+                    <Pill tone="green" size="xs" icon={<CircleCheck size={10} />}>
+                      enabled
+                    </Pill>
+                  </td>
+                  <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                    <Button variant="ghost" size="sm" icon={<Edit size={12} />} disabled />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </Card>
+        </div>
       )}
 
-      {/* NOTIFICATIONS TAB */}
       {activeTab === 'notifications' && (
-        <div className="flex flex-col gap-6">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
           <Card>
-            <SectionHeader title="Alerts" />
-            <div className="flex flex-col gap-4">
-              {[
-                { label: 'Failed jobs', desc: 'Notify when a BullMQ job fails.' },
-                { label: 'Dead letters', desc: 'Notify when items land in dead-letter queue.' },
-                { label: 'Missing rates', desc: 'Notify when time entries have no assignee rate.' },
-                { label: 'Stale sync', desc: 'Notify when a space has not synced recently.' },
-              ].map((item) => (
-                <div key={item.label} className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-[var(--text)]">{item.label}</p>
-                    <p className="text-xs text-[var(--text-muted)] mt-0.5">{item.desc}</p>
-                  </div>
-                  <Switch checked={false} onChange={() => undefined} disabled />
-                </div>
-              ))}
+            <SectionTitle title="Alerts" subtitle="Get notified when sync issues need attention." />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 12 }}>
+              <SettingRow
+                label="Sync run failed"
+                desc="Notify on any failed sync run."
+                control={<Switch checked={alertSyncFail} onChange={setAlertSyncFail} />}
+              />
+              <SettingRow
+                label="Webhook errors spike"
+                desc="Alert if more than 25 webhooks fail in 5 min."
+                control={<Switch checked={alertWebhookSpike} onChange={setAlertWebhookSpike} />}
+              />
+              <SettingRow
+                label="Missing rate created"
+                desc="Alert when an assignee logs time without a rate."
+                control={<Switch checked={alertMissingRate} onChange={setAlertMissingRate} />}
+              />
+              <SettingRow
+                label="Token expiring"
+                desc="Notify 14 days before ClickUp token expires."
+                control={<Switch checked={alertToken} onChange={setAlertToken} />}
+              />
             </div>
           </Card>
+
           <Card>
-            <SectionHeader title="Channels" />
-            <div className="flex flex-col gap-4">
-              {['Email', 'Slack', 'PagerDuty'].map((ch) => (
-                <div key={ch} className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-[var(--text)]">{ch}</p>
-                  <Switch checked={false} onChange={() => undefined} disabled />
-                </div>
-              ))}
-            </div>
-            <div className="mt-4">
-              <Callout tone="info">
-                Notification channels will be configurable in a future release.
-              </Callout>
+            <SectionTitle title="Channels" />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 12 }}>
+              <SettingRow label="Email" desc="ops-alerts@acme.co" control={<Switch checked={chEmail} onChange={setChEmail} />} />
+              <SettingRow label="Slack" desc="#data-platform-alerts" control={<Switch checked={chSlack} onChange={setChSlack} />} />
+              <SettingRow
+                label="PagerDuty"
+                desc="Connect for critical failures"
+                control={<Switch checked={chPager} onChange={setChPager} />}
+              />
             </div>
           </Card>
         </div>

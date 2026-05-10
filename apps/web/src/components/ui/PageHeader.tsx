@@ -5,11 +5,13 @@ export function PageHeader({
   description,
   actions,
   breadcrumb,
+  badge,
 }: {
   title: React.ReactNode;
   description?: string;
   actions?: React.ReactNode;
   breadcrumb?: React.ReactNode;
+  badge?: React.ReactNode;
 }) {
   return (
     <div style={{ marginBottom: 20 }}>
@@ -18,9 +20,12 @@ export function PageHeader({
       )}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 600, color: 'var(--text)', margin: 0, letterSpacing: '-0.02em' }}>
-            {title}
-          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <h1 style={{ fontSize: 22, fontWeight: 600, color: 'var(--text)', margin: 0, letterSpacing: '-0.02em' }}>
+              {title}
+            </h1>
+            {badge}
+          </div>
           {description && (
             <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0, maxWidth: 720 }}>
               {description}

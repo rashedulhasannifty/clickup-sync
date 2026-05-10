@@ -1,9 +1,19 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Pencil } from 'lucide-react';
-import type { Rate } from '../api/rates';
+import {
+  AlertTriangle,
+  CircleCheck,
+  DollarSign,
+  Download,
+  Pencil,
+  Plus,
+  Search,
+  Users,
+} from 'lucide-react';
+import { parseRatesListResponse, type Rate } from '../api/rates';
+import type { RatePresetAssignee } from '../components/RateModal';
 import { useRates } from '../hooks/useRates';
-import { useStats } from '../hooks/useReports';
+import { useMissingRates, useStats } from '../hooks/useReports';
 import { PageHeader } from '../components/ui/PageHeader';
 import { MetricCard } from '../components/ui/MetricCard';
 import { Button } from '../components/ui/Button';
@@ -11,53 +21,48 @@ import { Input } from '../components/ui/Input';
 import { Switch } from '../components/ui/Switch';
 import { Avatar } from '../components/ui/Avatar';
 import { Pill } from '../components/ui/Pill';
-import { DataTable } from '../components/ui/DataTable';
-import type { Column } from '../components/ui/DataTable';
 import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
+import { Card } from '../components/ui/Card';
 import { RateModal } from '../components/RateModal';
 import { fmt } from '../lib/formatters';
 
-type RateRow = {
-  id: string;
+type GroupRow = {
   assigneeId: string;
-  assigneeName: string | null;
-  assigneeEmail: string | null;
-  currency: string;
-  hourlyRateCents: number;
-  validFrom: string;
-  validTo: string | null;
-  createdAt: string;
-  updatedAt: string;
-  [key: string]: unknown;
+  displayName: string;
+  email: string | null;
+  rates: Rate[];
 };
 
-function toRateRow(r: Rate): RateRow {
-  return r as RateRow;
+function sortRatesDesc(rates: Rate[]) {
+  return [...rates].sort((a, b) => b.validFrom.localeCompare(a.validFrom));
 }
 
 export function AssigneeRatesPage() {
   const navigate = useNavigate();
   const { data: rates, isLoading } = useRates();
   const { data: statsData } = useStats();
+  const { data: missingRatesData } = useMissingRates();
   const missingRateEntries = (statsData as Record<string, number> | undefined)?.missingRateEntries ?? 0;
+  const missingAssigneeCount = Array.isArray(missingRatesData) ? missingRatesData.length : 0;
+
   const [search, setSearch] = useState('');
   const [activeOnly, setActiveOnly] = useState(false);
   const [selectedRate, setSelectedRate] = useState<Rate | null>(null);
+  const [presetAssignee, setPresetAssignee] = useState<RatePresetAssignee | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const allRates = rates ?? [];
+  const allRates = parseRatesListResponse(rates ?? []);
 
-  // KPI computations
   const activeRates = allRates.filter((r) => r.validTo === null);
   const activeRatesCount = activeRates.length;
   const coveredAssignees = new Set(allRates.map((r) => r.assigneeId)).size;
-  const avgActiveRate =
+  const avgActiveCents =
     activeRates.length > 0
-      ? activeRates.reduce((sum, r) => sum + r.hourlyRateCents, 0) / activeRates.length / 100
+      ? Math.round(activeRates.reduce((sum, r) => sum + r.hourlyRateCents, 0) / activeRates.length)
       : 0;
+  const avgActiveCurrency = activeRates[0]?.currency ?? 'USD';
 
-  // Client-side filtering
   const filtered = allRates.filter((r) => {
     if (activeOnly && r.validTo !== null) return false;
     if (search) {
@@ -71,84 +76,57 @@ export function AssigneeRatesPage() {
     return true;
   });
 
-  // Group by assigneeId
-  const grouped = new Map<string, Rate[]>();
-  for (const r of filtered) {
-    const existing = grouped.get(r.assigneeId) ?? [];
-    existing.push(r);
-    grouped.set(r.assigneeId, existing);
+  const groupedList = useMemo((): GroupRow[] => {
+    const byUser = new Map<string, Rate[]>();
+    for (const r of filtered) {
+      const arr = byUser.get(r.assigneeId) ?? [];
+      arr.push(r);
+      byUser.set(r.assigneeId, arr);
+    }
+    return Array.from(byUser.entries())
+      .map(([assigneeId, rs]) => {
+        const sorted = sortRatesDesc(rs);
+        const first = sorted[0];
+        return {
+          assigneeId,
+          displayName: first.assigneeName ?? assigneeId,
+          email: first.assigneeEmail,
+          rates: sorted,
+        };
+      })
+      .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  }, [filtered]);
+
+  function closeModal() {
+    setIsModalOpen(false);
+    setSelectedRate(null);
+    setPresetAssignee(null);
   }
 
-  function openCreate() {
+  function openNewGlobal() {
     setSelectedRate(null);
+    setPresetAssignee(null);
+    setIsModalOpen(true);
+  }
+
+  function openNewForAssignee(row: GroupRow) {
+    setSelectedRate(null);
+    setPresetAssignee({
+      assigneeId: row.assigneeId,
+      assigneeName: row.rates[0]?.assigneeName ?? null,
+      assigneeEmail: row.email,
+    });
     setIsModalOpen(true);
   }
 
   function openEdit(rate: Rate) {
+    setPresetAssignee(null);
     setSelectedRate(rate);
     setIsModalOpen(true);
   }
 
-  const rateColumns: Column<RateRow>[] = [
-    {
-      key: 'validFrom',
-      header: 'From',
-      render: (row) => <span className="text-xs">{fmt.date(row.validFrom)}</span>,
-    },
-    {
-      key: 'validTo',
-      header: 'To',
-      render: (row) => (
-        <span className="text-xs text-[var(--text-muted)]">
-          {row.validTo ? fmt.date(row.validTo) : <span style={{ color: 'var(--text-faint)', fontStyle: 'italic' }}>— ongoing</span>}
-        </span>
-      ),
-    },
-    {
-      key: 'hourlyRateCents',
-      header: 'Rate',
-      render: (row) => (
-        <span className="text-sm font-mono">
-          ${(row.hourlyRateCents / 100).toFixed(2)}/{row.currency.toLowerCase()}h
-        </span>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (row) =>
-        row.validTo === null ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 999, background: 'var(--pill-green-text)', flexShrink: 0 }} />
-            <span style={{ fontSize: 12, color: 'var(--pill-green-text)', fontWeight: 600 }}>active</span>
-          </span>
-        ) : (
-          <Pill tone="gray">historical</Pill>
-        ),
-    },
-    {
-      key: 'updatedAt',
-      header: 'Updated',
-      render: (row) => (
-        <span className="text-xs text-[var(--text-muted)]">{fmt.relative(row.updatedAt)}</span>
-      ),
-    },
-    {
-      key: 'edit',
-      header: '',
-      render: (row) => (
-        <button
-          style={{ width: 28, height: 28, border: '1px solid var(--border)', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}
-          onClick={(e) => {
-            e.stopPropagation();
-            openEdit(row as Rate);
-          }}
-        >
-          <Pencil size={13} strokeWidth={1.75} />
-        </button>
-      ),
-    },
-  ];
+  const showFilterEmpty = !isLoading && allRates.length > 0 && groupedList.length === 0;
+  const showNoDataEmpty = !isLoading && allRates.length === 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -157,120 +135,262 @@ export function AssigneeRatesPage() {
         description="Hourly cost rates by assignee. Used to compute labor cost for tracked time."
         actions={
           <>
-            <Button variant="default" onClick={() => {}}>Export</Button>
-            <Button variant="accent" onClick={openCreate}>New rate</Button>
+            <Button size="md" variant="default" icon={<Download size={13} />}>
+              Export
+            </Button>
+            <Button size="md" variant="accent" icon={<Plus size={13} />} onClick={openNewGlobal}>
+              New rate
+            </Button>
           </>
         }
       />
 
-      {/* KPI Cards */}
-      <div
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}
-      >
-        <MetricCard label="Active rates" value={isLoading ? '—' : activeRatesCount} dense />
-        <MetricCard label="Covered assignees" value={isLoading ? '—' : coveredAssignees} dense />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
         <MetricCard
-          label="Avg active rate"
-          value={isLoading ? '—' : `$${avgActiveRate.toFixed(0)}/h`}
           dense
+          label="Active rates"
+          value={isLoading ? '—' : fmt.number(activeRatesCount)}
+          icon={<DollarSign size={13} />}
         />
         <MetricCard
-          label="Without rate"
-          value={isLoading ? '—' : missingRateEntries > 0 ? missingRateEntries : '0'}
-          sublabel={missingRateEntries > 0 ? 'see Missing Rates' : undefined}
           dense
-          onClick={() => navigate('/missing-rates')}
+          label="Covered assignees"
+          value={isLoading ? '—' : fmt.number(coveredAssignees)}
+          icon={<Users size={13} />}
+        />
+        <MetricCard
+          dense
+          label="Avg active rate"
+          value={
+            isLoading
+              ? '—'
+              : activeRates.length > 0
+                ? `${fmt.money(avgActiveCents, avgActiveCurrency)}/h`
+                : '—'
+          }
+          icon={<DollarSign size={13} />}
+        />
+        <MetricCard
+          dense
+          label="Without rate"
+          value={isLoading ? '—' : fmt.number(missingAssigneeCount)}
+          sublabel="see Missing Rates"
+          icon={<AlertTriangle size={13} />}
+          onClick={
+            missingAssigneeCount > 0 || missingRateEntries > 0
+              ? () => navigate('/missing-rates')
+              : undefined
+          }
         />
       </div>
 
-      {/* Filters */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search assignee…"
-          style={{ width: 240 }}
-        />
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-muted)', cursor: 'pointer' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          flexWrap: 'wrap',
+          padding: 10,
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 220, maxWidth: 320 }}>
+          <Input
+            icon={<Search size={14} />}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search assignee…"
+          />
+        </div>
+        <label
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: 12,
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+          }}
+        >
           <Switch checked={activeOnly} onChange={setActiveOnly} />
           <span>Active rates only</span>
         </label>
       </div>
 
-      {/* Grouped by assignee */}
       {isLoading ? (
-        <div className="flex flex-col gap-4">
-          <Skeleton height={80} />
-          <Skeleton height={80} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <Skeleton height={140} />
+          <Skeleton height={140} />
         </div>
-      ) : grouped.size === 0 ? (
-        <EmptyState
-          title="No rates found"
-          body="Add an assignee rate to get started."
-          action={
-            <Button variant="accent" onClick={openCreate}>
-              Add Rate
-            </Button>
-          }
-        />
+      ) : showNoDataEmpty ? (
+        <Card>
+          <EmptyState
+            icon={<DollarSign size={20} />}
+            title="No rates yet"
+            body="Create a rate for an assignee so time entries can be costed."
+            action={
+              <Button onClick={openNewGlobal} icon={<Plus size={12} />}>
+                New rate
+              </Button>
+            }
+          />
+        </Card>
       ) : (
-        <div className="flex flex-col gap-6">
-          {Array.from(grouped.entries()).map(([assigneeId, assigneeRates]) => {
-            const first = assigneeRates[0];
-            const displayName = first.assigneeName ?? assigneeId;
-            const activeRate = assigneeRates.find((r) => r.validTo === null);
-
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {groupedList.map((g) => {
+            const activeRate = g.rates.find((r) => r.validTo === null);
             return (
-              <div
-                key={assigneeId}
-                className="border border-[var(--border)] rounded-[var(--radius-lg)] overflow-hidden"
-              >
-                {/* Assignee header */}
-                <div className="flex items-center gap-3 px-4 py-3 bg-[var(--surface-alt)] border-b border-[var(--border-soft)]">
-                  <Avatar name={displayName} size="md" />
+              <Card key={g.assigneeId} padding={0}>
+                <div
+                  style={{
+                    padding: '14px 16px',
+                    borderBottom: '1px solid var(--border-soft)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                  }}
+                >
+                  <Avatar name={g.displayName} size={36} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{displayName}</div>
-                    {first.assigneeEmail && (
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{first.assigneeEmail}</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{g.displayName}</div>
+                    {g.email && (
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{g.email}</div>
                     )}
                   </div>
-                  {activeRate && (
+                  {activeRate ? (
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{ fontSize: 10, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current rate</div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>${(activeRate.hourlyRateCents / 100).toFixed(2)}/h</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Current rate</div>
+                      <div
+                        style={{
+                          fontSize: 18,
+                          fontWeight: 600,
+                          color: 'var(--text)',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        {fmt.money(activeRate.hourlyRateCents, activeRate.currency)}
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>/h</span>
+                      </div>
                     </div>
+                  ) : (
+                    <Pill tone="amber">No active rate</Pill>
                   )}
-                  <Button
-                    size="sm"
-                    variant="accent"
-                    onClick={() => {
-                      setSelectedRate(null);
-                      setIsModalOpen(true);
-                    }}
-                  >
-                    + New rate
+                  <Button size="sm" variant="default" icon={<Plus size={12} />} onClick={() => openNewForAssignee(g)}>
+                    New rate
                   </Button>
                 </div>
 
-                {/* Rates table */}
-                <div className="p-0">
-                  <DataTable<RateRow>
-                    columns={rateColumns}
-                    data={assigneeRates.map(toRateRow)}
-                    emptyTitle="No rates"
-                    pageSize={50}
-                  />
-                </div>
-              </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr
+                      style={{
+                        background: 'var(--muted-bg)',
+                        textTransform: 'uppercase',
+                        fontSize: 10,
+                        color: 'var(--text-muted)',
+                        letterSpacing: '0.05em',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <th style={{ textAlign: 'left', padding: '8px 16px' }}>From</th>
+                      <th style={{ textAlign: 'left', padding: '8px 12px' }}>To</th>
+                      <th style={{ textAlign: 'right', padding: '8px 12px' }}>Rate</th>
+                      <th style={{ textAlign: 'left', padding: '8px 12px' }}>Status</th>
+                      <th style={{ textAlign: 'left', padding: '8px 12px' }}>Updated</th>
+                      <th style={{ width: 60, padding: '8px 16px' }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {g.rates.map((r, i) => {
+                      const isActive = r.validTo === null;
+                      const updatedAt = r.updatedAt ?? r.validFrom;
+                      return (
+                        <tr key={r.id} style={{ borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined }}>
+                          <td
+                            style={{
+                              padding: '10px 16px',
+                              fontVariantNumeric: 'tabular-nums',
+                              color: 'var(--text)',
+                            }}
+                          >
+                            {fmt.shortDate(r.validFrom)}
+                          </td>
+                          <td
+                            style={{
+                              padding: '10px 12px',
+                              fontVariantNumeric: 'tabular-nums',
+                              color: r.validTo ? 'var(--text)' : 'var(--text-faint)',
+                            }}
+                          >
+                            {r.validTo ? fmt.shortDate(r.validTo) : '— ongoing'}
+                          </td>
+                          <td
+                            style={{
+                              padding: '10px 12px',
+                              textAlign: 'right',
+                              fontVariantNumeric: 'tabular-nums',
+                              fontWeight: 600,
+                              color: 'var(--text)',
+                            }}
+                          >
+                            {fmt.money(r.hourlyRateCents, r.currency)}
+                          </td>
+                          <td style={{ padding: '10px 12px' }}>
+                            {isActive ? (
+                              <Pill tone="green" size="xs" icon={<CircleCheck size={10} />}>
+                                active
+                              </Pill>
+                            ) : (
+                              <Pill tone="gray" size="xs">
+                                historical
+                              </Pill>
+                            )}
+                          </td>
+                          <td
+                            style={{
+                              padding: '10px 12px',
+                              color: 'var(--text-muted)',
+                              fontVariantNumeric: 'tabular-nums',
+                            }}
+                          >
+                            {fmt.relative(updatedAt)}
+                          </td>
+                          <td style={{ padding: '10px 16px', textAlign: 'right' }}>
+                            <Button size="sm" variant="ghost" icon={<Pencil size={12} />} onClick={() => openEdit(r)} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </Card>
             );
           })}
+
+          {showFilterEmpty && (
+            <Card>
+              <EmptyState
+                icon={<DollarSign size={20} />}
+                title="No rates match your filters"
+                body="Adjust filters or create a new rate to get started."
+                action={
+                  <Button onClick={openNewGlobal} icon={<Plus size={12} />}>
+                    New rate
+                  </Button>
+                }
+              />
+            </Card>
+          )}
         </div>
       )}
 
       <RateModal
         open={isModalOpen}
         rate={selectedRate}
-        onClose={() => setIsModalOpen(false)}
+        presetAssignee={presetAssignee}
+        onClose={closeModal}
       />
     </div>
   );

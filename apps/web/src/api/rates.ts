@@ -13,8 +13,24 @@ export interface Rate {
   updatedAt: string;
 }
 
+/** Nest returns `{ items, total, page, limit }`; older clients may expect a bare array. */
+export function parseRatesListResponse(data: unknown): Rate[] {
+  if (Array.isArray(data)) return data as Rate[];
+  if (
+    data &&
+    typeof data === 'object' &&
+    Array.isArray((data as { items?: unknown }).items)
+  ) {
+    return (data as { items: Rate[] }).items;
+  }
+  return [];
+}
+
 export const ratesApi = {
-  list: () => apiClient.get('/admin/rates').then(r => r.data as Rate[]),
+  list: () =>
+    apiClient
+      .get('/admin/rates', { params: { page: 1, limit: 200 } })
+      .then((r) => parseRatesListResponse(r.data)),
   create: (data: Omit<Rate, 'id' | 'createdAt' | 'updatedAt'>) =>
     apiClient.post('/admin/rates', data).then(r => r.data as Rate),
   update: (id: string, data: Partial<Omit<Rate, 'id' | 'createdAt' | 'updatedAt'>>) =>

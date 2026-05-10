@@ -1,9 +1,10 @@
+import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { X, CircleCheck, AlertTriangle, Eye, Plus } from 'lucide-react';
 import { fmt } from '../lib/formatters';
 import { Drawer } from './ui/Drawer';
 import { Avatar } from './ui/Avatar';
 import { Pill } from './ui/Pill';
-import { Callout } from './ui/Callout';
 import { Button } from './ui/Button';
 
 export interface TimeEntryItem {
@@ -23,6 +24,23 @@ export interface TimeEntryItem {
   billable: boolean;
   description: string | null;
   syncedAt: string | null;
+  rateId?: string | null;
+  currency?: string;
+}
+
+function MetaGrid({ items }: { items: [string, ReactNode][] }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px 20px' }}>
+      {items.map(([k, v]) => (
+        <div key={k} style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{k}</span>
+          <span style={{ fontSize: 13, color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {v ?? <span style={{ color: 'var(--text-faint)' }}>—</span>}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 interface TimeEntryDrawerProps {
@@ -33,208 +51,124 @@ interface TimeEntryDrawerProps {
 export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
   const navigate = useNavigate();
 
+  if (!entry) {
+    return <Drawer open={false} onClose={onClose} width={520} />;
+  }
+
+  const currency = entry.currency ?? 'AUD';
+  const hasCost = entry.status === 'COST_CALCULATED' && entry.costAud > 0;
+  const firstName = entry.userName.split(/\s+/)[0] ?? entry.userName;
+
   return (
-    <Drawer open={entry !== null} onClose={onClose} title="Time Entry" width={520}>
-      {entry && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-          {/* Section 1: Assignee */}
-          <div
-            style={{
-              padding: '20px 24px',
-              borderBottom: '1px solid var(--border-soft)',
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <Avatar name={entry.userName} size="lg" />
-                <div>
-                  <p style={{ fontWeight: 600, color: 'var(--text)', margin: 0 }}>
-                    {entry.userName}
-                  </p>
-                  <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
-                    {entry.userEmail}
-                  </p>
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => navigate('/assignee-rates')}
-              >
-                View Rates →
-              </Button>
-            </div>
+    <Drawer open width={520} onClose={onClose}>
+      <div style={{
+        padding: '16px 20px', borderBottom: '1px solid var(--border)',
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12,
+      }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace', color: 'var(--text-muted)', marginBottom: 4 }}>
+            {entry.timeEntryId}
           </div>
-
-          {/* Section 2: Time */}
-          <div
-            style={{
-              padding: '20px 24px',
-              borderBottom: '1px solid var(--border-soft)',
-            }}
-          >
-            <p
-              style={{
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                color: 'var(--text-muted)',
-                marginBottom: 12,
-              }}
-            >
-              Time
-            </p>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: 16,
-              }}
-            >
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 2px' }}>
-                  Start
-                </p>
-                <p style={{ fontSize: '0.875rem', color: 'var(--text)', margin: 0 }}>
-                  {fmt.dateTime(entry.startTime)}
-                </p>
-              </div>
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 2px' }}>
-                  End
-                </p>
-                <p style={{ fontSize: '0.875rem', color: 'var(--text)', margin: 0 }}>
-                  {entry.endTime ? fmt.dateTime(entry.endTime) : '—'}
-                </p>
-              </div>
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 2px' }}>
-                  Duration
-                </p>
-                <p style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text)', margin: 0 }}>
-                  {fmt.hours(entry.durationHours)}
-                </p>
-              </div>
-              <div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0 0 2px' }}>
-                  Billable
-                </p>
-                <Pill tone={entry.billable ? 'green' : 'gray'}>
-                  {entry.billable ? 'Billable' : 'Non-billable'}
-                </Pill>
-              </div>
-            </div>
-          </div>
-
-          {/* Section 3: Cost */}
-          <div
-            style={{
-              padding: '20px 24px',
-              borderBottom: '1px solid var(--border-soft)',
-            }}
-          >
-            <p
-              style={{
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                color: 'var(--text-muted)',
-                marginBottom: 12,
-              }}
-            >
-              Cost
-            </p>
+          <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0, color: 'var(--text)', lineHeight: 1.3 }}>
+            {entry.taskName ?? '—'}
+          </h2>
+          <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {entry.status === 'COST_CALCULATED' ? (
-              <Callout tone="success">
-                {fmt.hours(entry.durationHours)} &times; ${(entry.hourlyRateCents / 100).toFixed(0)}/h ={' '}
-                {fmt.money(entry.costAud * 100)}
-              </Callout>
+              <Pill tone="green" size="xs" icon={<CircleCheck size={11} strokeWidth={2} />}>Cost calculated</Pill>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <Callout tone="warning">
-                  No rate found for this date range.
-                </Callout>
-                <div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => navigate('/assignee-rates')}
-                  >
-                    Add Rate
-                  </Button>
-                </div>
-              </div>
+              <Pill tone="amber" size="xs" icon={<AlertTriangle size={11} strokeWidth={2} />}>No rate found</Pill>
             )}
-          </div>
-
-          {/* Section 4: Description */}
-          {entry.description && (
-            <div
-              style={{
-                padding: '20px 24px',
-                borderBottom: '1px solid var(--border-soft)',
-              }}
-            >
-              <p
-                style={{
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.05em',
-                  color: 'var(--text-muted)',
-                  marginBottom: 8,
-                }}
-              >
-                Description
-              </p>
-              <p style={{ fontSize: '0.875rem', color: 'var(--text)', margin: 0, lineHeight: 1.6 }}>
-                {entry.description}
-              </p>
-            </div>
-          )}
-
-          {/* Section 5: Sync metadata */}
-          <div style={{ padding: '20px 24px' }}>
-            <p
-              style={{
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-                color: 'var(--text-muted)',
-                marginBottom: 8,
-              }}
-            >
-              Sync Metadata
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Entry ID</span>
-                <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text)' }}>
-                  {entry.timeEntryId}
-                </span>
-              </div>
-              {entry.syncedAt && (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Synced</span>
-                  <span style={{ fontSize: '0.875rem', color: 'var(--text)' }}>
-                    {fmt.relative(entry.syncedAt)}
-                  </span>
-                </div>
-              )}
-            </div>
+            {entry.billable
+              ? <Pill tone="blue">Billable</Pill>
+              : <Pill tone="gray">Non-billable</Pill>}
           </div>
         </div>
-      )}
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            width: 28, height: 28, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)',
+            borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}
+        >
+          <X size={14} strokeWidth={1.75} />
+        </button>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, background: 'var(--muted-bg)', borderRadius: 8 }}>
+          <Avatar user={{ name: entry.userName }} size={36} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{entry.userName}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{entry.userEmail}</div>
+          </div>
+          <Button size="sm" variant="default" icon={<Eye size={12} strokeWidth={1.75} />} onClick={() => navigate('/assignee-rates')}>
+            Rates
+          </Button>
+        </div>
+
+        <div>
+          <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Time</h3>
+          <MetaGrid items={[
+            ['Start', fmt.dateTime(entry.startTime)],
+            ['End', entry.endTime ? fmt.dateTime(entry.endTime) : '—'],
+            ['Duration', fmt.hours(entry.durationHours)],
+            ['Billable', entry.billable ? 'Yes' : 'No'],
+          ]}
+          />
+        </div>
+
+        <div>
+          <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Cost calculation</h3>
+          {hasCost ? (
+            <div style={{ padding: 12, background: 'var(--pill-green-bg)', borderRadius: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 12, color: 'var(--pill-green-text)', fontWeight: 600 }}>Calculated</span>
+                <span style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace', color: 'var(--text-muted)' }}>
+                  rate: {entry.rateId ?? '—'}
+                </span>
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text)', fontVariantNumeric: 'tabular-nums', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {fmt.hours(entry.durationHours)} × {fmt.money(entry.hourlyRateCents, currency)}/h ={' '}
+                <strong style={{ fontSize: 16 }}>{fmt.money(entry.costAud * 100, currency)}</strong>
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: 12, background: 'var(--pill-amber-bg)', borderRadius: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--pill-amber-text)', fontWeight: 600, marginBottom: 4 }}>NO_RATE_FOUND</div>
+              <div style={{ fontSize: 12, color: 'var(--text)' }}>
+                No active assignee rate covers this entry&apos;s start date ({fmt.shortDate(entry.startTime)}).
+              </div>
+              <Button
+                size="sm"
+                variant="default"
+                style={{ marginTop: 10 }}
+                icon={<Plus size={12} strokeWidth={1.75} />}
+                onClick={() => navigate('/assignee-rates')}
+              >
+                Add rate for {firstName}
+              </Button>
+            </div>
+          )}
+        </div>
+
+        <div>
+          <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Description</h3>
+          <div style={{ fontSize: 13, color: 'var(--text)', padding: 10, background: 'var(--muted-bg)', borderRadius: 6, minHeight: 40 }}>
+            {entry.description ?? <span style={{ color: 'var(--text-faint)' }}>No description</span>}
+          </div>
+        </div>
+
+        <div>
+          <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Sync</h3>
+          <MetaGrid items={[
+            ['Synced at', entry.syncedAt ? fmt.dateTime(entry.syncedAt) : '—'],
+            ['Task ID', entry.taskId || '—'],
+          ]}
+          />
+        </div>
+      </div>
     </Drawer>
   );
 }

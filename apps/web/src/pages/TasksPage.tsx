@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from 'react';
+import { useState, useMemo, useEffect, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   Search, Download, RefreshCw, X, CheckSquare, Copy, ExternalLink,
-  CircleCheck,
+  CircleCheck, Inbox,
 } from 'lucide-react';
-import { useTasks } from '../hooks/useReports';
+import { useTasks, useTimeEntriesByUser } from '../hooks/useReports';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Pill } from '../components/ui/Pill';
@@ -18,46 +19,9 @@ import { AvatarStack } from '../components/ui/Avatar';
 import { Drawer } from '../components/ui/Drawer';
 import { Tabs } from '../components/ui/Tabs';
 import { fmt } from '../lib/formatters';
+import { adminApi } from '../api/admin';
 
 type Task = Record<string, unknown>;
-
-const SPACE_COLOR_MAP: Record<string, string> = {
-  'digital marketing': '#FF02F0',
-  'r&d apps': '#7B68EE',
-  'projects': '#49CCF9',
-};
-
-const DEPT_TONE_MAP: Record<string, 'blue' | 'purple' | 'green' | 'amber' | 'red' | 'gray'> = {
-  engineering: 'blue',
-  design: 'purple',
-  marketing: 'purple',
-  operations: 'green',
-  product: 'amber',
-  finance: 'gray',
-  qa: 'red',
-};
-
-function getSpaceColor(spaceName: string): string {
-  return SPACE_COLOR_MAP[spaceName?.toLowerCase()] ?? '#94a3b8';
-}
-
-function getDeptTone(dept: string): 'blue' | 'purple' | 'green' | 'amber' | 'red' | 'gray' {
-  return DEPT_TONE_MAP[dept?.toLowerCase()] ?? 'gray';
-}
-
-function isOverdue(task: Task): boolean {
-  const due = task.dueDate ?? task.due_date;
-  if (!due) return false;
-  const status = String(task.status ?? '').toLowerCase();
-  if (status === 'closed' || status === 'complete' || status === 'completed') return false;
-  return new Date(String(due)).getTime() < Date.now();
-}
-
-function isJustSynced(task: Task): boolean {
-  const synced = task.syncedAt ?? task.synced_at;
-  if (!synced) return false;
-  return Date.now() - new Date(String(synced)).getTime() < 5 * 60 * 1000;
-}
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Any status' },
@@ -67,6 +31,7 @@ const STATUS_OPTIONS = [
   { value: 'closed', label: 'Closed' },
   { value: 'blocked', label: 'Blocked' },
 ];
+
 const PRIORITY_OPTIONS = [
   { value: '', label: 'Any priority' },
   { value: 'urgent', label: 'Urgent' },
@@ -74,15 +39,46 @@ const PRIORITY_OPTIONS = [
   { value: 'normal', label: 'Normal' },
   { value: 'low', label: 'Low' },
 ];
+
 const TYPE_OPTIONS = [
   { value: '', label: 'Parent + subtasks' },
   { value: 'parent', label: 'Parent only' },
   { value: 'subtask', label: 'Subtasks only' },
 ];
+
 const ARCHIVED_OPTIONS = [
-  { value: '', label: 'All tasks' },
-  { value: 'hide', label: 'Hide archived' },
+  { value: 'exclude', label: 'Hide archived' },
+  { value: 'include', label: 'Include archived' },
+  { value: 'only', label: 'Archived only' },
 ];
+
+function parseAssignees(r: Task): { name: string; color?: string }[] {
+  const raw = String(r.assigneesNames ?? '').trim();
+  if (!raw) return [];
+  return raw.split(',').map(s => s.trim()).filter(Boolean).map(name => ({ name }));
+}
+
+function statusColor(r: Task): string {
+  const c = r.statusColor ?? r.status_color;
+  if (c && String(c)) return String(c);
+  return '#94a3b8';
+}
+
+function isOverdue(task: Task): boolean {
+  const due = task.dueDate ?? task.due_date;
+  if (!due) return false;
+  const statusType = String(task.statusType ?? task.status_type ?? '').toLowerCase();
+  if (statusType === 'closed') return false;
+  const status = String(task.status ?? '').toLowerCase();
+  if (status === 'closed' || status === 'complete' || status === 'completed') return false;
+  return new Date(String(due)).getTime() < Date.now();
+}
+
+function isJustSynced(task: Task): boolean {
+  const synced = task.syncedAt ?? task.synced_at;
+  if (!synced) return false;
+  return Date.now() - new Date(String(synced)).getTime() < 30 * 60 * 1000;
+}
 
 function MetaGrid({ items }: { items: [string, ReactNode | unknown][] }) {
   return (
@@ -108,29 +104,44 @@ function cell(v: unknown): ReactNode {
 function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () => void }) {
   const [tab, setTab] = useState('overview');
 
+  useEffect(() => {
+    setTab('overview');
+  }, [String(task?.taskId ?? task?.task_id ?? '')]);
+
   if (!task) return <Drawer open={false} onClose={onClose} />;
 
-  const assignees = (task.assignees as { name: string; color?: string }[] | undefined) ?? [];
+  const assignees = parseAssignees(task);
   const status = String(task.status ?? '');
   const priority = String(task.priority ?? '');
   const priorityTone = priority === 'urgent' ? 'red' : priority === 'high' ? 'amber' : 'gray';
+  const archived = !!task.archived;
 
   return (
-    <Drawer open={true} onClose={onClose} width={620}>
-      {/* Header */}
+    <Drawer open width={620} onClose={onClose}>
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)', fontFamily: 'ui-monospace, monospace' }}>
-            <CheckSquare size={12} />
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)',
+            fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+          }}
+          >
+            <CheckSquare size={12} strokeWidth={1.75} />
             <span>{String(task.taskId ?? task.task_id ?? '')}</span>
-            <button style={{ border: 0, background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: 2 }}>
-              <Copy size={11} />
+            <button type="button" title="Copy task ID" style={{ border: 0, background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: 2 }}>
+              <Copy size={11} strokeWidth={1.75} />
             </button>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            <Button size="sm" variant="default" icon={<ExternalLink size={13} />}>Open in ClickUp</Button>
-            <button onClick={onClose} style={{ width: 28, height: 28, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <X size={14} />
+            <Button size="sm" variant="default" icon={<ExternalLink size={13} strokeWidth={1.75} />}>Open in ClickUp</Button>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                width: 28, height: 28, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', borderRadius: 6,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <X size={14} strokeWidth={1.75} />
             </button>
           </div>
         </div>
@@ -140,6 +151,7 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           <StatusBadge status={status} color={task.statusColor as string | undefined} />
           {priority && <Pill tone={priorityTone}>{priority}</Pill>}
+          {archived && <Pill tone="gray" size="xs">archived</Pill>}
           <span style={{ flex: 1 }} />
           {task.syncedAt || task.synced_at
             ? <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Synced {fmt.relative(String(task.syncedAt ?? task.synced_at))}</span>
@@ -147,16 +159,15 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ padding: '0 20px', flexShrink: 0, borderBottom: '1px solid var(--border)' }}>
+      <div style={{ padding: '0 20px', flexShrink: 0 }}>
         <Tabs value={tab} onChange={setTab} items={[
           { value: 'overview', label: 'Overview' },
           { value: 'raw', label: 'Raw fields' },
           { value: 'sync', label: 'Sync history' },
-        ]} />
+        ]}
+        />
       </div>
 
-      {/* Body */}
       <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
         {tab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
@@ -191,7 +202,13 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
           </div>
         )}
         {tab === 'raw' && (
-          <pre style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace', background: 'var(--muted-bg)', color: 'var(--text)', padding: 14, borderRadius: 8, overflow: 'auto', margin: 0, border: '1px solid var(--border)', lineHeight: 1.6 }}>
+          <pre style={{
+            fontSize: 11, fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+            background: 'var(--code-bg)', color: 'var(--text)',
+            padding: 14, borderRadius: 8, overflow: 'auto', margin: 0,
+            border: '1px solid var(--border)', lineHeight: 1.6,
+          }}
+          >
             {JSON.stringify(task, null, 2)}
           </pre>
         )}
@@ -199,7 +216,7 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: 'var(--muted-bg)', borderRadius: 8 }}>
               <span style={{ width: 24, height: 24, borderRadius: 999, background: 'var(--pill-green-bg)', color: 'var(--pill-green-text)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <CircleCheck size={13} />
+                <CircleCheck size={13} strokeWidth={1.75} />
               </span>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>Sync count: <strong>{String(task.syncCount ?? task.sync_count ?? '—')}</strong></div>
@@ -215,64 +232,101 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
   );
 }
 
-const ASSIGNEE_OPTIONS = [
-  { value: '', label: 'Any assignee' },
-];
-
 export function TasksPage() {
   const navigate = useNavigate();
   const { taskId } = useParams();
   const { space } = useGlobalFilters();
+  const queryClient = useQueryClient();
+  const { data: byUser } = useTimeEntriesByUser();
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [assigneeFilter, setAssigneeFilter] = useState('');
-  const [hideArchived, setHideArchived] = useState('');
+  const [archivedFilter, setArchivedFilter] = useState('exclude');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
-  const { data, isLoading } = useTasks({
-    page,
-    limit: 50,
+  const assigneeOptions = useMemo(() => {
+    const rows = (byUser ?? []) as { userName: string }[];
+    const seen = new Set<string>();
+    const opts = [{ value: '', label: 'Any assignee' }];
+    for (const r of rows) {
+      if (!r.userName || seen.has(r.userName)) continue;
+      seen.add(r.userName);
+      opts.push({ value: r.userName, label: r.userName });
+    }
+    return opts;
+  }, [byUser]);
+
+  const taskParams = useMemo(() => ({
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
     spaceId: space !== 'all' ? space : undefined,
     status: statusFilter || undefined,
     priority: priorityFilter || undefined,
     type: typeFilter || undefined,
     search: search || undefined,
-  });
+    assigneeId: assigneeFilter || undefined,
+    archived: archivedFilter,
+  }), [page, pageSize, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, archivedFilter]);
 
-  const items: Task[] = (data?.items ?? data ?? []) as Task[];
-  const total: number = data?.total ?? items.length;
+  const { data, isLoading, refetch } = useTasks(taskParams as Record<string, string | number | undefined>);
+
+  const items: Task[] = (data?.items ?? []) as Task[];
+  const total: number = data?.total ?? 0;
 
   const openTask = taskId ? (items.find((t) => String(t.taskId ?? t.task_id) === taskId) ?? null) : null;
 
-  const hasFilters = !!(search || statusFilter || priorityFilter || typeFilter || assigneeFilter || hideArchived);
+  const hasFilters = !!(
+    search || statusFilter || priorityFilter || typeFilter || assigneeFilter || archivedFilter !== 'exclude'
+  );
+
   function reset() {
-    setSearch(''); setStatusFilter(''); setPriorityFilter(''); setTypeFilter('');
-    setAssigneeFilter(''); setHideArchived(''); setPage(1);
+    setSearch('');
+    setStatusFilter('');
+    setPriorityFilter('');
+    setTypeFilter('');
+    setAssigneeFilter('');
+    setArchivedFilter('exclude');
+    setPage(1);
   }
 
-  const columns: Column<Task>[] = [
+  const backfill = useMutation({
+    mutationFn: () => (space !== 'all' ? adminApi.backfill(space, 7) : Promise.resolve(null)),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
+  });
+
+  const columns: Column<Task>[] = useMemo(() => [
     {
       key: 'task_name',
       header: 'Task',
-      width: '340px',
+      width: 360,
       render: (r) => {
-        const spaceName = String(r.spaceName ?? r.space_name ?? '');
-        const barColor = getSpaceColor(spaceName);
+        const bar = statusColor(r);
         const overdue = isOverdue(r);
         const justSynced = isJustSynced(r);
         const isSubtask = !!(r.parentTaskId || r.parent_task_id);
+        const arch = !!r.archived;
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-            <span style={{ width: 3, alignSelf: 'stretch', borderRadius: 999, background: barColor, flexShrink: 0 }} />
-            {isSubtask && <span style={{ width: 5, height: 5, borderRadius: 999, background: 'var(--text-faint)', flexShrink: 0, marginLeft: 6 }} />}
-            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, fontSize: 13 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, paddingLeft: isSubtask ? 14 : 0 }}>
+            {isSubtask && (
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--text-faint)', flexShrink: 0 }} />
+            )}
+            <span style={{ width: 4, height: 16, borderRadius: 2, background: bar, flexShrink: 0 }} />
+            <span style={{
+              flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              fontWeight: 500, color: 'var(--text)',
+            }}
+            >
               {String(r.taskName ?? r.task_name ?? '')}
             </span>
-            {overdue && <span style={{ flexShrink: 0 }}><Pill tone="red">Overdue</Pill></span>}
-            {justSynced && !overdue && <span style={{ flexShrink: 0 }}><Pill tone="green">Synced</Pill></span>}
+            {arch && <Pill tone="gray" size="xs">archived</Pill>}
+            {overdue && <Pill tone="red" size="xs">overdue</Pill>}
+            {justSynced && !overdue && <Pill tone="green" size="xs">just synced</Pill>}
           </div>
         );
       },
@@ -280,44 +334,45 @@ export function TasksPage() {
     {
       key: 'status',
       header: 'Status',
-      width: '120px',
+      width: 120,
       render: (r) => <StatusBadge status={String(r.status ?? '')} color={r.statusColor as string | undefined} />,
     },
     {
       key: 'space_name',
       header: 'Space',
-      width: '110px',
+      width: 130,
       render: (r) => {
         const spaceName = String(r.spaceName ?? r.space_name ?? '');
         return spaceName
-          ? <span style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{spaceName}</span>
+          ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{spaceName}</span>
           : <span style={{ color: 'var(--text-faint)' }}>—</span>;
       },
     },
     {
       key: 'list_name',
       header: 'List',
-      width: '110px',
+      width: 110,
       render: (r) => {
         const listName = String(r.listName ?? r.list_name ?? '');
         return listName
-          ? <span style={{ fontSize: 12, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{listName}</span>
+          ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{listName}</span>
           : <span style={{ color: 'var(--text-faint)' }}>—</span>;
       },
     },
     {
       key: 'assignees',
       header: 'Assignees',
-      width: '90px',
+      width: 110,
+      sortable: false,
       render: (r) => {
-        const users = (r.assignees as { name: string; color?: string }[] | undefined) ?? [];
+        const users = parseAssignees(r);
         return users.length > 0 ? <AvatarStack users={users} max={3} /> : <span style={{ color: 'var(--text-faint)' }}>—</span>;
       },
     },
     {
       key: 'client',
       header: 'Client',
-      width: '110px',
+      width: 130,
       render: (r) => {
         const client = String(r.client ?? '');
         return client
@@ -328,97 +383,161 @@ export function TasksPage() {
     {
       key: 'department',
       header: 'Dept',
-      width: '100px',
+      width: 110,
       render: (r) => {
         const dept = String(r.department ?? '');
-        return dept
-          ? <Pill tone={getDeptTone(dept)}>{dept}</Pill>
-          : <span style={{ color: 'var(--text-faint)' }}>—</span>;
+        return dept ? <Pill tone="gray" size="xs">{dept}</Pill> : <span style={{ color: 'var(--text-faint)' }}>—</span>;
       },
     },
     {
-      key: 'estimation',
-      header: 'Est',
-      width: '70px',
+      key: 'sprint_name',
+      header: 'Sprint',
+      width: 100,
       render: (r) => {
-        const est = r.estimation;
-        return est != null && est !== ''
-          ? <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{String(est)}</span>
-          : <span style={{ color: 'var(--text-faint)' }}>—</span>;
-      },
-    },
-    {
-      key: 'spent',
-      header: 'Spent',
-      width: '70px',
-      render: () => <span style={{ color: 'var(--text-faint)' }}>—</span>,
-    },
-    {
-      key: 'updated_date',
-      header: 'UP',
-      width: '80px',
-      render: (r) => {
-        const d = r.updatedDate ?? r.updated_date;
-        return d
-          ? <span style={{ fontSize: 12, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{fmt.relative(String(d))}</span>
+        const sn = String(r.sprintName ?? r.sprint_name ?? '');
+        return sn
+          ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{sn}</span>
           : <span style={{ color: 'var(--text-faint)' }}>—</span>;
       },
     },
     {
       key: 'sprint_points',
-      header: 'SP',
-      width: '50px',
+      header: 'Pts',
+      width: 60,
+      align: 'right',
       render: (r) => {
         const pts = r.sprintPoints ?? r.sprint_points;
         return pts != null
-          ? <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600, fontSize: 13 }}>{String(pts)}</span>
+          ? <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{String(pts)}</span>
           : <span style={{ color: 'var(--text-faint)' }}>—</span>;
       },
     },
-  ];
-
-  const titleText = total > 0
-    ? <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>Tasks <span style={{ fontSize: '0.75em', fontWeight: 500, color: 'var(--text-muted)' }}>{items.length}/{total}</span></span>
-    : 'Tasks';
+    {
+      key: 'time_estimate',
+      header: 'Est',
+      width: 70,
+      align: 'right',
+      render: (r) => {
+        const h = r.timeEstimateHours ?? r.time_estimate_hours;
+        if (h == null || Number.isNaN(Number(h))) return <span style={{ color: 'var(--text-faint)' }}>—</span>;
+        return <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{fmt.shortHours(Number(h))}</span>;
+      },
+    },
+    {
+      key: 'time_spent',
+      header: 'Spent',
+      width: 70,
+      align: 'right',
+      render: (r) => {
+        const spent = r.timeSpentHours ?? r.time_spent_hours;
+        const est = r.timeEstimateHours ?? r.time_estimate_hours;
+        if (spent == null || Number.isNaN(Number(spent))) {
+          return <span style={{ color: 'var(--text-faint)' }}>—</span>;
+        }
+        const over = est != null && !Number.isNaN(Number(est)) && Number(spent) > Number(est);
+        return (
+          <span style={{
+            fontVariantNumeric: 'tabular-nums',
+            color: over ? 'var(--red)' : 'var(--text)',
+            fontWeight: over ? 600 : 500,
+          }}
+          >
+            {fmt.shortHours(Number(spent))}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'updated_date',
+      header: 'Updated',
+      width: 100,
+      align: 'right',
+      render: (r) => {
+        const d = r.updatedDate ?? r.updated_date;
+        return d
+          ? <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)', fontSize: 12 }}>{fmt.relative(String(d))}</span>
+          : <span style={{ color: 'var(--text-faint)' }}>—</span>;
+      },
+    },
+    {
+      key: 'synced_at',
+      header: 'Synced',
+      width: 100,
+      align: 'right',
+      render: (r) => {
+        const d = r.syncedAt ?? r.synced_at;
+        return d
+          ? <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)', fontSize: 12 }}>{fmt.relative(String(d))}</span>
+          : <span style={{ color: 'var(--text-faint)' }}>—</span>;
+      },
+    },
+  ], []);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <PageHeader
-        title={titleText}
+        title="Tasks"
         description="Audit synced ClickUp tasks and subtasks across all spaces."
+        badge={<Pill tone="gray">{fmt.number(total)}</Pill>}
         actions={
           <>
-            <Button variant="default" size="md" icon={<Download size={13} />}>Export CSV</Button>
-            <Button variant="accent" size="md" icon={<RefreshCw size={13} />}>Sync now</Button>
+            <Button variant="default" size="md" icon={<Download size={13} strokeWidth={1.75} />}>Export CSV</Button>
+            <Button
+              variant="accent"
+              size="md"
+              icon={<RefreshCw size={13} strokeWidth={1.75} />}
+              loading={backfill.isPending}
+              onClick={() => {
+                if (space !== 'all') backfill.mutate();
+                else void refetch();
+              }}
+            >
+              Sync now
+            </Button>
           </>
         }
       />
 
-      {/* Filter bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: 10, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
-        <div style={{ flex: 1, minWidth: 200, maxWidth: 300 }}>
-          <Input icon={<Search size={14} />} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search task name, ID…" />
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+        padding: 10, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+      }}
+      >
+        <div style={{ flex: 1, minWidth: 220, maxWidth: 320 }}>
+          <Input
+            icon={<Search size={14} strokeWidth={1.75} />}
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1); }}
+            placeholder="Search task name, ID, assignee, client…"
+          />
         </div>
-        <Select value={typeFilter} onChange={setTypeFilter} options={TYPE_OPTIONS} />
-        <Select value={statusFilter} onChange={setStatusFilter} options={STATUS_OPTIONS} />
-        <Select value={priorityFilter} onChange={setPriorityFilter} options={PRIORITY_OPTIONS} />
-        <Select value={assigneeFilter} onChange={setAssigneeFilter} options={ASSIGNEE_OPTIONS} />
-        <Select value={hideArchived} onChange={setHideArchived} options={ARCHIVED_OPTIONS} />
+        <Select size="md" value={statusFilter} onChange={v => { setStatusFilter(v); setPage(1); }} options={STATUS_OPTIONS} />
+        <Select size="md" value={priorityFilter} onChange={v => { setPriorityFilter(v); setPage(1); }} options={PRIORITY_OPTIONS} />
+        <Select size="md" value={assigneeFilter} onChange={v => { setAssigneeFilter(v); setPage(1); }} options={assigneeOptions} />
+        <Select size="md" value={typeFilter} onChange={v => { setTypeFilter(v); setPage(1); }} options={TYPE_OPTIONS} />
+        <Select size="md" value={archivedFilter} onChange={v => { setArchivedFilter(v); setPage(1); }} options={ARCHIVED_OPTIONS} />
         {hasFilters && (
-          <Button size="md" variant="ghost" icon={<X size={13} />} onClick={reset}>Reset</Button>
+          <Button size="md" variant="ghost" icon={<X size={13} strokeWidth={1.75} />} onClick={reset}>Reset</Button>
         )}
       </div>
 
       <DataTable
+        layout="design"
+        stickyFirstColumn
+        rowKey="taskId"
         columns={columns}
         data={items}
         loading={isLoading}
         emptyTitle="No tasks match your filters"
         emptyBody="Try clearing filters or expanding the date range."
+        emptyIcon={<Inbox size={20} strokeWidth={1.75} />}
+        emptyAction={<Button variant="default" size="md" onClick={reset}>Clear all filters</Button>}
         total={total}
         page={page}
-        pageSize={50}
-        onPageChange={setPage}
+        pageSize={pageSize}
+        onPageChange={p => setPage(p)}
+        onPageSizeChange={n => { setPageSize(n); setPage(1); }}
+        pageSizeOptions={[10, 25, 50, 100]}
         onRowClick={(r) => navigate(`/tasks/${String(r.taskId ?? r.task_id)}`)}
       />
 

@@ -42,26 +42,37 @@ export function Modal({ open = true, onClose, title, subtitle, children, footer,
           animation: 'modalIn 180ms ease-out',
         }}
       >
-        {(title || subtitle) && (
-          <div style={{
-            display: 'flex', alignItems: 'flex-start', gap: 12,
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 12,
             padding: '16px 18px 12px',
-            borderBottom: title ? '1px solid var(--border-soft)' : undefined,
+            borderBottom: title || subtitle ? '1px solid var(--border-soft)' : undefined,
           }}
-          >
-            <div style={{ flex: 1 }}>
+        >
+            <div style={{ flex: 1, minWidth: 0 }}>
               {title && <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{title}</div>}
               {subtitle && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{subtitle}</div>}
             </div>
             <button
               type="button"
               onClick={onClose}
-              style={{ border: 0, background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: 4, borderRadius: 6 }}
+              aria-label="Close"
+              style={{
+                border: 0,
+                background: 'transparent',
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                padding: 4,
+                borderRadius: 6,
+                flexShrink: 0,
+              }}
             >
               <X size={16} strokeWidth={1.75} />
             </button>
-          </div>
-        )}
+        </div>
         <div style={{ padding: '14px 18px 18px', overflowY: 'auto', flex: 1 }}>{children}</div>
         {footer && (
           <div style={{ borderTop: '1px solid var(--border-soft)', padding: '12px 18px 16px' }}>{footer}</div>

@@ -19,7 +19,7 @@ export class ReportsController {
   tasksBySpaceStatus() { return this.reports.tasksBySpaceStatus(); }
 
   @Get('tasks')
-  @ApiOperation({ summary: 'Paginated task list with filters (spaceId, status, priority, assigneeId, type, archived, search, from, to)' })
+  @ApiOperation({ summary: 'Paginated task list with filters. `archived`: exclude (default, hide archived) | include | only (archived tasks). Soft-deleted rows are always excluded.' })
   tasks(
     @Query('spaceId') spaceId?: string,
     @Query('status') status?: string,
@@ -61,7 +61,7 @@ export class ReportsController {
   }
 
   @Get('time-entries')
-  @ApiOperation({ summary: 'Paginated time entry list with filters (userId, from, to, status, billable, search)' })
+  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, billable, search, spaceId, missingOnly)' })
   timeEntriesList(
     @Query('userId') userId?: string,
     @Query('from') from?: string,
@@ -71,8 +71,12 @@ export class ReportsController {
     @Query('offset') offset?: string,
     @Query('billable') billable?: string,
     @Query('search') search?: string,
+    @Query('spaceId') spaceId?: string,
+    @Query('missingOnly') missingOnly?: string,
   ) {
-    return this.reports.timeEntriesList(userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search);
+    return this.reports.timeEntriesList(
+      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly,
+    );
   }
 
   @Get('sprint-points')

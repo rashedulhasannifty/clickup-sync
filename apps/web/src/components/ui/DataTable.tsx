@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Button } from './Button';
 import { EmptyState } from './EmptyState';
+import { Select } from './Select';
 
 export interface Column<T> {
   key: string;
@@ -9,7 +10,8 @@ export interface Column<T> {
   sortable?: boolean;
   hidden?: boolean;
   sticky?: boolean;
-  width?: string;
+  width?: string | number;
+  align?: 'left' | 'right';
 }
 
 interface DataTableProps<T> {
@@ -18,11 +20,20 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   emptyTitle?: string;
   emptyBody?: string;
+  emptyIcon?: React.ReactNode;
+  emptyAction?: React.ReactNode;
   pageSize?: number;
   total?: number;
   page?: number;
   onPageChange?: (page: number) => void;
+  onPageSizeChange?: (size: number) => void;
+  pageSizeOptions?: number[];
   loading?: boolean;
+  /** Match design/project `data-table.jsx` (tasks explorer). */
+  layout?: 'default' | 'design';
+  /** Sticky first column (design table). */
+  stickyFirstColumn?: boolean;
+  rowKey?: keyof T | string;
 }
 
 export function DataTable<T extends { [key: string]: unknown }>({
@@ -31,10 +42,18 @@ export function DataTable<T extends { [key: string]: unknown }>({
   onRowClick,
   emptyTitle = 'No data',
   emptyBody,
+  emptyIcon,
+  emptyAction,
   pageSize = 50,
   total,
   page = 1,
   onPageChange,
+  onPageSizeChange,
+  pageSizeOptions = [10, 25, 50, 100],
+  loading = false,
+  layout = 'default',
+  stickyFirstColumn = false,
+  rowKey = 'id' as keyof T,
 }: DataTableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -42,6 +61,7 @@ export function DataTable<T extends { [key: string]: unknown }>({
     new Set(initialColumns.filter(c => c.hidden).map(c => c.key)),
   );
   const [showColMenu, setShowColMenu] = useState(false);
+  const colMenuRef = useRef<HTMLDivElement>(null);
 
   const visibleCols = initialColumns.filter(c => !hiddenKeys.has(c.key));
 
@@ -54,9 +74,33 @@ export function DataTable<T extends { [key: string]: unknown }>({
       })
     : data;
 
-  const totalPages = total !== undefined ? Math.ceil(total / pageSize) : 1;
+  const totalPages = total != null && total > 0 ? Math.max(1, Math.ceil(total / pageSize)) : 1;
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const rangeStart = total == null || total === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const rangeEnd = total == null || total === 0 ? 0 : Math.min(safePage * pageSize, total);
+
+  const tableMinWidth = useMemo(() => {
+    if (layout !== 'design') return undefined;
+    return visibleCols.reduce((sum, c) => {
+      const w = c.width;
+      if (typeof w === 'number') return sum + w;
+      if (typeof w === 'string' && w.endsWith('px')) return sum + parseInt(w, 10);
+      return sum + 120;
+    }, 0);
+  }, [layout, visibleCols]);
+
+  useEffect(() => {
+    if (!showColMenu) return;
+    const close = (e: MouseEvent) => {
+      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) setShowColMenu(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [showColMenu]);
 
   function handleSort(key: string) {
+    const col = initialColumns.find(c => c.key === key);
+    if (col?.sortable === false) return;
     if (sortKey === key) {
       sortDir === 'asc' ? setSortDir('desc') : setSortKey(null);
     } else {
@@ -65,14 +109,223 @@ export function DataTable<T extends { [key: string]: unknown }>({
     }
   }
 
+  function rowId(row: T, i: number): string | number {
+    const k = rowKey as string;
+    const v = row[k];
+    if (v != null && (typeof v === 'string' || typeof v === 'number')) return v;
+    return i;
+  }
+
+  if (layout === 'design' && sorted.length === 0 && !loading) {
+    return (
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 10, overflow: 'hidden',
+      }}
+      >
+        <EmptyState title={emptyTitle} body={emptyBody} icon={emptyIcon} action={emptyAction} />
+      </div>
+    );
+  }
+
+  if (layout === 'design') {
+    const headPad = '8px 12px';
+    const cellPad = '6px 12px';
+    const rowH = 36;
+
+    return (
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 10, overflow: 'hidden',
+      }}
+      >
+        <div style={{ overflowX: 'auto', position: 'relative' }}>
+          <table style={{
+            width: '100%', borderCollapse: 'separate', borderSpacing: 0,
+            fontSize: 13, minWidth: tableMinWidth,
+          }}
+          >
+            <thead>
+              <tr style={{ background: 'var(--table-head-bg)' }}>
+                {visibleCols.map((col, i) => {
+                  const w = col.width != null ? (typeof col.width === 'number' ? `${col.width}px` : col.width) : undefined;
+                  const align = col.align || 'left';
+                  const sticky = stickyFirstColumn && i === 0;
+                  return (
+                    <th
+                      key={col.key}
+                      onClick={() => col.sortable !== false && handleSort(col.key)}
+                      style={{
+                        padding: headPad,
+                        textAlign: align,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: 'var(--text-muted)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        borderBottom: '1px solid var(--border)',
+                        cursor: col.sortable === false ? 'default' : 'pointer',
+                        userSelect: 'none',
+                        whiteSpace: 'nowrap',
+                        position: sticky ? 'sticky' : 'static',
+                        left: sticky ? 0 : 'auto',
+                        background: sticky ? 'var(--table-head-bg)' : undefined,
+                        zIndex: sticky ? 2 : 1,
+                        width: w,
+                      }}
+                    >
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
+                        width: '100%',
+                      }}
+                      >
+                        {col.header}
+                        {sortKey === col.key && (sortDir === 'asc' ? '↑' : '↓')}
+                      </span>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr style={{ height: rowH }}>
+                  <td colSpan={visibleCols.length} style={{ padding: cellPad, color: 'var(--text-muted)', fontSize: 13 }}>
+                    Loading…
+                  </td>
+                </tr>
+              ) : (
+                sorted.map((row, idx) => (
+                  <tr
+                    key={String(rowId(row, idx))}
+                    onClick={() => onRowClick?.(row)}
+                    style={{
+                      cursor: onRowClick ? 'pointer' : 'default',
+                      height: rowH,
+                      background: idx % 2 === 0 ? 'transparent' : 'var(--table-zebra)',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'var(--hover)'; }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = idx % 2 === 0 ? 'transparent' : 'var(--table-zebra)';
+                    }}
+                  >
+                    {visibleCols.map((col, i) => {
+                      const align = col.align || 'left';
+                      const sticky = stickyFirstColumn && i === 0;
+                      const bg = sticky
+                        ? (idx % 2 === 0 ? 'var(--surface)' : 'var(--table-zebra)')
+                        : undefined;
+                      return (
+                        <td
+                          key={col.key}
+                          style={{
+                            padding: cellPad,
+                            textAlign: align,
+                            borderBottom: '1px solid var(--border-soft)',
+                            verticalAlign: 'middle',
+                            color: 'var(--text)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            position: sticky ? 'sticky' : 'static',
+                            left: sticky ? 0 : 'auto',
+                            background: bg,
+                            zIndex: sticky ? 1 : 0,
+                          }}
+                        >
+                          {col.render(row)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {total !== undefined && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '8px 14px', borderTop: '1px solid var(--border)',
+            fontSize: 12, color: 'var(--text-muted)', gap: 8, flexWrap: 'wrap',
+          }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <span>
+                <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {total === 0 ? '0' : `${rangeStart}–${rangeEnd}`}
+                </span>
+                {' '}
+                of <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text)', fontWeight: 600 }}>{total}</span>
+              </span>
+              {onPageSizeChange && (
+                <Select
+                  value={String(pageSize)}
+                  onChange={v => onPageSizeChange(Number(v))}
+                  options={pageSizeOptions.map(n => ({ value: String(n), label: `${n} / page` }))}
+                />
+              )}
+              <div ref={colMenuRef} style={{ position: 'relative' }}>
+                <Button size="sm" variant="ghost" onClick={() => setShowColMenu(o => !o)}>Columns ▾</Button>
+                {showColMenu && (
+                  <div style={{
+                    position: 'absolute', bottom: 'calc(100% + 6px)', left: 0, zIndex: 20,
+                    background: 'var(--surface)', border: '1px solid var(--border)',
+                    borderRadius: 8, padding: 6, minWidth: 180,
+                    boxShadow: '0 8px 24px rgba(15, 23, 42, 0.12)',
+                  }}
+                  >
+                    {initialColumns.map(c => (
+                      <label
+                        key={c.key}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8,
+                          padding: '5px 8px', fontSize: 12, color: 'var(--text)',
+                          cursor: 'pointer', borderRadius: 5,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!hiddenKeys.has(c.key)}
+                          onChange={() => {
+                            const next = new Set(hiddenKeys);
+                            next.has(c.key) ? next.delete(c.key) : next.add(c.key);
+                            setHiddenKeys(next);
+                          }}
+                        />
+                        {c.header}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Button size="sm" variant="ghost" disabled={safePage <= 1} onClick={() => onPageChange?.(safePage - 1)}>←</Button>
+              <span style={{ minWidth: 60, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>
+                {safePage} / {totalPages}
+              </span>
+              <Button size="sm" variant="ghost" disabled={safePage >= totalPages} onClick={() => onPageChange?.(safePage + 1)}>→</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  /* ——— default layout (existing pages) ——— */
   return (
     <div className="flex flex-col gap-2">
       <div className="flex justify-end relative">
         <Button size="sm" variant="ghost" onClick={() => setShowColMenu(v => !v)}>Columns ▾</Button>
         {showColMenu && (
-          <div className="absolute top-8 right-0 z-20 bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius)] shadow-lg p-2 w-44">
+          <div className="absolute top-8 right-0 z-20 bg-(--surface) border border-(--border) rounded-(--radius) shadow-lg p-2 w-44">
             {initialColumns.map(col => (
-              <label key={col.key} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-[var(--hover)] cursor-pointer text-sm">
+              <label key={col.key} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-(--hover) cursor-pointer text-sm">
                 <input
                   type="checkbox"
                   checked={!hiddenKeys.has(col.key)}
@@ -89,39 +342,54 @@ export function DataTable<T extends { [key: string]: unknown }>({
         )}
       </div>
 
-      <div className="overflow-x-auto border border-[var(--border)] rounded-[var(--radius-lg)]">
+      <div className="overflow-x-auto border border-(--border) rounded-lg">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[var(--border)] bg-[var(--surface-alt)]">
+            <tr className="border-b border-(--border) bg-(--surface-alt)">
               {visibleCols.map(col => (
                 <th
                   key={col.key}
-                  className={`px-3 py-2.5 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap ${col.sortable ? 'cursor-pointer hover:text-[var(--text)] select-none' : ''}`}
-                  style={{ width: col.width }}
-                  onClick={() => col.sortable && handleSort(col.key)}
+                  className={`px-3 py-2.5 text-left text-xs font-medium text-(--text-muted) whitespace-nowrap ${col.sortable !== false ? 'cursor-pointer hover:text-(--text) select-none' : ''}`}
+                  style={{
+                    width: col.width != null ? (typeof col.width === 'number' ? `${col.width}px` : col.width) : undefined,
+                    textAlign: col.align === 'right' ? 'right' : 'left',
+                  }}
+                  onClick={() => col.sortable !== false && handleSort(col.key)}
                 >
                   {col.header}
-                  {col.sortable && sortKey === col.key && (sortDir === 'asc' ? ' ↑' : ' ↓')}
+                  {col.sortable !== false && sortKey === col.key && (sortDir === 'asc' ? ' ↑' : ' ↓')}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {sorted.length === 0 ? (
+            {loading ? (
+              <tr>
+                <td colSpan={visibleCols.length} className="px-3 py-6 text-center text-(--text-muted)">
+                  Loading…
+                </td>
+              </tr>
+            ) : sorted.length === 0 ? (
               <tr>
                 <td colSpan={visibleCols.length}>
-                  <EmptyState title={emptyTitle} body={emptyBody} />
+                  <EmptyState title={emptyTitle} body={emptyBody} icon={emptyIcon} action={emptyAction} />
                 </td>
               </tr>
             ) : (
               sorted.map((row, i) => (
                 <tr
-                  key={i}
-                  className={`border-b border-[var(--border-soft)] last:border-0 ${i % 2 === 1 ? 'bg-[var(--surface-alt)]' : 'bg-[var(--surface)]'} ${onRowClick ? 'cursor-pointer hover:bg-[var(--hover)]' : ''} transition-colors`}
+                  key={String(rowId(row, i))}
+                  className={`border-b border-(--border-soft) last:border-0 ${i % 2 === 1 ? 'bg-(--surface-alt)' : 'bg-(--surface)'} ${onRowClick ? 'cursor-pointer hover:bg-(--hover)' : ''} transition-colors`}
                   onClick={() => onRowClick?.(row)}
                 >
                   {visibleCols.map(col => (
-                    <td key={col.key} className="px-3 py-2.5 text-[var(--text)]">{col.render(row)}</td>
+                    <td
+                      key={col.key}
+                      className="px-3 py-2.5 text-(--text)"
+                      style={{ textAlign: col.align === 'right' ? 'right' : 'left' }}
+                    >
+                      {col.render(row)}
+                    </td>
                   ))}
                 </tr>
               ))
@@ -131,7 +399,7 @@ export function DataTable<T extends { [key: string]: unknown }>({
       </div>
 
       {total !== undefined && totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm text-[var(--text-muted)]">
+        <div className="flex items-center justify-between text-sm text-(--text-muted)">
           <span>{total} items</span>
           <div className="flex items-center gap-1">
             <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => onPageChange?.(page - 1)}>←</Button>

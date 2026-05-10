@@ -1,6 +1,17 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Download } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  CircleCheck,
+  Clock,
+  DollarSign,
+  Download,
+  Plus,
+  Search,
+  Users,
+} from 'lucide-react';
 import { useMissingRates } from '../hooks/useReports';
 import { fmt } from '../lib/formatters';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -10,21 +21,27 @@ import { Select } from '../components/ui/Select';
 import { Tabs } from '../components/ui/Tabs';
 import { Avatar } from '../components/ui/Avatar';
 import { Pill } from '../components/ui/Pill';
-import type { Column } from '../components/ui/DataTable';
-import { DataTable } from '../components/ui/DataTable';
 import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
+
+/** Placeholder rate for “est. uncosted” (UI only; matches design copy). */
+const PLACEHOLDER_RATE_CENTS_PER_H = 4200;
 
 const SEVERITY_OPTIONS = [
-  { value: '', label: 'All severities' },
-  { value: 'high', label: 'High only' },
-  { value: 'medium', label: 'Medium only' },
-  { value: 'low', label: 'Low only' },
+  { value: 'all', label: 'All severities' },
+  { value: 'high', label: 'High severity' },
+  { value: 'medium', label: 'Medium severity' },
+  { value: 'low', label: 'Low severity' },
+];
+
+const TAB_ITEMS = [
+  { value: 'cards', label: 'Grouped' },
+  { value: 'queue', label: 'Triage queue' },
 ];
 
 interface MissingRateItem {
-  [key: string]: unknown;
   userId: string;
   userName: string;
   userEmail: string;
@@ -34,122 +51,323 @@ interface MissingRateItem {
   latestDate: string;
 }
 
-type Severity = 'High' | 'Medium' | 'Low';
-
-function getSeverity(count: number): { label: Severity; tone: 'red' | 'amber' | 'gray'; borderColor: string } {
-  if (count > 10) return { label: 'High', tone: 'red', borderColor: '#dc2626' };
-  if (count >= 3) return { label: 'Medium', tone: 'amber', borderColor: '#d97706' };
-  return { label: 'Low', tone: 'gray', borderColor: 'var(--border)' };
+function getSeverity(missingCount: number): {
+  key: 'high' | 'medium' | 'low';
+  tone: 'red' | 'amber' | 'gray';
+  borderCss: string;
+} {
+  if (missingCount > 10) return { key: 'high', tone: 'red', borderCss: 'var(--red)' };
+  if (missingCount >= 3) return { key: 'medium', tone: 'amber', borderCss: 'var(--amber)' };
+  return { key: 'low', tone: 'gray', borderCss: 'var(--text-faint)' };
 }
 
-const ASSUMED_RATE_CENTS = 8000; // $80/h in cents
-const TAB_ITEMS = [
-  { value: 'grouped', label: 'Grouped' },
-  { value: 'triage', label: 'Triage queue' },
-];
+function estimatedMissingCostCents(row: MissingRateItem): number {
+  return Math.round(row.affectedHours * PLACEHOLDER_RATE_CENTS_PER_H);
+}
+
+function MissingRateGroupCard({ item, navigate }: { item: MissingRateItem; navigate: ReturnType<typeof useNavigate> }) {
+  const [expanded, setExpanded] = useState(false);
+  const sev = getSeverity(item.missingCount);
+  const affectedTasks: string[] = [];
+
+  return (
+    <div
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        overflow: 'hidden',
+        borderLeft: `3px solid ${sev.borderCss}`,
+      }}
+    >
+      <div style={{ padding: 14, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        <Avatar name={item.userName} size={36} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{item.userName}</span>
+            <Pill tone={sev.tone} size="xs">
+              {sev.key}
+            </Pill>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{item.userEmail}</div>
+          <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} />}>
+            No active rate
+          </Pill>
+        </div>
+      </div>
+
+      <div style={{ padding: '0 14px 14px', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+        <div style={{ padding: 10, background: 'var(--muted-bg)', borderRadius: 7 }}>
+          <div
+            style={{
+              fontSize: 10,
+              color: 'var(--text-muted)',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}
+          >
+            Entries
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
+            {item.missingCount}
+          </div>
+        </div>
+        <div style={{ padding: 10, background: 'var(--muted-bg)', borderRadius: 7 }}>
+          <div
+            style={{
+              fontSize: 10,
+              color: 'var(--text-muted)',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}
+          >
+            Hours
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
+            {fmt.hours(item.affectedHours)}
+          </div>
+        </div>
+        <div style={{ padding: 10, background: 'var(--muted-bg)', borderRadius: 7, gridColumn: '1 / -1' }}>
+          <div
+            style={{
+              fontSize: 10,
+              color: 'var(--text-muted)',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}
+          >
+            Date range
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {fmt.shortDate(item.firstDate)} <ChevronRight size={11} /> {fmt.shortDate(item.latestDate)}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border-soft)' }}>
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            background: 'transparent',
+            border: 0,
+            padding: 0,
+            fontSize: 12,
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+            fontWeight: 500,
+            fontFamily: 'inherit',
+          }}
+        >
+          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          {expanded ? 'Hide' : 'Show'} affected tasks ({affectedTasks.length})
+        </button>
+        {expanded && (
+          <ul
+            style={{
+              listStyle: 'none',
+              padding: '8px 0 0 16px',
+              margin: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+            }}
+          >
+            {affectedTasks.map((t, i) => (
+              <li
+                key={i}
+                style={{
+                  fontSize: 12,
+                  color: 'var(--text)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <span style={{ color: 'var(--text-faint)', marginRight: 6 }}>·</span>
+                {t}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div
+        style={{
+          padding: 10,
+          borderTop: '1px solid var(--border)',
+          display: 'flex',
+          gap: 6,
+          background: 'var(--muted-bg)',
+        }}
+      >
+        <Button
+          size="sm"
+          variant="accent"
+          icon={<Plus size={12} />}
+          style={{ flex: 1 }}
+          onClick={() => navigate(`/assignee-rates?userId=${item.userId}`)}
+        >
+          Add rate
+        </Button>
+        <Button
+          size="sm"
+          variant="default"
+          icon={<Clock size={12} />}
+          onClick={() => navigate(`/time-entries?userId=${item.userId}&status=NO_RATE_FOUND`)}
+        >
+          Entries
+        </Button>
+        <Button
+          size="sm"
+          variant="default"
+          icon={<DollarSign size={12} />}
+          onClick={() => navigate(`/assignee-rates?userId=${item.userId}`)}
+        >
+          Rates
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function QueueView({ items, navigate }: { items: MissingRateItem[]; navigate: ReturnType<typeof useNavigate> }) {
+  const sorted = useMemo(() => {
+    const order: Record<string, number> = { high: 0, medium: 1, low: 2 };
+    return [...items].sort((a, b) => {
+      const ka = getSeverity(a.missingCount).key;
+      const kb = getSeverity(b.missingCount).key;
+      if (order[ka] !== order[kb]) return order[ka] - order[kb];
+      return b.missingCount - a.missingCount;
+    });
+  }, [items]);
+
+  return (
+    <Card padding={0}>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {sorted.map((issue, i) => {
+          const sev = getSeverity(issue.missingCount);
+          const est = estimatedMissingCostCents(issue);
+          return (
+            <div
+              key={issue.userId}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '12px 16px',
+                borderBottom: i < sorted.length - 1 ? '1px solid var(--border-soft)' : undefined,
+                transition: 'background 100ms',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'var(--hover)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              <span
+                style={{
+                  width: 6,
+                  alignSelf: 'stretch',
+                  borderRadius: 3,
+                  background: sev.borderCss,
+                  flexShrink: 0,
+                }}
+              />
+              <Avatar name={issue.userName} size={32} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{issue.userName}</span>
+                  <Pill tone="amber" size="xs">
+                    No active rate
+                  </Pill>
+                  <Pill tone={sev.tone} size="xs">
+                    {sev.key}
+                  </Pill>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {issue.userEmail} · {fmt.shortDate(issue.firstDate)} → {fmt.shortDate(issue.latestDate)}
+                </div>
+              </div>
+              <div style={{ textAlign: 'right', minWidth: 110 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
+                  {issue.missingCount} entries
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
+                  {fmt.hours(issue.affectedHours)} · ~{fmt.money(est)}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => navigate(`/time-entries?userId=${issue.userId}&status=NO_RATE_FOUND`)}
+                >
+                  Entries
+                </Button>
+                <Button
+                  size="sm"
+                  variant="accent"
+                  icon={<Plus size={12} />}
+                  onClick={() => navigate(`/assignee-rates?userId=${issue.userId}`)}
+                >
+                  Add rate
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
 
 export function MissingRatesPage() {
   const navigate = useNavigate();
   const { data, isLoading } = useMissingRates();
   const [search, setSearch] = useState('');
-  const [severity, setSeverity] = useState('');
-  const [activeTab, setActiveTab] = useState('grouped');
+  const [severityFilter, setSeverityFilter] = useState('all');
+  const [view, setView] = useState('cards');
 
   const allItems: MissingRateItem[] = (data as MissingRateItem[] | undefined) ?? [];
 
-  const filtered = allItems.filter((item) => {
-    if (search && !item.userName.toLowerCase().includes(search.toLowerCase()) && !item.userEmail.toLowerCase().includes(search.toLowerCase())) return false;
-    if (severity) {
-      const sev = getSeverity(item.missingCount).label.toLowerCase();
-      if (sev !== severity) return false;
-    }
-    return true;
-  });
+  const filtered = useMemo(() => {
+    return allItems.filter((item) => {
+      if (severityFilter !== 'all') {
+        const sev = getSeverity(item.missingCount).key;
+        if (sev !== severityFilter) return false;
+      }
+      if (search) {
+        const q = search.toLowerCase();
+        if (!item.userName.toLowerCase().includes(q) && !item.userEmail.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [allItems, search, severityFilter]);
 
-  // KPIs computed from all items (not filtered)
-  const totalAssignees = allItems.length;
-  const totalEntries = allItems.reduce((s, r) => s + r.missingCount, 0);
-  const totalHours = allItems.reduce((s, r) => s + r.affectedHours, 0);
-  const estUncostedCents = totalHours * ASSUMED_RATE_CENTS;
-
-  const triageColumns: Column<MissingRateItem>[] = [
-    {
-      key: 'userName',
-      header: 'Assignee',
-      render: (row) => (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <Avatar name={row.userName} size="sm" />
-          <span>
-            <span style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem' }}>
-              {row.userName}
-            </span>
-            <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-              {row.userEmail}
-            </span>
-          </span>
-        </span>
-      ),
-    },
-    {
-      key: 'missingCount',
-      header: 'Entries',
-      render: (row) => <strong>{row.missingCount}</strong>,
-      sortable: true,
-    },
-    {
-      key: 'affectedHours',
-      header: 'Hours',
-      render: (row) => <>{fmt.hours(row.affectedHours)}</>,
-      sortable: true,
-    },
-    {
-      key: 'firstDate',
-      header: 'First date',
-      render: (row) => <>{fmt.date(row.firstDate)}</>,
-    },
-    {
-      key: 'latestDate',
-      header: 'Latest date',
-      render: (row) => <>{fmt.date(row.latestDate)}</>,
-    },
-    {
-      key: 'severity',
-      header: 'Severity',
-      render: (row) => {
-        const sev = getSeverity(row.missingCount);
-        return <Pill tone={sev.tone}>{sev.label}</Pill>;
-      },
-    },
-    {
-      key: 'actions',
-      header: 'Actions',
-      render: (row) => (
-        <Button
-          variant="accent"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            navigate(`/assignee-rates?userId=${row.userId}`);
-          }}
-        >
-          Add Rate
-        </Button>
-      ),
-    },
-  ];
+  const totalEntries = filtered.reduce((s, i) => s + i.missingCount, 0);
+  const totalHours = filtered.reduce((s, i) => s + i.affectedHours, 0);
+  const totalCostCents = filtered.reduce((s, i) => s + estimatedMissingCostCents(i), 0);
 
   if (isLoading) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <PageHeader title="Missing Rates" description="Operational queue for cost calculation problems." />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
-          <Skeleton height={64} />
-          <Skeleton height={64} />
-          <Skeleton height={64} />
-          <Skeleton height={64} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+          <Skeleton height={72} />
+          <Skeleton height={72} />
+          <Skeleton height={72} />
+          <Skeleton height={72} />
         </div>
-        <Skeleton height={40} />
-        <Skeleton height={200} />
+        <Skeleton height={48} />
+        <Skeleton height={240} />
       </div>
     );
   }
@@ -158,10 +376,13 @@ export function MissingRatesPage() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <PageHeader title="Missing Rates" description="Operational queue for cost calculation problems." />
-        <EmptyState
-          title="No missing rates"
-          body="All time entries have matching assignee rates. Great work!"
-        />
+        <Card>
+          <EmptyState
+            icon={<CircleCheck size={20} />}
+            title="All costs are calculated"
+            body="No missing rate issues found. Time entries are being costed correctly."
+          />
+        </Card>
       </div>
     );
   }
@@ -169,179 +390,79 @@ export function MissingRatesPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <PageHeader
-        title={
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            Missing Rates
-            {totalAssignees > 0 && <Pill tone="amber">{totalAssignees} active</Pill>}
-          </span>
-        }
+        title="Missing Rates"
         description="Operational queue for cost calculation problems. Resolve to enable accurate labor cost reporting."
+        badge={<Pill tone="amber">{filtered.length} active</Pill>}
         actions={
-          <>
-            <Tabs items={TAB_ITEMS} value={activeTab} onChange={setActiveTab} variant="plain" />
-          </>
+          <Tabs value={view} onChange={setView} variant="segmented" items={TAB_ITEMS} />
         }
       />
 
-      {/* KPI Strip */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-          gap: 10,
-        }}
-      >
-        <MetricCard dense label="Affected assignees" value={totalAssignees} />
-        <MetricCard dense label="Affected entries" value={totalEntries} />
-        <MetricCard dense label="Affected hours" value={fmt.hours(totalHours)} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+        <MetricCard
+          dense
+          label="Affected assignees"
+          value={fmt.number(filtered.length)}
+          icon={<Users size={13} />}
+        />
+        <MetricCard dense label="Affected entries" value={fmt.number(totalEntries)} icon={<Clock size={13} />} />
+        <MetricCard dense label="Affected hours" value={fmt.hours(totalHours)} icon={<Clock size={13} />} />
         <MetricCard
           dense
           label="Est. uncosted spend"
-          value={fmt.money(estUncostedCents)}
+          value={fmt.money(totalCostCents)}
+          sublabel="at $42/h placeholder"
+          icon={<DollarSign size={13} />}
         />
       </div>
 
-      {/* Filter bar */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search assignee…"
-          style={{ width: 220 }}
-        />
-        <Select options={SEVERITY_OPTIONS} value={severity} onChange={setSeverity} />
-        <div style={{ flex: 1 }} />
-        <Button variant="default" size="md" icon={<Download size={13} />}>Export issues</Button>
-      </div>
-
-      {/* Grouped view */}
-      {activeTab === 'grouped' && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
-            gap: 16,
-          }}
-        >
-          {filtered.map((item) => {
-            const sev = getSeverity(item.missingCount);
-            return (
-              <div
-                key={item.userId}
-                style={{
-                  background: 'var(--surface)',
-                  border: `1px solid var(--border)`,
-                  borderLeft: `4px solid ${sev.borderColor}`,
-                  borderRadius: 'var(--radius-lg)',
-                  padding: 20,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 16,
-                }}
-              >
-                {/* Header */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <Avatar name={item.userName} size="md" />
-                    <div>
-                      <p
-                        style={{
-                          fontWeight: 600,
-                          color: 'var(--text)',
-                          margin: 0,
-                          fontSize: '0.875rem',
-                        }}
-                      >
-                        {item.userName}
-                      </p>
-                      <p
-                        style={{
-                          fontSize: '0.75rem',
-                          color: 'var(--text-muted)',
-                          margin: 0,
-                        }}
-                      >
-                        {item.userEmail}
-                      </p>
-                    </div>
-                  </div>
-                  <Pill tone={sev.tone}>{sev.label}</Pill>
-                </div>
-
-                {/* Warning message */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: sev.tone === 'red' ? 'var(--pill-amber-bg)' : 'var(--pill-amber-bg)', borderRadius: 6 }}>
-                  <span style={{ fontSize: 12 }}>⚠️</span>
-                  <span style={{ fontSize: 11, color: 'var(--pill-amber-text)', fontWeight: 500 }}>No active rate</span>
-                </div>
-
-                {/* Stats grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                  <div style={{ padding: '8px 12px', background: 'var(--muted-bg)', borderRadius: 8 }}>
-                    <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.04em', color: 'var(--text-muted)', margin: '0 0 3px' }}>Entries</p>
-                    <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: 0 }}>{item.missingCount}</p>
-                  </div>
-                  <div style={{ padding: '8px 12px', background: 'var(--muted-bg)', borderRadius: 8 }}>
-                    <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.04em', color: 'var(--text-muted)', margin: '0 0 3px' }}>Hours</p>
-                    <p style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: 0 }}>{fmt.hours(item.affectedHours)}</p>
-                  </div>
-                </div>
-
-                {/* Date range */}
-                <div>
-                  <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.04em', color: 'var(--text-muted)', margin: '0 0 4px' }}>Date Range</p>
-                  <p style={{ fontSize: 13, color: 'var(--text)', margin: 0 }}>
-                    {fmt.date(item.firstDate)}
-                    <span style={{ margin: '0 6px', color: 'var(--text-faint)' }}>→</span>
-                    {fmt.date(item.latestDate)}
-                  </p>
-                </div>
-
-                {/* Footer buttons */}
-                <div style={{ display: 'flex', gap: 8, paddingTop: 4 }}>
-                  <Button
-                    variant="accent"
-                    size="sm"
-                    onClick={() => navigate(`/assignee-rates?userId=${item.userId}`)}
-                    style={{ flex: 1 }}
-                  >
-                    + Add rate
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => navigate(`/time-entries?userId=${item.userId}&status=NO_RATE_FOUND`)}
-                  >
-                    Entries
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => navigate(`/assignee-rates?userId=${item.userId}`)}
-                  >
-                    Rates
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          flexWrap: 'wrap',
+          padding: 10,
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 200, maxWidth: 300 }}>
+          <Input
+            icon={<Search size={14} />}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search assignee…"
+          />
         </div>
-      )}
+        <Select size="md" value={severityFilter} onChange={setSeverityFilter} options={SEVERITY_OPTIONS} />
+        <span style={{ flex: 1 }} />
+        <Button size="md" variant="ghost" icon={<Download size={13} />}>
+          Export issues
+        </Button>
+      </div>
 
-      {/* Triage queue view */}
-      {activeTab === 'triage' && (
-        <DataTable<MissingRateItem>
-          columns={triageColumns}
-          data={filtered}
-          emptyTitle="No missing rates match your filter"
-          pageSize={50}
-        />
+      {filtered.length === 0 ? (
+        <Card>
+          <EmptyState
+            title="No issues match your filters"
+            body="Try clearing search or changing severity."
+            action={
+              <Button size="sm" variant="default" onClick={() => { setSearch(''); setSeverityFilter('all'); }}>
+                Reset filters
+              </Button>
+            }
+          />
+        </Card>
+      ) : view === 'cards' ? (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 12 }}>
+          {filtered.map((item) => (
+            <MissingRateGroupCard key={item.userId} item={item} navigate={navigate} />
+          ))}
+        </div>
+      ) : (
+        <QueueView items={filtered} navigate={navigate} />
       )}
     </div>
   );

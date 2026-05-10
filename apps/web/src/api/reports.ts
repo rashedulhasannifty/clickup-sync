@@ -1,4 +1,5 @@
 import { apiClient } from './client';
+import { parseRatesListResponse } from './rates';
 
 export const reportsApi = {
   tasksSummary: () => apiClient.get('/reports/tasks/summary').then(r => r.data),
@@ -28,5 +29,7 @@ export const reportsApi = {
   missingRates: () => apiClient.get('/reports/ops/missing-rates').then(r => r.data),
   spaces: () => apiClient.get('/reports/spaces').then(r => r.data),
   assigneeRates: (params?: { page?: number; limit?: number }) =>
-    apiClient.get('/admin/rates', { params }).then(r => r.data),
+    apiClient
+      .get('/admin/rates', { params: { page: 1, limit: 200, ...params } })
+      .then((r) => parseRatesListResponse(r.data)),
 };

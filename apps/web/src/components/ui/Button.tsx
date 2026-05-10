@@ -28,6 +28,16 @@ const VARIANTS: Record<Variant, { bg: string; color: string; border: string }> =
   subtle:  { bg: 'var(--muted-bg)', color: 'var(--text)',   border: 'transparent'   },
 };
 
+/** Hover backgrounds aligned with `design/project/components.jsx` Button. */
+const HOVER_BG: Record<Variant, string> = {
+  default: 'var(--hover)',
+  primary: 'var(--text)',
+  accent: 'var(--accent-hover)',
+  ghost: 'var(--hover)',
+  danger: 'rgb(239 68 68 / 0.08)',
+  subtle: 'var(--hover)',
+};
+
 export function Button({
   variant = 'default',
   size = 'md',
@@ -37,15 +47,27 @@ export function Button({
   children,
   disabled,
   style,
+  onMouseEnter: userMouseEnter,
+  onMouseLeave: userMouseLeave,
   ...props
 }: ButtonProps) {
   const s = SIZES[size] ?? SIZES.md;
   const v = VARIANTS[variant] ?? VARIANTS.default;
+  const hoverBg = HOVER_BG[variant];
 
   return (
     <button
       {...props}
       disabled={disabled || loading}
+      onMouseEnter={(e) => {
+        userMouseEnter?.(e);
+        if (disabled || loading) return;
+        (e.currentTarget as HTMLButtonElement).style.background = hoverBg;
+      }}
+      onMouseLeave={(e) => {
+        userMouseLeave?.(e);
+        (e.currentTarget as HTMLButtonElement).style.background = v.bg;
+      }}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -57,7 +79,7 @@ export function Button({
         color: v.color,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
-        transition: 'all 100ms',
+        transition: 'background 100ms, border-color 100ms, opacity 100ms',
         whiteSpace: 'nowrap',
         ...s,
         ...style,

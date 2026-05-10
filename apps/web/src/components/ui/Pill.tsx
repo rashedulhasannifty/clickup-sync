@@ -15,24 +15,29 @@ export function Pill({
   children,
   tone = 'gray',
   icon,
+  size = 'sm',
   className = '',
 }: {
   children: React.ReactNode;
   tone?: Tone;
   icon?: React.ReactNode;
+  size?: 'xs' | 'sm';
   className?: string;
 }) {
   const { bg, text } = TONES[tone];
+  const pad = size === 'xs' ? '2px 6px' : '3px 8px';
+  const fs = size === 'xs' ? 10 : 11;
   return (
     <span
-      className={`inline-flex items-center text-[11px] font-semibold leading-snug whitespace-nowrap ${className}`}
+      className={`inline-flex items-center font-semibold leading-snug whitespace-nowrap ${className}`}
       style={{
-        padding: '3px 8px',
+        padding: pad,
         borderRadius: 6,
         background: bg,
         color: text,
         gap: 4,
         letterSpacing: '0.01em',
+        fontSize: fs,
       }}
     >
       {icon}

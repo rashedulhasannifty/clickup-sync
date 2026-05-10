@@ -57,12 +57,15 @@ export class ReportsService {
   ) {
     const safeLimit = Math.min(limit, 200);
     const where: Prisma.ClickupTaskWhereInput = {};
+    // ClickUp `archived` flag (exclude / include / only). Always hide soft-deleted rows unless we add a separate flag later.
+    where.isDeleted = false;
     if (archived === 'only') {
-      where.isDeleted = true;
+      where.archived = true;
     } else if (archived === 'include') {
-      // no isDeleted filter
+      // show archived and non-archived
     } else {
-      where.isDeleted = false;
+      // exclude, hide, undefined, '' — default: hide archived tasks
+      where.archived = false;
     }
     if (spaceId) where.spaceId = spaceId;
     if (status) where.status = status;
@@ -81,15 +84,33 @@ export class ReportsService {
         take: safeLimit,
         skip: offset,
         select: {
-          taskId: true, taskName: true, spaceId: true, spaceName: true, status: true,
+          taskId: true, taskName: true, spaceId: true, spaceName: true, status: true, statusType: true, statusColor: true,
           priority: true, parentTaskId: true, assigneesNames: true, assigneesEmails: true,
-          updatedDate: true, syncedAt: true, sprintPoints: true, cost: true,
-          client: true, department: true, isDeleted: true,
+          updatedDate: true, syncedAt: true, sprintPoints: true, sprintName: true, cost: true,
+          client: true, department: true, isDeleted: true, archived: true,
+          listName: true, dueDate: true, timeEstimate: true, timeSpent: true,
+          createdDate: true, closedDate: true, startDate: true, syncCount: true,
+          estimation: true, folderName: true, creatorName: true, executiveName: true,
         },
       }),
       this.prisma.clickupTask.count({ where }),
     ]);
-    return { items: items.map(t => ({ ...t, cost: t.cost.toNumber() })), total, limit: safeLimit, offset };
+    const MS_PER_H = 3600000;
+    return {
+      items: items.map((t) => {
+        const { timeEstimate, timeSpent, cost, estimation, ...rest } = t;
+        return {
+          ...rest,
+          cost: cost.toNumber(),
+          estimation: estimation.toNumber(),
+          timeEstimateHours: timeEstimate != null ? Number(timeEstimate) / MS_PER_H : null,
+          timeSpentHours: timeSpent != null ? Number(timeSpent) / MS_PER_H : null,
+        };
+      }),
+      total,
+      limit: safeLimit,
+      offset,
+    };
   }
 
   async timeEntriesByUser(fromParam?: string, toParam?: string) {
@@ -174,15 +195,36 @@ export class ReportsService {
     offset = 0,
     billable?: string,
     search?: string,
+    spaceId?: string,
+    missingOnly?: string,
   ) {
     const safeLimit = Math.min(limit, 200);
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
     const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: from, lte: to } };
+    const and: Prisma.ClickupTimeEntryWhereInput[] = [];
+    if (spaceId) and.push({ task: { spaceId, isDeleted: false } });
     if (userId) where.userId = userId;
-    if (status) where.status = status;
-    if (billable !== undefined) where.billable = billable === 'true';
-    if (search) where.task = { taskName: { contains: search, mode: 'insensitive' } };
+    if (missingOnly === 'true') {
+      where.status = 'NO_RATE_FOUND';
+    } else if (status) {
+      where.status = status;
+    }
+    if (billable === 'true') where.billable = true;
+    else if (billable === 'false') where.billable = false;
+    if (search?.trim()) {
+      const q = search.trim();
+      and.push({
+        OR: [
+          { task: { taskName: { contains: q, mode: 'insensitive' } } },
+          { userName: { contains: q, mode: 'insensitive' } },
+          { userEmail: { contains: q, mode: 'insensitive' } },
+          { taskId: { contains: q, mode: 'insensitive' } },
+          { timeEntryId: { contains: q, mode: 'insensitive' } },
+        ],
+      });
+    }
+    if (and.length) where.AND = and;
     const [items, total] = await this.prisma.$transaction([
       this.prisma.clickupTimeEntry.findMany({
         where,
@@ -193,6 +235,7 @@ export class ReportsService {
           timeEntryId: true, taskId: true, userId: true, userName: true, userEmail: true,
           startTime: true, endTime: true, durationHours: true, hourlyRateCents: true,
           costCents: true, status: true, billable: true, description: true, syncedAt: true,
+          rateId: true, currency: true,
           task: { select: { taskName: true } },
         },
       }),
@@ -201,9 +244,9 @@ export class ReportsService {
     return {
       items: items.map(e => ({
         timeEntryId: e.timeEntryId,
-        taskId: e.taskId,
+        taskId: e.taskId ?? '',
         taskName: e.task?.taskName ?? null,
-        userId: e.userId,
+        userId: e.userId ?? '',
         userName: e.userName,
         userEmail: e.userEmail,
         startTime: e.startTime,
@@ -215,6 +258,8 @@ export class ReportsService {
         billable: e.billable,
         description: e.description,
         syncedAt: e.syncedAt,
+        rateId: e.rateId != null ? e.rateId.toString() : null,
+        currency: e.currency ?? 'AUD',
       })),
       total,
       limit: safeLimit,

@@ -31,6 +31,9 @@
   --radius-sm: 4px;
   --radius-lg: 12px;
   --skeleton: var(--muted-bg);
+  --table-head-bg: var(--surface-alt);
+  --table-zebra: rgba(15, 23, 42, 0.02);
+  --code-bg: var(--muted-bg);
 
   /* Pill color tokens */
   --pill-gray-bg: #f1f5f9;
@@ -86,6 +89,9 @@
   --pill-blue-text: #60a5fa;
   --pill-purple-bg: rgba(139, 92, 246, 0.18);
   --pill-purple-text: #c4b5fd;
+  --table-head-bg: var(--surface-alt);
+  --table-zebra: rgba(255, 255, 255, 0.02);
+  --code-bg: #0f0f11;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
