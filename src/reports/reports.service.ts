@@ -42,12 +42,35 @@ export class ReportsService {
     return rows.map(r => ({ spaceName: r.spaceName, status: r.status, count: r._count.taskId }));
   }
 
-  async tasks(spaceId?: string, status?: string, search?: string, fromParam?: string, toParam?: string, limit = 50, offset = 0) {
+  async tasks(
+    spaceId?: string,
+    status?: string,
+    search?: string,
+    fromParam?: string,
+    toParam?: string,
+    limit = 50,
+    offset = 0,
+    priority?: string,
+    assigneeId?: string,
+    type?: string,
+    archived?: string,
+  ) {
     const safeLimit = Math.min(limit, 200);
-    const where: Prisma.ClickupTaskWhereInput = { isDeleted: false };
+    const where: Prisma.ClickupTaskWhereInput = {};
+    if (archived === 'only') {
+      where.isDeleted = true;
+    } else if (archived === 'include') {
+      // no isDeleted filter
+    } else {
+      where.isDeleted = false;
+    }
     if (spaceId) where.spaceId = spaceId;
     if (status) where.status = status;
+    if (priority) where.priority = priority;
     if (search) where.taskName = { contains: search, mode: 'insensitive' };
+    if (type === 'parent') where.parentTaskId = null;
+    if (type === 'subtask') where.parentTaskId = { not: null };
+    if (assigneeId) where.assigneesNames = { contains: assigneeId, mode: 'insensitive' };
     if (fromParam || toParam) {
       where.updatedDate = { gte: parseDate(fromParam, new Date(0)), lte: parseDate(toParam, new Date()) };
     }
@@ -57,7 +80,12 @@ export class ReportsService {
         orderBy: { updatedDate: 'desc' },
         take: safeLimit,
         skip: offset,
-        select: { taskId: true, taskName: true, spaceId: true, spaceName: true, status: true, assigneesNames: true, updatedDate: true, sprintPoints: true, cost: true, client: true, department: true },
+        select: {
+          taskId: true, taskName: true, spaceId: true, spaceName: true, status: true,
+          priority: true, parentTaskId: true, assigneesNames: true, assigneesEmails: true,
+          updatedDate: true, syncedAt: true, sprintPoints: true, cost: true,
+          client: true, department: true, isDeleted: true,
+        },
       }),
       this.prisma.clickupTask.count({ where }),
     ]);
@@ -137,20 +165,36 @@ export class ReportsService {
     };
   }
 
-  async timeEntriesList(userId?: string, fromParam?: string, toParam?: string, status?: string, limit = 50, offset = 0) {
+  async timeEntriesList(
+    userId?: string,
+    fromParam?: string,
+    toParam?: string,
+    status?: string,
+    limit = 50,
+    offset = 0,
+    billable?: string,
+    search?: string,
+  ) {
     const safeLimit = Math.min(limit, 200);
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
     const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: from, lte: to } };
     if (userId) where.userId = userId;
     if (status) where.status = status;
+    if (billable !== undefined) where.billable = billable === 'true';
+    if (search) where.task = { taskName: { contains: search, mode: 'insensitive' } };
     const [items, total] = await this.prisma.$transaction([
       this.prisma.clickupTimeEntry.findMany({
         where,
         orderBy: { startTime: 'desc' },
         take: safeLimit,
         skip: offset,
-        select: { timeEntryId: true, taskId: true, userId: true, userName: true, userEmail: true, startTime: true, durationHours: true, hourlyRateCents: true, costCents: true, status: true, billable: true, task: { select: { taskName: true } } },
+        select: {
+          timeEntryId: true, taskId: true, userId: true, userName: true, userEmail: true,
+          startTime: true, endTime: true, durationHours: true, hourlyRateCents: true,
+          costCents: true, status: true, billable: true, description: true, syncedAt: true,
+          task: { select: { taskName: true } },
+        },
       }),
       this.prisma.clickupTimeEntry.count({ where }),
     ]);
@@ -163,11 +207,14 @@ export class ReportsService {
         userName: e.userName,
         userEmail: e.userEmail,
         startTime: e.startTime,
+        endTime: e.endTime,
         durationHours: e.durationHours.toNumber(),
         hourlyRateCents: Number(e.hourlyRateCents),
         costAud: Number(e.costCents) / 100,
         status: e.status,
         billable: e.billable,
+        description: e.description,
+        syncedAt: e.syncedAt,
       })),
       total,
       limit: safeLimit,
@@ -255,5 +302,73 @@ export class ReportsService {
       this.prisma.clickupTimeEntry.count({ where: { status: 'NO_RATE_FOUND' } }),
     ]);
     return { failedJobsLast24h, deadLetterPending, webhooksLast24h, missingRateEntries };
+  }
+
+  async missingRates() {
+    type Row = {
+      user_id: string;
+      user_name: string;
+      user_email: string;
+      missing_count: bigint;
+      affected_hours: number;
+      first_date: Date;
+      latest_date: Date;
+    };
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      SELECT
+        e.user_id,
+        e.user_name,
+        e.user_email,
+        COUNT(*)::bigint AS missing_count,
+        COALESCE(SUM(e.duration_hours), 0)::float AS affected_hours,
+        MIN(e.start_time) AS first_date,
+        MAX(e.start_time) AS latest_date
+      FROM clickup_time_entries e
+      WHERE e.status = 'NO_RATE_FOUND'
+      GROUP BY e.user_id, e.user_name, e.user_email
+      ORDER BY COUNT(*) DESC
+    `);
+    return rows.map(r => ({
+      userId: r.user_id,
+      userName: r.user_name,
+      userEmail: r.user_email,
+      missingCount: Number(r.missing_count),
+      affectedHours: Number(r.affected_hours),
+      firstDate: r.first_date,
+      latestDate: r.latest_date,
+    }));
+  }
+
+  async spaces() {
+    type Row = {
+      space_id: string;
+      space_name: string;
+      task_count: bigint;
+      open_count: bigint;
+      hours_logged: number;
+      cost_cents: number;
+    };
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      SELECT
+        t.space_id,
+        t.space_name,
+        COUNT(DISTINCT t.task_id)::bigint AS task_count,
+        COUNT(DISTINCT CASE WHEN t.status NOT IN ('complete', 'closed') THEN t.task_id END)::bigint AS open_count,
+        COALESCE(SUM(e.duration_hours), 0)::float AS hours_logged,
+        COALESCE(SUM(e.cost_cents), 0)::float AS cost_cents
+      FROM clickup_tasks t
+      LEFT JOIN clickup_time_entries e ON e.task_id = t.task_id
+      WHERE t.is_deleted = false
+      GROUP BY t.space_id, t.space_name
+      ORDER BY task_count DESC
+    `);
+    return rows.map(r => ({
+      spaceId: r.space_id,
+      spaceName: r.space_name,
+      taskCount: Number(r.task_count),
+      openCount: Number(r.open_count),
+      hoursLogged: Number(r.hours_logged),
+      costAud: Number(r.cost_cents) / 100,
+    }));
   }
 }

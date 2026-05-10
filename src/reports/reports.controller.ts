@@ -19,7 +19,7 @@ export class ReportsController {
   tasksBySpaceStatus() { return this.reports.tasksBySpaceStatus(); }
 
   @Get('tasks')
-  @ApiOperation({ summary: 'Paginated task list with filters (spaceId, status, search, from, to)' })
+  @ApiOperation({ summary: 'Paginated task list with filters (spaceId, status, priority, assigneeId, type, archived, search, from, to)' })
   tasks(
     @Query('spaceId') spaceId?: string,
     @Query('status') status?: string,
@@ -28,8 +28,12 @@ export class ReportsController {
     @Query('to') to?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('priority') priority?: string,
+    @Query('assigneeId') assigneeId?: string,
+    @Query('type') type?: string,
+    @Query('archived') archived?: string,
   ) {
-    return this.reports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0);
+    return this.reports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived);
   }
 
   @Get('time-entries/by-user')
@@ -57,7 +61,7 @@ export class ReportsController {
   }
 
   @Get('time-entries')
-  @ApiOperation({ summary: 'Paginated time entry list with filters (userId, from, to, status)' })
+  @ApiOperation({ summary: 'Paginated time entry list with filters (userId, from, to, status, billable, search)' })
   timeEntriesList(
     @Query('userId') userId?: string,
     @Query('from') from?: string,
@@ -65,8 +69,10 @@ export class ReportsController {
     @Query('status') status?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
+    @Query('billable') billable?: string,
+    @Query('search') search?: string,
   ) {
-    return this.reports.timeEntriesList(userId, from, to, status, Number(limit) || 50, Number(offset) || 0);
+    return this.reports.timeEntriesList(userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search);
   }
 
   @Get('sprint-points')
@@ -105,4 +111,12 @@ export class ReportsController {
   @Get('ops/stats')
   @ApiOperation({ summary: 'Dashboard overview stats (failures, dead-letters, webhooks, missing rates)' })
   stats() { return this.reports.stats(); }
+
+  @Get('ops/missing-rates')
+  @ApiOperation({ summary: 'Assignees with NO_RATE_FOUND time entries, grouped by user' })
+  missingRates() { return this.reports.missingRates(); }
+
+  @Get('spaces')
+  @ApiOperation({ summary: 'Per-space task, hour, and cost aggregates' })
+  spaces() { return this.reports.spaces(); }
 }
