@@ -11,6 +11,7 @@ import { TaskSyncProcessor } from './task-sync.processor';
 import { TimeEntrySyncProcessor } from './time-entry-sync.processor';
 import { BackfillProcessor } from './backfill.processor';
 import { RatesSyncProcessor } from './rates-sync.processor';
+import { TimeEntryReplacementProcessor } from './time-entry-replacement.processor';
 
-@Module({ imports: [QueuesModule, WebhooksModule, TasksModule, TimeEntriesModule, SyncModule, RatesModule, JobsModule], providers: [ClickupEventProcessor, TaskSyncProcessor, TimeEntrySyncProcessor, BackfillProcessor, RatesSyncProcessor] })
+@Module({ imports: [QueuesModule, WebhooksModule, TasksModule, TimeEntriesModule, SyncModule, RatesModule, JobsModule], providers: [ClickupEventProcessor, TaskSyncProcessor, TimeEntrySyncProcessor, BackfillProcessor, RatesSyncProcessor, TimeEntryReplacementProcessor] })
 export class WorkersModule {}

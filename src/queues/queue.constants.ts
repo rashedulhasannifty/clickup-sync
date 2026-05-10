@@ -5,6 +5,7 @@ export const QUEUES = {
   CLICKUP_BACKFILLS: 'clickup-backfills',
   ASSIGNEE_RATES: 'assignee-rates',
   MAINTENANCE: 'maintenance',
+  CLICKUP_ASSIGNEE_REPLACEMENT: 'clickup-assignee-replacement',
 } as const;
 
 export const JOBS = {
@@ -15,4 +16,5 @@ export const JOBS = {
   BACKFILL_CLICKUP_SPACE: 'backfill-clickup-space',
   SYNC_ASSIGNEE_RATES: 'sync-assignee-rates',
   REFRESH_CLICKUP_WEBHOOKS: 'refresh-clickup-webhooks',
+  REPLACE_TIME_ENTRY_ASSIGNEES: 'replace-time-entry-assignees',
 } as const;
