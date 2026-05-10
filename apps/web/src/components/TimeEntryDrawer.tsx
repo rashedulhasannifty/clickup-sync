@@ -7,6 +7,7 @@ import { Callout } from './ui/Callout';
 import { Button } from './ui/Button';
 
 export interface TimeEntryItem {
+  [key: string]: unknown;
   timeEntryId: string;
   taskId: string;
   taskName: string | null;

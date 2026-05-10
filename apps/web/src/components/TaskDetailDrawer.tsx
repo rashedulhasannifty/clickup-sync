@@ -12,6 +12,7 @@ import { useTimeEntriesList } from '../hooks/useReports';
 import { useSyncTask } from '../hooks/useAdmin';
 
 export interface TaskItem {
+  [key: string]: unknown;
   taskId: string;
   taskName: string;
   spaceId: string;

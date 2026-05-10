@@ -15,6 +15,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Button } from '../components/ui/Button';
 
 interface MissingRateItem {
+  [key: string]: unknown;
   userId: string;
   userName: string;
   userEmail: string;

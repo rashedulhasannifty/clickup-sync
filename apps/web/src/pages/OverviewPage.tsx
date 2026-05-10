@@ -32,6 +32,20 @@ function moneyAud(dollars: number): string {
 
 type SyncStatus = 'Fresh' | 'Stale' | 'Unknown';
 
+interface SyncHealthItem {
+  scopeId: string;
+  spaceName: string;
+  lastSuccessfulSyncAt: string | null;
+  ageMinutes: number | null;
+  status: SyncStatus;
+}
+
+interface TaskBySpaceRow { spaceName: string; status: string; count: number; }
+interface UserTimeRow { userName: string; totalHours: number; totalCostAud: number; }
+interface ClientTimeRow { client: string; totalHours: number; }
+interface DeptTimeRow { department: string; totalHours: number; }
+interface SprintPointRow { spaceName: string; status: string; totalPoints: number; }
+
 function SyncPulseDot({ status }: { status: SyncStatus }) {
   const color =
     status === 'Fresh' ? '#10b981' : status === 'Stale' ? '#f59e0b' : '#64748b';
@@ -122,42 +136,43 @@ export function OverviewPage() {
   const billableCost = billableData?.billableCostAud ?? 0;
 
   // Build tasks-by-space-status bar data
-  const taskBarData = (tasksBySpaceStatus.data ?? []).map((r) => ({
+  const taskBarData = (tasksBySpaceStatus.data as TaskBySpaceRow[] | undefined ?? []).map((r) => ({
     label: `${r.spaceName} · ${r.status}`,
     value: r.count,
   }));
 
   // Top 8 users by hours
-  const userBarData = [...(timeByUser.data ?? [])]
+  const userBarData = [...(timeByUser.data as UserTimeRow[] | undefined ?? [])]
     .sort((a, b) => b.totalHours - a.totalHours)
     .slice(0, 8)
     .map((r) => ({ label: r.userName, value: r.totalHours }));
 
-  const clientBarData = (timeByClient.data ?? []).map((r) => ({
+  const clientBarData = (timeByClient.data as ClientTimeRow[] | undefined ?? []).map((r) => ({
     label: r.client,
     value: r.totalHours,
   }));
 
-  const deptBarData = (timeByDept.data ?? []).map((r) => ({
+  const deptBarData = (timeByDept.data as DeptTimeRow[] | undefined ?? []).map((r) => ({
     label: r.department,
     value: r.totalHours,
   }));
 
   const donutData = billableData
     ? [
-        { label: 'Billable', value: billableData.billableHours, color: '#7B68EE' },
-        { label: 'Non-billable', value: billableData.nonBillableHours, color: '#64748b' },
+        { label: 'Billable', value: (billableData as { billableHours: number }).billableHours, color: '#7B68EE' },
+        { label: 'Non-billable', value: (billableData as { nonBillableHours: number }).nonBillableHours, color: '#64748b' },
       ]
     : [];
 
-  const sprintBarData = (sprintPoints.data ?? []).map((r) => ({
+  const sprintBarData = (sprintPoints.data as SprintPointRow[] | undefined ?? []).map((r) => ({
     label: `${r.spaceName} · ${r.status}`,
     value: r.totalPoints,
   }));
 
   const webhookItems = webhookEvents.data?.items ?? [];
 
-  const staleSpaces = (syncHealth.data ?? []).filter((s) => s.status === 'Stale');
+  const syncHealthItems = (syncHealth.data as SyncHealthItem[] | undefined) ?? [];
+  const staleSpaces = syncHealthItems.filter((s) => s.status === 'Stale');
   const hasAlerts = staleSpaces.length > 0 || deadLetters > 0 || missingRates > 0;
 
   return (
@@ -212,13 +227,13 @@ export function OverviewPage() {
             <Skeleton height={24} />
             <Skeleton height={24} />
           </div>
-        ) : (syncHealth.data ?? []).length === 0 ? (
+        ) : syncHealthItems.length === 0 ? (
           <p className="text-sm text-[var(--text-muted)]">No sync data available.</p>
         ) : (
           <div className="flex flex-col gap-2">
-            {(syncHealth.data ?? []).map((s) => (
+            {syncHealthItems.map((s) => (
               <div key={s.scopeId} className="flex items-center gap-3">
-                <SyncPulseDot status={s.status as SyncStatus} />
+                <SyncPulseDot status={s.status} />
                 <span className="text-sm text-[var(--text)] flex-1">{s.spaceName}</span>
                 <span className="text-xs text-[var(--text-muted)]">
                   {s.ageMinutes != null ? `${s.ageMinutes} min ago` : 'Unknown'}
