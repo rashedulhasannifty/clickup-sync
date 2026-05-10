@@ -3,11 +3,13 @@ import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { AdminApiKeyGuard } from './admin-api-key.guard';
 import { SyncTaskDto } from './dto/sync-task.dto';
 import { BackfillDto } from './dto/backfill.dto';
+import { BackfillReplacementDto } from './dto/backfill-replacement.dto';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { DeadLetterRepository } from '../jobs/dead-letter.repository';
 import { ClickupWebhooksService } from '../clickup/clickup-webhooks.service';
+import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
 
 @ApiTags('admin')
 @ApiSecurity('x-admin-key')
@@ -18,6 +20,7 @@ export class AdminController {
     private readonly queues: QueueService,
     private readonly deadLetters: DeadLetterRepository,
     private readonly webhooks: ClickupWebhooksService,
+    private readonly timeEntriesRepo: TimeEntriesRepository,
   ) {}
 
   @Post('tasks/sync')
@@ -71,5 +74,34 @@ export class AdminController {
     await this.queues.get(record.queueName).add(record.jobName, record.payload, this.queues.defaultJobOptions());
     await this.deadLetters.markRetried(BigInt(id));
     return { requeued: true, id, queueName: record.queueName, jobName: record.jobName };
+  }
+
+  @Post('time-entries/backfill-replacement')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Queue replacement jobs for all historical agency-user time entries not yet replaced' })
+  async backfillReplacement(@Body() dto: BackfillReplacementDto) {
+    const agencyUserId = process.env.CLICKUP_AGENCY_USER_ID;
+    if (!agencyUserId) throw new BadRequestException('CLICKUP_AGENCY_USER_ID env var is not set');
+
+    const limit = Math.min(dto.limit ?? 500, 2000);
+    const entries = await this.timeEntriesRepo.findUnreplacedAgencyEntries(agencyUserId, limit);
+
+    for (const entry of entries) {
+      this.queues.get(QUEUES.CLICKUP_ASSIGNEE_REPLACEMENT).add(
+        JOBS.REPLACE_TIME_ENTRY_ASSIGNEES,
+        {
+          timeEntryId: entry.timeEntryId,
+          taskId: entry.taskId ?? '',
+          startMs: entry.startTime?.getTime() ?? 0,
+          endMs: entry.endTime?.getTime() ?? 0,
+          durationHours: Number(entry.durationHours),
+          billable: entry.billable,
+          description: entry.description ?? undefined,
+        },
+        this.queues.defaultJobOptions(),
+      );
+    }
+
+    return { queued: entries.length, agencyUserId, limit };
   }
 }

@@ -14,4 +14,29 @@ export class TimeEntriesRepository {
       update: { ...entry, raw: entry.raw as Prisma.InputJsonValue, ...cost },
     });
   }
+
+  async findUnreplacedAgencyEntries(agencyUserId: string, limit = 500) {
+    const replaced = await this.prisma.timeEntryReplacement.findMany({
+      select: { originalEntryId: true },
+    });
+    const replacedIds = new Set(replaced.map((r) => r.originalEntryId));
+
+    return this.prisma.clickupTimeEntry.findMany({
+      where: {
+        userId: agencyUserId,
+        timeEntryId: { notIn: replacedIds.size > 0 ? [...replacedIds] : ['__never__'] },
+      },
+      take: limit,
+      orderBy: { startTime: 'asc' },
+      select: {
+        timeEntryId: true,
+        taskId: true,
+        startTime: true,
+        endTime: true,
+        durationHours: true,
+        billable: true,
+        description: true,
+      },
+    });
+  }
 }
