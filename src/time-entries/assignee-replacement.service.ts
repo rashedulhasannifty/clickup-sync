@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ClickupClient } from '../clickup/clickup.client';
-import { ClickupNormalizer } from '../clickup/clickup-normalizer';
+import { NormalizedTimeEntry } from '../clickup/clickup-normalizer';
 import { TagAssigneeMapRepository } from './tag-assignee-map.repository';
 import { TimeEntryReplacementsRepository } from './time-entry-replacements.repository';
 import { CostCalculatorService } from './cost-calculator.service';
@@ -22,7 +22,6 @@ export class AssigneeReplacementService {
 
   constructor(
     private readonly clickup: ClickupClient,
-    private readonly normalizer: ClickupNormalizer,
     private readonly tagAssigneeMap: TagAssigneeMapRepository,
     private readonly replacements: TimeEntryReplacementsRepository,
     private readonly costs: CostCalculatorService,
@@ -31,6 +30,8 @@ export class AssigneeReplacementService {
 
   async replaceEntry(data: ReplacementJobData): Promise<{ status: 'replaced' | 'skipped' | 'no_mapping' }> {
     const teamId = process.env.CLICKUP_TEAM_ID || '3450636';
+    const agencyUserId = process.env.CLICKUP_AGENCY_USER_ID;
+    if (!agencyUserId) throw new Error('CLICKUP_AGENCY_USER_ID env var is not set');
 
     // 1. Idempotency check
     const existing = await this.replacements.findByOriginalEntryId(data.timeEntryId);
@@ -41,11 +42,12 @@ export class AssigneeReplacementService {
 
     // 2. Fetch task to get tags
     let tagName: string | null = null;
+    let activeMap: Awaited<ReturnType<typeof this.tagAssigneeMap.findAllActive>> = [];
     try {
       const task = await this.clickup.getTask(data.taskId);
       const tags = task.tags?.map((t) => t.name?.toLowerCase()).filter(Boolean) ?? [];
-      const activeMap = await this.tagAssigneeMap.findAllActive();
-      const activeTagNames = new Set(activeMap.map((m) => m.tagName));
+      activeMap = await this.tagAssigneeMap.findAllActive();
+      const activeTagNames = new Set(activeMap.map((m) => m.tagName.toLowerCase()));
       const matchedTag = tags.find((t) => activeTagNames.has(t!)) ?? null;
       tagName = matchedTag ?? null;
     } catch (err: any) {
@@ -58,7 +60,7 @@ export class AssigneeReplacementService {
       return { status: 'no_mapping' };
     }
 
-    const mapping = await this.tagAssigneeMap.findByTagName(tagName);
+    const mapping = activeMap.find((m) => m.tagName.toLowerCase() === tagName);
     if (!mapping) return { status: 'no_mapping' };
 
     const realUserId = mapping.clickupUserId;
@@ -78,7 +80,7 @@ export class AssigneeReplacementService {
       originalEntryId: data.timeEntryId,
       replacementEntryId: created.id,
       taskId: data.taskId,
-      originalUserId: process.env.CLICKUP_AGENCY_USER_ID || '3584055',
+      originalUserId: agencyUserId,
       replacedUserId: realUserId,
       tagName,
       status: 'replaced',
@@ -90,7 +92,20 @@ export class AssigneeReplacementService {
     // 7. Upsert replacement entry into local DB with recalculated cost
     const startTime = new Date(data.startMs);
     const cost = await this.costs.calculate(realUserId, startTime, data.durationHours);
-    const normalized = this.normalizer.normalizeTimeEntry(created);
+    const normalized: NormalizedTimeEntry = {
+      timeEntryId: created.id,
+      taskId: data.taskId,
+      taskName: null,
+      userId: realUserId,
+      userName: mapping.clickupUserName ?? null,
+      userEmail: mapping.clickupEmail ?? null,
+      startTime: new Date(data.startMs),
+      endTime: new Date(data.endMs),
+      durationHours: data.durationHours,
+      billable: data.billable,
+      description: data.description ?? null,
+      raw: created,
+    };
     await this.timeEntries.upsert(normalized, cost);
 
     if (cost.status === 'NO_RATE_FOUND') {
