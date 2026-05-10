@@ -5,10 +5,11 @@ import { TimeEntryReplacementsRepository } from './time-entry-replacements.repos
 import { TagAssigneeMapRepository } from './tag-assignee-map.repository';
 import { CostCalculatorService } from './cost-calculator.service';
 import { TimeEntriesService } from './time-entries.service';
+import { AssigneeReplacementService } from './assignee-replacement.service';
 
 @Module({
   imports: [ClickupModule],
-  providers: [TimeEntriesRepository, TimeEntryReplacementsRepository, TagAssigneeMapRepository, CostCalculatorService, TimeEntriesService],
-  exports: [TimeEntriesService, TimeEntriesRepository, TimeEntryReplacementsRepository, TagAssigneeMapRepository, CostCalculatorService],
+  providers: [TimeEntriesRepository, TimeEntryReplacementsRepository, TagAssigneeMapRepository, CostCalculatorService, TimeEntriesService, AssigneeReplacementService],
+  exports: [TimeEntriesService, TimeEntriesRepository, TimeEntryReplacementsRepository, TagAssigneeMapRepository, CostCalculatorService, AssigneeReplacementService],
 })
 export class TimeEntriesModule {}
