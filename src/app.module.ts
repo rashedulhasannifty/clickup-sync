@@ -14,6 +14,7 @@ import { RatesModule } from './rates/rates.module';
 import { SyncModule } from './sync/sync.module';
 import { WorkersModule } from './workers/workers.module';
 import { AdminModule } from './admin/admin.module';
+import { ReportsModule } from './reports/reports.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -34,6 +35,7 @@ import { HealthController } from './health/health.controller';
     SyncModule,
     WorkersModule,
     AdminModule,
+    ReportsModule,
   ],
   controllers: [HealthController],
 })
