@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { NormalizedTask } from '../clickup/clickup-normalizer';
 
@@ -9,8 +10,8 @@ export class TasksRepository {
   upsert(task: NormalizedTask) {
     return this.prisma.clickupTask.upsert({
       where: { taskId: task.taskId },
-      create: { ...task, isDeleted: false, syncCount: 1 },
-      update: { ...task, isDeleted: false, deletedAt: null, syncCount: { increment: 1 } },
+      create: { ...task, raw: task.raw as Prisma.InputJsonValue, isDeleted: false, syncCount: 1 },
+      update: { ...task, raw: task.raw as Prisma.InputJsonValue, isDeleted: false, deletedAt: null, syncCount: { increment: 1 } },
     });
   }
 

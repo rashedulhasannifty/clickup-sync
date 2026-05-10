@@ -8,7 +8,7 @@ import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 export class SyncScheduler {
   constructor(private readonly queues: QueueService) {}
 
-  @Cron(CronExpression.EVERY_15_MINUTES)
+  @Cron('0 */15 * * * *')
   async reconcileRecentUpdates() {
     for (const space of CLICKUP_SPACES) {
       await this.queues.get(QUEUES.CLICKUP_BACKFILLS).add(JOBS.BACKFILL_CLICKUP_SPACE, { spaceId: space.id, lookbackDays: 1 }, this.queues.defaultJobOptions());

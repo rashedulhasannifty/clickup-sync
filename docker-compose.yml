@@ -5,10 +5,11 @@ services:
       POSTGRES_DB: clickup_sync
       POSTGRES_USER: clickup
       POSTGRES_PASSWORD: clickup
+      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U clickup -d clickup_sync"]
       interval: 10s

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { NormalizedTimeEntry } from '../clickup/clickup-normalizer';
 
@@ -9,8 +10,8 @@ export class TimeEntriesRepository {
   upsert(entry: NormalizedTimeEntry, cost: { rateId: bigint | null; currency: string; hourlyRateCents: bigint; costCents: bigint; status: string }) {
     return this.prisma.clickupTimeEntry.upsert({
       where: { timeEntryId: entry.timeEntryId },
-      create: { ...entry, ...cost },
-      update: { ...entry, ...cost },
+      create: { ...entry, raw: entry.raw as Prisma.InputJsonValue, ...cost },
+      update: { ...entry, raw: entry.raw as Prisma.InputJsonValue, ...cost },
     });
   }
 }

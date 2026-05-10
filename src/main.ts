@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import 'reflect-metadata';
 import compression from 'compression';
 import helmet from 'helmet';
