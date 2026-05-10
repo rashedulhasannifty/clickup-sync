@@ -70,10 +70,8 @@ export class ClickupClient {
 
   async createTimeEntry(teamId: string, payload: CreateTimeEntryPayload): Promise<ClickUpTimeEntry> {
     const res: any = await this.request('POST', `/team/${teamId}/time_entries`, payload);
-    return res.data || res;
+    return res.data;
   }
 
-  async deleteTimeEntry(teamId: string, entryId: string): Promise<void> {
-    await this.request('DELETE', `/team/${teamId}/time_entries/${entryId}`);
-  }
+  async deleteTimeEntry(teamId: string, entryId: string): Promise<void> { await this.request('DELETE', `/team/${teamId}/time_entries/${entryId}`); }
 }
