@@ -1,4 +1,14 @@
+import axios from 'axios';
 import { apiClient } from './client';
+
+export async function validateAdminKey(key: string): Promise<boolean> {
+  try {
+    await axios.get('/api/admin/ping', { headers: { 'x-admin-key': key } });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export const adminApi = {
   syncTask: (taskId: string) => apiClient.post('/admin/tasks/sync', { taskId }).then(r => r.data),

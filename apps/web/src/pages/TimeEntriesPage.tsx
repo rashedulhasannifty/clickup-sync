@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Clock, DollarSign, AlertTriangle, CircleCheck, Download, RefreshCw } from 'lucide-react';
 import { useTimeEntriesList } from '../hooks/useReports';
 import { fmt } from '../lib/formatters';
 import { PageHeader } from '../components/ui/PageHeader';
 import { MetricCard } from '../components/ui/MetricCard';
+import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { Select } from '../components/ui/Select';
 import { Switch } from '../components/ui/Switch';
 import type { Column } from '../components/ui/DataTable';
 import { DataTable } from '../components/ui/DataTable';
@@ -13,6 +16,18 @@ import { Pill } from '../components/ui/Pill';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { TimeEntryDrawer } from '../components/TimeEntryDrawer';
 import type { TimeEntryItem } from '../components/TimeEntryDrawer';
+
+const ASSIGNEE_OPTIONS = [{ value: '', label: 'Any assignee' }];
+const BILLABLE_OPTIONS = [
+  { value: '', label: 'Billable + non' },
+  { value: 'true', label: 'Billable only' },
+  { value: 'false', label: 'Non-billable only' },
+];
+const STATUS_OPTIONS = [
+  { value: '', label: 'Any status' },
+  { value: 'COST_CALCULATED', label: 'Cost calculated' },
+  { value: 'NO_RATE_FOUND', label: 'No rate found' },
+];
 
 const PAGE_SIZE = 50;
 
@@ -54,7 +69,6 @@ export function TimeEntriesPage() {
   // KPIs computed from current page
   const totalHours = items.reduce((s, r) => s + r.durationHours, 0);
   const billableHours = items.filter(r => r.billable).reduce((s, r) => s + r.durationHours, 0);
-  const billablePct = totalHours > 0 ? (billableHours / totalHours) * 100 : 0;
   // costAud is in dollars; fmt.money expects cents
   const totalCostCents = items.reduce((s, r) => s + r.costAud * 100, 0);
   const missingRateCount = items.filter(r => r.status === 'NO_RATE_FOUND').length;
@@ -165,99 +179,74 @@ export function TimeEntriesPage() {
     },
   ];
 
+  const nonBillableHours = totalHours - billableHours;
+  const calculatedCount = items.filter(r => r.status === 'COST_CALCULATED').length;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 24 }}>
-      <PageHeader title="Time Entries" />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <PageHeader
+        title="Time Entries"
+        description="Audit time tracking and verify calculated labor costs."
+        actions={
+          <>
+            <Button size="md" variant="default" icon={<Download size={13} />}>Export CSV</Button>
+            <Button size="md" variant="accent" icon={<RefreshCw size={13} />}>Recalculate costs</Button>
+          </>
+        }
+      />
 
       {/* KPI Strip */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-          gap: 12,
+          gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+          gap: 10,
         }}
       >
-        <MetricCard dense label="Total Hours" value={fmt.hours(totalHours)} />
-        <MetricCard dense label="Total Entries" value={total} />
-        <MetricCard dense label="Billable Hours" value={fmt.hours(billableHours)} />
-        <MetricCard dense label="Billable %" value={`${billablePct.toFixed(1)}%`} />
-        <MetricCard dense label="Total Cost" value={fmt.money(totalCostCents)} />
+        <MetricCard dense label="Total hours" value={fmt.hours(totalHours)} icon={<Clock size={13} />} />
+        <MetricCard dense label="Billable" value={fmt.hours(billableHours)} icon={<DollarSign size={13} />} />
+        <MetricCard dense label="Non-billable" value={fmt.hours(nonBillableHours)} icon={<Clock size={13} />} />
+        <MetricCard dense label="Total cost" value={fmt.money(totalCostCents)} icon={<DollarSign size={13} />} />
+        <MetricCard dense label="With cost" value={calculatedCount} icon={<CircleCheck size={13} />} />
         <MetricCard
           dense
-          label="Missing Rates"
+          label="Missing rates"
           value={missingRateCount}
-          accent={missingRateCount > 0}
+          icon={<AlertTriangle size={13} />}
           onClick={() => navigate('/missing-rates')}
         />
       </div>
 
-      {/* Filters */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
-        <Input
-          value={searchRaw}
-          onChange={(e) => {
-            setSearchRaw(e.target.value);
-            setPage(1);
-          }}
-          placeholder="Search entries..."
-        />
-        <Input
+      {/* Filter bar */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+        padding: 10, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+      }}>
+        <div style={{ flex: 1, minWidth: 200, maxWidth: 280 }}>
+          <Input
+            value={searchRaw}
+            onChange={(e) => { setSearchRaw(e.target.value); setPage(1); }}
+            placeholder="Search task, assignee…"
+          />
+        </div>
+        <Select
+          options={ASSIGNEE_OPTIONS}
           value={userId}
-          onChange={(e) => {
-            setUserId(e.target.value);
-            setPage(1);
-          }}
-          placeholder="User ID..."
+          onChange={(v) => { setUserId(v); setPage(1); }}
         />
-        <select
+        <Select
+          options={BILLABLE_OPTIONS}
           value={billable}
-          onChange={(e) => {
-            setBillable(e.target.value);
-            setPage(1);
-          }}
-          style={{
-            padding: '6px 12px',
-            fontSize: '0.875rem',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius)',
-            background: 'var(--surface)',
-            color: 'var(--text)',
-          }}
-        >
-          <option value="">All</option>
-          <option value="true">Billable only</option>
-          <option value="false">Non-billable only</option>
-        </select>
-        <select
+          onChange={(v) => { setBillable(v); setPage(1); }}
+        />
+        <Select
+          options={STATUS_OPTIONS}
           value={effectiveStatus}
-          onChange={(e) => handleStatusChange(e.target.value)}
-          disabled={missingOnly}
-          style={{
-            padding: '6px 12px',
-            fontSize: '0.875rem',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius)',
-            background: 'var(--surface)',
-            color: 'var(--text)',
-            opacity: missingOnly ? 0.5 : 1,
-          }}
-        >
-          <option value="">All</option>
-          <option value="COST_CALCULATED">Cost calculated</option>
-          <option value="NO_RATE_FOUND">No rate found</option>
-        </select>
-        <label
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 8,
-            fontSize: '0.875rem',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-          }}
-        >
+          onChange={(v) => handleStatusChange(v)}
+        />
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' }}>
           <Switch checked={missingOnly} onChange={handleMissingOnlyToggle} />
-          Missing rate only
+          <span>Missing rate only</span>
         </label>
       </div>
 

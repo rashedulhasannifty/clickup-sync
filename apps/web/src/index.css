@@ -2,8 +2,9 @@
 @import "tailwindcss";
 
 :root {
-  --font-sans: "Geist", -apple-system, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, monospace;
+  color-scheme: light;
+  --font-sans: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --page-bg: #f7f7f5;
   --surface: #ffffff;
   --surface-alt: #fafaf9;
@@ -29,22 +30,62 @@
   --radius: 8px;
   --radius-sm: 4px;
   --radius-lg: 12px;
+  --skeleton: var(--muted-bg);
+
+  /* Pill color tokens */
+  --pill-gray-bg: #f1f5f9;
+  --pill-gray-text: #475569;
+  --pill-green-bg: #d1fae5;
+  --pill-green-text: #065f46;
+  --pill-amber-bg: #fef3c7;
+  --pill-amber-text: #92400e;
+  --pill-red-bg: #fee2e2;
+  --pill-red-text: #991b1b;
+  --pill-blue-bg: #dbeafe;
+  --pill-blue-text: #1e40af;
+  --pill-purple-bg: #ede9fe;
+  --pill-purple-text: #5b21b6;
+}
+
+[data-density="compact"] {
+  --row-h: 36px;
+  --pad-y: 8px;
+}
+
+[data-density="comfortable"] {
+  --row-h: 48px;
+  --pad-y: 12px;
 }
 
 [data-theme="dark"] {
-  --page-bg: #0f0f0e;
-  --surface: #1a1a18;
-  --surface-alt: #141413;
-  --muted-bg: #1e1e1c;
-  --hover: rgba(255,255,255,0.05);
-  --sidebar-bg: #161614;
-  --sidebar-active-bg: rgba(123,104,238,0.15);
-  --border: #2a2a28;
-  --border-soft: #222220;
-  --border-strong: #363634;
-  --text: #f8f8f7;
-  --text-muted: #8b8b88;
-  --text-faint: #5a5a57;
+  color-scheme: dark;
+  --page-bg: #0a0a0b;
+  --surface: #131316;
+  --surface-alt: #18181b;
+  --muted-bg: #1c1c20;
+  --hover: rgba(255, 255, 255, 0.04);
+  --sidebar-bg: #0f0f11;
+  --sidebar-active-bg: rgba(123, 104, 238, 0.15);
+  --border: #27272a;
+  --border-soft: #1f1f22;
+  --border-strong: #3f3f46;
+  --text: #fafafa;
+  --text-muted: #a1a1aa;
+  --text-faint: #71717a;
+
+  /* Pill color tokens — dark */
+  --pill-gray-bg: rgba(148, 163, 184, 0.12);
+  --pill-gray-text: #cbd5e1;
+  --pill-green-bg: rgba(16, 185, 129, 0.15);
+  --pill-green-text: #34d399;
+  --pill-amber-bg: rgba(245, 158, 11, 0.15);
+  --pill-amber-text: #fbbf24;
+  --pill-red-bg: rgba(239, 68, 68, 0.15);
+  --pill-red-text: #f87171;
+  --pill-blue-bg: rgba(59, 130, 246, 0.15);
+  --pill-blue-text: #60a5fa;
+  --pill-purple-bg: rgba(139, 92, 246, 0.18);
+  --pill-purple-text: #c4b5fd;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -54,8 +95,9 @@ body {
   background: var(--page-bg);
   color: var(--text);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 code, pre, .mono { font-family: var(--font-mono); }
@@ -70,6 +112,10 @@ input, select, textarea {
   font-size: 14px;
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
@@ -81,11 +127,24 @@ input, select, textarea {
 }
 
 @keyframes modalIn {
-  from { opacity: 0; transform: scale(0.96) translateY(8px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 @keyframes slideInRight {
   from { transform: translateX(100%); }
   to { transform: translateX(0); }
 }
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18); }
+  50%       { box-shadow: 0 0 0 5px rgba(16, 185, 129, 0.08); }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; border: 2px solid var(--page-bg); }
+::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+[data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }

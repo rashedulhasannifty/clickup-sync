@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Lock } from 'lucide-react';
 import { useSyncHealth } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
 import { useRegisterWebhook } from '../hooks/useAdmin';
@@ -21,11 +22,11 @@ import { fmt } from '../lib/formatters';
 type TagRow = TagAssignee & { [key: string]: unknown };
 
 const TAB_ITEMS = [
-  { key: 'connection', label: 'Connection' },
-  { key: 'sync', label: 'Sync Rules' },
-  { key: 'scopes', label: 'Scope Filters' },
-  { key: 'members', label: 'Members & Access' },
-  { key: 'notifications', label: 'Notifications' },
+  { value: 'connection', label: 'Connection' },
+  { value: 'sync', label: 'Sync rules' },
+  { value: 'scopes', label: 'Scope filters' },
+  { value: 'members', label: 'Members & access' },
+  { value: 'notifications', label: 'Notifications' },
 ];
 
 const WEBHOOK_EVENTS = ['taskCreated', 'taskUpdated', 'taskDeleted', 'taskTimeTrackedUpdated'];
@@ -169,58 +170,105 @@ export function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="Settings" />
-      <Tabs items={TAB_ITEMS} active={activeTab} onChange={setActiveTab} variant="underline" />
+      <PageHeader
+        title="Settings"
+        description="ClickUp connection, sync configuration, and access controls."
+      />
+      <Tabs items={TAB_ITEMS} value={activeTab} onChange={setActiveTab} variant="underline" />
 
       {/* CONNECTION TAB */}
       {activeTab === 'connection' && (
         <div className="flex flex-col gap-6">
           <Card>
-            <SectionHeader title="Workspace" />
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: '8px 24px',
-                marginBottom: 16,
-              }}
-            >
-              <span className="text-xs text-[var(--text-muted)]">Workspace</span>
-              <span className="text-sm">Nifty IT</span>
-              <span className="text-xs text-[var(--text-muted)]">Last Sync</span>
-              <span className="text-sm">
-                {lastSyncAt ? fmt.relative(lastSyncAt) : '—'}
-              </span>
-              <span className="text-xs text-[var(--text-muted)]">Webhook Status</span>
-              <span>
-                <Pill tone={webhookStatus === 'Fresh' ? 'green' : webhookStatus === 'Stale' ? 'amber' : 'gray'}>
-                  {webhookStatus}
-                </Pill>
-              </span>
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>ClickUp workspace</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Source of truth for tasks, time tracking, and rates.</div>
             </div>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" disabled>Test Connection</Button>
-              <Button variant="ghost" disabled>Rotate Token</Button>
-              <Button variant="danger" disabled>Disconnect</Button>
+
+            {/* Workspace identity row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 0', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', margin: '16px 0' }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+                background: 'var(--accent-grad)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: '#fff', fontSize: 16, fontWeight: 700,
+                boxShadow: '0 2px 6px rgba(123,104,238,0.28)',
+              }}>C</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Nifty IT</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>
+                  workspace_id: 3450636 · Connected by API key
+                </div>
+              </div>
+              <Pill tone="green">Connected</Pill>
+            </div>
+
+            {/* Operational metrics grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 20 }}>
+              <div style={{ padding: '10px 14px', background: 'var(--muted-bg)', borderRadius: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Last Successful Sync</div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{lastSyncAt ? fmt.relative(lastSyncAt) : '—'}</div>
+              </div>
+              <div style={{ padding: '10px 14px', background: 'var(--muted-bg)', borderRadius: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Webhook Endpoint</div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: webhookStatus === 'Fresh' ? 'var(--green)' : 'var(--text-muted)' }}>
+                  {webhookStatus === 'Fresh' ? 'active' : webhookStatus === 'Stale' ? 'stale' : '—'}
+                </div>
+              </div>
+              <div style={{ padding: '10px 14px', background: 'var(--muted-bg)', borderRadius: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>Token Expires</div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-muted)' }}>—</div>
+              </div>
+              <div style={{ padding: '10px 14px', background: 'var(--muted-bg)', borderRadius: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 4 }}>API Quota (Today)</div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-muted)' }}>—</div>
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Button variant="ghost" disabled>Test connection</Button>
+              <Button variant="ghost" disabled>Rotate token</Button>
+              <div style={{ flex: 1 }} />
+              <button style={{ border: 0, background: 'transparent', color: 'var(--red)', cursor: 'not-allowed', fontSize: 13, fontWeight: 500, padding: '6px 8px', borderRadius: 6, opacity: 0.5 }}>
+                Disconnect
+              </button>
             </div>
           </Card>
 
           <Card>
-            <SectionHeader title="Webhook" />
-            <div className="flex flex-col gap-4">
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Webhook</div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
+                Real-time event delivery from{' '}
+                <a href="https://clickup.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>ClickUp</a>.
+              </div>
+            </div>
+            <div className="flex flex-col gap-5">
               <div>
-                <label className="text-xs font-medium text-[var(--text-muted)] mb-1 block">
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   Endpoint URL
                 </label>
-                <Input
-                  value={webhookUrl}
-                  onChange={() => undefined}
-                  readOnly
-                />
+                <div style={{ position: 'relative' }}>
+                  <Lock size={12} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', pointerEvents: 'none', zIndex: 1 }} />
+                  <input
+                    value={webhookUrl}
+                    readOnly
+                    onChange={() => undefined}
+                    style={{
+                      width: '100%', paddingLeft: 28, paddingRight: 10, height: 36,
+                      border: '1px solid var(--border)', borderRadius: 7,
+                      background: 'var(--muted-bg)', color: 'var(--text)',
+                      fontSize: 13, fontFamily: 'inherit',
+                    }}
+                  />
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4 }}>Configured in ClickUp Apps</div>
               </div>
+
               <div>
-                <label className="text-xs font-medium text-[var(--text-muted)] mb-2 block">
-                  Subscribed Events
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Subscribed events
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {WEBHOOK_EVENTS.map((ev) => (
@@ -228,6 +276,24 @@ export function SettingsPage() {
                   ))}
                 </div>
               </div>
+
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Signing secret
+                </label>
+                <input
+                  value="••••••••••••••••••••••••"
+                  readOnly
+                  onChange={() => undefined}
+                  style={{
+                    width: '100%', padding: '0 10px', height: 36,
+                    border: '1px solid var(--border)', borderRadius: 7,
+                    background: 'var(--muted-bg)', color: 'var(--text-muted)',
+                    fontSize: 16, fontFamily: 'inherit', letterSpacing: '0.05em',
+                  }}
+                />
+              </div>
+
               <div className="flex items-center gap-3">
                 <Button
                   variant="accent"

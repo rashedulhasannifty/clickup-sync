@@ -103,3 +103,7 @@ export function useMissingRates() {
 export function useSpaces() {
   return useQuery({ queryKey: ['spaces'], queryFn: reportsApi.spaces });
 }
+
+export function useAssigneeRates() {
+  return useQuery({ queryKey: ['assignee-rates'], queryFn: () => reportsApi.assigneeRates({ limit: 200 }) });
+}

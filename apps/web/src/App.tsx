@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient';
@@ -23,20 +23,6 @@ function ProtectedRoute() {
   return <Outlet />;
 }
 
-function GlobalKeyHandler() {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        // CommandPalette Ctrl+K is handled inside AppLayout
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-  return null;
-}
-
 const Fallback = <div className="p-6 text-[var(--text-muted)]">Loading…</div>;
 
 export default function App() {
@@ -44,7 +30,6 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <FilterProvider>
         <BrowserRouter>
-          <GlobalKeyHandler />
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route element={<ProtectedRoute />}>

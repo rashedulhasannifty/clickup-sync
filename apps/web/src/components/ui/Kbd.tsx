@@ -2,7 +2,18 @@ import React from 'react';
 
 export function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="inline-flex items-center px-1.5 py-0.5 text-xs rounded border border-[var(--border-strong)] bg-[var(--muted-bg)] text-[var(--text-muted)] font-mono leading-none">
+    <kbd
+      style={{
+        fontFamily: 'inherit',
+        fontSize: 10,
+        fontWeight: 600,
+        padding: '1px 5px',
+        borderRadius: 4,
+        background: 'var(--muted-bg)',
+        color: 'var(--text-muted)',
+        border: '1px solid var(--border)',
+      }}
+    >
       {children}
     </kbd>
   );

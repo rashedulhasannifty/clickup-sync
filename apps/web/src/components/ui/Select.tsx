@@ -10,14 +10,38 @@ interface SelectProps {
 
 export function Select({ options, value, onChange, placeholder, className = '' }: SelectProps) {
   return (
-    <select
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      className={`bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius)] px-3 py-1.5 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--accent)] transition-colors appearance-none ${className}`}
-      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center', paddingRight: '28px' }}
-    >
-      {placeholder && <option value="">{placeholder}</option>}
-      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
+    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }} className={className}>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        style={{
+          appearance: 'none',
+          WebkitAppearance: 'none',
+          height: 32,
+          paddingLeft: 10,
+          paddingRight: 24,
+          fontSize: 13,
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: 7,
+          color: 'var(--text)',
+          cursor: 'pointer',
+          fontFamily: 'inherit',
+          outline: 'none',
+          transition: 'border-color 120ms',
+        }}
+        onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+        onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+      >
+        {placeholder && <option value="">{placeholder}</option>}
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <svg
+        style={{ position: 'absolute', right: 6, pointerEvents: 'none', color: 'var(--text-muted)' }}
+        width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+      >
+        <polyline points="6 9 12 15 18 9" />
+      </svg>
+    </div>
   );
 }

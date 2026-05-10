@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Pencil } from 'lucide-react';
 import type { Rate } from '../api/rates';
 import { useRates } from '../hooks/useRates';
+import { useStats } from '../hooks/useReports';
 import { PageHeader } from '../components/ui/PageHeader';
 import { MetricCard } from '../components/ui/MetricCard';
 import { Button } from '../components/ui/Button';
@@ -37,6 +39,8 @@ function toRateRow(r: Rate): RateRow {
 export function AssigneeRatesPage() {
   const navigate = useNavigate();
   const { data: rates, isLoading } = useRates();
+  const { data: statsData } = useStats();
+  const missingRateEntries = (statsData as Record<string, number> | undefined)?.missingRateEntries ?? 0;
   const [search, setSearch] = useState('');
   const [activeOnly, setActiveOnly] = useState(false);
   const [selectedRate, setSelectedRate] = useState<Rate | null>(null);
@@ -95,7 +99,9 @@ export function AssigneeRatesPage() {
       key: 'validTo',
       header: 'To',
       render: (row) => (
-        <span className="text-xs">{row.validTo ? fmt.date(row.validTo) : '—'}</span>
+        <span className="text-xs text-[var(--text-muted)]">
+          {row.validTo ? fmt.date(row.validTo) : <span style={{ color: 'var(--text-faint)', fontStyle: 'italic' }}>— ongoing</span>}
+        </span>
       ),
     },
     {
@@ -112,9 +118,12 @@ export function AssigneeRatesPage() {
       header: 'Status',
       render: (row) =>
         row.validTo === null ? (
-          <Pill tone="green">Active</Pill>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 999, background: 'var(--pill-green-text)', flexShrink: 0 }} />
+            <span style={{ fontSize: 12, color: 'var(--pill-green-text)', fontWeight: 600 }}>active</span>
+          </span>
         ) : (
-          <Pill tone="gray">Historical</Pill>
+          <Pill tone="gray">historical</Pill>
         ),
     },
     {
@@ -128,63 +137,64 @@ export function AssigneeRatesPage() {
       key: 'edit',
       header: '',
       render: (row) => (
-        <Button
-          size="sm"
-          variant="ghost"
+        <button
+          style={{ width: 28, height: 28, border: '1px solid var(--border)', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}
           onClick={(e) => {
             e.stopPropagation();
             openEdit(row as Rate);
           }}
         >
-          Edit
-        </Button>
+          <Pencil size={13} strokeWidth={1.75} />
+        </button>
       ),
     },
   ];
 
   return (
-    <div className="flex flex-col gap-6">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <PageHeader
         title="Assignee Rates"
+        description="Hourly cost rates by assignee. Used to compute labor cost for tracked time."
         actions={
-          <Button variant="accent" onClick={openCreate}>
-            Add Rate
-          </Button>
+          <>
+            <Button variant="default" onClick={() => {}}>Export</Button>
+            <Button variant="accent" onClick={openCreate}>New rate</Button>
+          </>
         }
       />
 
       {/* KPI Cards */}
       <div
-        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}
+        style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}
       >
-        <MetricCard label="Active Rates" value={isLoading ? '—' : activeRatesCount} dense />
-        <MetricCard label="Covered Assignees" value={isLoading ? '—' : coveredAssignees} dense />
+        <MetricCard label="Active rates" value={isLoading ? '—' : activeRatesCount} dense />
+        <MetricCard label="Covered assignees" value={isLoading ? '—' : coveredAssignees} dense />
         <MetricCard
-          label="Avg Active Rate"
+          label="Avg active rate"
           value={isLoading ? '—' : `$${avgActiveRate.toFixed(0)}/h`}
           dense
         />
         <MetricCard
-          label="Without Rate"
-          value="—"
+          label="Without rate"
+          value={isLoading ? '—' : missingRateEntries > 0 ? missingRateEntries : '0'}
+          sublabel={missingRateEntries > 0 ? 'see Missing Rates' : undefined}
           dense
           onClick={() => navigate('/missing-rates')}
         />
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3">
-        <div style={{ flex: 1, maxWidth: 320 }}>
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, email, or ID…"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-[var(--text-muted)]">Active only</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search assignee…"
+          style={{ width: 240 }}
+        />
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--text-muted)', cursor: 'pointer' }}>
           <Switch checked={activeOnly} onChange={setActiveOnly} />
-        </div>
+          <span>Active rates only</span>
+        </label>
       </div>
 
       {/* Grouped by assignee */}
@@ -217,27 +227,28 @@ export function AssigneeRatesPage() {
               >
                 {/* Assignee header */}
                 <div className="flex items-center gap-3 px-4 py-3 bg-[var(--surface-alt)] border-b border-[var(--border-soft)]">
-                  <Avatar name={displayName} size="sm" />
-                  <span className="font-medium text-sm text-[var(--text)]">{displayName}</span>
-                  {first.assigneeEmail && (
-                    <span className="text-xs text-[var(--text-muted)]">{first.assigneeEmail}</span>
-                  )}
-                  <span className="text-xs text-[var(--text-faint)]">{assigneeId}</span>
-                  <div className="flex-1" />
+                  <Avatar name={displayName} size="md" />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{displayName}</div>
+                    {first.assigneeEmail && (
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{first.assigneeEmail}</div>
+                    )}
+                  </div>
                   {activeRate && (
-                    <Pill tone="green">
-                      ${(activeRate.hourlyRateCents / 100).toFixed(0)}/h
-                    </Pill>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current rate</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>${(activeRate.hourlyRateCents / 100).toFixed(2)}/h</div>
+                    </div>
                   )}
                   <Button
                     size="sm"
-                    variant="ghost"
+                    variant="accent"
                     onClick={() => {
                       setSelectedRate(null);
                       setIsModalOpen(true);
                     }}
                   >
-                    New rate
+                    + New rate
                   </Button>
                 </div>
 

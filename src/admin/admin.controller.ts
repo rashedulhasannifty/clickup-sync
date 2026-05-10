@@ -36,6 +36,12 @@ export class AdminController {
     private readonly tagAssigneeRepo: TagAssigneeMapRepository,
   ) {}
 
+  @Get('ping')
+  @ApiOperation({ summary: 'Validate admin key' })
+  ping() {
+    return { ok: true };
+  }
+
   @Post('tasks/sync')
   @HttpCode(200)
   @ApiOperation({ summary: 'Manually trigger a single ClickUp task sync' })

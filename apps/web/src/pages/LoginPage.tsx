@@ -1,18 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { validateAdminKey } from '../api/admin';
 
 export function LoginPage() {
   const [key, setKey] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     if (localStorage.getItem('adminApiKey')) navigate('/overview', { replace: true });
   }, [navigate]);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!key.trim()) { setError('Please enter your admin API key'); return; }
+    setLoading(true);
+    setError('');
+    const valid = await validateAdminKey(key.trim());
+    setLoading(false);
+    if (!valid) { setError('Invalid admin API key'); return; }
     localStorage.setItem('adminApiKey', key.trim());
     navigate('/overview', { replace: true });
   }
@@ -43,10 +50,11 @@ export function LoginPage() {
 
           <button
             type="submit"
-            className="w-full py-2 text-sm font-medium text-white rounded-[var(--radius)] transition-colors"
+            disabled={loading}
+            className="w-full py-2 text-sm font-medium text-white rounded-[var(--radius)] transition-colors disabled:opacity-60"
             style={{ background: 'var(--accent)' }}
           >
-            Sign in
+            {loading ? 'Verifying…' : 'Sign in'}
           </button>
         </form>
       </div>

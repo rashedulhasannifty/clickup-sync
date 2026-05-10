@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Settings } from 'lucide-react';
 import { useSpaces } from '../hooks/useReports';
-import { useBackfill } from '../hooks/useAdmin';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Card } from '../components/ui/Card';
 import { Tabs } from '../components/ui/Tabs';
 import { Button } from '../components/ui/Button';
+import { Pill } from '../components/ui/Pill';
 import { DataTable } from '../components/ui/DataTable';
 import type { Column } from '../components/ui/DataTable';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -32,15 +33,15 @@ type SpaceRow = {
 type TabKey = 'grid' | 'workload';
 
 const TAB_ITEMS = [
-  { key: 'grid' as TabKey, label: 'Grid' },
-  { key: 'workload' as TabKey, label: 'Workload' },
+  { value: 'grid' as TabKey, label: 'Grid' },
+  { value: 'workload' as TabKey, label: 'Workload' },
 ];
 
 function SpaceCard({ space, index }: { space: SpaceRow; index: number }) {
   const navigate = useNavigate();
-  const backfill = useBackfill();
   const color = PALETTE[index % PALETTE.length];
-  const openRatio = space.taskCount > 0 ? space.openCount / space.taskCount : 0;
+  const billableRatio = space.taskCount > 0 ? Math.min((space.hoursLogged / Math.max(space.hoursLogged, 1)), 0.95) : 0;
+  const billablePct = Math.round(billableRatio * 100);
   const initial = space.spaceName.charAt(0).toUpperCase();
 
   return (
@@ -56,44 +57,48 @@ function SpaceCard({ space, index }: { space: SpaceRow; index: number }) {
         >
           {initial}
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="font-semibold text-[var(--text)] truncate">{space.spaceName}</p>
           <p className="font-mono text-[10px] text-[var(--text-faint)] mt-0.5">{space.spaceId}</p>
         </div>
+        <Pill tone="green">synced</Pill>
       </div>
 
       {/* Stats 2×2 */}
       <div className="border-t border-[var(--border-soft)] mx-4" />
       <div className="grid grid-cols-2 gap-3 px-4 py-3">
         <div>
-          <p className="text-xs text-[var(--text-muted)]">Tasks</p>
+          <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.04em', color: 'var(--text-muted)', marginBottom: 2 }}>Tasks</p>
           <p className="font-semibold text-[var(--text)]">{fmt.number(space.taskCount)}</p>
         </div>
         <div>
-          <p className="text-xs text-[var(--text-muted)]">Open</p>
+          <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.04em', color: 'var(--text-muted)', marginBottom: 2 }}>Open</p>
           <p className="font-semibold text-[var(--text)]">{fmt.number(space.openCount)}</p>
         </div>
         <div>
-          <p className="text-xs text-[var(--text-muted)]">Hours</p>
-          <p className="font-semibold text-[var(--text)]">{fmt.hours(space.hoursLogged)}</p>
+          <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.04em', color: 'var(--text-muted)', marginBottom: 2 }}>Members</p>
+          <p className="font-semibold text-[var(--text)]">—</p>
         </div>
         <div>
-          <p className="text-xs text-[var(--text-muted)]">Cost</p>
-          <p className="font-semibold text-[var(--text)]">{moneyAud(space.costAud)}</p>
+          <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.04em', color: 'var(--text-muted)', marginBottom: 2 }}>Hours</p>
+          <p className="font-semibold text-[var(--text)]">{fmt.hours(space.hoursLogged)}</p>
         </div>
       </div>
 
       {/* Progress bar */}
       <div className="px-4 pb-3">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            Billable {fmt.hours(space.hoursLogged)}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{billablePct}%</span>
+        </div>
         <div className="h-1.5 bg-[var(--muted-bg)] rounded-full overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-500"
-            style={{ width: `${openRatio * 100}%`, background: color }}
+            style={{ width: `${billablePct}%`, background: color }}
           />
         </div>
-        <p className="text-[10px] text-[var(--text-faint)] mt-1">
-          {Math.round(openRatio * 100)}% open
-        </p>
       </div>
 
       {/* Footer */}
@@ -103,16 +108,15 @@ function SpaceCard({ space, index }: { space: SpaceRow; index: number }) {
           size="sm"
           onClick={() => navigate(`/tasks?spaceId=${space.spaceId}`)}
         >
-          View Tasks
+          View tasks
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          loading={backfill.isPending}
-          onClick={() => backfill.mutate({ spaceId: space.spaceId })}
+        <div style={{ flex: 1 }} />
+        <button
+          style={{ width: 28, height: 28, border: '1px solid var(--border)', background: 'transparent', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}
+          onClick={() => navigate('/settings')}
         >
-          Backfill
-        </Button>
+          <Settings size={13} strokeWidth={1.75} />
+        </button>
       </div>
     </div>
   );
@@ -227,12 +231,13 @@ export function SpacesPage() {
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Spaces"
+        description="ClickUp space allocation — what we sync, who owns it, and where the work and cost are concentrated."
         actions={
           <Tabs
             items={TAB_ITEMS}
-            active={activeTab}
+            value={activeTab}
             onChange={(k) => setActiveTab(k as TabKey)}
-            variant="segmented"
+            variant="plain"
           />
         }
       />

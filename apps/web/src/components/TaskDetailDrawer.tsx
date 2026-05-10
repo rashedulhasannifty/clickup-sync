@@ -39,11 +39,11 @@ interface Props {
 
 type TabKey = 'overview' | 'time-entries' | 'raw' | 'sync-history';
 
-const TAB_ITEMS: { key: TabKey; label: string }[] = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'time-entries', label: 'Time Entries' },
-  { key: 'raw', label: 'Raw' },
-  { key: 'sync-history', label: 'Sync History' },
+const TAB_ITEMS: { value: TabKey; label: string }[] = [
+  { value: 'overview', label: 'Overview' },
+  { value: 'time-entries', label: 'Time Entries' },
+  { value: 'raw', label: 'Raw' },
+  { value: 'sync-history', label: 'Sync History' },
 ];
 
 function priorityTone(p: string | null): 'red' | 'amber' | 'blue' | 'gray' {
@@ -123,7 +123,7 @@ export function TaskDetailDrawer({ taskId, task, onClose }: Props) {
           <div style={{ borderBottom: '1px solid var(--border)' }}>
             <Tabs
               items={TAB_ITEMS}
-              active={activeTab}
+              value={activeTab}
               onChange={setActiveTab}
               variant="underline"
             />

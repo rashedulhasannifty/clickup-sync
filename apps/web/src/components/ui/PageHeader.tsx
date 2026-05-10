@@ -1,14 +1,38 @@
 import React from 'react';
 
-export function PageHeader({ title, description, actions, breadcrumb }: { title: string; description?: string; actions?: React.ReactNode; breadcrumb?: React.ReactNode }) {
+export function PageHeader({
+  title,
+  description,
+  actions,
+  breadcrumb,
+}: {
+  title: React.ReactNode;
+  description?: string;
+  actions?: React.ReactNode;
+  breadcrumb?: React.ReactNode;
+}) {
   return (
-    <div className="flex items-start justify-between gap-4 mb-6">
-      <div>
-        {breadcrumb && <div className="text-xs text-[var(--text-faint)] mb-1">{breadcrumb}</div>}
-        <h1 className="text-xl font-bold text-[var(--text)]">{title}</h1>
-        {description && <p className="text-sm text-[var(--text-muted)] mt-1">{description}</p>}
+    <div style={{ marginBottom: 20 }}>
+      {breadcrumb && (
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{breadcrumb}</div>
+      )}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 600, color: 'var(--text)', margin: 0, letterSpacing: '-0.02em' }}>
+            {title}
+          </h1>
+          {description && (
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0, maxWidth: 720 }}>
+              {description}
+            </p>
+          )}
+        </div>
+        {actions && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {actions}
+          </div>
+        )}
       </div>
-      {actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
     </div>
   );
 }

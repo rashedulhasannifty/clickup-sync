@@ -3,25 +3,42 @@ import React from 'react';
 interface CardProps {
   children: React.ReactNode;
   title?: string;
+  subtitle?: string;
   action?: React.ReactNode;
   className?: string;
-  padding?: boolean;
+  padding?: number | boolean;
   onClick?: () => void;
+  style?: React.CSSProperties;
 }
 
-export function Card({ children, title, action, className = '', padding = true, onClick }: CardProps) {
+export function Card({ children, title, subtitle, action, className = '', padding = 16, onClick, style }: CardProps) {
+  const pad = padding === true ? 16 : padding === false ? 0 : padding;
   return (
     <div
-      className={`bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-lg)] ${onClick ? 'cursor-pointer hover:border-[var(--border-strong)] transition-colors' : ''} ${className}`}
+      className={className}
       onClick={onClick}
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        cursor: onClick ? 'pointer' : undefined,
+        ...style,
+      }}
     >
       {(title || action) && (
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-soft)]">
-          {title && <span className="font-semibold text-[var(--text)] text-sm">{title}</span>}
-          {action && <div>{action}</div>}
+        <div style={{
+          padding: '12px 16px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          borderBottom: '1px solid var(--border)', gap: 8,
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+            {title && <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{title}</div>}
+            {subtitle && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{subtitle}</div>}
+          </div>
+          {action && <div style={{ flexShrink: 0 }}>{action}</div>}
         </div>
       )}
-      <div className={padding ? 'p-4' : ''}>{children}</div>
+      <div style={{ padding: pad }}>{children}</div>
     </div>
   );
 }

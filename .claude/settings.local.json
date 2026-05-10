@@ -59,7 +59,10 @@
       "Bash(git *)",
       "Bash(Get-ChildItem *)",
       "Bash(Remove-Item *)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(dir /B \"C:\\\\Users\\\\Pingu\\\\Downloads\\\\Clcikup\\\\clickup-sync-nestjs-starter-with-claude\\\\clickup-sync-nestjs\")",
+      "Bash(npx vite *)",
+      "Bash(dir *)"
     ]
   }
 }

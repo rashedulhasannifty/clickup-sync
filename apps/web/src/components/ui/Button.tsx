@@ -1,28 +1,31 @@
 import React from 'react';
 
 type Variant = 'default' | 'primary' | 'accent' | 'ghost' | 'danger' | 'subtle';
-type Size = 'sm' | 'md' | 'lg';
+type Size = 'sm' | 'md' | 'lg' | 'icon' | 'iconSm';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
   size?: Size;
   loading?: boolean;
   icon?: React.ReactNode;
+  iconRight?: React.ReactNode;
 }
 
-const variantStyles: Record<Variant, string> = {
-  default: 'bg-[var(--surface)] border border-[var(--border)] text-[var(--text)] hover:bg-[var(--hover)]',
-  primary: 'bg-[var(--text)] text-white border border-transparent hover:opacity-90',
-  accent: 'bg-[var(--accent)] text-white border border-transparent hover:bg-[var(--accent-hover)]',
-  ghost: 'bg-transparent border border-transparent text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text)]',
-  danger: 'bg-[var(--red)] text-white border border-transparent hover:opacity-90',
-  subtle: 'bg-[var(--muted-bg)] border border-transparent text-[var(--text-muted)] hover:bg-[var(--border)]',
+const SIZES: Record<Size, React.CSSProperties> = {
+  sm:     { padding: '5px 9px',   fontSize: 12, gap: 5, height: 28 },
+  md:     { padding: '7px 12px',  fontSize: 13, gap: 6, height: 32 },
+  lg:     { padding: '9px 16px',  fontSize: 13, gap: 6, height: 36 },
+  icon:   { padding: 0, width: 32, height: 32, justifyContent: 'center' },
+  iconSm: { padding: 0, width: 28, height: 28, justifyContent: 'center' },
 };
 
-const sizeStyles: Record<Size, string> = {
-  sm: 'px-2.5 py-1 text-xs rounded-[var(--radius-sm)] gap-1',
-  md: 'px-3 py-1.5 text-sm rounded-[var(--radius)] gap-1.5',
-  lg: 'px-4 py-2 text-sm rounded-[var(--radius)] gap-2',
+const VARIANTS: Record<Variant, { bg: string; color: string; border: string }> = {
+  default: { bg: 'var(--surface)', color: 'var(--text)',    border: 'var(--border)' },
+  primary: { bg: 'var(--text)',    color: 'var(--surface)', border: 'transparent'   },
+  accent:  { bg: 'var(--accent)',  color: '#fff',           border: 'transparent'   },
+  ghost:   { bg: 'transparent',   color: 'var(--text)',     border: 'transparent'   },
+  danger:  { bg: 'transparent',   color: 'var(--red)',      border: 'var(--border)' },
+  subtle:  { bg: 'var(--muted-bg)', color: 'var(--text)',   border: 'transparent'   },
 };
 
 export function Button({
@@ -30,19 +33,41 @@ export function Button({
   size = 'md',
   loading = false,
   icon,
+  iconRight,
   children,
   disabled,
-  className = '',
+  style,
   ...props
 }: ButtonProps) {
+  const s = SIZES[size] ?? SIZES.md;
+  const v = VARIANTS[variant] ?? VARIANTS.default;
+
   return (
     <button
       {...props}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center font-medium transition-colors ${variantStyles[variant]} ${sizeStyles[size]} disabled:opacity-50 disabled:cursor-not-allowed ${className}`}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        fontFamily: 'inherit',
+        fontWeight: 500,
+        borderRadius: 7,
+        border: `1px solid ${v.border}`,
+        background: v.bg,
+        color: v.color,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
+        transition: 'all 100ms',
+        whiteSpace: 'nowrap',
+        ...s,
+        ...style,
+      }}
     >
-      {loading ? <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" /> : icon}
+      {loading
+        ? <span style={{ width: 13, height: 13, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: 999, animation: 'spin 0.7s linear infinite', display: 'inline-block' }} />
+        : icon}
       {children}
+      {iconRight}
     </button>
   );
 }

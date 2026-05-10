@@ -1,9 +1,8 @@
 import { ChartEmpty } from './ChartEmpty';
-import { fmt } from '../../lib/formatters';
 
 const PALETTE = ['#7B68EE','#FF02F0','#49CCF9','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'];
 
-interface BarData { label: string; value: number; color?: string; }
+export interface BarData { label: string; value: number; color?: string; }
 
 interface BarChartProps {
   data: BarData[];
@@ -14,42 +13,55 @@ interface BarChartProps {
 
 export function BarChart({ data, direction = 'horizontal', height = 200, formatValue }: BarChartProps) {
   if (!data.length || data.every(d => d.value === 0)) return <ChartEmpty height={height} />;
-
-  const fv = formatValue ?? ((v: number) => fmt.number(v));
+  const fv = formatValue ?? String;
   const max = Math.max(...data.map(d => d.value));
+  const colorOf = (d: BarData, i: number) => d.color ?? PALETTE[i % PALETTE.length];
 
   if (direction === 'horizontal') {
     return (
-      <div className="flex flex-col gap-2" style={{ minHeight: height }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {data.map((d, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <span className="text-xs text-[var(--text-muted)] w-28 flex-shrink-0 truncate text-right">{d.label}</span>
-            <div className="flex-1 bg-[var(--muted-bg)] rounded-full h-2 overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{ width: `${(d.value / max) * 100}%`, background: d.color ?? PALETTE[i % PALETTE.length] }}
-              />
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+            <span style={{ width: 110, color: 'var(--text-muted)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 }}>
+              {d.label}
+            </span>
+            <div style={{ flex: 1, height: 8, background: 'var(--muted-bg)', borderRadius: 999, overflow: 'hidden' }}>
+              <div style={{ width: `${(d.value / max) * 100}%`, height: '100%', background: colorOf(d, i), borderRadius: 999, transition: 'width 600ms cubic-bezier(0.16, 1, 0.3, 1)' }} />
             </div>
-            <span className="text-xs text-[var(--text-muted)] w-16 flex-shrink-0">{fv(d.value)}</span>
+            <span style={{ width: 60, textAlign: 'right', color: 'var(--text)', fontVariantNumeric: 'tabular-nums', fontWeight: 600, flexShrink: 0 }}>
+              {fv(d.value)}
+            </span>
           </div>
         ))}
       </div>
     );
   }
 
+  // Vertical bars
+  const padX = 8, padY = 12;
+  const w = 100;
+  const barW = (w - padX * 2) / data.length;
   return (
-    <svg viewBox={`0 0 ${data.length * 40} ${height}`} className="w-full" style={{ height }}>
-      {data.map((d, i) => {
-        const barH = max > 0 ? (d.value / max) * (height - 30) : 0;
-        const x = i * 40 + 5;
-        const y = height - 20 - barH;
-        return (
-          <g key={i}>
-            <rect x={x} y={y} width={30} height={barH} rx={2} fill={d.color ?? PALETTE[i % PALETTE.length]} />
-            <text x={x + 15} y={height - 5} textAnchor="middle" fontSize={10} fill="var(--text-faint)">{d.label.slice(0, 6)}</text>
-          </g>
-        );
-      })}
-    </svg>
+    <div style={{ width: '100%' }}>
+      <svg viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" style={{ width: '100%', height, display: 'block' }}>
+        {data.map((d, i) => {
+          const h = max > 0 ? (d.value / max) * (height - padY * 2) : 0;
+          const x = padX + i * barW + barW * 0.15;
+          const y = height - padY - h;
+          return (
+            <g key={i}>
+              <rect x={x} y={y} width={barW * 0.7} height={h} rx={1} fill={colorOf(d, i)} opacity={0.9}>
+                <title>{d.label}: {d.value}</title>
+              </rect>
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px 0', fontSize: 10, color: 'var(--text-muted)' }}>
+        {data.map((d, i) => (
+          <span key={i} style={{ flex: 1, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.label}</span>
+        ))}
+      </div>
+    </div>
   );
 }

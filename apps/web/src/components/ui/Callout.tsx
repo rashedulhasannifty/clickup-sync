@@ -1,21 +1,28 @@
 import React from 'react';
 
-type Tone = 'info' | 'warning' | 'error' | 'success' | 'neutral';
+type Tone = 'info' | 'warning' | 'error' | 'success' | 'neutral' | 'blue' | 'amber' | 'red' | 'green';
 
-const STYLES: Record<Tone, { bg: string; border: string; text: string; icon: string }> = {
-  info: { bg: 'rgba(59,130,246,0.08)', border: 'rgba(59,130,246,0.3)', text: '#2563eb', icon: 'ℹ' },
-  warning: { bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.3)', text: '#d97706', icon: '⚠' },
-  error: { bg: 'rgba(239,68,68,0.08)', border: 'rgba(239,68,68,0.3)', text: '#dc2626', icon: '✕' },
-  success: { bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)', text: '#059669', icon: '✓' },
-  neutral: { bg: 'var(--muted-bg)', border: 'var(--border)', text: 'var(--text-muted)', icon: '·' },
+const STYLES: Record<Tone, { bg: string; border: string; text: string }> = {
+  info:    { bg: 'rgba(59,130,246,0.08)',  border: 'rgba(59,130,246,0.3)',  text: 'var(--pill-blue-text)' },
+  blue:    { bg: 'var(--pill-blue-bg)',    border: 'rgba(59,130,246,0.25)', text: 'var(--pill-blue-text)' },
+  warning: { bg: 'rgba(245,158,11,0.08)', border: 'rgba(245,158,11,0.3)',  text: 'var(--pill-amber-text)' },
+  amber:   { bg: 'var(--pill-amber-bg)',  border: 'rgba(245,158,11,0.25)', text: 'var(--pill-amber-text)' },
+  error:   { bg: 'rgba(239,68,68,0.08)',  border: 'rgba(239,68,68,0.3)',   text: 'var(--pill-red-text)' },
+  red:     { bg: 'var(--pill-red-bg)',    border: 'rgba(239,68,68,0.25)',  text: 'var(--pill-red-text)' },
+  success: { bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)',  text: 'var(--pill-green-text)' },
+  green:   { bg: 'var(--pill-green-bg)',  border: 'rgba(16,185,129,0.25)', text: 'var(--pill-green-text)' },
+  neutral: { bg: 'var(--muted-bg)',       border: 'var(--border)',          text: 'var(--text-muted)' },
 };
 
-export function Callout({ tone = 'info', children }: { tone?: Tone; children: React.ReactNode }) {
-  const s = STYLES[tone];
+export function Callout({ tone = 'info', icon, children }: { tone?: Tone; icon?: React.ReactNode; children: React.ReactNode }) {
+  const s = STYLES[tone] ?? STYLES.info;
   return (
-    <div className="flex gap-2 rounded-[var(--radius)] px-3 py-2.5 text-sm" style={{ background: s.bg, border: `1px solid ${s.border}`, color: s.text }}>
-      <span className="flex-shrink-0 font-bold">{s.icon}</span>
-      <div className="text-[var(--text)]">{children}</div>
+    <div style={{
+      display: 'flex', gap: 8, borderRadius: 8, padding: '10px 12px', fontSize: 13,
+      background: s.bg, border: `1px solid ${s.border}`, color: s.text,
+    }}>
+      {icon && <span style={{ flexShrink: 0, display: 'flex', paddingTop: 1 }}>{icon}</span>}
+      <div style={{ color: 'var(--text)' }}>{children}</div>
     </div>
   );
 }

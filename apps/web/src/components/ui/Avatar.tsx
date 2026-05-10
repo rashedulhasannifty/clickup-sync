@@ -1,44 +1,68 @@
 function nameToColor(name: string): string {
-  const colors = ['#7B68EE','#10b981','#f59e0b','#3b82f6','#ef4444','#8b5cf6','#06b6d4','#ec4899'];
+  const colors = ['#7B68EE', '#10b981', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899'];
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffffffff;
   return colors[Math.abs(h) % colors.length];
 }
 
+interface UserObj { name: string; color?: string; initials?: string }
+
 interface AvatarProps {
-  name: string;
-  size?: 'sm' | 'md' | 'lg';
+  name?: string;
+  user?: UserObj;
+  size?: 'sm' | 'md' | 'lg' | number;
   color?: string;
 }
 
-const SIZES = { sm: 'w-6 h-6 text-xs', md: 'w-8 h-8 text-sm', lg: 'w-10 h-10 text-base' };
+function getPixelSize(size: AvatarProps['size']): number {
+  if (typeof size === 'number') return size;
+  if (size === 'sm') return 24;
+  if (size === 'lg') return 40;
+  return 32;
+}
 
-export function Avatar({ name, size = 'md', color }: AvatarProps) {
-  const bg = color ?? nameToColor(name);
-  const initials = name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2);
+export function Avatar({ name, user, size = 'md', color }: AvatarProps) {
+  const resolvedName = user?.name ?? name ?? '?';
+  const bg = color ?? user?.color ?? nameToColor(resolvedName);
+  const initials = user?.initials ?? resolvedName.split(' ').map((p: string) => p[0]).join('').toUpperCase().slice(0, 2);
+  const px = getPixelSize(size);
+  const fontSize = px <= 24 ? 10 : px <= 32 ? 12 : 14;
+
   return (
     <span
-      className={`inline-flex items-center justify-center rounded-full font-semibold text-white flex-shrink-0 ${SIZES[size]}`}
-      style={{ background: bg }}
-      title={name}
+      style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: px, height: px, borderRadius: 999,
+        background: bg, color: '#fff',
+        fontSize, fontWeight: 700, flexShrink: 0,
+        letterSpacing: '-0.02em',
+      }}
+      title={resolvedName}
     >
       {initials}
     </span>
   );
 }
 
-export function AvatarStack({ names, max = 3 }: { names: string[]; max?: number }) {
-  const shown = names.slice(0, max);
-  const extra = names.length - max;
+export function AvatarStack({ names, users, max = 3 }: { names?: string[]; users?: UserObj[]; max?: number }) {
+  const items: UserObj[] = users ?? (names ?? []).map(n => ({ name: n }));
+  const shown = items.slice(0, max);
+  const extra = items.length - max;
   return (
-    <div className="flex -space-x-1.5">
-      {shown.map((n, i) => (
-        <Avatar key={i} name={n} size="sm" />
+    <div style={{ display: 'flex', marginLeft: 4 }}>
+      {shown.map((u, i) => (
+        <span key={i} style={{ marginLeft: -6 }}>
+          <Avatar user={u} size={24} />
+        </span>
       ))}
       {extra > 0 && (
-        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[var(--muted-bg)] text-[var(--text-muted)] text-xs font-medium border border-[var(--surface)]">
-          +{extra}
-        </span>
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: 24, height: 24, borderRadius: 999,
+          background: 'var(--muted-bg)', color: 'var(--text-muted)',
+          fontSize: 10, fontWeight: 600,
+          border: '1px solid var(--surface)', marginLeft: -6,
+        }}>+{extra}</span>
       )}
     </div>
   );

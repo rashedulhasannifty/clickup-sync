@@ -2,18 +2,40 @@ import React from 'react';
 
 type Tone = 'gray' | 'green' | 'amber' | 'red' | 'blue' | 'purple';
 
-const TONES: Record<Tone, string> = {
-  gray: 'bg-[var(--muted-bg)] text-[var(--text-muted)]',
-  green: 'bg-[rgba(16,185,129,0.1)] text-[#059669]',
-  amber: 'bg-[rgba(245,158,11,0.1)] text-[#d97706]',
-  red: 'bg-[rgba(239,68,68,0.1)] text-[#dc2626]',
-  blue: 'bg-[rgba(59,130,246,0.1)] text-[#2563eb]',
-  purple: 'bg-[var(--accent-soft)] text-[var(--accent)]',
+const TONES: Record<Tone, { bg: string; text: string }> = {
+  gray:   { bg: 'var(--pill-gray-bg)',   text: 'var(--pill-gray-text)' },
+  green:  { bg: 'var(--pill-green-bg)',  text: 'var(--pill-green-text)' },
+  amber:  { bg: 'var(--pill-amber-bg)',  text: 'var(--pill-amber-text)' },
+  red:    { bg: 'var(--pill-red-bg)',    text: 'var(--pill-red-text)' },
+  blue:   { bg: 'var(--pill-blue-bg)',   text: 'var(--pill-blue-text)' },
+  purple: { bg: 'var(--pill-purple-bg)', text: 'var(--pill-purple-text)' },
 };
 
-export function Pill({ children, tone = 'gray', className = '' }: { children: React.ReactNode; tone?: Tone; className?: string }) {
+export function Pill({
+  children,
+  tone = 'gray',
+  icon,
+  className = '',
+}: {
+  children: React.ReactNode;
+  tone?: Tone;
+  icon?: React.ReactNode;
+  className?: string;
+}) {
+  const { bg, text } = TONES[tone];
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${TONES[tone]} ${className}`}>
+    <span
+      className={`inline-flex items-center text-[11px] font-semibold leading-snug whitespace-nowrap ${className}`}
+      style={{
+        padding: '3px 8px',
+        borderRadius: 6,
+        background: bg,
+        color: text,
+        gap: 4,
+        letterSpacing: '0.01em',
+      }}
+    >
+      {icon}
       {children}
     </span>
   );

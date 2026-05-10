@@ -1,15 +1,16 @@
 import React, { useEffect } from 'react';
+import { X } from 'lucide-react';
 
 interface DrawerProps {
   open: boolean;
   onClose: () => void;
-  title?: string;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   width?: number;
+  title?: string;
   footer?: React.ReactNode;
 }
 
-export function Drawer({ open, onClose, title, children, width = 520, footer }: DrawerProps) {
+export function Drawer({ open, onClose, children, width = 520, title, footer }: DrawerProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -20,22 +21,60 @@ export function Drawer({ open, onClose, title, children, width = 520, footer }: 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="fixed inset-0 bg-black/30" style={{ animation: 'fadeIn 0.15s ease' }} onClick={onClose} />
+    <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', justifyContent: 'flex-end' }}>
       <div
-        className="relative bg-[var(--surface)] border-l border-[var(--border)] flex flex-col h-full shadow-2xl"
-        style={{ width, animation: 'slideInRight 0.2s ease' }}
+        role="presentation"
+        onClick={onClose}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(2px)', animation: 'fadeIn 150ms ease-out' }}
+      />
+      <div
+        style={{
+          position: 'relative', width, height: '100%',
+          background: 'var(--surface)', borderLeft: '1px solid var(--border)',
+          display: 'flex', flexDirection: 'column',
+          boxShadow: '-12px 0 32px rgba(15, 23, 42, 0.08)',
+          animation: 'slideInRight 200ms ease-out',
+        }}
       >
         {title && (
-          <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-soft)] flex-shrink-0">
-            <h2 className="font-semibold text-[var(--text)] text-base">{title}</h2>
-            <button onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text)] p-1 rounded transition-colors">
-              ✕
+          <div style={{
+            flexShrink: 0,
+            padding: '14px 18px',
+            borderBottom: '1px solid var(--border)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+          }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {title}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                flexShrink: 0,
+                width: 28, height: 28, border: '1px solid var(--border)', background: 'var(--surface)',
+                color: 'var(--text-muted)', borderRadius: 6, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <X size={14} strokeWidth={1.75} />
             </button>
           </div>
         )}
-        <div className="flex-1 overflow-y-auto">{children}</div>
-        {footer && <div className="flex-shrink-0 border-t border-[var(--border-soft)] px-5 py-4">{footer}</div>}
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          {children}
+        </div>
+        {footer && (
+          <div style={{
+            flexShrink: 0,
+            padding: '12px 18px',
+            borderTop: '1px solid var(--border)',
+            background: 'var(--surface)',
+          }}
+          >
+            {footer}
+          </div>
+        )}
       </div>
     </div>
   );

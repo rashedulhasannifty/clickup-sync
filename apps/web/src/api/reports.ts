@@ -27,4 +27,6 @@ export const reportsApi = {
   stats: () => apiClient.get('/reports/ops/stats').then(r => r.data),
   missingRates: () => apiClient.get('/reports/ops/missing-rates').then(r => r.data),
   spaces: () => apiClient.get('/reports/spaces').then(r => r.data),
+  assigneeRates: (params?: { page?: number; limit?: number }) =>
+    apiClient.get('/admin/rates', { params }).then(r => r.data),
 };

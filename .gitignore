@@ -6,4 +6,4 @@ coverage
 .prisma
 /logs
 .DS_Store
-/design
+# /design
