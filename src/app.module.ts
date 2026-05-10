@@ -3,6 +3,8 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TerminusModule } from '@nestjs/terminus';
 import { BullModule } from '@nestjs/bullmq';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 import { validateEnv } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { ClickupModule } from './clickup/clickup.module';
@@ -19,6 +21,10 @@ import { HealthController } from './health/health.controller';
 
 @Module({
   imports: [
+    ServeStaticModule.forRoot({
+      rootPath: join(__dirname, '..', 'apps', 'web', 'dist'),
+      exclude: ['/api/(.*)', '/docs(.*)', '/webhooks/(.*)', '/admin/(.*)', '/reports/(.*)'],
+    }),
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     ScheduleModule.forRoot(),
     TerminusModule,

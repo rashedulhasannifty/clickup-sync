@@ -227,4 +227,49 @@ describe('ReportsService', () => {
       expect(result).toEqual({ failedJobsLast24h: 3, deadLetterPending: 2, webhooksLast24h: 150, missingRateEntries: 7 });
     });
   });
+
+  describe('missingRates', () => {
+    it('queries NO_RATE_FOUND entries grouped by user and maps fields', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([
+        { user_id: 'u1', user_name: 'Alice', user_email: 'a@x.com', missing_count: BigInt(3), affected_hours: 5.5, first_date: new Date('2025-01-01'), latest_date: new Date('2025-01-15') },
+      ]);
+      const result = await new ReportsService(prisma).missingRates();
+      expect(result).toHaveLength(1);
+      expect(result[0].userId).toBe('u1');
+      expect(result[0].missingCount).toBe(3);
+      expect(result[0].affectedHours).toBe(5.5);
+    });
+
+    it('returns empty array when no missing-rate entries exist', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      const result = await new ReportsService(prisma).missingRates();
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('spaces', () => {
+    it('returns per-space aggregated stats', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([
+        { space_id: '3577824', space_name: 'Digital Marketing', task_count: BigInt(10), open_count: BigInt(5), hours_logged: 20.5, cost_cents: 5000 },
+      ]);
+      const result = await new ReportsService(prisma).spaces();
+      expect(result).toHaveLength(1);
+      expect(result[0].spaceId).toBe('3577824');
+      expect(result[0].spaceName).toBe('Digital Marketing');
+      expect(result[0].taskCount).toBe(10);
+      expect(result[0].openCount).toBe(5);
+      expect(result[0].hoursLogged).toBe(20.5);
+      expect(result[0].costAud).toBe(50);
+    });
+
+    it('returns empty array when no spaces exist', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      const result = await new ReportsService(prisma).spaces();
+      expect(result).toEqual([]);
+    });
+  });
 });
