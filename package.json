@@ -14,7 +14,7 @@
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
     "lint": "eslint \"{src,test}/**/*.ts\"",
-    "test": "jest",
+    "test": "node --max-old-space-size=4096 node_modules/jest/bin/jest.js --runInBand",
     "test:watch": "jest --watch",
     "prisma:generate": "prisma generate --config ./prisma.config.ts",
     "prisma:migrate": "prisma migrate dev --config ./prisma.config.ts",
