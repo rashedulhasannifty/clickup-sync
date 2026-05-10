@@ -24,4 +24,8 @@ export class TagAssigneeMapRepository {
   update(id: bigint, data: { clickupUserId?: string; clickupUserName?: string; clickupEmail?: string; active?: boolean }) {
     return this.prisma.tagAssigneeMap.update({ where: { id }, data });
   }
+
+  async remove(id: bigint) {
+    await this.prisma.tagAssigneeMap.delete({ where: { id } });
+  }
 }

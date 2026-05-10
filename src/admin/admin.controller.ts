@@ -1,15 +1,26 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, NotFoundException, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { AdminApiKeyGuard } from './admin-api-key.guard';
 import { SyncTaskDto } from './dto/sync-task.dto';
 import { BackfillDto } from './dto/backfill.dto';
 import { BackfillReplacementDto } from './dto/backfill-replacement.dto';
+import { CreateRateDto } from './dto/create-rate.dto';
+import { UpdateRateDto } from './dto/update-rate.dto';
+import { CreateTagAssigneeDto } from './dto/create-tag-assignee.dto';
+import { UpdateTagAssigneeDto } from './dto/update-tag-assignee.dto';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { DeadLetterRepository } from '../jobs/dead-letter.repository';
 import { ClickupWebhooksService } from '../clickup/clickup-webhooks.service';
 import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
+import { RatesRepository } from '../rates/rates.repository';
+import { TagAssigneeMapRepository } from '../time-entries/tag-assignee-map.repository';
+
+function parseId(id: string): bigint {
+  const n = BigInt(id);
+  return n;
+}
 
 @ApiTags('admin')
 @ApiSecurity('x-admin-key')
@@ -21,6 +32,8 @@ export class AdminController {
     private readonly deadLetters: DeadLetterRepository,
     private readonly webhooks: ClickupWebhooksService,
     private readonly timeEntriesRepo: TimeEntriesRepository,
+    private readonly ratesRepo: RatesRepository,
+    private readonly tagAssigneeRepo: TagAssigneeMapRepository,
   ) {}
 
   @Post('tasks/sync')
@@ -40,14 +53,6 @@ export class AdminController {
     const lookbackDays = dto.lookbackDays ?? space?.backfillLookbackDays ?? 30;
     this.queues.get(QUEUES.CLICKUP_BACKFILLS).add(JOBS.BACKFILL_CLICKUP_SPACE, { spaceId: dto.spaceId, lookbackDays }, this.queues.defaultJobOptions());
     return { queued: true, spaceId: dto.spaceId, lookbackDays };
-  }
-
-  @Post('rates/sync')
-  @HttpCode(200)
-  @ApiOperation({ summary: 'Trigger immediate Google Sheets rate sync' })
-  syncRates() {
-    this.queues.get(QUEUES.ASSIGNEE_RATES).add(JOBS.SYNC_ASSIGNEE_RATES, {}, this.queues.defaultJobOptions());
-    return { queued: true };
   }
 
   @Post('webhooks/register')
@@ -103,5 +108,70 @@ export class AdminController {
     }
 
     return { queued: entries.length, agencyUserId, limit };
+  }
+
+  // ── Rates CRUD ─────────────────────────────────────────────────────────────
+
+  @Get('rates')
+  @ApiOperation({ summary: 'List all assignee rates (paginated)' })
+  listRates(@Query('page') page = 1, @Query('limit') limit = 50) {
+    return this.ratesRepo.findAll(Number(page) || 1, Number(limit) || 50);
+  }
+
+  @Post('rates')
+  @HttpCode(201)
+  @ApiOperation({ summary: 'Create an assignee rate' })
+  createRate(@Body() dto: CreateRateDto) {
+    const validFrom = new Date(`${dto.validFrom.slice(0, 10)}T00:00:00.000Z`);
+    const validTo = dto.validTo ? new Date(`${dto.validTo.slice(0, 10)}T00:00:00.000Z`) : null;
+    return this.ratesRepo.create({ assigneeId: dto.assigneeId, assigneeName: dto.assigneeName, assigneeEmail: dto.assigneeEmail, currency: dto.currency ?? 'AUD', hourlyRateCents: dto.hourlyRateCents, validFrom, validTo });
+  }
+
+  @Patch('rates/:id')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Update an assignee rate' })
+  updateRate(@Param('id') id: string, @Body() dto: UpdateRateDto) {
+    const data: Parameters<RatesRepository['update']>[1] = {};
+    if (dto.currency !== undefined) data.currency = dto.currency;
+    if (dto.hourlyRateCents !== undefined) data.hourlyRateCents = dto.hourlyRateCents;
+    if (dto.validFrom !== undefined) data.validFrom = new Date(`${dto.validFrom.slice(0, 10)}T00:00:00.000Z`);
+    if ('validTo' in dto) data.validTo = dto.validTo ? new Date(`${dto.validTo!.slice(0, 10)}T00:00:00.000Z`) : null;
+    return this.ratesRepo.update(parseId(id), data);
+  }
+
+  @Delete('rates/:id')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Delete an assignee rate' })
+  deleteRate(@Param('id') id: string) {
+    return this.ratesRepo.remove(parseId(id));
+  }
+
+  // ── Tag-Assignee Map CRUD ───────────────────────────────────────────────────
+
+  @Get('tag-assignee-map')
+  @ApiOperation({ summary: 'List all tag → assignee mappings' })
+  listTagAssignee() {
+    return this.tagAssigneeRepo.findAll();
+  }
+
+  @Post('tag-assignee-map')
+  @HttpCode(201)
+  @ApiOperation({ summary: 'Add a tag → assignee mapping' })
+  createTagAssignee(@Body() dto: CreateTagAssigneeDto) {
+    return this.tagAssigneeRepo.create({ tagName: dto.tagName, clickupUserId: dto.clickupUserId, clickupUserName: dto.clickupUserName, clickupEmail: dto.clickupEmail });
+  }
+
+  @Patch('tag-assignee-map/:id')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Update a tag → assignee mapping' })
+  updateTagAssignee(@Param('id') id: string, @Body() dto: UpdateTagAssigneeDto) {
+    return this.tagAssigneeRepo.update(parseId(id), dto);
+  }
+
+  @Delete('tag-assignee-map/:id')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Delete a tag → assignee mapping' })
+  deleteTagAssignee(@Param('id') id: string) {
+    return this.tagAssigneeRepo.remove(parseId(id));
   }
 }
