@@ -113,7 +113,7 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
           <MetaGrid items={[
             ['Start', fmt.dateTime(entry.startTime)],
             ['End', entry.endTime ? fmt.dateTime(entry.endTime) : '—'],
-            ['Duration', fmt.hours(entry.durationHours)],
+            ['Duration', fmt.duration(entry.durationHours)],
             ['Billable', entry.billable ? 'Yes' : 'No'],
           ]}
           />
@@ -130,7 +130,7 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
                 </span>
               </div>
               <div style={{ fontSize: 13, color: 'var(--text)', fontVariantNumeric: 'tabular-nums', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                {fmt.hours(entry.durationHours)} × {fmt.money(entry.hourlyRateCents, currency)}/h ={' '}
+                {fmt.duration(entry.durationHours)} × {fmt.money(entry.hourlyRateCents, currency)}/h ={' '}
                 <strong style={{ fontSize: 16 }}>{fmt.money(entry.costAud * 100, currency)}</strong>
               </div>
             </div>

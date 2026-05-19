@@ -178,7 +178,7 @@ export function TimeEntriesPage() {
       width: 80,
       align: 'right',
       render: (row) => (
-        <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.hours(row.durationHours)}</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.duration(row.durationHours)}</span>
       ),
     },
     {
