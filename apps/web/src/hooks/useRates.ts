@@ -39,3 +39,16 @@ export function useWorkspaceMembers() {
     staleTime: 5 * 60 * 1000,
   });
 }
+
+export function useRecalcCosts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (assigneeId?: string) => ratesApi.recalculate(assigneeId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['rates'] });
+      qc.invalidateQueries({ queryKey: ['time-entries'] });
+      qc.invalidateQueries({ queryKey: ['stats'] });
+      qc.invalidateQueries({ queryKey: ['missing-rates'] });
+    },
+  });
+}

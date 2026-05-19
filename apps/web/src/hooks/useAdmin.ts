@@ -12,10 +12,6 @@ export function useBackfill() {
   });
 }
 
-export function useSyncRates() {
-  return useMutation({ mutationFn: adminApi.syncRates });
-}
-
 export function useSyncAllTimeEntries() {
   return useMutation({ mutationFn: (lookbackDays?: number) => adminApi.syncAllTimeEntries(lookbackDays) });
 }
