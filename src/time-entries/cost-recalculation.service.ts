@@ -24,8 +24,9 @@ export class CostRecalculationService {
     });
 
     let updated = 0;
+    let noRate = 0;
     for (const e of entries) {
-      const cost = await this.costs.calculate(e.userId, e.startTime, Number(e.durationHours));
+      const cost = await this.costs.calculate(e.userId, e.startTime, e.durationHours.toNumber());
       await this.prisma.clickupTimeEntry.update({
         where: { timeEntryId: e.timeEntryId },
         data: {
@@ -37,9 +38,10 @@ export class CostRecalculationService {
         },
       });
       updated += 1;
+      if (cost.status !== 'COST_CALCULATED') noRate += 1;
     }
 
-    this.logger.log(`Recalculated ${updated}/${entries.length} time entries (assignee=${opts.assigneeId ?? 'all'})`);
+    this.logger.log(`Recalculated ${updated}/${entries.length} time entries (assignee=${opts.assigneeId ?? 'all'}, noRate=${noRate})`);
     return { scanned: entries.length, updated };
   }
 }

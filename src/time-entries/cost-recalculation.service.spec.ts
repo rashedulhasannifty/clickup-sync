@@ -11,7 +11,7 @@ function makeDeps(entries: any[]) {
   return { svc: new CostRecalculationService(prisma, costs), prisma, findMany, update, calculate };
 }
 
-const ENTRY = { timeEntryId: 'te-1', userId: 'u1', startTime: new Date('2024-06-15T00:00:00Z'), durationHours: '2' };
+const ENTRY = { timeEntryId: 'te-1', userId: 'u1', startTime: new Date('2024-06-15T00:00:00Z'), durationHours: { toNumber: () => 2 } };
 
 describe('CostRecalculationService', () => {
   it('scopes the query to one assignee when assigneeId is given', async () => {
