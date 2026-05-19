@@ -9,7 +9,7 @@ export class CostCalculatorService {
     if (!userId || !startTime) return { rateId: null, currency: 'AUD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND' };
     const entryDate = new Date(Date.UTC(startTime.getUTCFullYear(), startTime.getUTCMonth(), startTime.getUTCDate()));
     const rate = await this.prisma.assigneeRate.findFirst({
-      where: { assigneeId: userId, validFrom: { lte: entryDate }, OR: [{ validTo: null }, { validTo: { gte: entryDate } }] },
+      where: { assigneeId: userId, validFrom: { lte: entryDate }, OR: [{ validTo: null }, { validTo: { gt: entryDate } }] },
       orderBy: { validFrom: 'desc' },
     });
     if (!rate) return { rateId: null, currency: 'AUD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND' };
