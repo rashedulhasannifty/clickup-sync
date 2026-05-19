@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { ClickUpMember, ClickUpTask, ClickUpTaskPage, ClickUpTimeEntry, ClickUpWebhook, CreateTimeEntryPayload } from './clickup.types';
+import { buildTimeEntriesQuery } from './time-entries.util';
 
 @Injectable()
 export class ClickupClient {
@@ -46,15 +47,9 @@ export class ClickupClient {
     return all;
   }
 
-  async getTimeEntries(teamId: string, taskId: string, options?: { assigneeId?: string; startDate?: number; endDate?: number }): Promise<ClickUpTimeEntry[]> {
-    const params = new URLSearchParams({ task_id: taskId });
-    if (options?.assigneeId) params.append('assignee', options.assigneeId);
-    // ClickUp defaults to current day only — always pass an explicit window
-    const endMs = options?.endDate ?? Date.now();
-    const startMs = options?.startDate ?? (endMs - 365 * 24 * 60 * 60 * 1000);
-    params.append('start_date', String(startMs));
-    params.append('end_date', String(endMs));
-    const res: any = await this.request('GET', `/team/${teamId}/time_entries?${params.toString()}`);
+  async getTimeEntries(teamId: string, taskId: string, options?: { assigneeIds?: string[]; startDate?: number; endDate?: number }): Promise<ClickUpTimeEntry[]> {
+    const qs = buildTimeEntriesQuery(taskId, options ?? {});
+    const res: any = await this.request('GET', `/team/${teamId}/time_entries?${qs}`);
     return res.data || res.entries || [];
   }
 

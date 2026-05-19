@@ -18,9 +18,12 @@ export class TimeEntriesService {
     private readonly queues: QueueService,
   ) {}
 
-  async syncTaskTimeEntries(taskId: string, assigneeId?: string, startDate?: number, endDate?: number) {
+  async syncTaskTimeEntries(taskId: string, assigneeIds?: string[], startDate?: number, endDate?: number) {
     const teamId = process.env.CLICKUP_TEAM_ID || '3450636';
-    const entries = await this.clickup.getTimeEntries(teamId, taskId, { assigneeId, startDate, endDate });
+    const entries = await this.clickup.getTimeEntries(teamId, taskId, { assigneeIds, startDate, endDate });
+    if (entries.length === 0 && (!assigneeIds || assigneeIds.length === 0)) {
+      this.logger.warn(`Task ${taskId}: 0 time entries and no assignee ids provided — ClickUp only returns the token owner's entries, so this task's tracked time was not synced`);
+    }
     let count = 0;
     const normalizedEntries: NormalizedTimeEntry[] = [];
     for (const entry of entries) {

@@ -6,6 +6,7 @@ import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { subtractDays } from '../common/utils/date-utils';
+import { extractAssigneeIds } from '../clickup/time-entries.util';
 
 @Injectable()
 export class BackfillService {
@@ -52,7 +53,11 @@ export class BackfillService {
     for (const task of rawTasks) {
       const taskId = (task as { id?: string }).id;
       if (taskId) {
-        await queue.add(JOBS.SYNC_TASK_TIME_ENTRIES, { taskId, startDate: teStartDate, endDate }, jobOpts);
+        await queue.add(
+          JOBS.SYNC_TASK_TIME_ENTRIES,
+          { taskId, assigneeIds: extractAssigneeIds(task), startDate: teStartDate, endDate },
+          jobOpts,
+        );
       }
     }
 
