@@ -23,6 +23,20 @@ export class TasksRepository {
     });
   }
 
+  patchSpaceNames(spaceId: string, spaceName: string) {
+    return this.prisma.clickupTask.updateMany({
+      where: { spaceId, spaceName: null },
+      data: { spaceName },
+    });
+  }
+
+  findAllIds(spaceId?: string): Promise<{ taskId: string; spaceId: string | null }[]> {
+    return this.prisma.clickupTask.findMany({
+      where: { isDeleted: false, ...(spaceId ? { spaceId } : {}) },
+      select: { taskId: true, spaceId: true },
+    });
+  }
+
   async findMissingParentIds(parentIds: string[]): Promise<string[]> {
     if (!parentIds.length) return [];
     const rows = await this.prisma.clickupTask.findMany({ where: { taskId: { in: parentIds } }, select: { taskId: true } });

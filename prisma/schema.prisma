@@ -154,9 +154,11 @@ model SyncJobLog {
   errorMessage String?  @map("error_message")
   errorStack   String?  @map("error_stack")
   payload      Json?
-  startedAt    DateTime? @map("started_at")
-  finishedAt   DateTime? @map("finished_at")
-  createdAt    DateTime @default(now()) @map("created_at")
+  startedAt         DateTime? @map("started_at")
+  finishedAt        DateTime? @map("finished_at")
+  tasksSynced       Int?      @map("tasks_synced")
+  timeEntriesSynced Int?      @map("time_entries_synced")
+  createdAt         DateTime  @default(now()) @map("created_at")
 
   @@index([queueName, jobName])
   @@index([status])

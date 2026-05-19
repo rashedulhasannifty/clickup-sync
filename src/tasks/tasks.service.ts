@@ -27,4 +27,6 @@ export class TasksService {
   }
 
   async softDeleteTask(taskId: string) { return this.repo.softDelete(taskId); }
+
+  patchSpaceNames(spaceId: string, spaceName: string) { return this.repo.patchSpaceNames(spaceId, spaceName); }
 }

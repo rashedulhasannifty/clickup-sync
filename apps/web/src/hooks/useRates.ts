@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ratesApi } from '../api/rates';
 import type { Rate } from '../api/rates';
+import { adminApi } from '../api/admin';
 
 export function useRates() {
   return useQuery({ queryKey: ['rates'], queryFn: ratesApi.list });
@@ -28,5 +29,13 @@ export function useDeleteRate() {
   return useMutation({
     mutationFn: (id: string) => ratesApi.remove(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['rates'] }),
+  });
+}
+
+export function useWorkspaceMembers() {
+  return useQuery({
+    queryKey: ['workspace-members'],
+    queryFn: adminApi.workspaceMembers,
+    staleTime: 5 * 60 * 1000,
   });
 }

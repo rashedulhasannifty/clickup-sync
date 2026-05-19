@@ -8,10 +8,15 @@ export class TimeEntriesRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   upsert(entry: NormalizedTimeEntry, cost: { rateId: bigint | null; currency: string; hourlyRateCents: bigint; costCents: bigint; status: string }) {
+    // taskName exists on NormalizedTimeEntry for normalizer convenience but is not a column —
+    // it comes from the task relation.  Exclude it so Prisma resolves to the Unchecked variant
+    // which accepts taskId and rateId as plain scalars.
+    const { taskName: _taskName, ...scalarFields } = entry;
+    const payload = { ...scalarFields, raw: entry.raw as Prisma.InputJsonValue, ...cost };
     return this.prisma.clickupTimeEntry.upsert({
       where: { timeEntryId: entry.timeEntryId },
-      create: { ...entry, raw: entry.raw as Prisma.InputJsonValue, ...cost },
-      update: { ...entry, raw: entry.raw as Prisma.InputJsonValue, ...cost },
+      create: payload,
+      update: payload,
     });
   }
 

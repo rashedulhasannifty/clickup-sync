@@ -313,14 +313,23 @@ export class ReportsService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.syncJobLog.findMany({
         where,
-        orderBy: { finishedAt: 'desc' },
+        orderBy: { startedAt: 'desc' },
         take: safeLimit,
         skip: offset,
-        select: { id: true, queueName: true, jobName: true, status: true, entityId: true, errorMessage: true, finishedAt: true },
+        select: { id: true, queueName: true, jobName: true, status: true, entityId: true, errorMessage: true, startedAt: true, finishedAt: true, tasksSynced: true, timeEntriesSynced: true },
       }),
       this.prisma.syncJobLog.count({ where }),
     ]);
-    return { items: items.map(i => ({ ...i, id: i.id.toString() })), total };
+    return {
+      items: items.map(i => ({
+        ...i,
+        id: i.id.toString(),
+        durationMs: i.startedAt && i.finishedAt
+          ? new Date(i.finishedAt).getTime() - new Date(i.startedAt).getTime()
+          : null,
+      })),
+      total,
+    };
   }
 
   async deadLetters(limit = 50, offset = 0) {
@@ -344,7 +353,7 @@ export class ReportsService {
       this.prisma.syncJobLog.count({ where: { status: 'failed', finishedAt: { gte: since24h } } }),
       this.prisma.deadLetterJob.count({ where: { retriedAt: null, resolvedAt: null } }),
       this.prisma.clickupWebhookEvent.count({ where: { receivedAt: { gte: since24h } } }),
-      this.prisma.clickupTimeEntry.count({ where: { status: 'NO_RATE_FOUND' } }),
+      this.prisma.clickupTimeEntry.count({ where: { status: { not: 'COST_CALCULATED' } } }),
     ]);
     return { failedJobsLast24h, deadLetterPending, webhooksLast24h, missingRateEntries };
   }
@@ -362,15 +371,21 @@ export class ReportsService {
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT
         e.user_id,
-        e.user_name,
-        e.user_email,
+        MAX(e.user_name) AS user_name,
+        MAX(e.user_email) AS user_email,
         COUNT(*)::bigint AS missing_count,
         COALESCE(SUM(e.duration_hours), 0)::float AS affected_hours,
         MIN(e.start_time) AS first_date,
         MAX(e.start_time) AS latest_date
       FROM clickup_time_entries e
-      WHERE e.status = 'NO_RATE_FOUND'
-      GROUP BY e.user_id, e.user_name, e.user_email
+      WHERE e.user_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM assignee_rates r
+          WHERE r.assignee_id = e.user_id
+            AND r.valid_from <= e.start_time::date
+            AND (r.valid_to IS NULL OR r.valid_to > e.start_time::date)
+        )
+      GROUP BY e.user_id
       ORDER BY COUNT(*) DESC
     `);
     return rows.map(r => ({

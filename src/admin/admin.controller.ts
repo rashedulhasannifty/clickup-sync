@@ -12,10 +12,13 @@ import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { DeadLetterRepository } from '../jobs/dead-letter.repository';
+import { ClickupClient } from '../clickup/clickup.client';
 import { ClickupWebhooksService } from '../clickup/clickup-webhooks.service';
 import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
 import { RatesRepository } from '../rates/rates.repository';
 import { TagAssigneeMapRepository } from '../time-entries/tag-assignee-map.repository';
+import { TasksRepository } from '../tasks/tasks.repository';
+import { subtractDays } from '../common/utils/date-utils';
 
 function parseId(id: string): bigint {
   const n = BigInt(id);
@@ -30,16 +33,30 @@ export class AdminController {
   constructor(
     private readonly queues: QueueService,
     private readonly deadLetters: DeadLetterRepository,
+    private readonly clickup: ClickupClient,
     private readonly webhooks: ClickupWebhooksService,
     private readonly timeEntriesRepo: TimeEntriesRepository,
     private readonly ratesRepo: RatesRepository,
     private readonly tagAssigneeRepo: TagAssigneeMapRepository,
+    private readonly tasksRepo: TasksRepository,
   ) {}
 
   @Get('ping')
   @ApiOperation({ summary: 'Validate admin key' })
   ping() {
     return { ok: true };
+  }
+
+  @Get('workspace-members')
+  @ApiOperation({ summary: 'List ClickUp workspace members' })
+  async listWorkspaceMembers() {
+    const teamId = process.env.CLICKUP_TEAM_ID ?? '';
+    const members = await this.clickup.getTeamMembers(teamId);
+    return members.map((m) => ({
+      id: String(m.user.id),
+      name: m.user.username ?? null,
+      email: m.user.email ?? null,
+    }));
   }
 
   @Post('tasks/sync')
@@ -116,7 +133,34 @@ export class AdminController {
     return { queued: entries.length, agencyUserId, limit };
   }
 
+  @Post('time-entries/sync-all')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Enqueue time-entry sync jobs for every task in the database' })
+  async syncAllTimeEntries(@Query('lookbackDays') lookbackDaysParam?: string) {
+    const tasks = await this.tasksRepo.findAllIds();
+    const endDate = Date.now();
+    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
+    const jobOpts = this.queues.defaultJobOptions();
+
+    for (const { taskId, spaceId } of tasks) {
+      const space = CLICKUP_SPACES.find((s) => s.id === spaceId);
+      const days = lookbackDaysParam ? Number(lookbackDaysParam) : (space?.backfillLookbackDays ?? 90);
+      const startDate = subtractDays(days).getTime();
+      await queue.add(JOBS.SYNC_TASK_TIME_ENTRIES, { taskId, startDate, endDate }, jobOpts);
+    }
+
+    return { queued: tasks.length };
+  }
+
   // ── Rates CRUD ─────────────────────────────────────────────────────────────
+
+  @Post('rates/sync')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Trigger an assignee-rate sync from Google Sheets' })
+  syncRates() {
+    this.queues.get(QUEUES.ASSIGNEE_RATES).add(JOBS.SYNC_ASSIGNEE_RATES, {}, this.queues.defaultJobOptions());
+    return { queued: true };
+  }
 
   @Get('rates')
   @ApiOperation({ summary: 'List all assignee rates (paginated)' })

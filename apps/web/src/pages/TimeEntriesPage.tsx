@@ -20,7 +20,7 @@ import { Avatar } from '../components/ui/Avatar';
 import { Pill } from '../components/ui/Pill';
 import { TimeEntryDrawer } from '../components/TimeEntryDrawer';
 import type { TimeEntryItem } from '../components/TimeEntryDrawer';
-import { useSyncRates } from '../hooks/useAdmin';
+import { useSyncRates, useSyncAllTimeEntries } from '../hooks/useAdmin';
 
 const BILLABLE_OPTIONS = [
   { value: '', label: 'Billable + non' },
@@ -40,6 +40,7 @@ export function TimeEntriesPage() {
   const { space, fromDate, toDate } = useGlobalFilters();
   const { data: byUser } = useTimeEntriesByUser();
   const syncRates = useSyncRates();
+  const syncAllTimeEntries = useSyncAllTimeEntries();
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -254,6 +255,21 @@ export function TimeEntriesPage() {
         actions={
           <>
             <Button size="md" variant="default" icon={<Download size={13} strokeWidth={1.75} />}>Export CSV</Button>
+            <Button
+              size="md"
+              variant="default"
+              icon={<RefreshCw size={13} strokeWidth={1.75} />}
+              loading={syncAllTimeEntries.isPending}
+              onClick={() => syncAllTimeEntries.mutate(undefined, {
+                onSuccess: (res) => {
+                  void queryClient.invalidateQueries({ queryKey: ['time-entries-list'] });
+                  void queryClient.invalidateQueries({ queryKey: ['time-entries-by-user'] });
+                  alert(`Queued ${res.queued} time-entry sync jobs`);
+                },
+              })}
+            >
+              Sync time entries
+            </Button>
             <Button
               size="md"
               variant="accent"

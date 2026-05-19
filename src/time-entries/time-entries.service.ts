@@ -18,9 +18,9 @@ export class TimeEntriesService {
     private readonly queues: QueueService,
   ) {}
 
-  async syncTaskTimeEntries(taskId: string, assigneeId?: string) {
+  async syncTaskTimeEntries(taskId: string, assigneeId?: string, startDate?: number, endDate?: number) {
     const teamId = process.env.CLICKUP_TEAM_ID || '3450636';
-    const entries = await this.clickup.getTimeEntries(teamId, taskId, assigneeId);
+    const entries = await this.clickup.getTimeEntries(teamId, taskId, { assigneeId, startDate, endDate });
     let count = 0;
     const normalizedEntries: NormalizedTimeEntry[] = [];
     for (const entry of entries) {

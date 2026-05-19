@@ -11,7 +11,11 @@ export interface JobLogItem {
   status: string;
   entityId: string | null;
   errorMessage: string | null;
+  startedAt: string | null;
   finishedAt: string | null;
+  durationMs: number | null;
+  tasksSynced: number | null;
+  timeEntriesSynced: number | null;
 }
 
 interface SyncRunDrawerProps {
@@ -31,13 +35,21 @@ function MetaRow({ label, children }: { label: string; children: ReactNode }) {
 export function SyncRunDrawer({ item, onClose }: SyncRunDrawerProps) {
   if (!item) return null;
 
+  const durationLabel = item.durationMs == null
+    ? '—'
+    : item.durationMs < 1000
+      ? `${item.durationMs}ms`
+      : `${(item.durationMs / 1000).toFixed(1)}s`;
+
   const logLines = [
     `[INFO] Job started: ${item.jobName}`,
     `[INFO] Entity: ${item.entityId ?? '(none)'}`,
+    item.tasksSynced != null ? `[INFO] Tasks synced: ${item.tasksSynced}` : null,
+    item.timeEntriesSynced != null ? `[INFO] Time entries synced: ${item.timeEntriesSynced}` : null,
     item.status === 'failed'
       ? `[ERROR] ${item.errorMessage ?? 'Unknown error'}`
       : '[INFO] Completed successfully',
-  ];
+  ].filter(Boolean) as string[];
 
   return (
     <Drawer open={item !== null} onClose={onClose} title="Sync Run Detail" width={620}>
@@ -62,9 +74,19 @@ export function SyncRunDrawer({ item, onClose }: SyncRunDrawerProps) {
           <MetaRow label="Entity ID">
             <span className="font-mono text-xs">{item.entityId ?? '—'}</span>
           </MetaRow>
+          <MetaRow label="Started At">
+            {item.startedAt ? fmt.dateTime(item.startedAt) : '—'}
+          </MetaRow>
           <MetaRow label="Finished At">
             {item.finishedAt ? fmt.dateTime(item.finishedAt) : '—'}
           </MetaRow>
+          <MetaRow label="Duration">{durationLabel}</MetaRow>
+          {item.tasksSynced != null && (
+            <MetaRow label="Tasks synced">{item.tasksSynced}</MetaRow>
+          )}
+          {item.timeEntriesSynced != null && (
+            <MetaRow label="Time entries synced">{item.timeEntriesSynced}</MetaRow>
+          )}
         </div>
 
         {/* Error callout */}

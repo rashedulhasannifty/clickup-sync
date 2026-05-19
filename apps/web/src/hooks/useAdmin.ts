@@ -16,6 +16,10 @@ export function useSyncRates() {
   return useMutation({ mutationFn: adminApi.syncRates });
 }
 
+export function useSyncAllTimeEntries() {
+  return useMutation({ mutationFn: (lookbackDays?: number) => adminApi.syncAllTimeEntries(lookbackDays) });
+}
+
 export function useRegisterWebhook() {
   return useMutation({ mutationFn: adminApi.registerWebhook });
 }

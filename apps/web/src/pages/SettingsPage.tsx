@@ -244,7 +244,7 @@ export function SettingsPage() {
                 C
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Nifty IT</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Nifty IT Solution</div>
                 <div
                   style={{
                     fontSize: 12,
@@ -297,20 +297,29 @@ export function SettingsPage() {
           </Card>
 
           <Card>
-            <SectionTitle
-              title="Webhook"
-              subtitle={
-                <>
-                  Real-time event delivery from{' '}
-                  <a href="https://clickup.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
-                    ClickUp
-                  </a>
-                  .
-                </>
-              }
-            />
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+              <SectionTitle
+                title="Webhook"
+                subtitle={
+                  <>
+                    Real-time event delivery from{' '}
+                    <a href="https://clickup.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+                      ClickUp
+                    </a>
+                    .
+                  </>
+                }
+              />
+              {webhookStatus === 'Fresh' ? (
+                <Pill tone="green" icon={<CircleCheck size={11} />}>Active</Pill>
+              ) : webhookStatus === 'Stale' ? (
+                <Pill tone="amber">Stale</Pill>
+              ) : (
+                <Pill tone="gray">Not registered</Pill>
+              )}
+            </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
-              <Field label="Endpoint URL" hint="Configured in ClickUp Apps">
+              <Field label="Endpoint URL" hint="Set via VITE_WEBHOOK_URL — not editable here">
                 <Input value={webhookUrl} readOnly icon={<Lock size={14} />} onChange={() => undefined} />
               </Field>
               <Field label="Subscribed events">
@@ -322,16 +331,21 @@ export function SettingsPage() {
                   ))}
                 </div>
               </Field>
-              <Field label="Signing secret">
-                <Input value="whsec_••••••••••••••••3a91" readOnly type="password" onChange={() => undefined} />
+              <Field label="Signing secret" hint="Stored in CLICKUP_WEBHOOK_SECRET on the server — not editable here">
+                <Input value="whsec_••••••••••••••••••••" readOnly type="password" onChange={() => undefined} />
               </Field>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <Button variant="accent" onClick={() => registerWebhook.mutate(undefined)} loading={registerWebhook.isPending}>
-                  Register Webhook
+                <Button
+                  variant={webhookStatus === 'Fresh' ? 'default' : 'accent'}
+                  onClick={() => registerWebhook.mutate(undefined)}
+                  loading={registerWebhook.isPending}
+                >
+                  {webhookStatus === 'Fresh' ? 'Reconnect' : 'Register Webhook'}
                 </Button>
                 {registerWebhook.data && (
                   <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                     Webhook ID: {(registerWebhook.data as { webhookId?: string }).webhookId ?? '—'}
+                    {(registerWebhook.data as { action?: string }).action === 'existing' && ' · already active'}
                   </span>
                 )}
               </div>

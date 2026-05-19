@@ -12,6 +12,7 @@ import {
 	useCreateRate,
 	useUpdateRate,
 	useDeleteRate,
+	useWorkspaceMembers,
 } from '../hooks/useRates';
 import { useMissingRates } from '../hooks/useReports';
 import { Modal } from './ui/Modal';
@@ -49,13 +50,23 @@ interface RateModalProps {
 	onClose: () => void;
 }
 
+type WorkspaceMemberRow = { id: string; name: string | null; email: string | null };
+
 function buildAssigneeMap(
 	ratesList: Rate[],
 	missing: MissingAssigneeRow[],
+	members: WorkspaceMemberRow[],
 	rate: Rate | null,
 	preset: RatePresetAssignee | null | undefined,
 ): Map<string, AssigneeRow> {
 	const m = new Map<string, AssigneeRow>();
+	for (const member of members) {
+		m.set(member.id, {
+			id: member.id,
+			name: member.name ?? member.id,
+			email: member.email,
+		});
+	}
 	for (const r of ratesList) {
 		if (!m.has(r.assigneeId)) {
 			m.set(r.assigneeId, {
@@ -99,6 +110,7 @@ export function RateModal({
 }: RateModalProps) {
 	const { data: allRates } = useRates();
 	const { data: missingRaw } = useMissingRates();
+	const { data: membersRaw } = useWorkspaceMembers();
 	const createRate = useCreateRate();
 	const updateRate = useUpdateRate();
 	const deleteRate = useDeleteRate();
@@ -117,10 +129,12 @@ export function RateModal({
 
 	const ratesList = parseRatesListResponse(allRates ?? []);
 	const missingList = (missingRaw as MissingAssigneeRow[] | undefined) ?? [];
+	const membersList = (membersRaw as WorkspaceMemberRow[] | undefined) ?? [];
 
 	const assigneeMap = useMemo(
-		() => buildAssigneeMap(ratesList, missingList, rate, presetAssignee),
-		[ratesList, missingList, rate, presetAssignee],
+		() => buildAssigneeMap(ratesList, missingList, membersList, rate, presetAssignee),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[ratesList, missingList, membersList, rate, presetAssignee],
 	);
 
 	const assigneeSelectOptions = useMemo(() => {

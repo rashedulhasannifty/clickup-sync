@@ -46,9 +46,14 @@ export class ClickupClient {
     return all;
   }
 
-  async getTimeEntries(teamId: string, taskId: string, assigneeId?: string): Promise<ClickUpTimeEntry[]> {
+  async getTimeEntries(teamId: string, taskId: string, options?: { assigneeId?: string; startDate?: number; endDate?: number }): Promise<ClickUpTimeEntry[]> {
     const params = new URLSearchParams({ task_id: taskId });
-    if (assigneeId) params.append('assignee', assigneeId);
+    if (options?.assigneeId) params.append('assignee', options.assigneeId);
+    // ClickUp defaults to current day only — always pass an explicit window
+    const endMs = options?.endDate ?? Date.now();
+    const startMs = options?.startDate ?? (endMs - 365 * 24 * 60 * 60 * 1000);
+    params.append('start_date', String(startMs));
+    params.append('end_date', String(endMs));
     const res: any = await this.request('GET', `/team/${teamId}/time_entries?${params.toString()}`);
     return res.data || res.entries || [];
   }

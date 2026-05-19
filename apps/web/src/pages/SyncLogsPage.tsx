@@ -164,7 +164,7 @@ export function SyncLogsPage() {
               webhookEvents.refetch?.();
             }}
           >
-            Trigger sync
+            Refresh
           </Button>
         }
       />
@@ -199,7 +199,21 @@ export function SyncLogsPage() {
               sublabel={jobItems.length > 0 ? `last ${jobItems.length} runs` : undefined}
               icon={<Activity size={13} />}
             />
-            <MetricCard dense label="Avg duration" value="—" sublabel="last 10 runs" icon={<Clock size={13} />} />
+            <MetricCard
+              dense
+              label="Avg duration"
+              value={(() => {
+                const samples = jobItems
+                  .filter((j) => j.durationMs != null)
+                  .slice(0, 10)
+                  .map((j) => j.durationMs!);
+                if (samples.length === 0) return '—';
+                const avg = Math.round(samples.reduce((a, b) => a + b, 0) / samples.length);
+                return avg < 1000 ? `${avg}ms` : `${(avg / 1000).toFixed(1)}s`;
+              })()}
+              sublabel="last 10 runs"
+              icon={<Clock size={13} />}
+            />
           </div>
 
           {runsLoading ? (
@@ -280,7 +294,7 @@ export function SyncLogsPage() {
                               fontVariantNumeric: 'tabular-nums',
                             }}
                           >
-                            {r.finishedAt ? fmt.dateTime(r.finishedAt) : '—'}
+                            {r.startedAt ? fmt.dateTime(r.startedAt) : '—'}
                           </td>
                           <td
                             style={{
@@ -290,10 +304,18 @@ export function SyncLogsPage() {
                               color: 'var(--text)',
                             }}
                           >
-                            —
+                            {r.durationMs == null
+                              ? '—'
+                              : r.durationMs < 1000
+                                ? `${r.durationMs}ms`
+                                : `${(r.durationMs / 1000).toFixed(1)}s`}
                           </td>
-                          <td style={{ padding: '12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>—</td>
-                          <td style={{ padding: '12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>—</td>
+                          <td style={{ padding: '12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                            {r.tasksSynced ?? '—'}
+                          </td>
+                          <td style={{ padding: '12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                            {r.timeEntriesSynced ?? '—'}
+                          </td>
                           <td
                             style={{
                               padding: '12px',
