@@ -29,6 +29,11 @@ export class RatesRepository {
     return { items: items.map(mapRate), total, page, limit: safeLimit };
   }
 
+  async findById(id: bigint) {
+    const r = await this.prisma.assigneeRate.findUnique({ where: { rateId: id } });
+    return r ? mapRate(r) : null;
+  }
+
   async create(data: { assigneeId: string; assigneeName?: string; assigneeEmail?: string; currency: string; hourlyRateCents: number; validFrom: Date; validTo?: Date | null }) {
     const r = await this.prisma.assigneeRate.create({
       data: { assigneeId: data.assigneeId, assigneeName: data.assigneeName, assigneeEmail: data.assigneeEmail, currency: data.currency, hourlyRateCents: BigInt(data.hourlyRateCents), validFrom: data.validFrom, validTo: data.validTo ?? null },
