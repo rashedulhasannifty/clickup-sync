@@ -1,4 +1,5 @@
 import { RatesService } from './rates.service';
+import { JOBS } from '../queues/queue.constants';
 
 function makeDeps() {
   const created = { id: '1', assigneeId: 'u1', assigneeName: null, assigneeEmail: null, currency: 'AUD', hourlyRateCents: 100, validFrom: new Date(), validTo: null, updatedAt: new Date() };
@@ -18,14 +19,14 @@ describe('RatesService', () => {
     const { svc, repo, add } = makeDeps();
     const r = await svc.create({ assigneeId: 'u1', currency: 'AUD', hourlyRateCents: 100, validFrom: new Date() } as any);
     expect(repo.create).toHaveBeenCalled();
-    expect(add).toHaveBeenCalledWith('recalculate-costs', { assigneeId: 'u1' }, {});
+    expect(add).toHaveBeenCalledWith(JOBS.RECALCULATE_COSTS, { assigneeId: 'u1' }, {});
     expect(r.assigneeId).toBe('u1');
   });
 
   it('update enqueues for the updated rate\'s assignee', async () => {
     const { svc, add } = makeDeps();
     await svc.update(5n, { hourlyRateCents: 200 });
-    expect(add).toHaveBeenCalledWith('recalculate-costs', { assigneeId: 'u2' }, {});
+    expect(add).toHaveBeenCalledWith(JOBS.RECALCULATE_COSTS, { assigneeId: 'u2' }, {});
   });
 
   it('remove looks up the assignee, deletes, then enqueues', async () => {
@@ -33,7 +34,7 @@ describe('RatesService', () => {
     await svc.remove(7n);
     expect(repo.findById).toHaveBeenCalledWith(7n);
     expect(repo.remove).toHaveBeenCalledWith(7n);
-    expect(add).toHaveBeenCalledWith('recalculate-costs', { assigneeId: 'u3' }, {});
+    expect(add).toHaveBeenCalledWith(JOBS.RECALCULATE_COSTS, { assigneeId: 'u3' }, {});
   });
 
   it('a failed enqueue does not throw (rate write already succeeded)', async () => {
