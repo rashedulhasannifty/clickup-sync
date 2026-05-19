@@ -17,4 +17,5 @@ export const JOBS = {
   SYNC_ASSIGNEE_RATES: 'sync-assignee-rates',
   REFRESH_CLICKUP_WEBHOOKS: 'refresh-clickup-webhooks',
   REPLACE_TIME_ENTRY_ASSIGNEES: 'replace-time-entry-assignees',
+  RECALCULATE_COSTS: 'recalculate-costs',
 } as const;
