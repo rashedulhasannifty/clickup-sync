@@ -10,9 +10,8 @@ import { ClickupEventProcessor } from './clickup-event.processor';
 import { TaskSyncProcessor } from './task-sync.processor';
 import { TimeEntrySyncProcessor } from './time-entry-sync.processor';
 import { BackfillProcessor } from './backfill.processor';
-import { RatesSyncProcessor } from './rates-sync.processor';
 import { TimeEntryReplacementProcessor } from './time-entry-replacement.processor';
 import { CostRecalcProcessor } from './cost-recalc.processor';
 
-@Module({ imports: [QueuesModule, WebhooksModule, TasksModule, TimeEntriesModule, SyncModule, RatesModule, JobsModule], providers: [ClickupEventProcessor, TaskSyncProcessor, TimeEntrySyncProcessor, BackfillProcessor, RatesSyncProcessor, TimeEntryReplacementProcessor, CostRecalcProcessor] })
+@Module({ imports: [QueuesModule, WebhooksModule, TasksModule, TimeEntriesModule, SyncModule, RatesModule, JobsModule], providers: [ClickupEventProcessor, TaskSyncProcessor, TimeEntrySyncProcessor, BackfillProcessor, TimeEntryReplacementProcessor, CostRecalcProcessor] })
 export class WorkersModule {}
