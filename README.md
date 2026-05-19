@@ -6,7 +6,7 @@ A NestJS backend starter that replaces the current n8n ClickUp sync workflows wi
 
 - NestJS 11 API and worker modules.
 - Prisma 7 schema and initial SQL migration.
-- BullMQ queues for webhooks, tasks, time entries, backfills, rates, and maintenance.
+- BullMQ queues for webhooks, tasks, time entries, backfills, and maintenance.
 - ClickUp API client.
 - ClickUp webhook ingestion with dedupe and raw event storage.
 - Defensive task and time-entry normalizers.
