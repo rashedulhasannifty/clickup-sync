@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, CircleCheck, Loader2, RefreshCw, Settings } from 'lucide-react';
+import { ChevronRight, CircleCheck, CircleDashed, Loader2, RefreshCw, Settings } from 'lucide-react';
 import { useSpaces } from '../hooks/useReports';
 import { useBackfill } from '../hooks/useAdmin';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -9,6 +9,7 @@ import { Card } from '../components/ui/Card';
 import { Tabs } from '../components/ui/Tabs';
 import { Button } from '../components/ui/Button';
 import { Pill } from '../components/ui/Pill';
+import { Input } from '../components/ui/Input';
 import { Skeleton } from '../components/ui/Skeleton';
 import { fmt } from '../lib/formatters';
 
@@ -17,6 +18,14 @@ const CONFIGURED_SPACES = [
   { id: '3589129', name: 'R&D Apps', lookbackDays: 20 },
   { id: '3525433', name: 'Projects', lookbackDays: 35 },
 ];
+
+const DEFAULT_LOOKBACK = 30;
+const MIN_LOOKBACK = 1;
+const MAX_LOOKBACK = 365;
+
+function defaultLookbackFor(spaceId: string): number {
+  return CONFIGURED_SPACES.find((s) => s.id === spaceId)?.lookbackDays ?? DEFAULT_LOOKBACK;
+}
 
 const PALETTE = ['#7B68EE', '#FF02F0', '#49CCF9', '#10b981', '#f59e0b', '#ef4444'];
 
@@ -27,7 +36,39 @@ type SpaceRow = {
   openCount: number;
   hoursLogged: number;
   costAud: number;
+  /** false = configured space that has never produced any synced data yet */
+  synced: boolean;
 };
+
+/**
+ * Always show every configured space (even if it has never synced), merged
+ * with whatever the backend reports from synced data. Any synced space that
+ * isn't in the configured list is appended so nothing is hidden.
+ */
+function buildMergedSpaces(apiRows: Omit<SpaceRow, 'synced'>[]): SpaceRow[] {
+  const byId = new Map<string, Omit<SpaceRow, 'synced'>>();
+  for (const r of apiRows) {
+    const id = r.spaceId?.trim();
+    if (id) byId.set(id, r);
+  }
+  const merged: SpaceRow[] = CONFIGURED_SPACES.map((cfg) => {
+    const hit = byId.get(cfg.id);
+    byId.delete(cfg.id);
+    if (hit) return { ...hit, spaceName: hit.spaceName ?? cfg.name, synced: true };
+    return {
+      spaceId: cfg.id,
+      spaceName: cfg.name,
+      taskCount: 0,
+      openCount: 0,
+      hoursLogged: 0,
+      costAud: 0,
+      synced: false,
+    };
+  });
+  // Any remaining synced spaces not in the configured list.
+  for (const r of byId.values()) merged.push({ ...r, synced: true });
+  return merged;
+}
 
 function spaceDisplayName(s: SpaceRow): string {
   const n = s.spaceName?.trim();
@@ -53,6 +94,30 @@ function spaceColor(spaceId: string | null | undefined): string {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
   return PALETTE[h % PALETTE.length];
+}
+
+type SyncControls = {
+  syncingId: string | null;
+  queuedIds: Set<string>;
+  onSync: (id: string) => void;
+  /** Current text shown in a space's lookback-days input. */
+  lookbackText: (id: string) => string;
+  onLookbackChange: (id: string, value: string) => void;
+};
+
+function LookbackInput({ sid, controls }: { sid: string; controls: SyncControls }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }} title="How many days back to sync from ClickUp">
+      <Input
+        type="number"
+        value={controls.lookbackText(sid)}
+        onChange={(e) => controls.onLookbackChange(sid, e.target.value)}
+        disabled={!sid}
+        style={{ width: 64 }}
+      />
+      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>days back</span>
+    </div>
+  );
 }
 
 function ProgressBar({ value = 0, color = 'var(--accent)', height = 6 }: { value?: number; color?: string; height?: number }) {
@@ -91,8 +156,9 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SpaceGrid({ spaces, syncingId, queuedIds, onSync }: { spaces: SpaceRow[]; syncingId: string | null; queuedIds: Set<string>; onSync: (id: string) => void }) {
+function SpaceGrid({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncControls }) {
   const navigate = useNavigate();
+  const { syncingId, queuedIds, onSync } = controls;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
       {spaces.map((space, index) => {
@@ -160,8 +226,10 @@ function SpaceGrid({ spaces, syncingId, queuedIds, onSync }: { spaces: SpaceRow[
                 <Pill tone="amber" size="xs" icon={<Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} />}>
                   syncing…
                 </Pill>
-              ) : (
+              ) : space.synced ? (
                 <Pill tone="green" size="xs" icon={<CircleCheck size={10} />}>synced</Pill>
+              ) : (
+                <Pill tone="amber" size="xs" icon={<CircleDashed size={10} />}>Never synced</Pill>
               )}
             </div>
 
@@ -180,27 +248,29 @@ function SpaceGrid({ spaces, syncingId, queuedIds, onSync }: { spaces: SpaceRow[
               <ProgressBar value={billPct} color={color} />
             </div>
 
-            <div style={{ display: 'flex', gap: 6, paddingTop: 8, borderTop: '1px solid var(--border-soft)' }}>
-              <Button
-                size="sm"
-                variant="default"
-                style={{ flex: 1 }}
-                disabled={!sid}
-                onClick={() => sid && navigate(`/tasks?spaceId=${encodeURIComponent(sid)}`)}
-              >
-                View tasks
-              </Button>
-              <Button
-                size="sm"
-                variant="default"
-                icon={<RefreshCw size={12} />}
-                loading={isSyncing}
-                disabled={!sid || syncingId !== null || isQueued}
-                onClick={() => sid && onSync(sid)}
-              >
-                {isQueued ? 'Queued' : 'Sync'}
-              </Button>
-              <Button size="sm" variant="ghost" icon={<Settings size={12} />} onClick={() => navigate('/settings')} />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingTop: 8, borderTop: '1px solid var(--border-soft)', flexWrap: 'wrap' }}>
+              <LookbackInput sid={sid} controls={controls} />
+              <div style={{ display: 'flex', gap: 6 }}>
+                <Button
+                  size="sm"
+                  variant="default"
+                  disabled={!sid}
+                  onClick={() => sid && navigate(`/tasks?spaceId=${encodeURIComponent(sid)}`)}
+                >
+                  View tasks
+                </Button>
+                <Button
+                  size="sm"
+                  variant="default"
+                  icon={<RefreshCw size={12} />}
+                  loading={isSyncing}
+                  disabled={!sid || syncingId !== null || isQueued}
+                  onClick={() => sid && onSync(sid)}
+                >
+                  {isQueued ? 'Queued' : 'Sync'}
+                </Button>
+                <Button size="sm" variant="ghost" icon={<Settings size={12} />} onClick={() => navigate('/settings')} />
+              </div>
             </div>
           </div>
         );
@@ -209,8 +279,9 @@ function SpaceGrid({ spaces, syncingId, queuedIds, onSync }: { spaces: SpaceRow[
   );
 }
 
-function WorkloadView({ spaces, syncingId, queuedIds, onSync }: { spaces: SpaceRow[]; syncingId: string | null; queuedIds: Set<string>; onSync: (id: string) => void }) {
+function WorkloadView({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncControls }) {
   const navigate = useNavigate();
+  const { syncingId, queuedIds, onSync } = controls;
   const sorted = useMemo(() => [...spaces].sort((a, b) => b.hoursLogged - a.hoursLogged), [spaces]);
   const total = sorted.reduce((s, sp) => s + sp.hoursLogged, 0);
 
@@ -307,7 +378,7 @@ function WorkloadView({ spaces, syncingId, queuedIds, onSync }: { spaces: SpaceR
             <th style={{ textAlign: 'right', padding: '8px 12px' }}>Hours</th>
             <th style={{ textAlign: 'right', padding: '8px 12px' }}>Billable</th>
             <th style={{ textAlign: 'right', padding: '8px 12px' }}>Cost</th>
-            <th style={{ width: 130, padding: '8px 16px' }} />
+            <th style={{ width: 230, padding: '8px 16px' }} />
           </tr>
         </thead>
         <tbody>
@@ -321,6 +392,9 @@ function WorkloadView({ spaces, syncingId, queuedIds, onSync }: { spaces: SpaceR
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ width: 8, height: 8, borderRadius: 2, background: spaceColor(sp.spaceId), flexShrink: 0 }} />
                   <span style={{ fontWeight: 600, color: 'var(--text)' }}>{spaceDisplayName(sp)}</span>
+                  {!sp.synced && (
+                    <Pill tone="amber" size="xs" icon={<CircleDashed size={10} />}>Never synced</Pill>
+                  )}
                 </div>
               </td>
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt.number(sp.taskCount)}</td>
@@ -332,7 +406,8 @@ function WorkloadView({ spaces, syncingId, queuedIds, onSync }: { spaces: SpaceR
                 {fmt.money(Math.round(Number(sp.costAud ?? 0) * 100))}
               </td>
               <td style={{ padding: '10px 16px', textAlign: 'right' }}>
-                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                  <LookbackInput sid={rowId} controls={controls} />
                   <Button
                     size="sm"
                     variant="default"
@@ -365,12 +440,14 @@ export function SpacesPage() {
   const [view, setView] = useState<TabKey>('grid');
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [queuedIds, setQueuedIds] = useState<Set<string>>(new Set());
+  const [lookbackInput, setLookbackInput] = useState<Record<string, string>>({});
   const prevHoursRef = useRef<Record<string, number>>({});
   const spacesQuery = useSpaces();
   const backfill = useBackfill();
   const queryClient = useQueryClient();
 
-  const spaceRows: SpaceRow[] = Array.isArray(spacesQuery.data) ? spacesQuery.data : [];
+  const apiRows: Omit<SpaceRow, 'synced'>[] = Array.isArray(spacesQuery.data) ? spacesQuery.data : [];
+  const mergedSpaces = useMemo(() => buildMergedSpaces(apiRows), [apiRows]);
 
   // Poll every 8s while any jobs are queued
   useEffect(() => {
@@ -385,7 +462,7 @@ export function SpacesPage() {
   useEffect(() => {
     if (queuedIds.size === 0) return;
     const resolved = new Set<string>();
-    for (const row of spaceRows) {
+    for (const row of mergedSpaces) {
       const sid = row.spaceId ?? '';
       if (!queuedIds.has(sid)) continue;
       const prev = prevHoursRef.current[sid];
@@ -395,21 +472,35 @@ export function SpacesPage() {
     if (resolved.size > 0) {
       setQueuedIds((cur) => { const next = new Set(cur); resolved.forEach((id) => next.delete(id)); return next; });
     }
-  }, [spaceRows, queuedIds]);
+  }, [mergedSpaces, queuedIds]);
 
-  function lookbackDaysFor(spaceId: string): number {
-    return CONFIGURED_SPACES.find((s) => s.id === spaceId)?.lookbackDays ?? 30;
+  function lookbackText(spaceId: string): string {
+    return lookbackInput[spaceId] ?? String(defaultLookbackFor(spaceId));
+  }
+
+  function onLookbackChange(spaceId: string, value: string) {
+    // Keep only digits while typing; clamping to [1,365] happens at sync time.
+    const digits = value.replace(/[^0-9]/g, '').slice(0, 3);
+    setLookbackInput((cur) => ({ ...cur, [spaceId]: digits }));
+  }
+
+  function effectiveLookback(spaceId: string): number {
+    const raw = lookbackInput[spaceId];
+    if (raw === undefined || raw.trim() === '') return defaultLookbackFor(spaceId);
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return defaultLookbackFor(spaceId);
+    return Math.max(MIN_LOOKBACK, Math.min(MAX_LOOKBACK, Math.round(n)));
   }
 
   function markQueued(spaceId: string) {
-    prevHoursRef.current[spaceId] = spaceRows.find((r) => r.spaceId === spaceId)?.hoursLogged ?? 0;
+    prevHoursRef.current[spaceId] = mergedSpaces.find((r) => r.spaceId === spaceId)?.hoursLogged ?? 0;
     setQueuedIds((cur) => new Set(cur).add(spaceId));
   }
 
   function handleSync(spaceId: string) {
     setSyncingId(spaceId);
     backfill.mutate(
-      { spaceId, lookbackDays: lookbackDaysFor(spaceId) },
+      { spaceId, lookbackDays: effectiveLookback(spaceId) },
       {
         onSuccess: () => markQueued(spaceId),
         onSettled: () => setSyncingId(null),
@@ -420,15 +511,17 @@ export function SpacesPage() {
   function handleSyncAll() {
     if (syncingId !== null) return;
     let chain = Promise.resolve();
-    for (const s of CONFIGURED_SPACES) {
+    for (const s of mergedSpaces) {
+      const sid = s.spaceId?.trim();
+      if (!sid) continue;
       chain = chain.then(
         () =>
           new Promise<void>((resolve) => {
-            setSyncingId(s.id);
+            setSyncingId(sid);
             backfill.mutate(
-              { spaceId: s.id, lookbackDays: s.lookbackDays },
+              { spaceId: sid, lookbackDays: effectiveLookback(sid) },
               {
-                onSuccess: () => markQueued(s.id),
+                onSuccess: () => markQueued(sid),
                 onSettled: () => { setSyncingId(null); resolve(); },
               },
             );
@@ -437,27 +530,27 @@ export function SpacesPage() {
     }
   }
 
+  const controls: SyncControls = { syncingId, queuedIds, onSync: handleSync, lookbackText, onLookbackChange };
   const isBusy = syncingId !== null || queuedIds.size > 0;
+  const anySynced = mergedSpaces.some((s) => s.synced);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <PageHeader
         title="Spaces"
-        description="ClickUp space allocation — tasks, time, and cost by space."
+        description="ClickUp space allocation — tasks, time, and cost by space. Set how many days back each space syncs."
         actions={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {spaceRows.length > 0 && (
-              <Button
-                variant="accent"
-                size="md"
-                icon={<RefreshCw size={13} />}
-                loading={syncingId !== null}
-                disabled={isBusy}
-                onClick={handleSyncAll}
-              >
-                Sync all
-              </Button>
-            )}
+            <Button
+              variant="accent"
+              size="md"
+              icon={<RefreshCw size={13} />}
+              loading={syncingId !== null}
+              disabled={isBusy}
+              onClick={handleSyncAll}
+            >
+              Sync all
+            </Button>
             <Tabs value={view} onChange={(k) => setView(k as TabKey)} variant="segmented" items={TAB_ITEMS} />
           </div>
         }
@@ -485,52 +578,20 @@ export function SpacesPage() {
         </div>
       )}
 
+      {!spacesQuery.isLoading && !anySynced && (
+        <div style={{ padding: '10px 14px', background: 'var(--muted-bg)', borderRadius: 8, fontSize: 13, color: 'var(--text-muted)' }}>
+          No spaces have synced yet. Set a "days back" value and hit Sync (or Sync all) to pull tasks and time entries from ClickUp.
+        </div>
+      )}
+
       {spacesQuery.isLoading ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
           {[1, 2, 3].map((n) => <Skeleton key={n} height={260} />)}
         </div>
-      ) : spaceRows.length === 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ padding: 16, background: 'var(--muted-bg)', borderRadius: 10, fontSize: 13, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <span>No space data yet. Run a backfill to pull tasks and time entries from ClickUp.</span>
-            <Button variant="accent" size="md" icon={<RefreshCw size={13} />} loading={syncingId !== null} disabled={isBusy} onClick={handleSyncAll}>
-              Sync all spaces
-            </Button>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
-            {CONFIGURED_SPACES.map((s) => {
-              const color = spaceColor(s.id);
-              const isQueued = queuedIds.has(s.id);
-              return (
-                <div key={s.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderLeft: `3px solid ${color}`, borderRadius: 10, padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 8, background: `${color}22`, color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700, flexShrink: 0 }}>
-                    {s.name[0]}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{s.name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                      {isQueued ? 'Fetching time entries…' : `${s.id} · ${s.lookbackDays}d lookback`}
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="default"
-                    icon={isQueued ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={12} />}
-                    loading={syncingId === s.id}
-                    disabled={isBusy}
-                    onClick={() => handleSync(s.id)}
-                  >
-                    {isQueued ? 'Queued' : 'Sync'}
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
       ) : view === 'grid' ? (
-        <SpaceGrid spaces={spaceRows} syncingId={syncingId} queuedIds={queuedIds} onSync={handleSync} />
+        <SpaceGrid spaces={mergedSpaces} controls={controls} />
       ) : (
-        <WorkloadView spaces={spaceRows} syncingId={syncingId} queuedIds={queuedIds} onSync={handleSync} />
+        <WorkloadView spaces={mergedSpaces} controls={controls} />
       )}
     </div>
   );
