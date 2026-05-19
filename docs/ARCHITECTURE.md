@@ -17,7 +17,6 @@ This project replaces the n8n ClickUp sync workflows with a structured NestJS ba
 - `clickup-tasks`
 - `clickup-time-entries`
 - `clickup-backfills`
-- `assignee-rates`
 - `maintenance`
 
 ## Important defaults copied from the n8n source workflows
@@ -32,8 +31,6 @@ This project replaces the n8n ClickUp sync workflows with a structured NestJS ba
   - `taskUpdated`
   - `taskDeleted`
   - `taskTimeTrackedUpdated`
-- Rate sheet ID: `1HmHES7b8bK3K252_fijWW9K_UHMwIJZWmqfszwIB6BA`
-
 ## Safety rules
 
 - Webhook requests do not fetch ClickUp task details.

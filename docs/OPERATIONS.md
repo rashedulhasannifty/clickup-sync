@@ -31,13 +31,9 @@ Add a BullMQ job to `clickup-backfills` with payload:
 { "spaceId": "3577824", "lookbackDays": 90 }
 ```
 
-## Rate sync
+## Assignee rates
 
-The rate sync reads from Google Sheets using a service account. Required columns:
-
-```text
-assignee_id, assignee_name, assignee_email, currency, hourly_rate_cents, valid_from, valid_to
-```
+Rates are managed in the dashboard (`/assignee-rates`) via `POST|PATCH|DELETE /admin/rates`. Changing a rate automatically triggers a scoped `recalculate-costs` job on the `maintenance` queue that recomputes costs for affected `clickup_time_entries`. There is no Google Sheets sync. For a manual full recalculation, call `POST /admin/rates/recalculate`.
 
 ## Production checklist
 

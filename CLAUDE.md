@@ -13,7 +13,6 @@ The service synchronizes ClickUp data into PostgreSQL for reporting and Grafana 
 - Parent task and subtask normalization.
 - Task deletes as soft deletes.
 - ClickUp tracked-time sync.
-- Assignee-rate sync from Google Sheets.
 - Cost calculation for time entries using effective-dated assignee rates.
 
 ## Source-of-truth files to read first
@@ -42,7 +41,6 @@ The n8n workflow files are historical source material. Do not copy n8n quirks bl
 - PostgreSQL
 - Redis
 - BullMQ
-- Google Sheets API via service account credentials
 - Swagger at `/docs`
 
 ## Important commands
@@ -86,16 +84,6 @@ CLICKUP_API_TOKEN=pk_...
 CLICKUP_TEAM_ID=3450636
 CLICKUP_WEBHOOK_ENDPOINT=https://your-domain.com/webhooks/clickup
 CLICKUP_WEBHOOK_SECRET=...
-```
-
-Required only for Google Sheets rate sync:
-
-```env
-GOOGLE_SERVICE_ACCOUNT_EMAIL=...
-GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-GOOGLE_RATES_SHEET_ID=...
-GOOGLE_RATES_SHEET_NAME=rates
-GOOGLE_ASSIGNEE_SHEET_NAME=assignee
 ```
 
 ## ClickUp permissions and API constraints
@@ -196,13 +184,7 @@ Rules:
 
 ### Assignee rates
 
-Rates come from the Google Sheet named `rates`.
-
-Required columns:
-
-```text
-assignee_id, assignee_name, assignee_email, currency, hourly_rate_cents, valid_from, valid_to
-```
+Rates are managed via the dashboard (`/assignee-rates`) / the `POST|PATCH|DELETE /admin/rates` API. There is no Google Sheets sync. Changing a rate enqueues a scoped `recalculate-costs` job (queue `maintenance`) that recomputes existing `clickup_time_entries`. `valid_from`/`valid_to` form a closed-open interval `[from, to)` (a rate covers `start_time` where `valid_from <= date < valid_to`; empty `valid_to` = open-ended).
 
 Rules:
 
@@ -221,7 +203,6 @@ Expected queues:
 - `clickup-tasks`
 - `clickup-time-entries`
 - `clickup-backfills`
-- `assignee-rates`
 - `maintenance`
 
 When adding workers:
@@ -279,7 +260,6 @@ Do not manually edit an existing applied migration unless this is still local-on
 Before production deployment, make sure these are done:
 
 - ClickUp API token stored only in secret storage.
-- Google service account key stored only in secret storage.
 - Webhook signature verification enabled.
 - HTTPS enabled for the webhook endpoint.
 - PostgreSQL app user has least-privilege permissions.
@@ -338,7 +318,7 @@ When implementing this in code:
 This is an initial starter, not a finished production system. Expected next work:
 
 - Add explicit webhook signature verification middleware.
-- Add manual admin endpoints for backfill, task sync, rate sync, retry, and webhook registration.
+- Add manual admin endpoints for backfill, task sync, retry, and webhook registration.
 - Expand tests for real ClickUp payload variants.
 - Add structured logging.
 - Add production observability and alerting.
