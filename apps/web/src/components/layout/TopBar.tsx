@@ -91,8 +91,13 @@ export function TopBar({ onSearchClick }: { onSearchClick?: () => void }) {
     setIsDark(!isDark);
   }
 
-  const lastSyncAt = health?.[0]?.lastSuccessfulSyncAt ?? null;
-  const allFresh = health?.length && health.every((h: { status: string }) => h.status === 'Fresh');
+  // Defensively coerce: if the API returned an error envelope / HTML / unexpected
+  // shape, `health` may be a non-array truthy value (e.g. a string) and `.every`
+  // would crash this whole component.
+  const healthItems: { status: string; lastSuccessfulSyncAt?: string | null }[] =
+    Array.isArray(health) ? health : [];
+  const lastSyncAt = healthItems[0]?.lastSuccessfulSyncAt ?? null;
+  const allFresh = healthItems.length > 0 && healthItems.every((h) => h.status === 'Fresh');
 
   return (
     <header style={{
