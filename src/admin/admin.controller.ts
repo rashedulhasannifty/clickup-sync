@@ -18,6 +18,7 @@ import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
 import { RatesRepository } from '../rates/rates.repository';
 import { TagAssigneeMapRepository } from '../time-entries/tag-assignee-map.repository';
 import { TasksRepository } from '../tasks/tasks.repository';
+import { RatesService } from '../rates/rates.service';
 import { subtractDays } from '../common/utils/date-utils';
 
 function parseId(id: string): bigint {
@@ -39,6 +40,7 @@ export class AdminController {
     private readonly ratesRepo: RatesRepository,
     private readonly tagAssigneeRepo: TagAssigneeMapRepository,
     private readonly tasksRepo: TasksRepository,
+    private readonly ratesService: RatesService,
   ) {}
 
   @Get('ping')
@@ -154,12 +156,14 @@ export class AdminController {
 
   // ── Rates CRUD ─────────────────────────────────────────────────────────────
 
-  @Post('rates/sync')
+  @Post('rates/recalculate')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Trigger an assignee-rate sync from Google Sheets' })
-  syncRates() {
-    this.queues.get(QUEUES.ASSIGNEE_RATES).add(JOBS.SYNC_ASSIGNEE_RATES, {}, this.queues.defaultJobOptions());
-    return { queued: true };
+  @ApiOperation({ summary: 'Recalculate time-entry costs from current rates (optionally scoped to one assignee)' })
+  recalculateCosts(@Query('assigneeId') assigneeId?: string) {
+    this.queues
+      .get(QUEUES.MAINTENANCE)
+      .add(JOBS.RECALCULATE_COSTS, assigneeId ? { assigneeId } : {}, this.queues.defaultJobOptions());
+    return { queued: true, scope: assigneeId ?? 'all' };
   }
 
   @Get('rates')
@@ -174,7 +178,7 @@ export class AdminController {
   createRate(@Body() dto: CreateRateDto) {
     const validFrom = new Date(`${dto.validFrom.slice(0, 10)}T00:00:00.000Z`);
     const validTo = dto.validTo ? new Date(`${dto.validTo.slice(0, 10)}T00:00:00.000Z`) : null;
-    return this.ratesRepo.create({ assigneeId: dto.assigneeId, assigneeName: dto.assigneeName, assigneeEmail: dto.assigneeEmail, currency: dto.currency ?? 'AUD', hourlyRateCents: dto.hourlyRateCents, validFrom, validTo });
+    return this.ratesService.create({ assigneeId: dto.assigneeId, assigneeName: dto.assigneeName, assigneeEmail: dto.assigneeEmail, currency: dto.currency ?? 'AUD', hourlyRateCents: dto.hourlyRateCents, validFrom, validTo });
   }
 
   @Patch('rates/:id')
@@ -186,14 +190,14 @@ export class AdminController {
     if (dto.hourlyRateCents !== undefined) data.hourlyRateCents = dto.hourlyRateCents;
     if (dto.validFrom !== undefined) data.validFrom = new Date(`${dto.validFrom.slice(0, 10)}T00:00:00.000Z`);
     if ('validTo' in dto) data.validTo = dto.validTo ? new Date(`${dto.validTo!.slice(0, 10)}T00:00:00.000Z`) : null;
-    return this.ratesRepo.update(parseId(id), data);
+    return this.ratesService.update(parseId(id), data);
   }
 
   @Delete('rates/:id')
   @HttpCode(204)
   @ApiOperation({ summary: 'Delete an assignee rate' })
   deleteRate(@Param('id') id: string) {
-    return this.ratesRepo.remove(parseId(id));
+    return this.ratesService.remove(parseId(id));
   }
 
   // ── Tag-Assignee Map CRUD ───────────────────────────────────────────────────

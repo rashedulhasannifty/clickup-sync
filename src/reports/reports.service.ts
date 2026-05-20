@@ -20,7 +20,7 @@ export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async tasksSummary() {
-    const [bySpaceRows, byStatusRows, total] = await this.prisma.$transaction([
+    const [bySpaceRows, byStatusRows, total] = await Promise.all([
       this.prisma.clickupTask.groupBy({ by: ['spaceId', 'spaceName'], where: { isDeleted: false }, _count: { taskId: true } }),
       this.prisma.clickupTask.groupBy({ by: ['status'], where: { isDeleted: false }, _count: { taskId: true } }),
       this.prisma.clickupTask.count({ where: { isDeleted: false } }),
@@ -77,7 +77,7 @@ export class ReportsService {
     if (fromParam || toParam) {
       where.updatedDate = { gte: parseDate(fromParam, new Date(0)), lte: parseDate(toParam, new Date()) };
     }
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await Promise.all([
       this.prisma.clickupTask.findMany({
         where,
         orderBy: { updatedDate: 'desc' },
@@ -225,7 +225,7 @@ export class ReportsService {
       });
     }
     if (and.length) where.AND = and;
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await Promise.all([
       this.prisma.clickupTimeEntry.findMany({
         where,
         orderBy: { startTime: 'desc' },
@@ -293,7 +293,7 @@ export class ReportsService {
 
   async webhookEvents(limit = 50, offset = 0) {
     const safeLimit = Math.min(limit, 200);
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await Promise.all([
       this.prisma.clickupWebhookEvent.findMany({
         orderBy: { receivedAt: 'desc' },
         take: safeLimit,
@@ -310,7 +310,7 @@ export class ReportsService {
     const where: Prisma.SyncJobLogWhereInput = {};
     if (queueName) where.queueName = queueName;
     if (status) where.status = status;
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await Promise.all([
       this.prisma.syncJobLog.findMany({
         where,
         orderBy: { startedAt: 'desc' },
@@ -334,7 +334,7 @@ export class ReportsService {
 
   async deadLetters(limit = 50, offset = 0) {
     const safeLimit = Math.min(limit, 200);
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await Promise.all([
       this.prisma.deadLetterJob.findMany({
         where: { retriedAt: null, resolvedAt: null },
         orderBy: { failedAt: 'desc' },
@@ -349,7 +349,7 @@ export class ReportsService {
 
   async stats() {
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const [failedJobsLast24h, deadLetterPending, webhooksLast24h, missingRateEntries] = await this.prisma.$transaction([
+    const [failedJobsLast24h, deadLetterPending, webhooksLast24h, missingRateEntries] = await Promise.all([
       this.prisma.syncJobLog.count({ where: { status: 'failed', finishedAt: { gte: since24h } } }),
       this.prisma.deadLetterJob.count({ where: { retriedAt: null, resolvedAt: null } }),
       this.prisma.clickupWebhookEvent.count({ where: { receivedAt: { gte: since24h } } }),

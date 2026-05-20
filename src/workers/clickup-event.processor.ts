@@ -12,10 +12,10 @@ export class ClickupEventProcessor extends WorkerHost {
   constructor(private readonly queues: QueueService, private readonly events: WebhookEventsRepository) { super(); }
 
   async process(job: Job<any>) {
-    const { eventType, taskId, fingerprint } = job.data;
+    const { eventType, taskId, fingerprint, loggedUserId } = job.data;
     if (!taskId && eventType !== 'taskDeleted') return;
     if (eventType === 'taskDeleted') await this.queues.get(QUEUES.CLICKUP_TASKS).add(JOBS.DELETE_CLICKUP_TASK, { taskId }, this.queues.defaultJobOptions());
-    else if (eventType === 'taskTimeTrackedUpdated') await this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES).add(JOBS.SYNC_TASK_TIME_ENTRIES, { taskId }, this.queues.defaultJobOptions());
+    else if (eventType === 'taskTimeTrackedUpdated') await this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES).add(JOBS.SYNC_TASK_TIME_ENTRIES, { taskId, assigneeIds: loggedUserId ? [loggedUserId] : undefined }, this.queues.defaultJobOptions());
     else await this.queues.get(QUEUES.CLICKUP_TASKS).add(JOBS.SYNC_CLICKUP_TASK, { taskId }, this.queues.defaultJobOptions());
     await this.events.markProcessed(fingerprint).catch((e) => this.logger.warn(e.message));
   }

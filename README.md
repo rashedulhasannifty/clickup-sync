@@ -6,13 +6,13 @@ A NestJS backend starter that replaces the current n8n ClickUp sync workflows wi
 
 - NestJS 11 API and worker modules.
 - Prisma 7 schema and initial SQL migration.
-- BullMQ queues for webhooks, tasks, time entries, backfills, rates, and maintenance.
+- BullMQ queues for webhooks, tasks, time entries, backfills, and maintenance.
 - ClickUp API client.
 - ClickUp webhook ingestion with dedupe and raw event storage.
 - Defensive task and time-entry normalizers.
 - Task upsert and soft-delete repository.
 - Time-entry cost calculation with effective-dated assignee rates.
-- Google Sheets rate-sync scaffold.
+- Assignee rate management via dashboard (`/assignee-rates`) and `POST|PATCH|DELETE /admin/rates`; changing a rate triggers an automatic scoped `recalculate-costs` job on the `maintenance` queue. Manual recalculation via `POST /admin/rates/recalculate`.
 - Scheduled reconciliation/backfill jobs.
 - Dockerfile and Docker Compose for PostgreSQL and Redis.
 - Swagger docs at `/docs`.
@@ -53,14 +53,14 @@ The endpoint saves the raw ClickUp payload, dedupes it, queues processing, and r
 | Parent/subtask backfill by space | `src/sync/backfill.service.ts` |
 | Task deletion | `src/tasks/tasks.repository.ts` soft delete |
 | Time entry sync and cost calculation | `src/time-entries` |
-| Assignee rate sheet sync | `src/rates` |
+| Assignee rate management | `src/rates` |
 | Scheduled reconciliation | `src/sync/sync.scheduler.ts` |
 
 ## Notes before production
 
 This starter intentionally includes the first working structure and core logic, not every possible admin endpoint. Recommended next additions are:
 
-1. Manual endpoints to run a single task sync, space backfill, and rate sync.
+1. Manual endpoints to run a single task sync and space backfill.
 2. Dead-letter retry endpoint.
 3. ClickUp webhook registration/refresh endpoint.
 4. More tests around ClickUp payload variants.

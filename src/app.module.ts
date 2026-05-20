@@ -6,6 +6,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { join } from 'path';
 import { validateEnv } from './config/env.validation';
+import { buildBullConnection } from './config/connection.config';
 import { DatabaseModule } from './database/database.module';
 import { ClickupModule } from './clickup/clickup.module';
 import { QueuesModule } from './queues/queues.module';
@@ -29,7 +30,7 @@ import { HealthController } from './health/health.controller';
     ScheduleModule.forRoot(),
     TerminusModule,
     BullModule.forRootAsync({
-      useFactory: () => ({ connection: { url: process.env.REDIS_URL } }),
+      useFactory: () => ({ connection: buildBullConnection(process.env.REDIS_URL ?? '') }),
     }),
     DatabaseModule,
     ClickupModule,

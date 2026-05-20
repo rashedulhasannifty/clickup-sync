@@ -52,6 +52,9 @@ export class BackfillService {
     for (const task of rawTasks) {
       const taskId = (task as { id?: string }).id;
       if (taskId) {
+        // The time-entry worker resolves all-workspace-members as the
+        // `assignee` filter when no specific assignee is provided, which
+        // captures tracked time on tasks regardless of who logged it.
         await queue.add(JOBS.SYNC_TASK_TIME_ENTRIES, { taskId, startDate: teStartDate, endDate }, jobOpts);
       }
     }

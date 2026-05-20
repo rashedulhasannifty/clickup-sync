@@ -22,11 +22,16 @@ export class RatesRepository {
   async findAll(page = 1, limit = 50) {
     const safeLimit = Math.min(limit, 200);
     const skip = (page - 1) * safeLimit;
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await Promise.all([
       this.prisma.assigneeRate.findMany({ orderBy: [{ assigneeId: 'asc' }, { validFrom: 'desc' }], take: safeLimit, skip }),
       this.prisma.assigneeRate.count(),
     ]);
     return { items: items.map(mapRate), total, page, limit: safeLimit };
+  }
+
+  async findById(id: bigint) {
+    const r = await this.prisma.assigneeRate.findUnique({ where: { rateId: id } });
+    return r ? mapRate(r) : null;
   }
 
   async create(data: { assigneeId: string; assigneeName?: string; assigneeEmail?: string; currency: string; hourlyRateCents: number; validFrom: Date; validTo?: Date | null }) {

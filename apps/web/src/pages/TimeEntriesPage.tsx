@@ -20,7 +20,7 @@ import { Avatar } from '../components/ui/Avatar';
 import { Pill } from '../components/ui/Pill';
 import { TimeEntryDrawer } from '../components/TimeEntryDrawer';
 import type { TimeEntryItem } from '../components/TimeEntryDrawer';
-import { useSyncRates, useSyncAllTimeEntries } from '../hooks/useAdmin';
+import { useSyncAllTimeEntries } from '../hooks/useAdmin';
 
 const BILLABLE_OPTIONS = [
   { value: '', label: 'Billable + non' },
@@ -39,7 +39,6 @@ export function TimeEntriesPage() {
   const queryClient = useQueryClient();
   const { space, fromDate, toDate } = useGlobalFilters();
   const { data: byUser } = useTimeEntriesByUser();
-  const syncRates = useSyncRates();
   const syncAllTimeEntries = useSyncAllTimeEntries();
 
   const [page, setPage] = useState(1);
@@ -117,15 +116,6 @@ export function TimeEntriesPage() {
     setPage(1);
   }, []);
 
-  const handleRecalculate = useCallback(() => {
-    syncRates.mutate(undefined, {
-      onSuccess: () => {
-        void queryClient.invalidateQueries({ queryKey: ['time-entries-list'] });
-        void queryClient.invalidateQueries({ queryKey: ['time-entries-by-user'] });
-      },
-    });
-  }, [queryClient, syncRates]);
-
   const columns: Column<TimeEntryItem>[] = useMemo(() => [
     {
       key: 'timeEntryId',
@@ -178,7 +168,7 @@ export function TimeEntriesPage() {
       width: 80,
       align: 'right',
       render: (row) => (
-        <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.hours(row.durationHours)}</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.duration(row.durationHours)}</span>
       ),
     },
     {
@@ -269,15 +259,6 @@ export function TimeEntriesPage() {
               })}
             >
               Sync time entries
-            </Button>
-            <Button
-              size="md"
-              variant="accent"
-              icon={<RefreshCw size={13} strokeWidth={1.75} />}
-              loading={syncRates.isPending}
-              onClick={handleRecalculate}
-            >
-              Recalculate costs
             </Button>
           </>
         }

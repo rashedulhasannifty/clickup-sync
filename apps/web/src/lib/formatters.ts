@@ -17,6 +17,16 @@ export const fmt = {
     if (h < 1) return `${Math.round(h * 60)}m`;
     return `${h.toFixed(1)}h`;
   },
+  /** Human duration from decimal hours: 0.1h→"6m", 0.25h→"15m", 1.5h→"1h 30m", 2h→"2h". */
+  duration(h: number) {
+    const totalMin = Math.round((Number(h) || 0) * 60);
+    if (totalMin <= 0) return '0m';
+    const hrs = Math.floor(totalMin / 60);
+    const mins = totalMin % 60;
+    if (hrs === 0) return `${mins}m`;
+    if (mins === 0) return `${hrs}h`;
+    return `${hrs}h ${mins}m`;
+  },
   relative(iso: string | Date) {
     const ms = Date.now() - new Date(iso).getTime();
     const m = Math.floor(ms / 60000);

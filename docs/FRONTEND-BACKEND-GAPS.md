@@ -8,7 +8,7 @@ This document lists **missing or incomplete backend connections** and **UI featu
 
 | Frontend | Backend | Notes |
 |----------|---------|--------|
-| `POST /admin/rates/sync` (`adminApi.syncRates`, **Time Entries** “Recalculate” / sync rates) | **No route** in `AdminController` | Mutation always fails until an admin route and worker exist (e.g. enqueue cost recomputation). |
+| `POST /admin/rates/recalculate` (`adminApi.recalculateRates`, **Time Entries** “Recalculate”) | Route exists in `AdminController`; enqueues a scoped `recalculate-costs` job on the `maintenance` queue. | Frontend `adminApi.syncRates` may still reference the old `/rates/sync` path — verify it points to `/rates/recalculate`. |
 
 ---
 
@@ -52,7 +52,7 @@ This document lists **missing or incomplete backend connections** and **UI featu
 ### Time entries (`TimeEntriesPage.tsx`)
 
 - **Export CSV**: no handler.
-- **Recalculate** depends on missing `POST /admin/rates/sync` (see above).
+- **Recalculate** should call `POST /admin/rates/recalculate` (enqueues the `recalculate-costs` maintenance job); verify frontend API client points to this path, not the removed `/rates/sync`.
 
 ### Missing rates (`MissingRatesPage.tsx`)
 
@@ -108,7 +108,7 @@ Large sections are **local React state** or static copy; nothing persists except
 
 ## Summary checklist for product/engineering
 
-1. **Implement or remove** `POST /admin/rates/sync` and wire **Recalculate** + any copy that references it.
+1. **Wire Recalculate** to `POST /admin/rates/recalculate` (the route exists and enqueues the `recalculate-costs` maintenance job). Update frontend API client if it still references the removed `/rates/sync` path.
 2. **Dead letters**: add a Sync Logs tab or section using `useDeadLetters` + `useRetryDeadLetter`.
 3. **Exports** (Overview, Tasks, Time entries, Missing rates, Assignee rates): implement CSV/JSON endpoints or client-side export from loaded data.
 4. **Overview analytics**: replace mock sparkline / trend / delta with real endpoints or remove claims.

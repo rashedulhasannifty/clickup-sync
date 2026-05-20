@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -7,12 +7,13 @@ import {
   Download,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Users,
 } from 'lucide-react';
 import { parseRatesListResponse, type Rate } from '../api/rates';
 import type { RatePresetAssignee } from '../components/RateModal';
-import { useRates } from '../hooks/useRates';
+import { useRates, useRecalcCosts } from '../hooks/useRates';
 import { useMissingRates, useStats } from '../hooks/useReports';
 import { PageHeader } from '../components/ui/PageHeader';
 import { MetricCard } from '../components/ui/MetricCard';
@@ -25,6 +26,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Card } from '../components/ui/Card';
 import { RateModal } from '../components/RateModal';
+import { Callout } from '../components/ui/Callout';
 import { fmt } from '../lib/formatters';
 
 type GroupRow = {
@@ -41,6 +43,30 @@ function sortRatesDesc(rates: Rate[]) {
 export function AssigneeRatesPage() {
   const navigate = useNavigate();
   const { data: rates, isLoading } = useRates();
+  const recalc = useRecalcCosts();
+  const [recalcMsg, setRecalcMsg] = useState<string | null>(null);
+  const recalcMsgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear any pending dismiss timer when the page unmounts so we don't
+  // setState on an unmounted component.
+  useEffect(() => () => {
+    if (recalcMsgTimerRef.current) clearTimeout(recalcMsgTimerRef.current);
+  }, []);
+
+  function runRecalc(assigneeId?: string) {
+    recalc.mutate(assigneeId, {
+      onSuccess: () => {
+        setRecalcMsg(
+          assigneeId
+            ? 'Recalculation queued for this assignee — costs update shortly.'
+            : 'Recalculation queued for all entries — costs update shortly.',
+        );
+        if (recalcMsgTimerRef.current) clearTimeout(recalcMsgTimerRef.current);
+        recalcMsgTimerRef.current = setTimeout(() => setRecalcMsg(null), 5000);
+      },
+    });
+  }
+
   const { data: statsData } = useStats();
   const { data: missingRatesData } = useMissingRates();
   const missingRateEntries = (statsData as Record<string, number> | undefined)?.missingRateEntries ?? 0;
@@ -135,6 +161,15 @@ export function AssigneeRatesPage() {
         description="Hourly cost rates by assignee. Used to compute labor cost for tracked time."
         actions={
           <>
+            <Button
+              size="md"
+              variant="default"
+              icon={<RefreshCw size={13} />}
+              loading={recalc.isPending}
+              onClick={() => runRecalc()}
+            >
+              Recalculate costs
+            </Button>
             <Button size="md" variant="default" icon={<Download size={13} />}>
               Export
             </Button>
@@ -144,6 +179,8 @@ export function AssigneeRatesPage() {
           </>
         }
       />
+
+      {recalcMsg && <Callout tone="blue">{recalcMsg}</Callout>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
         <MetricCard
@@ -277,6 +314,15 @@ export function AssigneeRatesPage() {
                   ) : (
                     <Pill tone="amber">No active rate</Pill>
                   )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<RefreshCw size={12} />}
+                    loading={recalc.isPending}
+                    onClick={() => runRecalc(g.assigneeId)}
+                  >
+                    Recalc
+                  </Button>
                   <Button size="sm" variant="default" icon={<Plus size={12} />} onClick={() => openNewForAssignee(g)}>
                     New rate
                   </Button>

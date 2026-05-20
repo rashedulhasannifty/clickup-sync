@@ -39,3 +39,22 @@ export function useWorkspaceMembers() {
     staleTime: 5 * 60 * 1000,
   });
 }
+
+export function useRecalcCosts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (assigneeId?: string) => ratesApi.recalculate(assigneeId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['rates'] });
+      // Time-entry views use distinct first-key strings; invalidate each
+      // (React Query matches by prefix, so a bare ['time-entries'] is a no-op).
+      qc.invalidateQueries({ queryKey: ['time-entries-list'] });
+      qc.invalidateQueries({ queryKey: ['time-entries-by-user'] });
+      qc.invalidateQueries({ queryKey: ['time-entries-by-client'] });
+      qc.invalidateQueries({ queryKey: ['time-entries-by-dept'] });
+      qc.invalidateQueries({ queryKey: ['billable-summary'] });
+      qc.invalidateQueries({ queryKey: ['stats'] });
+      qc.invalidateQueries({ queryKey: ['missing-rates'] });
+    },
+  });
+}

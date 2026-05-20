@@ -36,4 +36,8 @@ export const ratesApi = {
   update: (id: string, data: Partial<Omit<Rate, 'id' | 'createdAt' | 'updatedAt'>>) =>
     apiClient.patch(`/admin/rates/${id}`, data).then(r => r.data as Rate),
   remove: (id: string) => apiClient.delete(`/admin/rates/${id}`).then(r => r.data),
+  recalculate: (assigneeId?: string) =>
+    apiClient
+      .post('/admin/rates/recalculate', null, { params: assigneeId ? { assigneeId } : {} })
+      .then((r) => r.data as { queued: boolean; scope: string }),
 };

@@ -7,7 +7,7 @@ This project replaces the n8n ClickUp sync workflows with a structured NestJS ba
 1. `POST /webhooks/clickup` receives ClickUp events.
 2. The raw payload is saved in `clickup_webhook_events` before processing.
 3. A dedupe fingerprint prevents duplicate work.
-4. BullMQ queues process ClickUp task, delete, time-entry, rate, and backfill jobs asynchronously.
+4. BullMQ queues process ClickUp task, delete, time-entry, backfill, and maintenance jobs asynchronously.
 5. Prisma writes normalized reporting rows into PostgreSQL.
 6. Grafana continues querying PostgreSQL for dashboards.
 
@@ -17,7 +17,6 @@ This project replaces the n8n ClickUp sync workflows with a structured NestJS ba
 - `clickup-tasks`
 - `clickup-time-entries`
 - `clickup-backfills`
-- `assignee-rates`
 - `maintenance`
 
 ## Important defaults copied from the n8n source workflows
@@ -32,8 +31,6 @@ This project replaces the n8n ClickUp sync workflows with a structured NestJS ba
   - `taskUpdated`
   - `taskDeleted`
   - `taskTimeTrackedUpdated`
-- Rate sheet ID: `1HmHES7b8bK3K252_fijWW9K_UHMwIJZWmqfszwIB6BA`
-
 ## Safety rules
 
 - Webhook requests do not fetch ClickUp task details.

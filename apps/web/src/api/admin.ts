@@ -24,7 +24,6 @@ export const adminApi = {
     apiClient.post('/admin/time-entries/sync-all', undefined, {
       params: lookbackDays ? { lookbackDays } : undefined,
     }).then(r => r.data as { queued: number }),
-  syncRates: () => apiClient.post('/admin/rates/sync').then(r => r.data),
   registerWebhook: () => apiClient.post('/admin/webhooks/register').then(r => r.data),
   retryDeadLetter: (id: string) => apiClient.post(`/admin/dead-letters/${id}/retry`).then(r => r.data),
   workspaceMembers: (): Promise<WorkspaceMember[]> => apiClient.get('/admin/workspace-members').then(r => r.data),
