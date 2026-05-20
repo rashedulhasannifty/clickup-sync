@@ -33,13 +33,12 @@ describe('ReportsService', () => {
   }
 
   describe('tasksSummary', () => {
-    it('returns bySpace, byStatus and total from $transaction', async () => {
+    it('returns bySpace, byStatus and total from concurrent reads', async () => {
       const prisma = makePrisma();
-      prisma.$transaction.mockResolvedValue([
-        [{ spaceId: '3577824', spaceName: 'Digital Marketing', _count: { taskId: 5 } }],
-        [{ status: 'in progress', _count: { taskId: 3 } }],
-        10,
-      ]);
+      prisma.clickupTask.groupBy
+        .mockResolvedValueOnce([{ spaceId: '3577824', spaceName: 'Digital Marketing', _count: { taskId: 5 } }])
+        .mockResolvedValueOnce([{ status: 'in progress', _count: { taskId: 3 } }]);
+      prisma.clickupTask.count.mockResolvedValue(10);
       const result = await new ReportsService(prisma).tasksSummary();
       expect(result.total).toBe(10);
       expect(result.bySpace[0]).toEqual({ spaceId: '3577824', spaceName: 'Digital Marketing', count: 5 });
@@ -185,10 +184,8 @@ describe('ReportsService', () => {
   describe('webhookEvents', () => {
     it('serializes BigInt id to string and respects limit cap', async () => {
       const prisma = makePrisma();
-      prisma.$transaction.mockResolvedValue([
-        [{ id: BigInt(42), eventType: 'taskCreated', taskId: 'abc', status: 'received', receivedAt: new Date(), processedAt: null }],
-        1,
-      ]);
+      prisma.clickupWebhookEvent.findMany.mockResolvedValue([{ id: BigInt(42), eventType: 'taskCreated', taskId: 'abc', status: 'received', receivedAt: new Date(), processedAt: null }]);
+      prisma.clickupWebhookEvent.count.mockResolvedValue(1);
       const result = await new ReportsService(prisma).webhookEvents(999);
       expect(result.items[0].id).toBe('42');
       expect(result.total).toBe(1);
@@ -198,10 +195,8 @@ describe('ReportsService', () => {
   describe('jobLogs', () => {
     it('serializes BigInt id to string', async () => {
       const prisma = makePrisma();
-      prisma.$transaction.mockResolvedValue([
-        [{ id: BigInt(7), queueName: 'clickup-tasks', jobName: 'sync', status: 'completed', entityId: 'e1', errorMessage: null, finishedAt: new Date() }],
-        1,
-      ]);
+      prisma.syncJobLog.findMany.mockResolvedValue([{ id: BigInt(7), queueName: 'clickup-tasks', jobName: 'sync', status: 'completed', entityId: 'e1', errorMessage: null, finishedAt: new Date() }]);
+      prisma.syncJobLog.count.mockResolvedValue(1);
       const result = await new ReportsService(prisma).jobLogs();
       expect(result.items[0].id).toBe('7');
     });
@@ -210,10 +205,8 @@ describe('ReportsService', () => {
   describe('deadLetters', () => {
     it('serializes BigInt id to string', async () => {
       const prisma = makePrisma();
-      prisma.$transaction.mockResolvedValue([
-        [{ id: BigInt(3), queueName: 'clickup-tasks', jobName: 'sync', entityId: null, errorMessage: 'boom', failedAt: new Date() }],
-        1,
-      ]);
+      prisma.deadLetterJob.findMany.mockResolvedValue([{ id: BigInt(3), queueName: 'clickup-tasks', jobName: 'sync', entityId: null, errorMessage: 'boom', failedAt: new Date() }]);
+      prisma.deadLetterJob.count.mockResolvedValue(1);
       const result = await new ReportsService(prisma).deadLetters();
       expect(result.items[0].id).toBe('3');
     });
@@ -222,7 +215,10 @@ describe('ReportsService', () => {
   describe('stats', () => {
     it('returns all four dashboard stats', async () => {
       const prisma = makePrisma();
-      prisma.$transaction.mockResolvedValue([3, 2, 150, 7]);
+      prisma.syncJobLog.count.mockResolvedValue(3);
+      prisma.deadLetterJob.count.mockResolvedValue(2);
+      prisma.clickupWebhookEvent.count.mockResolvedValue(150);
+      prisma.clickupTimeEntry.count.mockResolvedValue(7);
       const result = await new ReportsService(prisma).stats();
       expect(result).toEqual({ failedJobsLast24h: 3, deadLetterPending: 2, webhooksLast24h: 150, missingRateEntries: 7 });
     });

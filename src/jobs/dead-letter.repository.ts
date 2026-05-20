@@ -22,7 +22,7 @@ export class DeadLetterRepository {
   }
 
   async findPending(limit: number, offset: number) {
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await Promise.all([
       this.prisma.deadLetterJob.findMany({
         where: { retriedAt: null, resolvedAt: null },
         orderBy: { failedAt: 'desc' },
