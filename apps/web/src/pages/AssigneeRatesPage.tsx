@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -45,6 +45,13 @@ export function AssigneeRatesPage() {
   const { data: rates, isLoading } = useRates();
   const recalc = useRecalcCosts();
   const [recalcMsg, setRecalcMsg] = useState<string | null>(null);
+  const recalcMsgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear any pending dismiss timer when the page unmounts so we don't
+  // setState on an unmounted component.
+  useEffect(() => () => {
+    if (recalcMsgTimerRef.current) clearTimeout(recalcMsgTimerRef.current);
+  }, []);
 
   function runRecalc(assigneeId?: string) {
     recalc.mutate(assigneeId, {
@@ -54,7 +61,8 @@ export function AssigneeRatesPage() {
             ? 'Recalculation queued for this assignee — costs update shortly.'
             : 'Recalculation queued for all entries — costs update shortly.',
         );
-        setTimeout(() => setRecalcMsg(null), 5000);
+        if (recalcMsgTimerRef.current) clearTimeout(recalcMsgTimerRef.current);
+        recalcMsgTimerRef.current = setTimeout(() => setRecalcMsg(null), 5000);
       },
     });
   }
