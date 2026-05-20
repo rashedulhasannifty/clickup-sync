@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ClickupClient } from '../clickup/clickup.client';
 import { ClickupNormalizer, NormalizedTimeEntry } from '../clickup/clickup-normalizer';
+import { WorkspaceMembersService } from '../clickup/workspace-members.service';
 import { TimeEntriesRepository } from './time-entries.repository';
 import { CostCalculatorService } from './cost-calculator.service';
 import { QueueService } from '../queues/queue.service';
@@ -16,14 +17,18 @@ export class TimeEntriesService {
     private readonly repo: TimeEntriesRepository,
     private readonly costs: CostCalculatorService,
     private readonly queues: QueueService,
+    private readonly members: WorkspaceMembersService,
   ) {}
 
   async syncTaskTimeEntries(taskId: string, assigneeIds?: string[], startDate?: number, endDate?: number) {
     const teamId = process.env.CLICKUP_TEAM_ID || '3450636';
-    const entries = await this.clickup.getTimeEntries(teamId, taskId, { assigneeIds, startDate, endDate });
-    if (entries.length === 0 && (!assigneeIds || assigneeIds.length === 0)) {
-      this.logger.warn(`Task ${taskId}: 0 time entries and no assignee ids provided — ClickUp only returns the token owner's entries, so this task's tracked time was not synced`);
-    }
+    // ClickUp's /team/{team}/time_entries returns only the token owner's entries
+    // unless `assignee` is supplied. When the caller does not know who logged
+    // the time (backfills, manual reconciles), fall back to all workspace
+    // members so we capture every user's tracked time on the task, including
+    // time logged on tasks that have no assignees.
+    const ids = assigneeIds && assigneeIds.length > 0 ? assigneeIds : await this.members.getMemberIds();
+    const entries = await this.clickup.getTimeEntries(teamId, taskId, { assigneeIds: ids, startDate, endDate });
     let count = 0;
     const normalizedEntries: NormalizedTimeEntry[] = [];
     for (const entry of entries) {

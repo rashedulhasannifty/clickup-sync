@@ -26,11 +26,3 @@ export function buildTimeEntriesQuery(taskId: string, options: TimeEntriesQueryO
   return params.toString();
 }
 
-/** Extracts ClickUp task assignee user ids as strings, dropping any without an id. */
-export function extractAssigneeIds(task: unknown): string[] {
-  const assignees = (task as { assignees?: Array<{ id?: string | number }> } | null)?.assignees ?? [];
-  return assignees
-    .map((a) => a?.id)
-    .filter((id): id is string | number => id != null)
-    .map(String);
-}

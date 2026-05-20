@@ -1,4 +1,4 @@
-import { buildTimeEntriesQuery, extractAssigneeIds } from './time-entries.util';
+import { buildTimeEntriesQuery } from './time-entries.util';
 
 const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
@@ -34,17 +34,3 @@ describe('buildTimeEntriesQuery', () => {
   });
 });
 
-describe('extractAssigneeIds', () => {
-  it('maps task assignee ids to strings', () => {
-    expect(extractAssigneeIds({ assignees: [{ id: 49377103 }, { id: '123' }] })).toEqual(['49377103', '123']);
-  });
-
-  it('returns [] for a task with no assignees', () => {
-    expect(extractAssigneeIds({ assignees: [] })).toEqual([]);
-    expect(extractAssigneeIds({})).toEqual([]);
-  });
-
-  it('drops assignees without an id', () => {
-    expect(extractAssigneeIds({ assignees: [{ id: null }, { username: 'x' }, { id: 5 }] })).toEqual(['5']);
-  });
-});
