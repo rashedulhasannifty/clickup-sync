@@ -1,10 +1,13 @@
 export const fmt = {
   money(cents: number, currency = 'USD') {
+    // Always show 2 fractional digits (standard currency display). The previous
+    // 0-digit rounding hid sub-dollar values entirely — e.g. a 9-minute entry at
+    // $1.38/h (21 cents) rendered as "$0" instead of "$0.21".
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(cents / 100);
   },
   number(n: number) {
