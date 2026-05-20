@@ -15,6 +15,10 @@ describe('AdminController', () => {
     } as any;
   }
 
+  function makeClickup() {
+    return { getTeamMembers: jest.fn().mockResolvedValue([]) } as any;
+  }
+
   function makeWebhooks(result: any = { action: 'created', webhookId: 'wh-1', secret: 'sec', endpoint: 'https://x.com' }) {
     return { register: jest.fn().mockResolvedValue(result) } as any;
   }
@@ -31,6 +35,7 @@ describe('AdminController', () => {
       create: jest.fn().mockResolvedValue({}),
       update: jest.fn().mockResolvedValue({}),
       remove: jest.fn().mockResolvedValue(undefined),
+      findById: jest.fn().mockResolvedValue(null),
     } as any;
   }
 
@@ -43,14 +48,29 @@ describe('AdminController', () => {
     } as any;
   }
 
+  function makeTasksRepo() {
+    return { findAllIds: jest.fn().mockResolvedValue([]) } as any;
+  }
+
+  function makeRatesService() {
+    return {
+      create: jest.fn().mockResolvedValue({}),
+      update: jest.fn().mockResolvedValue({}),
+      remove: jest.fn().mockResolvedValue(undefined),
+    } as any;
+  }
+
   function makeCtrl(queues?: any, deadLetters?: any, webhooks?: any, timeEntriesRepo?: any) {
     return new AdminController(
       queues ?? makeQueues(),
       deadLetters ?? makeDeadLetters(),
+      makeClickup(),
       webhooks ?? makeWebhooks(),
       timeEntriesRepo ?? makeTimeEntriesRepo(),
       makeRatesRepo(),
       makeTagAssigneeRepo(),
+      makeTasksRepo(),
+      makeRatesService(),
     );
   }
 
@@ -146,39 +166,54 @@ describe('AdminController', () => {
   });
 
   describe('rates CRUD', () => {
-    it('listRates delegates to ratesRepo.findAll', async () => {
+    it('listRates delegates to ratesRepo.findAll (read path stays on the repo)', async () => {
       const ratesRepo = makeRatesRepo();
-      const ctrl = new AdminController(makeQueues(), makeDeadLetters(), makeWebhooks(), makeTimeEntriesRepo(), ratesRepo, makeTagAssigneeRepo());
+      const ctrl = new AdminController(
+        makeQueues(), makeDeadLetters(), makeClickup(), makeWebhooks(), makeTimeEntriesRepo(),
+        ratesRepo, makeTagAssigneeRepo(), makeTasksRepo(), makeRatesService(),
+      );
       await ctrl.listRates(1, 50);
       expect(ratesRepo.findAll).toHaveBeenCalledWith(1, 50);
     });
 
-    it('createRate calls ratesRepo.create with parsed dates', async () => {
-      const ratesRepo = makeRatesRepo();
-      const ctrl = new AdminController(makeQueues(), makeDeadLetters(), makeWebhooks(), makeTimeEntriesRepo(), ratesRepo, makeTagAssigneeRepo());
+    it('createRate calls ratesService.create (mutation seam) with parsed dates', async () => {
+      const ratesService = makeRatesService();
+      const ctrl = new AdminController(
+        makeQueues(), makeDeadLetters(), makeClickup(), makeWebhooks(), makeTimeEntriesRepo(),
+        makeRatesRepo(), makeTagAssigneeRepo(), makeTasksRepo(), ratesService,
+      );
       await ctrl.createRate({ assigneeId: 'u1', currency: 'AUD', hourlyRateCents: 15000, validFrom: '2024-01-01' });
-      expect(ratesRepo.create).toHaveBeenCalledWith(expect.objectContaining({ assigneeId: 'u1', hourlyRateCents: 15000 }));
+      expect(ratesService.create).toHaveBeenCalledWith(expect.objectContaining({ assigneeId: 'u1', hourlyRateCents: 15000 }));
     });
 
-    it('deleteRate calls ratesRepo.remove with parsed BigInt id', async () => {
-      const ratesRepo = makeRatesRepo();
-      const ctrl = new AdminController(makeQueues(), makeDeadLetters(), makeWebhooks(), makeTimeEntriesRepo(), ratesRepo, makeTagAssigneeRepo());
+    it('deleteRate calls ratesService.remove with parsed BigInt id', async () => {
+      const ratesService = makeRatesService();
+      const ctrl = new AdminController(
+        makeQueues(), makeDeadLetters(), makeClickup(), makeWebhooks(), makeTimeEntriesRepo(),
+        makeRatesRepo(), makeTagAssigneeRepo(), makeTasksRepo(), ratesService,
+      );
       await ctrl.deleteRate('42');
-      expect(ratesRepo.remove).toHaveBeenCalledWith(BigInt(42));
+      expect(ratesService.remove).toHaveBeenCalledWith(BigInt(42));
     });
   });
 
   describe('tag-assignee map CRUD', () => {
     it('listTagAssignee delegates to tagAssigneeRepo.findAll', async () => {
       const tagRepo = makeTagAssigneeRepo();
-      const ctrl = new AdminController(makeQueues(), makeDeadLetters(), makeWebhooks(), makeTimeEntriesRepo(), makeRatesRepo(), tagRepo);
+      const ctrl = new AdminController(
+        makeQueues(), makeDeadLetters(), makeClickup(), makeWebhooks(), makeTimeEntriesRepo(),
+        makeRatesRepo(), tagRepo, makeTasksRepo(), makeRatesService(),
+      );
       await ctrl.listTagAssignee();
       expect(tagRepo.findAll).toHaveBeenCalled();
     });
 
     it('deleteTagAssignee calls tagAssigneeRepo.remove with parsed BigInt id', async () => {
       const tagRepo = makeTagAssigneeRepo();
-      const ctrl = new AdminController(makeQueues(), makeDeadLetters(), makeWebhooks(), makeTimeEntriesRepo(), makeRatesRepo(), tagRepo);
+      const ctrl = new AdminController(
+        makeQueues(), makeDeadLetters(), makeClickup(), makeWebhooks(), makeTimeEntriesRepo(),
+        makeRatesRepo(), tagRepo, makeTasksRepo(), makeRatesService(),
+      );
       await ctrl.deleteTagAssignee('7');
       expect(tagRepo.remove).toHaveBeenCalledWith(BigInt(7));
     });
