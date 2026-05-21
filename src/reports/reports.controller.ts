@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { AdminApiKeyGuard } from '../admin/admin-api-key.guard';
 import { ReportsService } from './reports.service';
@@ -77,6 +77,19 @@ export class ReportsController {
     @Query('missingOnly') missingOnly?: string,
   ) {
     return this.reports.timeEntriesAggregates(userId, from, to, status, billable, search, spaceId, missingOnly);
+  }
+
+  @Get('time-entries/cost-trend')
+  @ApiOperation({ summary: 'Time-bucketed cost trend for the Overview chart. bucket=day|week|month; defaults vary by bucket if from/to are omitted.' })
+  async costTrend(
+    @Query('bucket') bucket?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    if (bucket !== 'day' && bucket !== 'week' && bucket !== 'month') {
+      throw new BadRequestException(`Invalid bucket "${bucket ?? ''}" (expected day|week|month)`);
+    }
+    return this.reports.costTrend(bucket, from, to);
   }
 
   @Get('time-entries')
