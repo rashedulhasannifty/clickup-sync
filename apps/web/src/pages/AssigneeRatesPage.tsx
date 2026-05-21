@@ -15,7 +15,9 @@ import { parseRatesListResponse, type Rate } from '../api/rates';
 import type { RatePresetAssignee } from '../components/RateModal';
 import { useRates, useRecalcCosts } from '../hooks/useRates';
 import { useMissingRates, useStats } from '../hooks/useReports';
+import { csvFilename, downloadCsv, toCsv, type CsvColumn } from '../lib/csv';
 import { PageHeader } from '../components/ui/PageHeader';
+import { QueryError } from '../components/ui/QueryError';
 import { MetricCard } from '../components/ui/MetricCard';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
@@ -42,7 +44,8 @@ function sortRatesDesc(rates: Rate[]) {
 
 export function AssigneeRatesPage() {
   const navigate = useNavigate();
-  const { data: rates, isLoading } = useRates();
+  const ratesQuery = useRates();
+  const { data: rates, isLoading } = ratesQuery;
   const recalc = useRecalcCosts();
   const [recalcMsg, setRecalcMsg] = useState<string | null>(null);
   const recalcMsgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -170,7 +173,27 @@ export function AssigneeRatesPage() {
             >
               Recalculate costs
             </Button>
-            <Button size="md" variant="default" icon={<Download size={13} />}>
+            <Button
+              size="md"
+              variant="default"
+              icon={<Download size={13} />}
+              disabled={isLoading || filtered.length === 0}
+              onClick={() => {
+                const cols: CsvColumn<Rate>[] = [
+                  { header: 'Rate ID',        value: 'id' },
+                  { header: 'Assignee ID',    value: 'assigneeId' },
+                  { header: 'Assignee name',  value: 'assigneeName' },
+                  { header: 'Assignee email', value: 'assigneeEmail' },
+                  { header: 'Hourly rate (cents)', value: 'hourlyRateCents' },
+                  { header: 'Currency',       value: 'currency' },
+                  { header: 'Valid from',     value: 'validFrom' },
+                  { header: 'Valid to',       value: 'validTo' },
+                  { header: 'Created',        value: 'createdAt' },
+                  { header: 'Updated',        value: 'updatedAt' },
+                ];
+                downloadCsv(csvFilename('assignee-rates'), toCsv(filtered, cols));
+              }}
+            >
               Export
             </Button>
             <Button size="md" variant="accent" icon={<Plus size={13} />} onClick={openNewGlobal}>
@@ -181,6 +204,8 @@ export function AssigneeRatesPage() {
       />
 
       {recalcMsg && <Callout tone="blue">{recalcMsg}</Callout>}
+
+      <QueryError query={ratesQuery} what="assignee rates" />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
         <MetricCard

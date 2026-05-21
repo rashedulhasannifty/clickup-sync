@@ -5,7 +5,7 @@ import {
   Search, Download, RefreshCw, X, CheckSquare, Copy, ExternalLink,
   CircleCheck, Inbox,
 } from 'lucide-react';
-import { useTasks, useTimeEntriesByUser } from '../hooks/useReports';
+import { useTasks, useTasksAssignees, useTasksSummary } from '../hooks/useReports';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Pill } from '../components/ui/Pill';
@@ -14,23 +14,17 @@ import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { DataTable } from '../components/ui/DataTable';
 import type { Column } from '../components/ui/DataTable';
+import { QueryError } from '../components/ui/QueryError';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { AvatarStack } from '../components/ui/Avatar';
 import { Drawer } from '../components/ui/Drawer';
 import { Tabs } from '../components/ui/Tabs';
 import { fmt } from '../lib/formatters';
 import { adminApi } from '../api/admin';
+import { reportsApi } from '../api/reports';
+import { csvFilename, downloadCsv, toCsv, type CsvColumn } from '../lib/csv';
 
 type Task = Record<string, unknown>;
-
-const STATUS_OPTIONS = [
-  { value: '', label: 'Any status' },
-  { value: 'open', label: 'Open' },
-  { value: 'in progress', label: 'In progress' },
-  { value: 'in review', label: 'In review' },
-  { value: 'closed', label: 'Closed' },
-  { value: 'blocked', label: 'Blocked' },
-];
 
 const PRIORITY_OPTIONS = [
   { value: '', label: 'Any priority' },
@@ -235,10 +229,14 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
 export function TasksPage() {
   const navigate = useNavigate();
   const { taskId } = useParams();
-  const { space } = useGlobalFilters();
+  const { space, fromDate, toDate } = useGlobalFilters();
   const queryClient = useQueryClient();
-  const { data: byUser } = useTimeEntriesByUser();
+  const { data: assigneesData } = useTasksAssignees();
+  const { data: summary } = useTasksSummary();
 
+  // Debounced search: typing fires `searchRaw` immediately, but the request
+  // (and `page=1` reset) only fire after 300ms of quiet, matching TimeEntriesPage.
+  const [searchRaw, setSearchRaw] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
@@ -248,17 +246,46 @@ export function TasksPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
 
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchRaw);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchRaw]);
+
+  // Source the dropdown from /reports/tasks/assignees, not from
+  // time-entries-by-user — otherwise assignees with zero logged hours (e.g.
+  // expense-only tasks like Hello Ahmad's) silently disappear from the filter
+  // even though their tasks are in the DB.
   const assigneeOptions = useMemo(() => {
-    const rows = (byUser ?? []) as { userName: string }[];
+    const rows = (Array.isArray(assigneesData) ? assigneesData : []) as { name: string; taskCount?: number }[];
     const seen = new Set<string>();
     const opts = [{ value: '', label: 'Any assignee' }];
     for (const r of rows) {
-      if (!r.userName || seen.has(r.userName)) continue;
-      seen.add(r.userName);
-      opts.push({ value: r.userName, label: r.userName });
+      if (!r.name || seen.has(r.name)) continue;
+      seen.add(r.name);
+      const count = typeof r.taskCount === 'number' ? ` (${r.taskCount})` : '';
+      opts.push({ value: r.name, label: `${r.name}${count}` });
     }
     return opts;
-  }, [byUser]);
+  }, [assigneesData]);
+
+  // Drive status dropdown from actual stored statuses so picking one always matches.
+  // ClickUp statuses are list-configured strings — a hardcoded list misses real values
+  // (e.g. "to do", "complete") and includes ones that never appear (e.g. "open").
+  const statusOptions = useMemo(() => {
+    const rows = (summary?.byStatus ?? []) as { status: string | null; count: number }[];
+    const opts: { value: string; label: string }[] = [{ value: '', label: 'Any status' }];
+    const seen = new Set<string>();
+    for (const r of rows) {
+      const s = (r.status ?? '').trim();
+      if (!s || seen.has(s.toLowerCase())) continue;
+      seen.add(s.toLowerCase());
+      opts.push({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) });
+    }
+    return opts;
+  }, [summary]);
 
   const taskParams = useMemo(() => ({
     limit: pageSize,
@@ -270,9 +297,13 @@ export function TasksPage() {
     search: search || undefined,
     assigneeId: assigneeFilter || undefined,
     archived: archivedFilter,
-  }), [page, pageSize, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, archivedFilter]);
+    // Global topbar date range filters by task `updated_date`.
+    from: fromDate || undefined,
+    to: toDate || undefined,
+  }), [page, pageSize, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, archivedFilter, fromDate, toDate]);
 
-  const { data, isLoading, refetch } = useTasks(taskParams as Record<string, string | number | undefined>);
+  const tasksQuery = useTasks(taskParams as Record<string, string | number | undefined>);
+  const { data, isLoading, refetch } = tasksQuery;
 
   const items: Task[] = (data?.items ?? []) as Task[];
   const total: number = data?.total ?? 0;
@@ -280,10 +311,11 @@ export function TasksPage() {
   const openTask = taskId ? (items.find((t) => String(t.taskId ?? t.task_id) === taskId) ?? null) : null;
 
   const hasFilters = !!(
-    search || statusFilter || priorityFilter || typeFilter || assigneeFilter || archivedFilter !== 'exclude'
+    searchRaw || search || statusFilter || priorityFilter || typeFilter || assigneeFilter || archivedFilter !== 'exclude'
   );
 
   function reset() {
+    setSearchRaw('');
     setSearch('');
     setStatusFilter('');
     setPriorityFilter('');
@@ -297,6 +329,42 @@ export function TasksPage() {
     mutationFn: () => (space !== 'all' ? adminApi.backfill(space, 7) : Promise.resolve(null)),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
+  });
+
+  // CSV export pulls the full filtered set in one request (not just the current
+  // page of 50). Backend `safeLimit` caps at 5000 — enough for the present
+  // data volume; if any single space ever exceeds that, the export silently
+  // truncates and we'd need to paginate here.
+  const exportCsv = useMutation({
+    mutationFn: async () => {
+      const { items } = await reportsApi.tasks({ ...taskParams, limit: 5000, offset: 0 });
+      const cols: CsvColumn<Task>[] = [
+        { header: 'Task ID',       value: (r) => r.taskId ?? r.task_id },
+        { header: 'Task name',     value: (r) => r.taskName ?? r.task_name },
+        { header: 'Parent task',   value: (r) => r.parentTaskId ?? r.parent_task_id },
+        { header: 'Space',         value: (r) => r.spaceName ?? r.space_name },
+        { header: 'List',          value: (r) => r.listName ?? r.list_name },
+        { header: 'Status',        value: 'status' },
+        { header: 'Status type',   value: (r) => r.statusType ?? r.status_type },
+        { header: 'Priority',      value: 'priority' },
+        { header: 'Assignees',     value: 'assigneesNames' },
+        { header: 'Assignee emails', value: 'assigneesEmails' },
+        { header: 'Client',        value: 'client' },
+        { header: 'Department',    value: 'department' },
+        { header: 'Sprint',        value: (r) => r.sprintName ?? r.sprint_name },
+        { header: 'Sprint points', value: (r) => r.sprintPoints ?? r.sprint_points },
+        { header: 'Est. hours',    value: (r) => r.timeEstimateHours ?? r.time_estimate_hours },
+        { header: 'Spent hours',   value: (r) => r.timeSpentHours ?? r.time_spent_hours },
+        { header: 'Created',       value: (r) => r.createdDate ?? r.created_date },
+        { header: 'Updated',       value: (r) => r.updatedDate ?? r.updated_date },
+        { header: 'Due',           value: (r) => r.dueDate ?? r.due_date },
+        { header: 'Closed',        value: (r) => r.closedDate ?? r.closed_date },
+        { header: 'Archived',      value: 'archived' },
+        { header: 'Synced',        value: (r) => r.syncedAt ?? r.synced_at },
+      ];
+      downloadCsv(csvFilename('tasks'), toCsv(items as Task[], cols));
+      return { rows: items.length };
     },
   });
 
@@ -481,7 +549,16 @@ export function TasksPage() {
         badge={<Pill tone="gray">{fmt.number(total)}</Pill>}
         actions={
           <>
-            <Button variant="default" size="md" icon={<Download size={13} strokeWidth={1.75} />}>Export CSV</Button>
+            <Button
+              variant="default"
+              size="md"
+              icon={<Download size={13} strokeWidth={1.75} />}
+              loading={exportCsv.isPending}
+              disabled={exportCsv.isPending || isLoading}
+              onClick={() => exportCsv.mutate()}
+            >
+              Export CSV
+            </Button>
             <Button
               variant="accent"
               size="md"
@@ -506,12 +583,12 @@ export function TasksPage() {
         <div style={{ flex: 1, minWidth: 220, maxWidth: 320 }}>
           <Input
             icon={<Search size={14} strokeWidth={1.75} />}
-            value={search}
-            onChange={e => { setSearch(e.target.value); setPage(1); }}
+            value={searchRaw}
+            onChange={e => setSearchRaw(e.target.value)}
             placeholder="Search task name, ID, assignee, client…"
           />
         </div>
-        <Select size="md" value={statusFilter} onChange={v => { setStatusFilter(v); setPage(1); }} options={STATUS_OPTIONS} />
+        <Select size="md" value={statusFilter} onChange={v => { setStatusFilter(v); setPage(1); }} options={statusOptions} />
         <Select size="md" value={priorityFilter} onChange={v => { setPriorityFilter(v); setPage(1); }} options={PRIORITY_OPTIONS} />
         <Select size="md" value={assigneeFilter} onChange={v => { setAssigneeFilter(v); setPage(1); }} options={assigneeOptions} />
         <Select size="md" value={typeFilter} onChange={v => { setTypeFilter(v); setPage(1); }} options={TYPE_OPTIONS} />
@@ -520,6 +597,8 @@ export function TasksPage() {
           <Button size="md" variant="ghost" icon={<X size={13} strokeWidth={1.75} />} onClick={reset}>Reset</Button>
         )}
       </div>
+
+      <QueryError query={tasksQuery} what="tasks" />
 
       <DataTable
         layout="design"
@@ -539,6 +618,7 @@ export function TasksPage() {
         onPageSizeChange={n => { setPageSize(n); setPage(1); }}
         pageSizeOptions={[10, 25, 50, 100]}
         onRowClick={(r) => navigate(`/tasks/${String(r.taskId ?? r.task_id)}`)}
+        initialSort={{ key: 'updated_date', dir: 'desc' }}
       />
 
       <TaskDetailDrawer task={openTask} onClose={() => navigate('/tasks')} />

@@ -16,6 +16,9 @@ export interface JobLogItem {
   durationMs: number | null;
   tasksSynced: number | null;
   timeEntriesSynced: number | null;
+  /** For failed rows: true if a later successful run for the same
+   *  (queue, entity) exists. null for non-failed rows. */
+  recovered?: boolean | null;
 }
 
 interface SyncRunDrawerProps {

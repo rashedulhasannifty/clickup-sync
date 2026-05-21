@@ -14,6 +14,10 @@ export interface ReplacementJobData {
   durationHours: number;
   billable: boolean;
   description?: string;
+  /** ID of the user who originally logged the entry (for audit). */
+  originalUserId: string;
+  /** Lowercased tag names from the time entry's own `tags` array. */
+  tags: string[];
 }
 
 @Injectable()
@@ -30,8 +34,6 @@ export class AssigneeReplacementService {
 
   async replaceEntry(data: ReplacementJobData): Promise<{ status: 'replaced' | 'skipped' | 'no_mapping' }> {
     const teamId = process.env.CLICKUP_TEAM_ID || '3450636';
-    const agencyUserId = process.env.CLICKUP_AGENCY_USER_ID;
-    if (!agencyUserId) throw new Error('CLICKUP_AGENCY_USER_ID env var is not set');
 
     // 1. Idempotency check
     const existing = await this.replacements.findByOriginalEntryId(data.timeEntryId);
@@ -40,23 +42,17 @@ export class AssigneeReplacementService {
       return { status: 'skipped' };
     }
 
-    // 2. Fetch task to get tags
-    let tagName: string | null = null;
-    let activeMap: Awaited<ReturnType<typeof this.tagAssigneeMap.findAllActive>> = [];
-    try {
-      const task = await this.clickup.getTask(data.taskId);
-      const tags = task.tags?.map((t) => t.name?.toLowerCase()).filter(Boolean) ?? [];
-      activeMap = await this.tagAssigneeMap.findAllActive();
-      const activeTagNames = new Set(activeMap.map((m) => m.tagName.toLowerCase()));
-      const matchedTag = tags.find((t) => activeTagNames.has(t!)) ?? null;
-      tagName = matchedTag ?? null;
-    } catch (err: any) {
-      this.logger.warn(`Could not fetch task ${data.taskId} to resolve tags: ${err?.message}`);
-    }
+    // 2. Resolve the mapping from the time entry's own tags. The active map is
+    //    re-read at process time (not at enqueue time) so admin edits to
+    //    enable/disable mappings take effect on the next worker run.
+    const activeMap = await this.tagAssigneeMap.findAllActive();
+    const activeTagNames = new Set(activeMap.map((m) => m.tagName.toLowerCase()));
+    const tags = (data.tags ?? []).map((t) => t.toLowerCase()).filter(Boolean);
+    const tagName = tags.find((t) => activeTagNames.has(t)) ?? null;
 
     // 3. No mapping found — skip
     if (!tagName) {
-      this.logger.warn(`No tag→assignee mapping for task ${data.taskId} time entry ${data.timeEntryId} — leaving as-is`);
+      this.logger.warn(`No tag→assignee mapping for time entry ${data.timeEntryId} (tags=[${tags.join(',')}]) — leaving as-is`);
       return { status: 'no_mapping' };
     }
 
@@ -75,12 +71,15 @@ export class AssigneeReplacementService {
       assignee: Number(realUserId),
     });
 
-    // 5. Persist audit row immediately (before deleting original)
+    // 5. Persist audit row immediately (before deleting original).
+    //    originalUserId records who actually logged the time, not the agency
+    //    account — so the audit trail correctly attributes provenance even
+    //    when the tag-routing is invoked outside the agency-user flow.
     await this.replacements.create({
       originalEntryId: data.timeEntryId,
       replacementEntryId: created.id,
       taskId: data.taskId,
-      originalUserId: agencyUserId,
+      originalUserId: data.originalUserId,
       replacedUserId: realUserId,
       tagName,
       status: 'replaced',

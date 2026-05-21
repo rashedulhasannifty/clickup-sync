@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -10,6 +10,9 @@ import {
   X,
 } from 'lucide-react';
 import { useJobLogs, useWebhookEvents } from '../hooks/useReports';
+import { useRetryFailedWebhooks } from '../hooks/useAdmin';
+import { Callout } from '../components/ui/Callout';
+import { QueryError } from '../components/ui/QueryError';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Tabs } from '../components/ui/Tabs';
 import { MetricCard } from '../components/ui/MetricCard';
@@ -29,6 +32,14 @@ const WEBHOOK_STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
   { value: 'processed', label: 'Processed' },
   { value: 'failed', label: 'Failed' },
+];
+
+const JOB_STATUS_OPTIONS = [
+  { value: 'all', label: 'All statuses' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'running', label: 'Running' },
+  { value: 'pending', label: 'Pending' },
 ];
 
 function JobStatusPill({ status }: { status: string }) {
@@ -80,23 +91,46 @@ export function SyncLogsPage() {
   const [webhookSearch, setWebhookSearch] = useState('');
   const [webhookStatusFilter, setWebhookStatusFilter] = useState('all');
   const [webhookEventFilter, setWebhookEventFilter] = useState('all');
+  const [jobStatusFilter, setJobStatusFilter] = useState('all');
 
-  const jobLogs = useJobLogs({ limit: 50 });
+  const jobLogs = useJobLogs({
+    limit: 50,
+    status: jobStatusFilter !== 'all' ? jobStatusFilter : undefined,
+  });
+  // "Last success" / "Last failure" cards source their values from these
+  // status-scoped queries, not from the 50-row slice above. If the DB has
+  // 50+ runs more recent than the most recent failure, the failure would
+  // never appear in the slice and the card would read "Never" — which
+  // contradicted Overview's "Failed jobs (24h): N need retry" KPI.
+  const lastSuccessQuery = useJobLogs({ status: 'completed', limit: 1 });
+  const lastFailureQuery = useJobLogs({ status: 'failed', limit: 1 });
   const webhookEvents = useWebhookEvents({ limit: 50 });
+  const retryFailedWebhooks = useRetryFailedWebhooks();
+
+  // Inline banner for retry feedback — auto-dismisses after 5s. Same pattern
+  // as TimeEntriesPage / AssigneeRatesPage so the surface stays consistent.
+  const [banner, setBanner] = useState<string | null>(null);
+  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    },
+    [],
+  );
+  function showBanner(msg: string) {
+    setBanner(msg);
+    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    bannerTimerRef.current = setTimeout(() => setBanner(null), 5000);
+  }
 
   const jobItems: JobLogItem[] = Array.isArray(jobLogs.data?.items) ? (jobLogs.data!.items as JobLogItem[]) : [];
   const jobTotal = jobLogs.data?.total ?? 0;
 
-  const completedJobs = jobItems.filter((j) => j.status === 'completed');
-  const failedJobs = jobItems.filter((j) => j.status === 'failed');
-
-  const latestSuccess = completedJobs
-    .filter((j) => j.finishedAt !== null)
-    .sort((a, b) => new Date(b.finishedAt!).getTime() - new Date(a.finishedAt!).getTime())[0];
-
-  const latestFailure = failedJobs
-    .filter((j) => j.finishedAt !== null)
-    .sort((a, b) => new Date(b.finishedAt!).getTime() - new Date(a.finishedAt!).getTime())[0];
+  // Sourced from status-filtered queries above so "Last failure" / "Last
+  // success" reflect the absolute most-recent row in the DB, not whatever
+  // happens to fall inside the most-recent 50.
+  const latestSuccess = (lastSuccessQuery.data?.items?.[0] as JobLogItem | undefined) ?? undefined;
+  const latestFailure = (lastFailureQuery.data?.items?.[0] as JobLogItem | undefined) ?? undefined;
 
   const successRatePct =
     jobItems.length > 0 ? Math.round((jobItems.filter((j) => j.status === 'completed').length / jobItems.length) * 100) : null;
@@ -169,10 +203,13 @@ export function SyncLogsPage() {
         }
       />
 
+      {banner && <Callout tone="blue">{banner}</Callout>}
+
       <Tabs items={tabItems} value={activeTab} onChange={setActiveTab} variant="underline" />
 
       {activeTab === 'runs' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <QueryError query={jobLogs} what="sync runs" />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
             <MetricCard
               dense
@@ -216,6 +253,35 @@ export function SyncLogsPage() {
             />
           </div>
 
+          {/* Status filter — picking "Failed" shows the failed-jobs view with a
+              Recovered column indicating whether a later success for the same
+              (queue, entity) exists. */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: 10,
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+            }}
+          >
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>Status</span>
+            <Select size="md" options={JOB_STATUS_OPTIONS} value={jobStatusFilter} onChange={setJobStatusFilter} />
+            <span style={{ flex: 1 }} />
+            {jobStatusFilter === 'failed' && (
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Showing {jobTotal} failed{' '}
+                {(() => {
+                  const recovered = jobItems.filter((j) => j.recovered === true).length;
+                  const stillFailing = jobItems.filter((j) => j.recovered === false).length;
+                  return `· ${recovered} recovered · ${stillFailing} still failing in this page`;
+                })()}
+              </span>
+            )}
+          </div>
+
           {runsLoading ? (
             <Skeleton height={280} />
           ) : (
@@ -235,6 +301,9 @@ export function SyncLogsPage() {
                     <th style={{ textAlign: 'left', padding: '10px 16px', width: 90 }}>Status</th>
                     <th style={{ textAlign: 'left', padding: '10px 12px' }}>Run</th>
                     <th style={{ textAlign: 'left', padding: '10px 12px' }}>Trigger</th>
+                    {jobStatusFilter === 'failed' && (
+                      <th style={{ textAlign: 'left', padding: '10px 12px', width: 130 }}>Recovered?</th>
+                    )}
                     <th style={{ textAlign: 'left', padding: '10px 12px' }}>Started</th>
                     <th style={{ textAlign: 'right', padding: '10px 12px' }}>Duration</th>
                     <th style={{ textAlign: 'right', padding: '10px 12px' }}>Tasks</th>
@@ -246,8 +315,11 @@ export function SyncLogsPage() {
                 <tbody>
                   {jobItems.length === 0 ? (
                     <tr>
-                      <td colSpan={9} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
-                        No job logs
+                      <td
+                        colSpan={jobStatusFilter === 'failed' ? 10 : 9}
+                        style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}
+                      >
+                        {jobStatusFilter === 'failed' ? 'No failed jobs match this view.' : 'No job logs'}
                       </td>
                     </tr>
                   ) : (
@@ -287,6 +359,21 @@ export function SyncLogsPage() {
                               {r.jobName || r.queueName}
                             </Pill>
                           </td>
+                          {jobStatusFilter === 'failed' && (
+                            <td style={{ padding: '12px' }}>
+                              {r.recovered === true ? (
+                                <Pill tone="green" size="xs" icon={<CircleCheck size={10} />}>
+                                  Recovered
+                                </Pill>
+                              ) : r.recovered === false ? (
+                                <Pill tone="red" size="xs" icon={<AlertTriangle size={10} />}>
+                                  Still failing
+                                </Pill>
+                              ) : (
+                                <span style={{ color: 'var(--text-faint)' }}>—</span>
+                              )}
+                            </td>
+                          )}
                           <td
                             style={{
                               padding: '12px',
@@ -342,6 +429,7 @@ export function SyncLogsPage() {
 
       {activeTab === 'webhooks' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <QueryError query={webhookEvents} what="webhook events" />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
             <MetricCard
               dense
@@ -400,7 +488,24 @@ export function SyncLogsPage() {
             />
             <Select size="md" options={eventTypeOptions} value={webhookEventFilter} onChange={setWebhookEventFilter} />
             {failedWebhooks.length > 0 && (
-              <Button size="md" variant="default" icon={<RefreshCw size={13} />} onClick={() => undefined}>
+              <Button
+                size="md"
+                variant="default"
+                icon={<RefreshCw size={13} />}
+                loading={retryFailedWebhooks.isPending}
+                onClick={() =>
+                  retryFailedWebhooks.mutate(undefined, {
+                    onSuccess: (res) => {
+                      showBanner(
+                        `Re-queued ${res.requeued} failed webhook${res.requeued === 1 ? '' : 's'} — they'll move out of the failed list as workers pick them up.`,
+                      );
+                    },
+                    onError: (err) => {
+                      showBanner(`Retry failed: ${(err as Error).message}`);
+                    },
+                  })
+                }
+              >
                 Retry all failed
               </Button>
             )}

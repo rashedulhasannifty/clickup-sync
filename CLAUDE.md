@@ -184,7 +184,7 @@ Rules:
 
 ### Assignee rates
 
-Rates are managed via the dashboard (`/assignee-rates`) / the `POST|PATCH|DELETE /admin/rates` API. There is no Google Sheets sync. Changing a rate enqueues a scoped `recalculate-costs` job (queue `maintenance`) that recomputes existing `clickup_time_entries`. `valid_from`/`valid_to` form a closed-open interval `[from, to)` (a rate covers `start_time` where `valid_from <= date < valid_to`; empty `valid_to` = open-ended).
+Rates are managed via the dashboard (`/assignee-rates`) / the `POST|PATCH|DELETE /admin/rates` API. There is no Google Sheets sync. Changing a rate enqueues a scoped `recalculate-costs` job (queue `maintenance`) that recomputes existing `clickup_time_entries`. `valid_from`/`valid_to` form a closed-closed (inclusive) interval `[from, to]` (a rate covers `start_time` where `valid_from <= date <= valid_to`; empty `valid_to` = open-ended). The human convention: a rate ending Dec 31 covers Dec 31, and the next rate starts Jan 1 — no overlap, no gap. If two rates do overlap (both match the same date), the one with the later `valid_from` wins because `cost-calculator.service.ts` does `orderBy: { validFrom: 'desc' }` + `findFirst`.
 
 Rules:
 

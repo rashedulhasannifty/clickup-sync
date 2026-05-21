@@ -33,16 +33,22 @@ describe('ReportsService', () => {
   }
 
   describe('tasksSummary', () => {
-    it('returns bySpace, byStatus and total from concurrent reads', async () => {
+    it('returns bySpace (collapsed by space_id via raw SQL), byStatus, byStatusType and total', async () => {
       const prisma = makePrisma();
+      // bySpace now comes from $queryRaw so old tasks with NULL space_name
+      // don't split into a second row; MAX(space_name) resolves the name.
+      prisma.$queryRaw.mockResolvedValueOnce([
+        { space_id: '3577824', space_name: 'Digital Marketing', count: BigInt(5) },
+      ]);
       prisma.clickupTask.groupBy
-        .mockResolvedValueOnce([{ spaceId: '3577824', spaceName: 'Digital Marketing', _count: { taskId: 5 } }])
-        .mockResolvedValueOnce([{ status: 'in progress', _count: { taskId: 3 } }]);
+        .mockResolvedValueOnce([{ status: 'in progress', _count: { taskId: 3 } }])
+        .mockResolvedValueOnce([{ statusType: 'open', _count: { taskId: 4 } }]);
       prisma.clickupTask.count.mockResolvedValue(10);
       const result = await new ReportsService(prisma).tasksSummary();
       expect(result.total).toBe(10);
       expect(result.bySpace[0]).toEqual({ spaceId: '3577824', spaceName: 'Digital Marketing', count: 5 });
       expect(result.byStatus[0]).toEqual({ status: 'in progress', count: 3 });
+      expect(result.byStatusType[0]).toEqual({ statusType: 'open', count: 4 });
     });
   });
 
@@ -193,12 +199,33 @@ describe('ReportsService', () => {
   });
 
   describe('jobLogs', () => {
-    it('serializes BigInt id to string', async () => {
+    it('serializes BigInt id to string and exposes the recovered flag from raw SQL', async () => {
       const prisma = makePrisma();
-      prisma.syncJobLog.findMany.mockResolvedValue([{ id: BigInt(7), queueName: 'clickup-tasks', jobName: 'sync', status: 'completed', entityId: 'e1', errorMessage: null, finishedAt: new Date() }]);
-      prisma.syncJobLog.count.mockResolvedValue(1);
+      // jobLogs now uses $queryRaw twice: once for items (with `recovered` per
+      // row), once for total. Stub both in order.
+      prisma.$queryRaw
+        .mockResolvedValueOnce([
+          {
+            id: BigInt(7),
+            queue_name: 'clickup-tasks',
+            job_name: 'sync',
+            status: 'failed',
+            entity_id: 'e1',
+            error_message: 'boom',
+            started_at: new Date(1700000000000),
+            finished_at: new Date(1700000005000),
+            tasks_synced: null,
+            time_entries_synced: null,
+            recovered: true,
+          },
+        ])
+        .mockResolvedValueOnce([{ count: BigInt(1) }]);
       const result = await new ReportsService(prisma).jobLogs();
       expect(result.items[0].id).toBe('7');
+      expect(result.items[0].status).toBe('failed');
+      expect(result.items[0].recovered).toBe(true);
+      expect(result.items[0].durationMs).toBe(5000);
+      expect(result.total).toBe(1);
     });
   });
 

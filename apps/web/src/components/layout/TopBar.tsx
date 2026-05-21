@@ -1,16 +1,19 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Search, Moon, Sun, Bell, Calendar, Layers } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Kbd } from '../ui/Kbd';
 import { useGlobalFilters, type DateRange } from '../../hooks/useGlobalFilters';
-import { useSyncHealth } from '../../hooks/useReports';
+import { useSpaces, useSyncHealth } from '../../hooks/useReports';
 import { fmt } from '../../lib/formatters';
 
-const SPACES = [
-  { value: 'all', label: 'All spaces' },
-  { value: '3577824', label: 'Digital Marketing' },
-  { value: '3589129', label: 'R&D Apps' },
-  { value: '3525433', label: 'Projects' },
+// Spaces in the project's CLICKUP_SPACES config. Used as a fallback label so
+// the three primary spaces always render with their friendly names even if the
+// /reports/spaces aggregate hasn't loaded yet, and so they appear in the
+// dropdown even when they have no synced data.
+const CONFIGURED_SPACES: { id: string; name: string }[] = [
+  { id: '3577824', name: 'Digital Marketing' },
+  { id: '3589129', name: 'R&D Apps' },
+  { id: '3525433', name: 'Projects' },
 ];
 
 const DATE_RANGES = [
@@ -83,7 +86,34 @@ export function TopBar({ onSearchClick }: { onSearchClick?: () => void }) {
   const navigate = useNavigate();
   const { dateRange, space, setDateRange, setSpace, customFrom, customTo, setCustomFrom, setCustomTo } = useGlobalFilters();
   const { data: health } = useSyncHealth();
+  const { data: spacesData } = useSpaces();
   const [isDark, setIsDark] = useState(() => document.documentElement.getAttribute('data-theme') === 'dark');
+
+  // Build the space dropdown from actual aggregated data merged with configured
+  // spaces. This surfaces any unconfigured space (e.g. a ClickUp space whose
+  // tasks landed in our DB via webhook but isn't in CLICKUP_SPACES) so the user
+  // can actually filter to it. If ClickUp returned no space.name for a task,
+  // we render "Space {id}" instead of a bare ID so it doesn't look like a typo.
+  const spaceOptions = useMemo(() => {
+    type Row = { spaceId: string | null; spaceName: string | null };
+    const rows: Row[] = Array.isArray(spacesData) ? (spacesData as Row[]) : [];
+    const opts: { value: string; label: string }[] = [{ value: 'all', label: 'All spaces' }];
+    const seen = new Set<string>(['all']);
+    for (const cfg of CONFIGURED_SPACES) {
+      const hit = rows.find((r) => r.spaceId === cfg.id);
+      const label = hit?.spaceName?.trim() || cfg.name;
+      opts.push({ value: cfg.id, label });
+      seen.add(cfg.id);
+    }
+    for (const r of rows) {
+      const id = r.spaceId?.trim();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const label = (r.spaceName ?? '').trim() || `Space ${id}`;
+      opts.push({ value: id, label });
+    }
+    return opts;
+  }, [spacesData]);
 
   function toggleTheme() {
     const next = isDark ? 'light' : 'dark';
@@ -142,7 +172,7 @@ export function TopBar({ onSearchClick }: { onSearchClick?: () => void }) {
         </div>
       )}
 
-      <IconSelect icon={Layers} options={SPACES} value={space} onChange={setSpace} />
+      <IconSelect icon={Layers} options={spaceOptions} value={space} onChange={setSpace} />
 
       {/* Divider */}
       <div style={{ height: 20, width: 1, background: 'var(--border)', flexShrink: 0 }} />

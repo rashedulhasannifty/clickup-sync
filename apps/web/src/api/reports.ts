@@ -4,6 +4,7 @@ import { parseRatesListResponse } from './rates';
 export const reportsApi = {
   tasksSummary: () => apiClient.get('/reports/tasks/summary').then(r => r.data),
   tasksBySpaceStatus: () => apiClient.get('/reports/tasks/by-space-status').then(r => r.data),
+  tasksAssignees: () => apiClient.get('/reports/tasks/assignees').then(r => r.data),
   tasks: (params: Record<string, string | number | undefined>) =>
     apiClient.get('/reports/tasks', { params }).then(r => r.data),
   timeEntriesByUser: (params?: { from?: string; to?: string }) =>
@@ -16,6 +17,8 @@ export const reportsApi = {
     apiClient.get('/reports/time-entries/billable-summary', { params }).then(r => r.data),
   timeEntriesList: (params: Record<string, string | number | undefined>) =>
     apiClient.get('/reports/time-entries', { params }).then(r => r.data),
+  timeEntriesAggregates: (params: Record<string, string | number | undefined>) =>
+    apiClient.get('/reports/time-entries/aggregates', { params }).then(r => r.data),
   sprintPoints: (params?: { spaceId?: string }) =>
     apiClient.get('/reports/sprint-points', { params }).then(r => r.data),
   syncHealth: () => apiClient.get('/reports/ops/sync-health').then(r => r.data),

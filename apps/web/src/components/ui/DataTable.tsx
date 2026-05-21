@@ -34,6 +34,13 @@ interface DataTableProps<T> {
   /** Sticky first column (design table). */
   stickyFirstColumn?: boolean;
   rowKey?: keyof T | string;
+  /**
+   * Initial sort indicator for server-paginated tables. The arrow renders next
+   * to the column header so users can see how the server ordered rows before
+   * any local click happens. The user can't change this — when the data is a
+   * slice of a larger set, client-side sort is disabled (see `isServerPaginated`).
+   */
+  initialSort?: { key: string; dir: 'asc' | 'desc' };
 }
 
 export function DataTable<T extends { [key: string]: unknown }>({
@@ -54,9 +61,10 @@ export function DataTable<T extends { [key: string]: unknown }>({
   layout = 'default',
   stickyFirstColumn = false,
   rowKey = 'id' as keyof T,
+  initialSort,
 }: DataTableProps<T>) {
-  const [sortKey, setSortKey] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [sortKey, setSortKey] = useState<string | null>(initialSort?.key ?? null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialSort?.dir ?? 'asc');
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(
     new Set(initialColumns.filter(c => c.hidden).map(c => c.key)),
   );
@@ -65,7 +73,13 @@ export function DataTable<T extends { [key: string]: unknown }>({
 
   const visibleCols = initialColumns.filter(c => !hiddenKeys.has(c.key));
 
-  const sorted = sortKey
+  // If the caller passes `total` and the visible `data` is only a slice of it,
+  // we're on a server-paginated list — client-side sort would only reorder
+  // the current page, which silently lies about "top by X". Disable sort UI
+  // in that case so users don't get a misleading partial reorder.
+  const isServerPaginated = total != null && total > data.length;
+
+  const sorted = sortKey && !isServerPaginated
     ? [...data].sort((a, b) => {
         const av = a[sortKey];
         const bv = b[sortKey];
@@ -99,6 +113,7 @@ export function DataTable<T extends { [key: string]: unknown }>({
   }, [showColMenu]);
 
   function handleSort(key: string) {
+    if (isServerPaginated) return;
     const col = initialColumns.find(c => c.key === key);
     if (col?.sortable === false) return;
     if (sortKey === key) {
@@ -151,10 +166,11 @@ export function DataTable<T extends { [key: string]: unknown }>({
                   const w = col.width != null ? (typeof col.width === 'number' ? `${col.width}px` : col.width) : undefined;
                   const align = col.align || 'left';
                   const sticky = stickyFirstColumn && i === 0;
+                  const headerClickable = !isServerPaginated && col.sortable !== false;
                   return (
                     <th
                       key={col.key}
-                      onClick={() => col.sortable !== false && handleSort(col.key)}
+                      onClick={() => headerClickable && handleSort(col.key)}
                       style={{
                         padding: headPad,
                         textAlign: align,
@@ -164,7 +180,7 @@ export function DataTable<T extends { [key: string]: unknown }>({
                         textTransform: 'uppercase',
                         letterSpacing: '0.05em',
                         borderBottom: '1px solid var(--border)',
-                        cursor: col.sortable === false ? 'default' : 'pointer',
+                        cursor: headerClickable ? 'pointer' : 'default',
                         userSelect: 'none',
                         whiteSpace: 'nowrap',
                         position: sticky ? 'sticky' : 'static',

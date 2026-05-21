@@ -30,6 +30,11 @@ export class TasksRepository {
     });
   }
 
+  async exists(taskId: string): Promise<boolean> {
+    const row = await this.prisma.clickupTask.findUnique({ where: { taskId }, select: { taskId: true } });
+    return row !== null;
+  }
+
   findAllIds(spaceId?: string): Promise<{ taskId: string; spaceId: string | null }[]> {
     return this.prisma.clickupTask.findMany({
       where: { isDeleted: false, ...(spaceId ? { spaceId } : {}) },

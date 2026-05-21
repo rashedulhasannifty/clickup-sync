@@ -1,18 +1,14 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  AlertTriangle,
   CircleCheck,
-  Edit,
   Info,
-  Key,
   Lock,
-  Plus,
   RefreshCw,
-  Unlink,
-  X,
 } from 'lucide-react';
 import { useSpaces, useSyncHealth } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
-import { useRegisterWebhook } from '../hooks/useAdmin';
+import { useRegisterWebhook, useTestClickupConnection } from '../hooks/useAdmin';
 import type { TagAssignee } from '../api/tag-assignee';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Tabs } from '../components/ui/Tabs';
@@ -130,6 +126,20 @@ export function SettingsPage() {
   const updateTagAssignee = useUpdateTagAssignee();
   const deleteTagAssignee = useDeleteTagAssignee();
   const registerWebhook = useRegisterWebhook();
+  const testConnection = useTestClickupConnection();
+
+  // Auto-dismissing inline banner for Test connection / Register webhook
+  // results — same pattern as the other pages.
+  const [banner, setBanner] = useState<{ tone: 'blue' | 'red'; text: string } | null>(null);
+  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+  }, []);
+  function showBanner(text: string, tone: 'blue' | 'red' = 'blue') {
+    setBanner({ tone, text });
+    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    bannerTimerRef.current = setTimeout(() => setBanner(null), 5000);
+  }
 
   const [showTagForm, setShowTagForm] = useState(false);
   const [editingTagId, setEditingTagId] = useState<string | null>(null);
@@ -211,6 +221,8 @@ export function SettingsPage() {
       />
       <Tabs items={TAB_ITEMS} value={activeTab} onChange={setActiveTab} variant="underline" />
 
+      {banner && <Callout tone={banner.tone}>{banner.text}</Callout>}
+
       {activeTab === 'connection' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
           <Card>
@@ -283,16 +295,32 @@ export function SettingsPage() {
                 flexWrap: 'wrap',
               }}
             >
-              <Button variant="default" icon={<RefreshCw size={13} />} disabled>
+              <Button
+                variant="default"
+                icon={<RefreshCw size={13} />}
+                loading={testConnection.isPending}
+                onClick={() =>
+                  testConnection.mutate(undefined, {
+                    onSuccess: (res) =>
+                      showBanner(
+                        `Connection OK — ClickUp returned ${res.memberCount} workspace member${res.memberCount === 1 ? '' : 's'}.`,
+                        'blue',
+                      ),
+                    onError: (err) =>
+                      showBanner(
+                        `Connection failed: ${(err as Error).message}. Check CLICKUP_API_TOKEN and CLICKUP_TEAM_ID in the backend env.`,
+                        'red',
+                      ),
+                  })
+                }
+              >
                 Test connection
               </Button>
-              <Button variant="default" icon={<Key size={13} />} disabled>
-                Rotate token
-              </Button>
-              <span style={{ flex: 1 }} />
-              <Button variant="ghost" style={{ color: 'var(--red)' }} icon={<Unlink size={13} />} disabled>
-                Disconnect
-              </Button>
+              {/* Token rotation and disconnect are handled out-of-band today
+                  — rotate via .env update + restart, disconnect by deleting
+                  the webhook + clearing the token. Removing the buttons until
+                  there's a real backend path so the UI doesn't lie about what
+                  it can do. */}
             </div>
           </Card>
 
@@ -337,17 +365,25 @@ export function SettingsPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <Button
                   variant={webhookStatus === 'Fresh' ? 'default' : 'accent'}
-                  onClick={() => registerWebhook.mutate(undefined)}
                   loading={registerWebhook.isPending}
+                  onClick={() =>
+                    registerWebhook.mutate(undefined, {
+                      onSuccess: (res) => {
+                        const data = res as { webhookId?: string; action?: string };
+                        const existing = data.action === 'existing';
+                        showBanner(
+                          existing
+                            ? `Webhook already active (id ${data.webhookId ?? '—'})`
+                            : `Webhook registered (id ${data.webhookId ?? '—'}). Save the secret returned by ClickUp to CLICKUP_WEBHOOK_SECRET and restart.`,
+                          'blue',
+                        );
+                      },
+                      onError: (err) => showBanner(`Webhook registration failed: ${(err as Error).message}`, 'red'),
+                    })
+                  }
                 >
                   {webhookStatus === 'Fresh' ? 'Reconnect' : 'Register Webhook'}
                 </Button>
-                {registerWebhook.data && (
-                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                    Webhook ID: {(registerWebhook.data as { webhookId?: string }).webhookId ?? '—'}
-                    {(registerWebhook.data as { action?: string }).action === 'existing' && ' · already active'}
-                  </span>
-                )}
               </div>
             </div>
           </Card>
@@ -356,22 +392,34 @@ export function SettingsPage() {
 
       {activeTab === 'sync' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
+          {/* The schedule / cost / failure sections below describe current
+              behavior, but the controls aren't wired to backend persistence
+              yet — values shown reflect the hardcoded defaults the workers
+              already use. The Tag-assignee map further down IS fully wired. */}
+          <Callout tone="amber" icon={<Info size={13} />}>
+            Preview only — settings below reflect the current behavior of the
+            sync workers, but changes here aren't persisted yet. The
+            <strong> Tag–assignee map</strong> at the bottom is the one
+            exception: it's fully active and immediately applied.
+          </Callout>
+
           <Card>
             <SectionTitle title="Sync schedule" subtitle="When to perform full reconciliation runs." />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 12 }}>
               <SettingRow
                 label="Real-time webhooks"
-                desc="Apply changes as ClickUp events arrive."
+                desc="Active — changes apply as ClickUp events arrive."
                 control={<Switch checked disabled onChange={() => undefined} />}
               />
               <SettingRow
                 label="Full reconciliation"
-                desc="Runs in addition to webhook events to catch drift."
+                desc="Not scheduled yet — only manual backfills via the Spaces page run today."
                 control={
                   <Select
                     size="sm"
                     value={reconcileCadence}
                     onChange={setReconcileCadence}
+                    disabled
                     options={[
                       { value: 'never', label: 'Disabled' },
                       { value: 'hourly', label: 'Every hour' },
@@ -383,7 +431,7 @@ export function SettingsPage() {
               />
               <SettingRow
                 label="Backfill on connect"
-                desc="When connecting a new space, fetch all historical tasks and entries."
+                desc="Active — configured spaces backfill on first sync."
                 control={<Switch checked disabled onChange={() => undefined} />}
               />
             </div>
@@ -394,11 +442,13 @@ export function SettingsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 12 }}>
               <SettingRow
                 label="Default currency"
+                desc="Per-row currency comes from ClickUp — workspace-wide override isn't implemented yet."
                 control={
                   <Select
                     size="sm"
                     value={defaultCurrency}
                     onChange={setDefaultCurrency}
+                    disabled
                     options={[
                       { value: 'USD', label: 'USD ($)' },
                       { value: 'EUR', label: 'EUR (€)' },
@@ -409,12 +459,13 @@ export function SettingsPage() {
               />
               <SettingRow
                 label="Rate matching"
-                desc="Pick rate by time entry start date (recommended) or by task due date."
+                desc="Always uses time-entry start_time today; selector is a placeholder."
                 control={
                   <Select
                     size="sm"
                     value={rateMatch}
                     onChange={setRateMatch}
+                    disabled
                     options={[
                       { value: 'start', label: 'Start date' },
                       { value: 'due', label: 'Task due date' },
@@ -424,12 +475,12 @@ export function SettingsPage() {
               />
               <SettingRow
                 label="Auto-recalculate on rate change"
-                desc="Recompute affected entries when rates are added or edited."
+                desc="Active — editing a rate enqueues a maintenance recalc job."
                 control={<Switch checked disabled onChange={() => undefined} />}
               />
               <SettingRow
                 label="Treat non-billable as zero cost"
-                desc="Skip cost calc for non-billable entries."
+                desc="Not implemented — non-billable entries are costed normally today."
                 control={<Switch checked={false} disabled onChange={() => undefined} />}
               />
             </div>
@@ -440,12 +491,13 @@ export function SettingsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 12 }}>
               <SettingRow
                 label="Webhook retry"
-                desc="Exponential backoff up to N attempts before parking in dead-letter."
+                desc="Currently uses BullMQ defaults (5 attempts, exponential backoff). Configurable retry count isn't wired yet."
                 control={
                   <Select
                     size="sm"
                     value={webhookRetries}
                     onChange={setWebhookRetries}
+                    disabled
                     options={[
                       { value: '3', label: '3 attempts' },
                       { value: '5', label: '5 attempts' },
@@ -456,8 +508,8 @@ export function SettingsPage() {
               />
               <SettingRow
                 label="Pause syncing on repeated failure"
-                desc="If 25+ webhooks fail consecutively, pause and alert."
-                control={<Switch checked disabled onChange={() => undefined} />}
+                desc="Not implemented — failed jobs go to dead-letter but syncing isn't paused."
+                control={<Switch checked={false} disabled onChange={() => undefined} />}
               />
             </div>
           </Card>
@@ -608,13 +660,14 @@ export function SettingsPage() {
       {activeTab === 'scopes' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
           <Callout tone="blue" icon={<Info size={13} />}>
-            Only checked spaces are included in syncing. Excluded spaces will not generate tasks, time entries, or cost rows.
+            Configured spaces are defined in <code style={{ fontFamily: 'ui-monospace, monospace' }}>src/config/clickup-spaces.config.ts</code>{' '}
+            and applied at startup. Adding or removing a space here isn't supported yet — edit the config and restart the backend to change the set.
           </Callout>
           <Card>
             <SectionTitle
               title="Synced spaces"
               subtitle={
-                spaceRows.length > 0 ? `${spaceRows.length} of ${spaceRows.length} included` : '0 of 0 included'
+                spaceRows.length > 0 ? `${spaceRows.length} space${spaceRows.length === 1 ? '' : 's'} active` : 'No spaces synced yet'
               }
             />
             <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -622,8 +675,9 @@ export function SettingsPage() {
                 <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No spaces loaded yet. Sync data to see spaces here.</p>
               ) : (
                 spaceRows.map((s) => {
-                  const name = (s as { spaceName?: string | null }).spaceName?.trim() || (s as { spaceId?: string }).spaceId || 'Space';
                   const sid = (s as { spaceId?: string }).spaceId ?? '';
+                  const nameRaw = (s as { spaceName?: string | null }).spaceName?.trim();
+                  const name = nameRaw || (sid ? `Space ${sid}` : 'Space');
                   const taskCount = (s as { taskCount?: number }).taskCount ?? 0;
                   const hours = (s as { hoursLogged?: number }).hoursLogged ?? 0;
                   return (
@@ -639,7 +693,6 @@ export function SettingsPage() {
                         marginBottom: 4,
                       }}
                     >
-                      <Switch checked disabled onChange={() => undefined} />
                       <span
                         style={{
                           width: 8,
@@ -651,10 +704,11 @@ export function SettingsPage() {
                       />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                          {fmt.number(taskCount)} tasks · — members · {fmt.hours(hours)}
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'ui-monospace, monospace' }}>
+                          {sid || '—'} · {fmt.number(taskCount)} tasks · {fmt.hours(hours)}
                         </div>
                       </div>
+                      <Pill tone="green" size="xs" icon={<CircleCheck size={10} />}>active</Pill>
                     </div>
                   );
                 })
@@ -662,49 +716,21 @@ export function SettingsPage() {
             </div>
           </Card>
 
-          <Card>
-            <SectionTitle title="Status filters" subtitle="Tasks in these statuses are excluded from cost rollups." />
-            <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              {['cancelled', 'archived', 'duplicate'].map((st) => (
-                <Pill key={st} tone="gray" size="sm">
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    {st}
-                    <X size={10} />
-                  </span>
-                </Pill>
-              ))}
-              <button
-                type="button"
-                style={{
-                  padding: '4px 10px',
-                  border: '1px dashed var(--border)',
-                  borderRadius: 999,
-                  background: 'transparent',
-                  color: 'var(--text-muted)',
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4,
-                  fontFamily: 'inherit',
-                }}
-              >
-                <Plus size={11} /> Add status
-              </button>
-            </div>
-          </Card>
-
-          <Card>
-            <SectionTitle title="Tag filters" subtitle="Optional — only include tasks with these tags (leave blank to include all)." />
-            <div style={{ marginTop: 12 }}>
-              <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>No tag filters set — all tags included.</span>
-            </div>
-          </Card>
+          {/* Status filters + tag filters dropped from the UI: they were
+              decorative chips that didn't filter anything. Bring them back
+              once a `scope_filters` table (or env-config) exists to persist
+              the exclusion list, and the workers honor it. */}
         </div>
       )}
 
       {activeTab === 'members' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 860 }}>
+          <Callout tone="amber" icon={<Info size={13} />}>
+            Access is currently single-tenant: anyone with the
+            <code style={{ fontFamily: 'ui-monospace, monospace', margin: '0 4px' }}>ADMIN_API_KEY</code>
+            (or no key, in dev mode) can use the dashboard. Multi-user invites
+            and roles aren't supported yet.
+          </Callout>
           <Card padding={0}>
             <div
               style={{
@@ -719,12 +745,9 @@ export function SettingsPage() {
               <div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Members & access</div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  1 person with access to this dashboard.
+                  Holders of the admin API key.
                 </div>
               </div>
-              <Button variant="accent" icon={<Plus size={13} />} disabled>
-                Invite member
-              </Button>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
@@ -767,8 +790,8 @@ export function SettingsPage() {
                       enabled
                     </Pill>
                   </td>
-                  <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                    <Button variant="ghost" size="sm" icon={<Edit size={12} />} disabled />
+                  <td style={{ padding: '12px 16px', textAlign: 'right', color: 'var(--text-faint)', fontSize: 11 }}>
+                    you
                   </td>
                 </tr>
               </tbody>
@@ -779,6 +802,11 @@ export function SettingsPage() {
 
       {activeTab === 'notifications' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
+          <Callout tone="amber" icon={<AlertTriangle size={13} />}>
+            Preview only — no notifications are actually delivered yet.
+            Toggling these switches doesn't persist or wire any channel. Operational alerts surface in the
+            <strong> Overview → Alerts</strong> card today; outbound delivery (email, Slack, PagerDuty) is on the roadmap.
+          </Callout>
           <Card>
             <SectionTitle title="Alerts" subtitle="Get notified when sync issues need attention." />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 12 }}>

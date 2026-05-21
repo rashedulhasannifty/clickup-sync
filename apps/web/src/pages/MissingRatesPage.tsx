@@ -14,7 +14,9 @@ import {
 } from 'lucide-react';
 import { useMissingRates } from '../hooks/useReports';
 import { fmt } from '../lib/formatters';
+import { csvFilename, downloadCsv, toCsv, type CsvColumn } from '../lib/csv';
 import { PageHeader } from '../components/ui/PageHeader';
+import { QueryError } from '../components/ui/QueryError';
 import { MetricCard } from '../components/ui/MetricCard';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
@@ -331,7 +333,8 @@ function QueueView({ items, navigate }: { items: MissingRateItem[]; navigate: Re
 
 export function MissingRatesPage() {
   const navigate = useNavigate();
-  const { data, isLoading } = useMissingRates();
+  const missingRatesQuery = useMissingRates();
+  const { data, isLoading } = missingRatesQuery;
   const [search, setSearch] = useState('');
   const [severityFilter, setSeverityFilter] = useState('all');
   const [view, setView] = useState('cards');
@@ -398,6 +401,8 @@ export function MissingRatesPage() {
         }
       />
 
+      <QueryError query={missingRatesQuery} what="missing rates" />
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
         <MetricCard
           dense
@@ -438,7 +443,26 @@ export function MissingRatesPage() {
         </div>
         <Select size="md" value={severityFilter} onChange={setSeverityFilter} options={SEVERITY_OPTIONS} />
         <span style={{ flex: 1 }} />
-        <Button size="md" variant="ghost" icon={<Download size={13} />}>
+        <Button
+          size="md"
+          variant="ghost"
+          icon={<Download size={13} />}
+          disabled={filtered.length === 0}
+          onClick={() => {
+            const cols: CsvColumn<MissingRateItem>[] = [
+              { header: 'User ID',         value: 'userId' },
+              { header: 'User name',       value: 'userName' },
+              { header: 'User email',      value: 'userEmail' },
+              { header: 'Missing entries', value: 'missingCount' },
+              { header: 'Affected hours',  value: 'affectedHours' },
+              { header: 'First date',      value: 'firstDate' },
+              { header: 'Latest date',     value: 'latestDate' },
+              { header: 'Severity',        value: (r) => getSeverity(r.missingCount).key },
+              { header: 'Est. uncosted cents', value: (r) => estimatedMissingCostCents(r) },
+            ];
+            downloadCsv(csvFilename('missing-rates'), toCsv(filtered, cols));
+          }}
+        >
           Export issues
         </Button>
       </div>

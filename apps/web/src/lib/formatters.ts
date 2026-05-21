@@ -1,11 +1,22 @@
 export const fmt = {
-  money(cents: number, currency = 'USD') {
+  money(cents: number, currency = 'AUD') {
+    // Default currency is AUD because every backend cost column we surface
+    // (clickup_time_entries.cost_cents, assignee_rates.hourly_rate_cents,
+    // /reports/* `totalCostAud`) is denominated in AUD. Older callers that
+    // passed USD by default happened to render the right glyph ($) on en-US
+    // but the formatter's currency code was lying.
+    //
     // Always show 2 fractional digits (standard currency display). The previous
-    // 0-digit rounding hid sub-dollar values entirely — e.g. a 9-minute entry at
-    // $1.38/h (21 cents) rendered as "$0" instead of "$0.21".
+    // 0-digit rounding hid sub-dollar values entirely — e.g. a 9-minute entry
+    // at $1.38/h (21 cents) rendered as "$0" instead of "$0.21".
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency,
+      // `narrowSymbol` strips the regional prefix that en-US prepends for
+      // non-USD currencies — so AUD renders as `$` instead of `A$`.
+      // Browser support: Chrome 64+, Firefox 78+, Safari 14.1+ (universal
+      // among any browser we'd support).
+      currencyDisplay: 'narrowSymbol',
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(cents / 100);
@@ -32,6 +43,18 @@ export const fmt = {
   },
   relative(iso: string | Date) {
     const ms = Date.now() - new Date(iso).getTime();
+    // Future dates: a due date 3 days from now used to render as "just now"
+    // because the `m < 1` branch caught any small magnitude including negative.
+    // Symmetric handling here so future and past read naturally.
+    if (ms < 0) {
+      const future = -ms;
+      const m = Math.floor(future / 60000);
+      if (m < 1) return 'in a moment';
+      if (m < 60) return `in ${m}m`;
+      const h = Math.floor(m / 60);
+      if (h < 24) return `in ${h}h`;
+      return `in ${Math.floor(h / 24)}d`;
+    }
     const m = Math.floor(ms / 60000);
     if (m < 1) return 'just now';
     if (m < 60) return `${m}m ago`;

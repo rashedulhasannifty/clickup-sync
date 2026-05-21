@@ -18,6 +18,10 @@ export class ReportsController {
   @ApiOperation({ summary: 'Task counts grouped by space+status for stacked bar chart' })
   tasksBySpaceStatus() { return this.reports.tasksBySpaceStatus(); }
 
+  @Get('tasks/assignees')
+  @ApiOperation({ summary: 'Distinct task assignees for the Tasks page filter dropdown. Drawn from clickup_tasks.assignees_names so assignees with zero time entries (e.g. expense-only tasks) still appear.' })
+  tasksAssignees() { return this.reports.tasksAssignees(); }
+
   @Get('tasks')
   @ApiOperation({ summary: 'Paginated task list with filters. `archived`: exclude (default, hide archived) | include | only (archived tasks). Soft-deleted rows are always excluded.' })
   tasks(
@@ -58,6 +62,21 @@ export class ReportsController {
   @ApiOperation({ summary: 'Billable vs non-billable hours and cost' })
   timeEntriesBillableSummary(@Query('from') from?: string, @Query('to') to?: string) {
     return this.reports.timeEntriesBillableSummary(from, to);
+  }
+
+  @Get('time-entries/aggregates')
+  @ApiOperation({ summary: 'Server-side aggregates for the Time Entries page metric cards. Accepts the same filters as /time-entries.' })
+  timeEntriesAggregates(
+    @Query('userId') userId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('status') status?: string,
+    @Query('billable') billable?: string,
+    @Query('search') search?: string,
+    @Query('spaceId') spaceId?: string,
+    @Query('missingOnly') missingOnly?: string,
+  ) {
+    return this.reports.timeEntriesAggregates(userId, from, to, status, billable, search, spaceId, missingOnly);
   }
 
   @Get('time-entries')

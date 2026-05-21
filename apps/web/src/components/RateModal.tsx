@@ -258,6 +258,9 @@ export function RateModal({
 		}
 	}
 
+	// Closed-closed `[from, to]` to match the cost calculator. Whichever rate
+	// has the later validFrom wins on overlap, but we still warn so the user
+	// can fix it before saving rather than discovering misattributed costs.
 	const hasOverlap =
 		validFrom.length > 0 &&
 		ratesList.some((r) => {
@@ -266,7 +269,7 @@ export function RateModal({
 			const from = new Date(r.validFrom);
 			const to = r.validTo ? new Date(r.validTo) : null;
 			const check = new Date(validFrom);
-			return check >= from && (to === null || check < to);
+			return check >= from && (to === null || check <= to);
 		});
 
 	const isPending = createRate.isPending || updateRate.isPending;
@@ -465,17 +468,18 @@ export function RateModal({
 				</div>
 
 				<Callout tone="blue" icon={<Info size={13} strokeWidth={2} />}>
-					Rates use closed-open intervals:{' '}
+					Rates use inclusive date ranges:{' '}
 					<code
 						style={{
 							fontFamily: 'ui-monospace, monospace',
 							fontSize: 12,
 						}}
 					>
-						[from, to)
+						[from, to]
 					</code>
-					. The cost calculator picks the rate whose interval contains the time
-					entry&apos;s start time.
+					. Both endpoints count — a rate ending Dec 31 covers Dec 31 entries.
+					Set the next rate&apos;s &quot;Effective from&quot; to Jan 1 to keep
+					a clean handoff with no overlap.
 				</Callout>
 
 				{hasOverlap && (

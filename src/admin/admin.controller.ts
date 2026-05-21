@@ -10,10 +10,13 @@ import { CreateTagAssigneeDto } from './dto/create-tag-assignee.dto';
 import { UpdateTagAssigneeDto } from './dto/update-tag-assignee.dto';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
+import { PrismaService } from '../database/prisma.service';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { DeadLetterRepository } from '../jobs/dead-letter.repository';
 import { ClickupClient } from '../clickup/clickup.client';
 import { ClickupWebhooksService } from '../clickup/clickup-webhooks.service';
+import { WebhookEventsRepository } from '../webhooks/webhook-events.repository';
+import { WebhookParserService } from '../webhooks/webhook-parser.service';
 import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
 import { RatesRepository } from '../rates/rates.repository';
 import { TagAssigneeMapRepository } from '../time-entries/tag-assignee-map.repository';
@@ -41,6 +44,9 @@ export class AdminController {
     private readonly tagAssigneeRepo: TagAssigneeMapRepository,
     private readonly tasksRepo: TasksRepository,
     private readonly ratesService: RatesService,
+    private readonly webhookEvents: WebhookEventsRepository,
+    private readonly webhookParser: WebhookParserService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get('ping')
@@ -69,6 +75,18 @@ export class AdminController {
     return { queued: true, taskId: dto.taskId };
   }
 
+  @Post('time-entries/sync-task')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Enqueue a time-entry sync for a single task. Useful for clearing stuck FK-failed jobs after the task row is present.' })
+  syncTaskTimeEntries(@Body() dto: SyncTaskDto) {
+    this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES).add(
+      JOBS.SYNC_TASK_TIME_ENTRIES,
+      { taskId: dto.taskId },
+      this.queues.defaultJobOptions(),
+    );
+    return { queued: true, taskId: dto.taskId, queue: QUEUES.CLICKUP_TIME_ENTRIES };
+  }
+
   @Post('backfill')
   @HttpCode(200)
   @ApiOperation({ summary: 'Trigger a space backfill' })
@@ -80,11 +98,125 @@ export class AdminController {
     return { queued: true, spaceId: dto.spaceId, lookbackDays };
   }
 
+  /**
+   * Live per-space sync status, driven by BullMQ queue depth (which survives
+   * page reloads, unlike the client's `useState` that used to track this).
+   *
+   * `phase`:
+   *   - `fetching`     → backfill worker is still scanning ClickUp tasks (no
+   *                      `total` known yet, render as indeterminate).
+   *   - `time-entries` → backfill done; time-entry workers are draining N
+   *                      per-task jobs in parallel. `total` is the most-recent
+   *                      completed backfill's `tasks_synced`. `done = total -
+   *                      remaining` (clamped ≥ 0 so webhook-driven drains
+   *                      that outrun the original backfill don't display
+   *                      negative progress).
+   *
+   * Webhook-driven time-entry jobs that happen to land in the same window
+   * get attributed to the most recent backfill on that space — acceptable
+   * noise for an admin progress bar, and only inside a 1-hour lookback so a
+   * long-quiescent space isn't misattributed.
+   */
+  @Get('backfill/active')
+  @ApiOperation({ summary: 'Live per-space sync progress (queued + active jobs, with totals from the most recent backfill)' })
+  async backfillActive() {
+    const [backfillJobs, timeEntryJobs] = await Promise.all([
+      this.queues.get(QUEUES.CLICKUP_BACKFILLS).getJobs(['active', 'waiting', 'delayed', 'prioritized']),
+      this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES).getJobs(['active', 'waiting', 'delayed', 'prioritized']),
+    ]);
+
+    const fetchingSpaceIds = new Set<string>();
+    for (const job of backfillJobs) {
+      const sid = (job.data as { spaceId?: string } | undefined)?.spaceId;
+      if (sid) fetchingSpaceIds.add(sid);
+    }
+
+    const taskIds = [...new Set(
+      timeEntryJobs
+        .map((j) => (j.data as { taskId?: string } | undefined)?.taskId)
+        .filter((v): v is string => typeof v === 'string'),
+    )];
+    const taskSpaceRows = taskIds.length > 0
+      ? await this.prisma.clickupTask.findMany({
+          where: { taskId: { in: taskIds } },
+          select: { taskId: true, spaceId: true },
+        })
+      : [];
+    const taskToSpace = new Map<string, string | null>(taskSpaceRows.map((r) => [r.taskId, r.spaceId]));
+    const remainingBySpace = new Map<string, number>();
+    for (const job of timeEntryJobs) {
+      const taskId = (job.data as { taskId?: string } | undefined)?.taskId;
+      if (!taskId) continue;
+      const sid = taskToSpace.get(taskId);
+      if (!sid) continue;
+      remainingBySpace.set(sid, (remainingBySpace.get(sid) ?? 0) + 1);
+    }
+
+    const activeSpaceIds = new Set<string>([...fetchingSpaceIds, ...remainingBySpace.keys()]);
+    if (activeSpaceIds.size === 0) return { spaces: [] };
+
+    // Pull the most-recent completed backfill per active space — gives us the
+    // `tasks_synced` total for the progress bar denominator.
+    const recentBackfills = await this.prisma.syncJobLog.findMany({
+      where: {
+        queueName: QUEUES.CLICKUP_BACKFILLS,
+        entityType: 'space',
+        entityId: { in: [...activeSpaceIds] },
+        status: 'completed',
+        finishedAt: { gte: new Date(Date.now() - 60 * 60 * 1000) },
+      },
+      orderBy: { finishedAt: 'desc' },
+      select: { entityId: true, tasksSynced: true, finishedAt: true },
+    });
+    const recentTotalBySpace = new Map<string, number>();
+    for (const row of recentBackfills) {
+      if (!row.entityId || recentTotalBySpace.has(row.entityId)) continue;
+      if (row.tasksSynced != null) recentTotalBySpace.set(row.entityId, row.tasksSynced);
+    }
+
+    const spaces = [...activeSpaceIds].map((spaceId) => {
+      const remaining = remainingBySpace.get(spaceId) ?? 0;
+      if (fetchingSpaceIds.has(spaceId)) {
+        return { spaceId, phase: 'fetching' as const, total: null, done: null, remaining };
+      }
+      // Fall back to `remaining` whenever the recent backfill is missing OR
+      // recorded 0 tasks — otherwise progress would be 0/0 (NaN%) or done
+      // would clamp to a permanent 0%.
+      const recentTotal = recentTotalBySpace.get(spaceId) ?? 0;
+      const total = recentTotal > 0 ? recentTotal : remaining;
+      const done = Math.max(0, total - remaining);
+      return { spaceId, phase: 'time-entries' as const, total, done, remaining };
+    });
+
+    return { spaces };
+  }
+
   @Post('webhooks/register')
   @HttpCode(200)
   @ApiOperation({ summary: 'Register NestJS webhook with ClickUp — idempotent, returns secret on first creation' })
   registerWebhook() {
     return this.webhooks.register();
+  }
+
+  @Post('webhooks/retry-failed')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Re-enqueue every webhook event with status=failed back onto the clickup-webhooks queue.' })
+  async retryFailedWebhooks(@Query('limit') limitParam?: string) {
+    const limit = Math.min(Number(limitParam) || 500, 2000);
+    const failed = await this.webhookEvents.findFailed(limit);
+    let requeued = 0;
+    const queue = this.queues.get(QUEUES.CLICKUP_WEBHOOKS);
+    for (const row of failed) {
+      // Re-parse the raw payload so we pick up any parser improvements made
+      // since the event was first received — and so we don't have to
+      // shape-match what the worker expects in two places.
+      const parsed = this.webhookParser.parse(row.rawPayload);
+      await queue.add(JOBS.PROCESS_CLICKUP_EVENT, parsed, this.queues.defaultJobOptions());
+      // Clear the failed marker so this attempt can be observed.
+      await this.webhookEvents.markRequeued(row.fingerprint).catch(() => undefined);
+      requeued += 1;
+    }
+    return { requeued, scanned: failed.length, limit };
   }
 
   @Get('dead-letters')
@@ -108,31 +240,35 @@ export class AdminController {
 
   @Post('time-entries/backfill-replacement')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Queue replacement jobs for all historical agency-user time entries not yet replaced' })
+  @ApiOperation({ summary: 'Queue replacement jobs for all historical time entries that carry a mapped tag and have not been replaced yet.' })
   async backfillReplacement(@Body() dto: BackfillReplacementDto) {
-    const agencyUserId = process.env.CLICKUP_AGENCY_USER_ID;
-    if (!agencyUserId) throw new BadRequestException('CLICKUP_AGENCY_USER_ID env var is not set');
-
     const limit = Math.min(dto.limit ?? 500, 2000);
-    const entries = await this.timeEntriesRepo.findUnreplacedAgencyEntries(agencyUserId, limit);
+    const entries = await this.timeEntriesRepo.findUnreplacedTaggedEntries(limit);
 
+    let queued = 0;
     for (const entry of entries) {
+      // Empty `tags` rows are filtered at the SQL level, but the array could
+      // still be all-null after lowercasing — guard just in case.
+      if (!entry.tag_names || entry.tag_names.length === 0) continue;
       this.queues.get(QUEUES.CLICKUP_ASSIGNEE_REPLACEMENT).add(
         JOBS.REPLACE_TIME_ENTRY_ASSIGNEES,
         {
-          timeEntryId: entry.timeEntryId,
-          taskId: entry.taskId ?? '',
-          startMs: entry.startTime?.getTime() ?? 0,
-          endMs: entry.endTime?.getTime() ?? 0,
-          durationHours: Number(entry.durationHours),
+          timeEntryId: entry.time_entry_id,
+          taskId: entry.task_id ?? '',
+          startMs: entry.start_time?.getTime() ?? 0,
+          endMs: entry.end_time?.getTime() ?? 0,
+          durationHours: Number(entry.duration_hours),
           billable: entry.billable,
           description: entry.description ?? undefined,
+          originalUserId: entry.user_id ?? '',
+          tags: entry.tag_names,
         },
         this.queues.defaultJobOptions(),
       );
+      queued += 1;
     }
 
-    return { queued: entries.length, agencyUserId, limit };
+    return { queued, scanned: entries.length, limit };
   }
 
   @Post('time-entries/sync-all')

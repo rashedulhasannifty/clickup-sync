@@ -26,6 +26,7 @@ describe('AdminController', () => {
   function makeTimeEntriesRepo() {
     return {
       findUnreplacedAgencyEntries: jest.fn().mockResolvedValue([]),
+      findUnreplacedTaggedEntries: jest.fn().mockResolvedValue([]),
     } as any;
   }
 
@@ -60,7 +61,25 @@ describe('AdminController', () => {
     } as any;
   }
 
-  function makeCtrl(queues?: any, deadLetters?: any, webhooks?: any, timeEntriesRepo?: any) {
+  function makeWebhookEvents() {
+    return {
+      findFailed: jest.fn().mockResolvedValue([]),
+      markRequeued: jest.fn().mockResolvedValue({}),
+    } as any;
+  }
+
+  function makeWebhookParser() {
+    return { parse: jest.fn((raw: unknown) => ({ eventType: 'taskUpdated', taskId: 'task-x', loggedUserId: null, fingerprint: 'fp-x', payload: raw })) } as any;
+  }
+
+  function makePrisma() {
+    return {
+      clickupTask: { findMany: jest.fn().mockResolvedValue([]) },
+      syncJobLog: { findMany: jest.fn().mockResolvedValue([]) },
+    } as any;
+  }
+
+  function makeCtrl(queues?: any, deadLetters?: any, webhooks?: any, timeEntriesRepo?: any, webhookEvents?: any, webhookParser?: any, prisma?: any) {
     return new AdminController(
       queues ?? makeQueues(),
       deadLetters ?? makeDeadLetters(),
@@ -71,6 +90,9 @@ describe('AdminController', () => {
       makeTagAssigneeRepo(),
       makeTasksRepo(),
       makeRatesService(),
+      webhookEvents ?? makeWebhookEvents(),
+      webhookParser ?? makeWebhookParser(),
+      prisma ?? makePrisma(),
     );
   }
 
@@ -116,6 +138,90 @@ describe('AdminController', () => {
     });
   });
 
+  describe('backfillActive', () => {
+    function makeQueuesWithJobs(jobsByQueue: Record<string, any[]>) {
+      const getJobs = jest.fn((states: string[]) => Promise.resolve([])); // default
+      const queueMocks = new Map<string, any>();
+      for (const [name, jobs] of Object.entries(jobsByQueue)) {
+        queueMocks.set(name, { getJobs: jest.fn().mockResolvedValue(jobs), add: jest.fn() });
+      }
+      const get = jest.fn((name: string) => queueMocks.get(name) ?? { getJobs, add: jest.fn() });
+      return { get, defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
+    }
+
+    it('returns empty list when no jobs are active', async () => {
+      const ctrl = makeCtrl(makeQueuesWithJobs({ 'clickup-backfills': [], 'clickup-time-entries': [] }));
+      await expect(ctrl.backfillActive()).resolves.toEqual({ spaces: [] });
+    });
+
+    it('reports backfill phase as "fetching" with no total', async () => {
+      const queues = makeQueuesWithJobs({
+        'clickup-backfills': [{ data: { spaceId: '3589129' } }],
+        'clickup-time-entries': [],
+      });
+      const result = await makeCtrl(queues).backfillActive();
+      expect(result.spaces).toEqual([
+        { spaceId: '3589129', phase: 'fetching', total: null, done: null, remaining: 0 },
+      ]);
+    });
+
+    it('attributes time-entry queue depth to spaces via clickup_tasks', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([
+        { taskId: 't1', spaceId: '3589129' },
+        { taskId: 't2', spaceId: '3589129' },
+        { taskId: 't3', spaceId: '3577824' },
+      ]);
+      prisma.syncJobLog.findMany.mockResolvedValue([
+        { entityId: '3589129', tasksSynced: 100, finishedAt: new Date() },
+        { entityId: '3577824', tasksSynced: 50, finishedAt: new Date() },
+      ]);
+      const queues = makeQueuesWithJobs({
+        'clickup-backfills': [],
+        'clickup-time-entries': [
+          { data: { taskId: 't1' } },
+          { data: { taskId: 't2' } },
+          { data: { taskId: 't3' } },
+        ],
+      });
+      const result = await makeCtrl(queues, undefined, undefined, undefined, undefined, undefined, prisma).backfillActive();
+      const byId = Object.fromEntries(result.spaces.map((s) => [s.spaceId, s]));
+      expect(byId['3589129']).toEqual({ spaceId: '3589129', phase: 'time-entries', total: 100, done: 98, remaining: 2 });
+      expect(byId['3577824']).toEqual({ spaceId: '3577824', phase: 'time-entries', total: 50, done: 49, remaining: 1 });
+    });
+
+    it('clamps done to >= 0 when webhook drains outrun the last backfill', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([{ taskId: 't1', spaceId: 'X' }]);
+      prisma.syncJobLog.findMany.mockResolvedValue([{ entityId: 'X', tasksSynced: 0, finishedAt: new Date() }]);
+      const queues = makeQueuesWithJobs({
+        'clickup-backfills': [],
+        'clickup-time-entries': [{ data: { taskId: 't1' } }],
+      });
+      const result = await makeCtrl(queues, undefined, undefined, undefined, undefined, undefined, prisma).backfillActive();
+      // total=0, remaining=1 → would compute done=-1 if not clamped; we fall back to total=remaining=1.
+      expect(result.spaces[0]).toMatchObject({ phase: 'time-entries', done: 0, total: 1, remaining: 1 });
+    });
+
+    it('backfill-phase entry takes precedence over time-entries entry for the same space', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([{ taskId: 't1', spaceId: '3589129' }]);
+      const queues = makeQueuesWithJobs({
+        'clickup-backfills': [{ data: { spaceId: '3589129' } }],
+        'clickup-time-entries': [{ data: { taskId: 't1' } }],
+      });
+      const result = await makeCtrl(queues, undefined, undefined, undefined, undefined, undefined, prisma).backfillActive();
+      expect(result.spaces).toHaveLength(1);
+      expect(result.spaces[0]).toEqual({
+        spaceId: '3589129',
+        phase: 'fetching',
+        total: null,
+        done: null,
+        remaining: 1,
+      });
+    });
+  });
+
   describe('registerWebhook', () => {
     it('delegates to ClickupWebhooksService.register', async () => {
       const webhooks = makeWebhooks({ action: 'existing', webhookId: 'w1', endpoint: 'https://x.com' });
@@ -148,74 +254,153 @@ describe('AdminController', () => {
     });
   });
 
-  describe('backfillReplacement', () => {
-    it('returns queued count', async () => {
-      process.env.CLICKUP_AGENCY_USER_ID = '3584055';
-      const repo = { findUnreplacedAgencyEntries: jest.fn().mockResolvedValue([{ timeEntryId: 'e1', taskId: 't1', startTime: new Date(1700000000000), endTime: new Date(1700003600000), durationHours: { toNumber: () => 1 } as any, billable: true, description: null }]) } as any;
+  describe('retryFailedWebhooks', () => {
+    it('re-enqueues each failed event after re-parsing its raw payload, and clears the failed marker', async () => {
       const queues = makeQueues();
-      const result = await makeCtrl(queues, undefined, undefined, repo).backfillReplacement({ limit: 10 });
-      expect(result.queued).toBe(1);
-      expect(result.agencyUserId).toBe('3584055');
-      delete process.env.CLICKUP_AGENCY_USER_ID;
+      const rawA = { event: 'taskUpdated', task_id: 'A' };
+      const rawB = { event: 'taskDeleted', task_id: 'B' };
+      const webhookEvents = {
+        findFailed: jest.fn().mockResolvedValue([
+          { id: BigInt(10), fingerprint: 'fp-a', rawPayload: rawA },
+          { id: BigInt(11), fingerprint: 'fp-b', rawPayload: rawB },
+        ]),
+        markRequeued: jest.fn().mockResolvedValue({}),
+      } as any;
+      const parser = makeWebhookParser();
+      const result = await makeCtrl(queues, undefined, undefined, undefined, webhookEvents, parser).retryFailedWebhooks();
+
+      expect(result).toEqual({ requeued: 2, scanned: 2, limit: 500 });
+      expect(parser.parse).toHaveBeenCalledTimes(2);
+      expect(parser.parse).toHaveBeenCalledWith(rawA);
+      expect(parser.parse).toHaveBeenCalledWith(rawB);
+      expect(webhookEvents.markRequeued).toHaveBeenCalledWith('fp-a');
+      expect(webhookEvents.markRequeued).toHaveBeenCalledWith('fp-b');
+      // Both jobs went onto clickup-webhooks
+      const add = (queues.get as jest.Mock).mock.results[0].value.add as jest.Mock;
+      expect(add).toHaveBeenCalledTimes(2);
     });
 
-    it('throws BadRequestException if CLICKUP_AGENCY_USER_ID not set', async () => {
-      delete process.env.CLICKUP_AGENCY_USER_ID;
-      await expect(makeCtrl().backfillReplacement({})).rejects.toThrow(BadRequestException);
+    it('clamps limit to 2000', async () => {
+      const webhookEvents = { findFailed: jest.fn().mockResolvedValue([]), markRequeued: jest.fn() } as any;
+      const result = await makeCtrl(undefined, undefined, undefined, undefined, webhookEvents).retryFailedWebhooks('9999');
+      expect(webhookEvents.findFailed).toHaveBeenCalledWith(2000);
+      expect(result.limit).toBe(2000);
     });
   });
+
+  describe('backfillReplacement', () => {
+    it('enqueues tagged-entry payloads carrying tags + original logger', async () => {
+      const repo = {
+        findUnreplacedTaggedEntries: jest.fn().mockResolvedValue([
+          {
+            time_entry_id: 'e1',
+            task_id: 't1',
+            user_id: '54569564',
+            start_time: new Date(1700000000000),
+            end_time: new Date(1700003600000),
+            duration_hours: 1,
+            billable: true,
+            description: 'Internal meeting',
+            tag_names: ['ahmad'],
+          },
+        ]),
+      } as any;
+      const queues = makeQueues();
+      const result = await makeCtrl(queues, undefined, undefined, repo).backfillReplacement({ limit: 10 });
+
+      expect(result).toEqual({ queued: 1, scanned: 1, limit: 10 });
+      expect(repo.findUnreplacedTaggedEntries).toHaveBeenCalledWith(10);
+      // The job must carry tags + the actual logger so the worker can route
+      // without re-fetching anything from ClickUp.
+      const add = (queues.get as jest.Mock).mock.results[0].value.add as jest.Mock;
+      expect(add).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          timeEntryId: 'e1',
+          taskId: 't1',
+          originalUserId: '54569564',
+          tags: ['ahmad'],
+          durationHours: 1,
+          billable: true,
+        }),
+        expect.any(Object),
+      );
+    });
+
+    it('skips rows that came back without any tag names', async () => {
+      const repo = {
+        findUnreplacedTaggedEntries: jest.fn().mockResolvedValue([
+          { time_entry_id: 'e1', task_id: 't1', user_id: 'u1', start_time: null, end_time: null, duration_hours: 0, billable: false, description: null, tag_names: [] },
+        ]),
+      } as any;
+      const queues = makeQueues();
+      const result = await makeCtrl(queues, undefined, undefined, repo).backfillReplacement({});
+      expect(result).toEqual({ queued: 0, scanned: 1, limit: 500 });
+    });
+
+    it('clamps limit to 2000', async () => {
+      const repo = { findUnreplacedTaggedEntries: jest.fn().mockResolvedValue([]) } as any;
+      const result = await makeCtrl(makeQueues(), undefined, undefined, repo).backfillReplacement({ limit: 9999 });
+      expect(repo.findUnreplacedTaggedEntries).toHaveBeenCalledWith(2000);
+      expect(result.limit).toBe(2000);
+    });
+  });
+
+  // Builds a controller where one specific collaborator is the supplied test
+  // double, all others are stock fakes. Keeps the call sites short and
+  // resilient to constructor signature changes (e.g. adding webhookEvents).
+  function makeCtrlWithOverride(overrides: Partial<{
+    ratesRepo: any; ratesService: any; tagAssigneeRepo: any;
+  }>) {
+    return new AdminController(
+      makeQueues(),
+      makeDeadLetters(),
+      makeClickup(),
+      makeWebhooks(),
+      makeTimeEntriesRepo(),
+      overrides.ratesRepo ?? makeRatesRepo(),
+      overrides.tagAssigneeRepo ?? makeTagAssigneeRepo(),
+      makeTasksRepo(),
+      overrides.ratesService ?? makeRatesService(),
+      makeWebhookEvents(),
+      makeWebhookParser(),
+      makePrisma(),
+    );
+  }
 
   describe('rates CRUD', () => {
     it('listRates delegates to ratesRepo.findAll (read path stays on the repo)', async () => {
       const ratesRepo = makeRatesRepo();
-      const ctrl = new AdminController(
-        makeQueues(), makeDeadLetters(), makeClickup(), makeWebhooks(), makeTimeEntriesRepo(),
-        ratesRepo, makeTagAssigneeRepo(), makeTasksRepo(), makeRatesService(),
-      );
-      await ctrl.listRates(1, 50);
+      await makeCtrlWithOverride({ ratesRepo }).listRates(1, 50);
       expect(ratesRepo.findAll).toHaveBeenCalledWith(1, 50);
     });
 
     it('createRate calls ratesService.create (mutation seam) with parsed dates', async () => {
       const ratesService = makeRatesService();
-      const ctrl = new AdminController(
-        makeQueues(), makeDeadLetters(), makeClickup(), makeWebhooks(), makeTimeEntriesRepo(),
-        makeRatesRepo(), makeTagAssigneeRepo(), makeTasksRepo(), ratesService,
-      );
-      await ctrl.createRate({ assigneeId: 'u1', currency: 'AUD', hourlyRateCents: 15000, validFrom: '2024-01-01' });
+      await makeCtrlWithOverride({ ratesService }).createRate({
+        assigneeId: 'u1', currency: 'AUD', hourlyRateCents: 15000, validFrom: '2024-01-01',
+      });
       expect(ratesService.create).toHaveBeenCalledWith(expect.objectContaining({ assigneeId: 'u1', hourlyRateCents: 15000 }));
     });
 
     it('deleteRate calls ratesService.remove with parsed BigInt id', async () => {
       const ratesService = makeRatesService();
-      const ctrl = new AdminController(
-        makeQueues(), makeDeadLetters(), makeClickup(), makeWebhooks(), makeTimeEntriesRepo(),
-        makeRatesRepo(), makeTagAssigneeRepo(), makeTasksRepo(), ratesService,
-      );
-      await ctrl.deleteRate('42');
+      await makeCtrlWithOverride({ ratesService }).deleteRate('42');
       expect(ratesService.remove).toHaveBeenCalledWith(BigInt(42));
     });
   });
 
   describe('tag-assignee map CRUD', () => {
     it('listTagAssignee delegates to tagAssigneeRepo.findAll', async () => {
-      const tagRepo = makeTagAssigneeRepo();
-      const ctrl = new AdminController(
-        makeQueues(), makeDeadLetters(), makeClickup(), makeWebhooks(), makeTimeEntriesRepo(),
-        makeRatesRepo(), tagRepo, makeTasksRepo(), makeRatesService(),
-      );
-      await ctrl.listTagAssignee();
-      expect(tagRepo.findAll).toHaveBeenCalled();
+      const tagAssigneeRepo = makeTagAssigneeRepo();
+      await makeCtrlWithOverride({ tagAssigneeRepo }).listTagAssignee();
+      expect(tagAssigneeRepo.findAll).toHaveBeenCalled();
     });
 
     it('deleteTagAssignee calls tagAssigneeRepo.remove with parsed BigInt id', async () => {
-      const tagRepo = makeTagAssigneeRepo();
-      const ctrl = new AdminController(
-        makeQueues(), makeDeadLetters(), makeClickup(), makeWebhooks(), makeTimeEntriesRepo(),
-        makeRatesRepo(), tagRepo, makeTasksRepo(), makeRatesService(),
-      );
-      await ctrl.deleteTagAssignee('7');
-      expect(tagRepo.remove).toHaveBeenCalledWith(BigInt(7));
+      const tagAssigneeRepo = makeTagAssigneeRepo();
+      await makeCtrlWithOverride({ tagAssigneeRepo }).deleteTagAssignee('7');
+      expect(tagAssigneeRepo.remove).toHaveBeenCalledWith(BigInt(7));
     });
   });
 });

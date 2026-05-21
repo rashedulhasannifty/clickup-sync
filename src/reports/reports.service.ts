@@ -20,14 +20,37 @@ export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async tasksSummary() {
-    const [bySpaceRows, byStatusRows, total] = await Promise.all([
-      this.prisma.clickupTask.groupBy({ by: ['spaceId', 'spaceName'], where: { isDeleted: false }, _count: { taskId: true } }),
+    // `byStatusType` is added so the Overview KPIs can derive open/closed
+    // counts reliably. The per-list `status` strings are unstable across
+    // workspaces ('Closed' vs 'closed', 'done' vs 'complete'), but ClickUp's
+    // `status_type` is a coarse classification (open/custom/done/closed) that
+    // survives any per-list status renaming.
+    //
+    // `bySpace` uses raw SQL instead of Prisma groupBy because some tasks were
+    // synced before space.name was populated by the upstream parser, leaving
+    // rows with the same space_id but different space_name (one NULL, one
+    // populated). Grouping by both columns split a single space into two
+    // buckets in the chart. Resolving via `MAX(space_name)` collapses them
+    // back into one row per space.
+    type SpaceRow = { space_id: string | null; space_name: string | null; count: bigint };
+    const [bySpaceRows, byStatusRows, byStatusTypeRows, total] = await Promise.all([
+      this.prisma.$queryRaw<SpaceRow[]>(Prisma.sql`
+        SELECT space_id,
+               MAX(space_name) AS space_name,
+               COUNT(*)::bigint AS count
+        FROM clickup_tasks
+        WHERE is_deleted = false
+        GROUP BY space_id
+        ORDER BY count DESC
+      `),
       this.prisma.clickupTask.groupBy({ by: ['status'], where: { isDeleted: false }, _count: { taskId: true } }),
+      this.prisma.clickupTask.groupBy({ by: ['statusType'], where: { isDeleted: false }, _count: { taskId: true } }),
       this.prisma.clickupTask.count({ where: { isDeleted: false } }),
     ]);
     return {
-      bySpace: bySpaceRows.map(r => ({ spaceId: r.spaceId, spaceName: r.spaceName, count: r._count.taskId })),
+      bySpace: bySpaceRows.map(r => ({ spaceId: r.space_id, spaceName: r.space_name, count: Number(r.count) })),
       byStatus: byStatusRows.map(r => ({ status: r.status, count: r._count.taskId })),
+      byStatusType: byStatusTypeRows.map(r => ({ statusType: r.statusType, count: r._count.taskId })),
       total,
     };
   }
@@ -40,6 +63,40 @@ export class ReportsService {
       orderBy: { spaceName: 'asc' },
     });
     return rows.map(r => ({ spaceName: r.spaceName, status: r.status, count: r._count.taskId }));
+  }
+
+  /**
+   * Distinct task assignees. The Tasks-page filter previously read from
+   * `timeEntriesByUser`, which silently omitted anyone with zero logged
+   * hours (e.g. assignees of expense-only tasks like the Hello Ahmad case).
+   *
+   * Pairs name + email by ordinal position. `clickup_normalizer.ts` joins
+   * both fields from the same `t.assignees` array with `joinNames`, so the
+   * i-th comma-separated chunk in `assignees_names` lines up with the i-th
+   * in `assignees_emails`. Postgres' multi-array UNNEST does exactly that
+   * pairing in a single pass; SQL beats Prisma here because Prisma can't
+   * express ordinal-paired array unpacking.
+   */
+  async tasksAssignees() {
+    type Row = { name: string; email: string | null; task_count: bigint };
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      SELECT name, email, COUNT(*)::bigint AS task_count
+      FROM (
+        SELECT
+          TRIM(BOTH FROM n) AS name,
+          NULLIF(TRIM(BOTH FROM e), '') AS email
+        FROM clickup_tasks
+        CROSS JOIN LATERAL UNNEST(
+          string_to_array(COALESCE(assignees_names, ''), ','),
+          string_to_array(COALESCE(assignees_emails, ''), ',')
+        ) AS u(n, e)
+        WHERE is_deleted = false
+      ) AS s
+      WHERE name <> ''
+      GROUP BY name, email
+      ORDER BY name ASC
+    `);
+    return rows.map((r) => ({ name: r.name, email: r.email, taskCount: Number(r.task_count) }));
   }
 
   async tasks(
@@ -55,7 +112,10 @@ export class ReportsService {
     type?: string,
     archived?: string,
   ) {
-    const safeLimit = Math.min(limit, 200);
+    // Cap kept generous so the dashboard's "Export CSV" can pull a complete
+    // filtered set in one shot. The page UI never offers > 100 rows/page, so
+    // this only matters for export requests.
+    const safeLimit = Math.min(limit, 5000);
     const where: Prisma.ClickupTaskWhereInput = {};
     // ClickUp `archived` flag (exclude / include / only). Always hide soft-deleted rows unless we add a separate flag later.
     where.isDeleted = false;
@@ -70,12 +130,33 @@ export class ReportsService {
     if (spaceId) where.spaceId = spaceId;
     if (status) where.status = status;
     if (priority) where.priority = priority;
-    if (search) where.taskName = { contains: search, mode: 'insensitive' };
     if (type === 'parent') where.parentTaskId = null;
     if (type === 'subtask') where.parentTaskId = { not: null };
     if (assigneeId) where.assigneesNames = { contains: assigneeId, mode: 'insensitive' };
     if (fromParam || toParam) {
       where.updatedDate = { gte: parseDate(fromParam, new Date(0)), lte: parseDate(toParam, new Date()) };
+    }
+    // Free-text search across short, indexed-friendly fields. Avoid description / raw
+    // JSON — ILIKE on those gets expensive fast. Compose via AND so search stacks
+    // with the other filters above (mirrors `timeEntriesList`).
+    if (search?.trim()) {
+      const q = search.trim();
+      where.AND = [
+        {
+          OR: [
+            { taskName: { contains: q, mode: 'insensitive' } },
+            { taskId: { contains: q, mode: 'insensitive' } },
+            { assigneesNames: { contains: q, mode: 'insensitive' } },
+            { assigneesEmails: { contains: q, mode: 'insensitive' } },
+            { client: { contains: q, mode: 'insensitive' } },
+            { listName: { contains: q, mode: 'insensitive' } },
+            { spaceName: { contains: q, mode: 'insensitive' } },
+            { sprintName: { contains: q, mode: 'insensitive' } },
+            { department: { contains: q, mode: 'insensitive' } },
+            { executiveName: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+      ];
     }
     const [items, total] = await Promise.all([
       this.prisma.clickupTask.findMany({
@@ -186,6 +267,97 @@ export class ReportsService {
     };
   }
 
+  /**
+   * Server-side aggregates for the Time Entries page metric cards.
+   * Must accept the *same* filter set as `timeEntriesList` so the cards
+   * reflect the user's filters, not just the current page of 50.
+   *
+   * Where-clause is inlined (not shared with `timeEntriesList`) on purpose —
+   * one local copy is easier to reason about than a shared helper, and lets
+   * either endpoint diverge without breaking the other.
+   */
+  async timeEntriesAggregates(
+    userId?: string,
+    fromParam?: string,
+    toParam?: string,
+    status?: string,
+    billable?: string,
+    search?: string,
+    spaceId?: string,
+    missingOnly?: string,
+  ) {
+    const from = parseDate(fromParam, defaultFrom());
+    const to = parseDate(toParam, new Date());
+    const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: from, lte: to } };
+    const and: Prisma.ClickupTimeEntryWhereInput[] = [];
+    if (spaceId) and.push({ task: { spaceId, isDeleted: false } });
+    if (userId) where.userId = userId;
+    if (missingOnly === 'true') {
+      where.status = 'NO_RATE_FOUND';
+    } else if (status) {
+      where.status = status;
+    }
+    if (billable === 'true') where.billable = true;
+    else if (billable === 'false') where.billable = false;
+    if (search?.trim()) {
+      const q = search.trim();
+      and.push({
+        OR: [
+          { task: { taskName: { contains: q, mode: 'insensitive' } } },
+          { userName: { contains: q, mode: 'insensitive' } },
+          { userEmail: { contains: q, mode: 'insensitive' } },
+          { taskId: { contains: q, mode: 'insensitive' } },
+          { timeEntryId: { contains: q, mode: 'insensitive' } },
+        ],
+      });
+    }
+    if (and.length) where.AND = and;
+
+    // Two parallel groupBys are enough:
+    //   • by billable → gives total count, total hours, total cost, and the
+    //     billable/non-billable split in a single query.
+    //   • by status → gives counts for COST_CALCULATED / NO_RATE_FOUND /
+    //     SYNCED (we only surface the first two).
+    const [byBillable, byStatus] = await Promise.all([
+      this.prisma.clickupTimeEntry.groupBy({
+        by: ['billable'],
+        where,
+        _count: true,
+        _sum: { durationHours: true, costCents: true },
+      }),
+      this.prisma.clickupTimeEntry.groupBy({
+        by: ['status'],
+        where,
+        _count: true,
+      }),
+    ]);
+
+    const b = byBillable.find(r => r.billable);
+    const nb = byBillable.find(r => !r.billable);
+    const totalEntries = byBillable.reduce((s, r) => s + r._count, 0);
+    const billableHours = b?._sum.durationHours?.toNumber() ?? 0;
+    const nonBillableHours = nb?._sum.durationHours?.toNumber() ?? 0;
+    const totalHours = billableHours + nonBillableHours;
+    const totalCostCents =
+      Number(b?._sum.costCents ?? 0n) + Number(nb?._sum.costCents ?? 0n);
+    // Weighted-by-hours average rate — matches what users expect from
+    // "avg $X/h": effective rate across all logged time in the period.
+    const avgRateCents = totalHours > 0 ? Math.round(totalCostCents / totalHours) : 0;
+    const costCalculatedCount = byStatus.find(s => s.status === 'COST_CALCULATED')?._count ?? 0;
+    const noRateFoundCount = byStatus.find(s => s.status === 'NO_RATE_FOUND')?._count ?? 0;
+
+    return {
+      totalEntries,
+      totalHours,
+      billableHours,
+      nonBillableHours,
+      totalCostCents,
+      avgRateCents,
+      costCalculatedCount,
+      noRateFoundCount,
+    };
+  }
+
   async timeEntriesList(
     userId?: string,
     fromParam?: string,
@@ -198,7 +370,9 @@ export class ReportsService {
     spaceId?: string,
     missingOnly?: string,
   ) {
-    const safeLimit = Math.min(limit, 200);
+    // Same rationale as `tasks()`: cap allows CSV export to fetch the entire
+    // filtered set; normal pagination tops out at 100 rows/page.
+    const safeLimit = Math.min(limit, 5000);
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
     const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: from, lte: to } };
@@ -307,25 +481,73 @@ export class ReportsService {
 
   async jobLogs(queueName?: string, status?: string, limit = 50, offset = 0) {
     const safeLimit = Math.min(limit, 200);
-    const where: Prisma.SyncJobLogWhereInput = {};
-    if (queueName) where.queueName = queueName;
-    if (status) where.status = status;
-    const [items, total] = await Promise.all([
-      this.prisma.syncJobLog.findMany({
-        where,
-        orderBy: { startedAt: 'desc' },
-        take: safeLimit,
-        skip: offset,
-        select: { id: true, queueName: true, jobName: true, status: true, entityId: true, errorMessage: true, startedAt: true, finishedAt: true, tasksSynced: true, timeEntriesSynced: true },
-      }),
-      this.prisma.syncJobLog.count({ where }),
+    // Raw SQL because we need a per-row `recovered` flag for failed jobs:
+    // a failure is considered "recovered" if a later successful run for the
+    // same (queue_name, entity_id) exists. This lets the dashboard answer
+    // "was this work eventually processed?" without operators having to
+    // hunt manually. The EXISTS subquery is cheap thanks to the existing
+    // (entity_type, entity_id) and (status) indexes.
+    type Row = {
+      id: bigint;
+      queue_name: string;
+      job_name: string;
+      status: string;
+      entity_id: string | null;
+      error_message: string | null;
+      started_at: Date | null;
+      finished_at: Date | null;
+      tasks_synced: number | null;
+      time_entries_synced: number | null;
+      recovered: boolean | null;
+    };
+    const filters: Prisma.Sql[] = [];
+    if (queueName) filters.push(Prisma.sql`queue_name = ${queueName}`);
+    if (status) filters.push(Prisma.sql`status = ${status}`);
+    const whereClause = filters.length > 0
+      ? Prisma.sql`WHERE ${Prisma.join(filters, ' AND ')}`
+      : Prisma.empty;
+    const [items, totalRows] = await Promise.all([
+      this.prisma.$queryRaw<Row[]>(Prisma.sql`
+        SELECT
+          j.id, j.queue_name, j.job_name, j.status, j.entity_id, j.error_message,
+          j.started_at, j.finished_at, j.tasks_synced, j.time_entries_synced,
+          CASE
+            WHEN j.status <> 'failed' THEN NULL
+            WHEN j.entity_id IS NULL OR j.finished_at IS NULL THEN false
+            ELSE EXISTS (
+              SELECT 1 FROM sync_job_logs s
+              WHERE s.queue_name = j.queue_name
+                AND s.entity_id = j.entity_id
+                AND s.status = 'completed'
+                AND s.finished_at > j.finished_at
+            )
+          END AS recovered
+        FROM sync_job_logs j
+        ${whereClause}
+        ORDER BY j.started_at DESC NULLS LAST
+        LIMIT ${safeLimit}
+        OFFSET ${offset}
+      `),
+      this.prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+        SELECT COUNT(*)::bigint AS count FROM sync_job_logs ${whereClause}
+      `),
     ]);
+    const total = Number(totalRows[0]?.count ?? 0);
     return {
-      items: items.map(i => ({
-        ...i,
+      items: items.map((i) => ({
         id: i.id.toString(),
-        durationMs: i.startedAt && i.finishedAt
-          ? new Date(i.finishedAt).getTime() - new Date(i.startedAt).getTime()
+        queueName: i.queue_name,
+        jobName: i.job_name,
+        status: i.status,
+        entityId: i.entity_id,
+        errorMessage: i.error_message,
+        startedAt: i.started_at,
+        finishedAt: i.finished_at,
+        tasksSynced: i.tasks_synced,
+        timeEntriesSynced: i.time_entries_synced,
+        recovered: i.recovered,
+        durationMs: i.started_at && i.finished_at
+          ? new Date(i.finished_at).getTime() - new Date(i.started_at).getTime()
           : null,
       })),
       total,
@@ -405,15 +627,26 @@ export class ReportsService {
       space_name: string;
       task_count: bigint;
       open_count: bigint;
+      member_count: bigint;
       hours_logged: number;
       cost_cents: number;
     };
+    // Open count uses `status_type`, ClickUp's coarse-grained classification
+    // (open / custom / done / closed), not the per-list `status` string. The
+    // prior `status NOT IN ('complete','closed')` check missed real data —
+    // ClickUp returns `'Closed'` (capitalized) and `'done'` (not 'complete'),
+    // so every task qualified as "open".
+    //
+    // Member count is approximated as the distinct set of users who have logged
+    // time against any task in the space. We have no direct space-membership
+    // table, but "people doing the work" is the question the metric answers.
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT
         t.space_id,
         t.space_name,
         COUNT(DISTINCT t.task_id)::bigint AS task_count,
-        COUNT(DISTINCT CASE WHEN t.status NOT IN ('complete', 'closed') THEN t.task_id END)::bigint AS open_count,
+        COUNT(DISTINCT t.task_id) FILTER (WHERE t.status_type NOT IN ('closed', 'done'))::bigint AS open_count,
+        COUNT(DISTINCT e.user_id) FILTER (WHERE e.user_id IS NOT NULL)::bigint AS member_count,
         COALESCE(SUM(e.duration_hours), 0)::float AS hours_logged,
         COALESCE(SUM(e.cost_cents), 0)::float AS cost_cents
       FROM clickup_tasks t
@@ -427,6 +660,7 @@ export class ReportsService {
       spaceName: r.space_name,
       taskCount: Number(r.task_count),
       openCount: Number(r.open_count),
+      memberCount: Number(r.member_count),
       hoursLogged: Number(r.hours_logged),
       costAud: Number(r.cost_cents) / 100,
     }));

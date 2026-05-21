@@ -1,11 +1,15 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Clock, DollarSign, AlertTriangle, CircleCheck, Download, RefreshCw,
   Search, X,
 } from 'lucide-react';
-import { useTimeEntriesList, useTimeEntriesByUser } from '../hooks/useReports';
+import { useTimeEntriesList, useTimeEntriesByUser, useTimeEntriesAggregates } from '../hooks/useReports';
+import { useMutation } from '@tanstack/react-query';
+import { reportsApi } from '../api/reports';
+import { csvFilename, downloadCsv, toCsv, type CsvColumn } from '../lib/csv';
+import { Callout } from '../components/ui/Callout';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { fmt } from '../lib/formatters';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -16,6 +20,7 @@ import { Select } from '../components/ui/Select';
 import { Switch } from '../components/ui/Switch';
 import type { Column } from '../components/ui/DataTable';
 import { DataTable } from '../components/ui/DataTable';
+import { QueryError } from '../components/ui/QueryError';
 import { Avatar } from '../components/ui/Avatar';
 import { Pill } from '../components/ui/Pill';
 import { TimeEntryDrawer } from '../components/TimeEntryDrawer';
@@ -50,6 +55,24 @@ export function TimeEntriesPage() {
   const [status, setStatus] = useState('');
   const [missingOnly, setMissingOnly] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<TimeEntryItem | null>(null);
+  // Inline banner replaces the previous `alert()` for sync results — a native
+  // alert blocked the page until dismissed and looked off-brand. Banner
+  // auto-dismisses after 5s, same pattern as AssigneeRatesPage's recalcMsg.
+  const [banner, setBanner] = useState<string | null>(null);
+  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    },
+    [],
+  );
+
+  function showBanner(msg: string) {
+    setBanner(msg);
+    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    bannerTimerRef.current = setTimeout(() => setBanner(null), 5000);
+  }
 
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchRaw), 300);
@@ -86,21 +109,57 @@ export function TimeEntriesPage() {
     to: toDate || undefined,
   }), [pageSize, page, search, userId, billable, status, missingOnly, space, fromDate, toDate]);
 
-  const { data, isLoading } = useTimeEntriesList(params);
+  const timeEntriesQuery = useTimeEntriesList(params);
+  const { data, isLoading } = timeEntriesQuery;
+
+  const exportCsv = useMutation({
+    mutationFn: async () => {
+      const { items } = await reportsApi.timeEntriesList({ ...params, limit: 5000, offset: 0 });
+      const cols: CsvColumn<TimeEntryItem>[] = [
+        { header: 'Time entry ID', value: 'timeEntryId' },
+        { header: 'Task ID',       value: 'taskId' },
+        { header: 'Task name',     value: 'taskName' },
+        { header: 'User ID',       value: 'userId' },
+        { header: 'User name',     value: 'userName' },
+        { header: 'User email',    value: 'userEmail' },
+        { header: 'Start',         value: 'startTime' },
+        { header: 'End',           value: 'endTime' },
+        { header: 'Duration (h)', value: 'durationHours' },
+        { header: 'Billable',      value: 'billable' },
+        { header: 'Hourly rate (cents)', value: 'hourlyRateCents' },
+        { header: 'Cost',          value: 'costAud' },
+        { header: 'Currency',      value: 'currency' },
+        { header: 'Status',        value: 'status' },
+        { header: 'Description',   value: 'description' },
+        { header: 'Synced',        value: 'syncedAt' },
+      ];
+      downloadCsv(csvFilename('time-entries'), toCsv(items as TimeEntryItem[], cols));
+      return { rows: items.length };
+    },
+  });
+
+  // Aggregates intentionally use the filter-set only — `limit`/`offset` are
+  // dropped so paginating through results doesn't churn the query cache or
+  // refetch the totals (they're the same across pages).
+  const aggParams = useMemo(() => {
+    const { limit: _l, offset: _o, ...rest } = params;
+    return rest;
+  }, [params]);
+  const { data: agg } = useTimeEntriesAggregates(aggParams);
 
   const items: TimeEntryItem[] = (data as { items?: TimeEntryItem[] } | undefined)?.items ?? [];
   const total: number = (data as { total?: number } | undefined)?.total ?? 0;
 
-  const totalHours = items.reduce((s, r) => s + r.durationHours, 0);
-  const billableHours = items.filter(r => r.billable).reduce((s, r) => s + r.durationHours, 0);
-  const nonBillableHours = totalHours - billableHours;
-  const totalCostCents = items.reduce((s, r) => s + r.costAud * 100, 0);
-  const ratedEntries = items.filter(r => r.hourlyRateCents > 0 && (r.status === 'COST_CALCULATED' || r.costAud > 0));
-  const avgRateCents = ratedEntries.length
-    ? Math.round(ratedEntries.reduce((s, r) => s + r.hourlyRateCents, 0) / ratedEntries.length)
-    : 0;
-  const missingRateCount = items.filter(r => r.status === 'NO_RATE_FOUND').length;
-  const calculatedCount = items.filter(r => r.status === 'COST_CALCULATED').length;
+  // All metric cards derive from server-side aggregates so they reflect the
+  // entire filtered set, not the 50-row page. Without this the cards looked
+  // frozen across date-range changes.
+  const totalHours = agg?.totalHours ?? 0;
+  const billableHours = agg?.billableHours ?? 0;
+  const nonBillableHours = agg?.nonBillableHours ?? 0;
+  const totalCostCents = agg?.totalCostCents ?? 0;
+  const avgRateCents = agg?.avgRateCents ?? 0;
+  const missingRateCount = agg?.noRateFoundCount ?? 0;
+  const calculatedCount = agg?.costCalculatedCount ?? 0;
 
   const hasFilters = !!(
     search || userId || billable || status || missingOnly
@@ -244,7 +303,16 @@ export function TimeEntriesPage() {
         description="Audit time tracking and verify calculated labor costs."
         actions={
           <>
-            <Button size="md" variant="default" icon={<Download size={13} strokeWidth={1.75} />}>Export CSV</Button>
+            <Button
+              size="md"
+              variant="default"
+              icon={<Download size={13} strokeWidth={1.75} />}
+              loading={exportCsv.isPending}
+              disabled={exportCsv.isPending || isLoading}
+              onClick={() => exportCsv.mutate()}
+            >
+              Export CSV
+            </Button>
             <Button
               size="md"
               variant="default"
@@ -254,7 +322,7 @@ export function TimeEntriesPage() {
                 onSuccess: (res) => {
                   void queryClient.invalidateQueries({ queryKey: ['time-entries-list'] });
                   void queryClient.invalidateQueries({ queryKey: ['time-entries-by-user'] });
-                  alert(`Queued ${res.queued} time-entry sync jobs`);
+                  showBanner(`Queued ${res.queued} time-entry sync jobs — counts will refresh as workers complete.`);
                 },
               })}
             >
@@ -263,6 +331,8 @@ export function TimeEntriesPage() {
           </>
         }
       />
+
+      {banner && <Callout tone="blue">{banner}</Callout>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
         <MetricCard
@@ -329,6 +399,8 @@ export function TimeEntriesPage() {
         )}
       </div>
 
+      <QueryError query={timeEntriesQuery} what="time entries" />
+
       <DataTable<TimeEntryItem>
         layout="design"
         rowKey="timeEntryId"
@@ -346,6 +418,7 @@ export function TimeEntriesPage() {
         onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
         pageSizeOptions={[10, 25, 50, 100]}
         onRowClick={(row) => setSelectedEntry(row)}
+        initialSort={{ key: 'startTime', dir: 'desc' }}
       />
 
       <TimeEntryDrawer entry={selectedEntry} onClose={() => setSelectedEntry(null)} />

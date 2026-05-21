@@ -1,5 +1,8 @@
 import { AssigneeReplacementService, ReplacementJobData } from '../src/time-entries/assignee-replacement.service';
 
+// The default fixture carries the `chisty` tag on the *time entry itself*
+// (which is how ClickUp surfaces these in the live data) and a non-agency
+// originalUserId, so that the service exercise mirrors real traffic shape.
 const SAMPLE_JOB: ReplacementJobData = {
   timeEntryId: 'entry-123',
   taskId: 'task-456',
@@ -8,6 +11,8 @@ const SAMPLE_JOB: ReplacementJobData = {
   durationHours: 1,
   billable: true,
   description: 'Work done',
+  originalUserId: '54569564',
+  tags: ['chisty'],
 };
 
 const ACTIVE_MAPPINGS = [
@@ -28,7 +33,6 @@ function buildMocks(
     findByOriginalEntryId: jest.Mock;
     createReplacement: jest.Mock;
     findAllActive: jest.Mock;
-    getTask: jest.Mock;
     createTimeEntry: jest.Mock;
     deleteTimeEntry: jest.Mock;
     costs: jest.Mock;
@@ -41,9 +45,6 @@ function buildMocks(
     overrides.createReplacement ?? jest.fn().mockResolvedValue({ id: BigInt(1) });
   const findAllActive =
     overrides.findAllActive ?? jest.fn().mockResolvedValue(ACTIVE_MAPPINGS);
-  const getTask =
-    overrides.getTask ??
-    jest.fn().mockResolvedValue({ id: 'task-456', tags: [{ name: 'chisty' }] });
   const createTimeEntry =
     overrides.createTimeEntry ??
     jest.fn().mockResolvedValue({ id: 'new-entry-789', task: { id: 'task-456' } });
@@ -59,6 +60,10 @@ function buildMocks(
       status: 'NO_RATE_FOUND',
     });
   const upsert = overrides.upsert ?? jest.fn().mockResolvedValue({});
+
+  // getTask is no longer called by the service — kept here only so a stray
+  // reference would surface as `not toHaveBeenCalled` in the tests below.
+  const getTask = jest.fn();
 
   const clickup = { getTask, createTimeEntry, deleteTimeEntry } as any;
   const tagAssigneeMap = { findAllActive, findByTagName: jest.fn() } as any;
@@ -93,14 +98,6 @@ function buildMocks(
 }
 
 describe('AssigneeReplacementService.replaceEntry', () => {
-  beforeEach(() => {
-    process.env.CLICKUP_AGENCY_USER_ID = '3584055';
-  });
-
-  afterEach(() => {
-    delete process.env.CLICKUP_AGENCY_USER_ID;
-  });
-
   it('returns skipped when entry was already replaced', async () => {
     const { service, getTask, createTimeEntry, deleteTimeEntry } = buildMocks({
       findByOriginalEntryId: jest.fn().mockResolvedValue({ id: BigInt(99) }),
@@ -114,29 +111,32 @@ describe('AssigneeReplacementService.replaceEntry', () => {
     expect(deleteTimeEntry).not.toHaveBeenCalled();
   });
 
-  it('returns no_mapping when task tags do not match any active mapping', async () => {
-    const { service, createTimeEntry, deleteTimeEntry } = buildMocks({
-      getTask: jest.fn().mockResolvedValue({ id: 'task-456', tags: [{ name: 'design' }] }),
-      findAllActive: jest.fn().mockResolvedValue(ACTIVE_MAPPINGS), // only 'chisty' is active
-    });
+  it('returns no_mapping when entry tags do not match any active mapping', async () => {
+    const { service, createTimeEntry, deleteTimeEntry } = buildMocks();
 
-    const result = await service.replaceEntry(SAMPLE_JOB);
+    const result = await service.replaceEntry({ ...SAMPLE_JOB, tags: ['design'] });
 
     expect(result).toEqual({ status: 'no_mapping' });
     expect(createTimeEntry).not.toHaveBeenCalled();
     expect(deleteTimeEntry).not.toHaveBeenCalled();
   });
 
-  it('returns no_mapping when task has no tags', async () => {
-    const { service, createTimeEntry, deleteTimeEntry } = buildMocks({
-      getTask: jest.fn().mockResolvedValue({ id: 'task-456', tags: [] }),
-    });
+  it('returns no_mapping when entry has no tags', async () => {
+    const { service, createTimeEntry, deleteTimeEntry } = buildMocks();
 
-    const result = await service.replaceEntry(SAMPLE_JOB);
+    const result = await service.replaceEntry({ ...SAMPLE_JOB, tags: [] });
 
     expect(result).toEqual({ status: 'no_mapping' });
     expect(createTimeEntry).not.toHaveBeenCalled();
     expect(deleteTimeEntry).not.toHaveBeenCalled();
+  });
+
+  it('never calls clickup.getTask — task tags are not the routing source anymore', async () => {
+    const { service, getTask } = buildMocks();
+
+    await service.replaceEntry(SAMPLE_JOB);
+
+    expect(getTask).not.toHaveBeenCalled();
   });
 
   it('performs successful replacement: creates entry, saves audit row, then deletes original', async () => {
@@ -184,7 +184,7 @@ describe('AssigneeReplacementService.replaceEntry', () => {
     });
   });
 
-  it('passes correct payload to replacements.create audit row', async () => {
+  it('audit row records the actual logger as originalUserId, not the agency account', async () => {
     const { service, createReplacement } = buildMocks();
 
     await service.replaceEntry(SAMPLE_JOB);
@@ -194,7 +194,7 @@ describe('AssigneeReplacementService.replaceEntry', () => {
         originalEntryId: SAMPLE_JOB.timeEntryId,
         replacementEntryId: 'new-entry-789',
         taskId: SAMPLE_JOB.taskId,
-        originalUserId: '3584055',
+        originalUserId: SAMPLE_JOB.originalUserId,
         replacedUserId: ACTIVE_MAPPINGS[0].clickupUserId,
         tagName: 'chisty',
         status: 'replaced',
@@ -231,25 +231,15 @@ describe('AssigneeReplacementService.replaceEntry', () => {
     );
   });
 
-  it('throws when CLICKUP_AGENCY_USER_ID is not set', async () => {
-    delete process.env.CLICKUP_AGENCY_USER_ID;
+  it('matches case-insensitively (e.g. "Chisty" -> "chisty" mapping)', async () => {
+    const { service, createTimeEntry, createReplacement } = buildMocks();
 
-    const { service } = buildMocks();
+    const result = await service.replaceEntry({ ...SAMPLE_JOB, tags: ['Chisty'] });
 
-    await expect(service.replaceEntry(SAMPLE_JOB)).rejects.toThrow(
-      'CLICKUP_AGENCY_USER_ID env var is not set',
+    expect(result).toEqual({ status: 'replaced' });
+    expect(createTimeEntry).toHaveBeenCalled();
+    expect(createReplacement).toHaveBeenCalledWith(
+      expect.objectContaining({ tagName: 'chisty' }),
     );
-  });
-
-  it('returns no_mapping when getTask throws', async () => {
-    const { service, createTimeEntry, deleteTimeEntry } = buildMocks({
-      getTask: jest.fn().mockRejectedValue(new Error('ClickUp API unavailable')),
-    });
-
-    const result = await service.replaceEntry(SAMPLE_JOB);
-
-    expect(result).toEqual({ status: 'no_mapping' });
-    expect(createTimeEntry).not.toHaveBeenCalled();
-    expect(deleteTimeEntry).not.toHaveBeenCalled();
   });
 });

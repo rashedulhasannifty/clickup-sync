@@ -1,5 +1,20 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../api/admin';
+
+/**
+ * Live per-space sync progress, driven by `GET /admin/backfill/active`.
+ * Polls every 3s while *any* sync is in flight, falls back to 30s when idle so
+ * we still pick up an admin starting a sync from another tab without
+ * hammering the API in the steady state.
+ */
+export function useActiveBackfills() {
+  return useQuery({
+    queryKey: ['backfill-active'],
+    queryFn: adminApi.backfillActive,
+    refetchInterval: (query) => ((query.state.data?.length ?? 0) > 0 ? 3000 : 30_000),
+    refetchIntervalInBackground: false,
+  });
+}
 
 export function useSyncTask() {
   return useMutation({ mutationFn: (taskId: string) => adminApi.syncTask(taskId) });
@@ -25,5 +40,27 @@ export function useRetryDeadLetter() {
   return useMutation({
     mutationFn: (id: string) => adminApi.retryDeadLetter(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['dead-letters'] }),
+  });
+}
+
+export function useRetryFailedWebhooks() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: adminApi.retryFailedWebhooks,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['webhook-events'] }),
+  });
+}
+
+/**
+ * Probes the ClickUp API by fetching workspace members through our backend.
+ * If the call succeeds with at least one member, the API token + connectivity
+ * are healthy. Used by Settings → Connection → Test connection.
+ */
+export function useTestClickupConnection() {
+  return useMutation({
+    mutationFn: async () => {
+      const members = await adminApi.workspaceMembers();
+      return { ok: members.length > 0, memberCount: members.length };
+    },
   });
 }

@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, CircleCheck, CircleDashed, Loader2, RefreshCw, Settings } from 'lucide-react';
 import { useSpaces } from '../hooks/useReports';
-import { useBackfill } from '../hooks/useAdmin';
+import { useActiveBackfills, useBackfill } from '../hooks/useAdmin';
+import type { ActiveBackfill } from '../api/admin';
 import { PageHeader } from '../components/ui/PageHeader';
+import { QueryError } from '../components/ui/QueryError';
 import { Card } from '../components/ui/Card';
 import { Tabs } from '../components/ui/Tabs';
 import { Button } from '../components/ui/Button';
@@ -34,6 +36,8 @@ type SpaceRow = {
   spaceName: string | null;
   taskCount: number;
   openCount: number;
+  /** Distinct users with logged time against tasks in this space. */
+  memberCount: number;
   hoursLogged: number;
   costAud: number;
   /** false = configured space that has never produced any synced data yet */
@@ -60,6 +64,7 @@ function buildMergedSpaces(apiRows: Omit<SpaceRow, 'synced'>[]): SpaceRow[] {
       spaceName: cfg.name,
       taskCount: 0,
       openCount: 0,
+      memberCount: 0,
       hoursLogged: 0,
       costAud: 0,
       synced: false,
@@ -75,7 +80,10 @@ function spaceDisplayName(s: SpaceRow): string {
   if (n) return n;
   const configured = CONFIGURED_SPACES.find((c) => c.id === s.spaceId);
   if (configured) return configured.name;
-  return s.spaceId?.trim() || 'Unnamed space';
+  const id = s.spaceId?.trim();
+  // Prefix with "Space" so an unresolved ID doesn't render twice (once where
+  // the name should be, once below) and look like a duplicate / typo.
+  return id ? `Space ${id}` : 'Unnamed space';
 }
 
 function spaceKey(s: SpaceRow, index: number): string {
@@ -99,11 +107,42 @@ function spaceColor(spaceId: string | null | undefined): string {
 type SyncControls = {
   syncingId: string | null;
   queuedIds: Set<string>;
+  /** Server-reported live status per spaceId, or null when idle. */
+  progressFor: (id: string) => ActiveBackfill | null;
   onSync: (id: string) => void;
   /** Current text shown in a space's lookback-days input. */
   lookbackText: (id: string) => string;
   onLookbackChange: (id: string, value: string) => void;
 };
+
+function SyncProgress({ progress }: { progress: ActiveBackfill }) {
+  if (progress.phase === 'fetching') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
+          <span>Fetching tasks from ClickUp…</span>
+          <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} />
+        </div>
+        {/* Indeterminate: full bar at the accent colour, animated stripe-pulse. */}
+        <div style={{ width: '100%', height: 6, background: 'var(--muted-bg)', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'var(--accent)', opacity: 0.35, animation: 'pulse 1.4s ease-in-out infinite' }} />
+        </div>
+      </div>
+    );
+  }
+  const total = progress.total ?? 0;
+  const done = progress.done ?? 0;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
+        <span>Syncing time entries · {fmt.number(done)} / {fmt.number(total)}</span>
+        <span style={{ fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
+      </div>
+      <ProgressBar value={pct} color="var(--accent)" />
+    </div>
+  );
+}
 
 function LookbackInput({ sid, controls }: { sid: string; controls: SyncControls }) {
   return (
@@ -158,7 +197,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function SpaceGrid({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncControls }) {
   const navigate = useNavigate();
-  const { syncingId, queuedIds, onSync } = controls;
+  const { syncingId, queuedIds, progressFor, onSync } = controls;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
       {spaces.map((space, index) => {
@@ -170,7 +209,8 @@ function SpaceGrid({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncCon
         const initial = (displayName.slice(0, 1) || '?').toUpperCase();
         const sid = space.spaceId?.trim() ?? '';
         const isSyncing = syncingId === sid;
-        const isQueued = queuedIds.has(sid);
+        const progress = progressFor(sid);
+        const isQueued = queuedIds.has(sid) || progress !== null;
 
         return (
           <div
@@ -236,17 +276,21 @@ function SpaceGrid({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncCon
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
               <Stat label="Tasks" value={fmt.number(space.taskCount)} />
               <Stat label="Open" value={fmt.number(space.openCount)} />
-              <Stat label="Members" value="—" />
+              <Stat label="Members" value={space.memberCount > 0 ? fmt.number(space.memberCount) : '—'} />
               <Stat label="Hours" value={isQueued ? '…' : fmt.hours(totalHours)} />
             </div>
 
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
-                <span>Billable {fmt.hours(billableHours)}</span>
-                <span>{billPct}%</span>
+            {progress ? (
+              <SyncProgress progress={progress} />
+            ) : (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                  <span>Billable {fmt.hours(billableHours)}</span>
+                  <span>{billPct}%</span>
+                </div>
+                <ProgressBar value={billPct} color={color} />
               </div>
-              <ProgressBar value={billPct} color={color} />
-            </div>
+            )}
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingTop: 8, borderTop: '1px solid var(--border-soft)', flexWrap: 'wrap' }}>
               <LookbackInput sid={sid} controls={controls} />
@@ -281,7 +325,7 @@ function SpaceGrid({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncCon
 
 function WorkloadView({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncControls }) {
   const navigate = useNavigate();
-  const { syncingId, queuedIds, onSync } = controls;
+  const { syncingId, queuedIds, progressFor, onSync } = controls;
   const sorted = useMemo(() => [...spaces].sort((a, b) => b.hoursLogged - a.hoursLogged), [spaces]);
   const total = sorted.reduce((s, sp) => s + sp.hoursLogged, 0);
 
@@ -385,21 +429,25 @@ function WorkloadView({ spaces, controls }: { spaces: SpaceRow[]; controls: Sync
           {sorted.map((sp, i) => {
             const rowId = sp.spaceId?.trim() ?? '';
             const isSyncing = syncingId === rowId;
-            const isQueued = queuedIds.has(rowId);
+            const progress = progressFor(rowId);
+            const isQueued = queuedIds.has(rowId) || progress !== null;
             return (
             <tr key={spaceKey(sp, i)} style={{ borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined }}>
               <td style={{ padding: '10px 16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: spaceColor(sp.spaceId), flexShrink: 0 }} />
-                  <span style={{ fontWeight: 600, color: 'var(--text)' }}>{spaceDisplayName(sp)}</span>
-                  {!sp.synced && (
-                    <Pill tone="amber" size="xs" icon={<CircleDashed size={10} />}>Never synced</Pill>
-                  )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: spaceColor(sp.spaceId), flexShrink: 0 }} />
+                    <span style={{ fontWeight: 600, color: 'var(--text)' }}>{spaceDisplayName(sp)}</span>
+                    {!sp.synced && !progress && (
+                      <Pill tone="amber" size="xs" icon={<CircleDashed size={10} />}>Never synced</Pill>
+                    )}
+                  </div>
+                  {progress && <div style={{ maxWidth: 260 }}><SyncProgress progress={progress} /></div>}
                 </div>
               </td>
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt.number(sp.taskCount)}</td>
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt.number(sp.openCount)}</td>
-              <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>—</td>
+              <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{sp.memberCount > 0 ? fmt.number(sp.memberCount) : '—'}</td>
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.hours(sp.hoursLogged)}</td>
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt.hours(0)}</td>
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
@@ -439,40 +487,63 @@ function WorkloadView({ spaces, controls }: { spaces: SpaceRow[]; controls: Sync
 export function SpacesPage() {
   const [view, setView] = useState<TabKey>('grid');
   const [syncingId, setSyncingId] = useState<string | null>(null);
-  const [queuedIds, setQueuedIds] = useState<Set<string>>(new Set());
+  // Optimistic "I just clicked Sync" set. Gives the user instant feedback in
+  // the ~3s gap before the server poll reports the job as in-flight. Cleared
+  // once the server reports the space as no longer active (i.e. queue is
+  // empty AND no completed-within-1h drains pending).
+  const [optimisticQueued, setOptimisticQueued] = useState<Set<string>>(new Set());
   const [lookbackInput, setLookbackInput] = useState<Record<string, string>>({});
-  const prevHoursRef = useRef<Record<string, number>>({});
   const spacesQuery = useSpaces();
   const backfill = useBackfill();
   const queryClient = useQueryClient();
+  const activeBackfills = useActiveBackfills();
 
   const apiRows: Omit<SpaceRow, 'synced'>[] = Array.isArray(spacesQuery.data) ? spacesQuery.data : [];
   const mergedSpaces = useMemo(() => buildMergedSpaces(apiRows), [apiRows]);
 
-  // Poll every 8s while any jobs are queued
-  useEffect(() => {
-    if (queuedIds.size === 0) return;
-    const id = setInterval(() => {
-      void queryClient.invalidateQueries({ queryKey: ['spaces'] });
-    }, 8000);
-    return () => clearInterval(id);
-  }, [queuedIds.size, queryClient]);
+  const progressBySpace = useMemo(() => {
+    const map = new Map<string, ActiveBackfill>();
+    for (const a of activeBackfills.data ?? []) map.set(a.spaceId, a);
+    return map;
+  }, [activeBackfills.data]);
 
-  // Remove a space from queuedIds once its hours change (workers finished)
+  // Server-reported truth + optimistic local set. The progress bar drives the
+  // displayed indicator; this union also controls "Queued" button labels.
+  const queuedIds = useMemo(() => {
+    const ids = new Set<string>(optimisticQueued);
+    for (const id of progressBySpace.keys()) ids.add(id);
+    return ids;
+  }, [optimisticQueued, progressBySpace]);
+
+  // Drop a space from optimisticQueued once the server confirms it's active
+  // (poll caught up) OR once the server confirms it's *not* active anymore
+  // (job finished before the poll). Without this, a transient hiccup in the
+  // active endpoint would leave a stale optimistic indicator forever.
   useEffect(() => {
-    if (queuedIds.size === 0) return;
-    const resolved = new Set<string>();
-    for (const row of mergedSpaces) {
-      const sid = row.spaceId ?? '';
-      if (!queuedIds.has(sid)) continue;
-      const prev = prevHoursRef.current[sid];
-      if (prev !== undefined && row.hoursLogged !== prev) resolved.add(sid);
-      prevHoursRef.current[sid] = row.hoursLogged;
-    }
-    if (resolved.size > 0) {
-      setQueuedIds((cur) => { const next = new Set(cur); resolved.forEach((id) => next.delete(id)); return next; });
-    }
-  }, [mergedSpaces, queuedIds]);
+    if (optimisticQueued.size === 0) return;
+    if (activeBackfills.data === undefined) return; // wait for first poll
+    setOptimisticQueued((cur) => {
+      const next = new Set(cur);
+      for (const id of cur) if (progressBySpace.has(id)) next.delete(id);
+      return next.size === cur.size ? cur : next;
+    });
+  }, [progressBySpace, activeBackfills.data, optimisticQueued.size]);
+
+  // When a space drops out of the active set, invalidate `spaces` so the
+  // hours/task counts refresh with the freshly-synced data.
+  const prevActiveIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const currentActive = new Set(progressBySpace.keys());
+    const prev = prevActiveIdsRef.current;
+    let resolved = false;
+    for (const id of prev) if (!currentActive.has(id)) { resolved = true; break; }
+    if (resolved) void queryClient.invalidateQueries({ queryKey: ['spaces'] });
+    prevActiveIdsRef.current = currentActive;
+  }, [progressBySpace, queryClient]);
+
+  function progressFor(spaceId: string): ActiveBackfill | null {
+    return progressBySpace.get(spaceId) ?? null;
+  }
 
   function lookbackText(spaceId: string): string {
     return lookbackInput[spaceId] ?? String(defaultLookbackFor(spaceId));
@@ -493,8 +564,9 @@ export function SpacesPage() {
   }
 
   function markQueued(spaceId: string) {
-    prevHoursRef.current[spaceId] = mergedSpaces.find((r) => r.spaceId === spaceId)?.hoursLogged ?? 0;
-    setQueuedIds((cur) => new Set(cur).add(spaceId));
+    setOptimisticQueued((cur) => new Set(cur).add(spaceId));
+    // Force an immediate poll instead of waiting up to 30s for the next tick.
+    void queryClient.invalidateQueries({ queryKey: ['backfill-active'] });
   }
 
   function handleSync(spaceId: string) {
@@ -530,7 +602,7 @@ export function SpacesPage() {
     }
   }
 
-  const controls: SyncControls = { syncingId, queuedIds, onSync: handleSync, lookbackText, onLookbackChange };
+  const controls: SyncControls = { syncingId, queuedIds, progressFor, onSync: handleSync, lookbackText, onLookbackChange };
   const isBusy = syncingId !== null || queuedIds.size > 0;
   const anySynced = mergedSpaces.some((s) => s.synced);
 
@@ -555,6 +627,8 @@ export function SpacesPage() {
           </div>
         }
       />
+
+      <QueryError query={spacesQuery} what="spaces" />
 
       {/* Background processing banner */}
       {queuedIds.size > 0 && (

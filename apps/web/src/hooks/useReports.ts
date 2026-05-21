@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { reportsApi } from '../api/reports';
 import { useGlobalFilters } from './useGlobalFilters';
 
@@ -14,10 +14,18 @@ export function useTasksBySpaceStatus() {
   return useQuery({ queryKey: ['tasks-by-space-status'], queryFn: reportsApi.tasksBySpaceStatus });
 }
 
+export function useTasksAssignees() {
+  return useQuery({ queryKey: ['tasks-assignees'], queryFn: reportsApi.tasksAssignees });
+}
+
 export function useTasks(params: Record<string, string | number | undefined>) {
   return useQuery({
     queryKey: ['tasks', params],
     queryFn: () => reportsApi.tasks(params),
+    // Show the previous page while the next page/filter loads instead of
+    // collapsing the table back to "Loading…". `isFetching` is still true so
+    // callers that want a subtle dim/spinner can opt in.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -57,6 +65,32 @@ export function useTimeEntriesList(params: Record<string, string | number | unde
   return useQuery({
     queryKey: ['time-entries-list', params],
     queryFn: () => reportsApi.timeEntriesList(params),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export interface TimeEntriesAggregates {
+  totalEntries: number;
+  totalHours: number;
+  billableHours: number;
+  nonBillableHours: number;
+  totalCostCents: number;
+  avgRateCents: number;
+  costCalculatedCount: number;
+  noRateFoundCount: number;
+}
+
+/**
+ * Aggregates across the *entire* filtered set, not just the current page.
+ * The Time Entries page's metric cards (Total hours, Billable, cost, etc.)
+ * should use this — computing them from the 50-row page produced misleading
+ * numbers that didn't react to the date filter.
+ */
+export function useTimeEntriesAggregates(params: Record<string, string | number | undefined>) {
+  return useQuery<TimeEntriesAggregates>({
+    queryKey: ['time-entries-aggregates', params],
+    queryFn: () => reportsApi.timeEntriesAggregates(params),
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -79,6 +113,7 @@ export function useWebhookEvents(params?: { limit?: number; offset?: number }) {
   return useQuery({
     queryKey: ['webhook-events', params],
     queryFn: () => reportsApi.webhookEvents(params),
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -86,6 +121,7 @@ export function useJobLogs(params?: { queueName?: string; status?: string; limit
   return useQuery({
     queryKey: ['job-logs', params],
     queryFn: () => reportsApi.jobLogs(params),
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -93,6 +129,7 @@ export function useDeadLetters(params?: { limit?: number; offset?: number }) {
   return useQuery({
     queryKey: ['dead-letters', params],
     queryFn: () => reportsApi.deadLetters(params),
+    placeholderData: keepPreviousData,
   });
 }
 

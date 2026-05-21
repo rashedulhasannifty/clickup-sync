@@ -41,11 +41,16 @@ export class BackfillService {
     }
 
     // Enqueue time entry sync for every task that was backfilled.
-    // Use the space's full lookback for the time-entry window — time entries are filtered by
-    // their start time, so a short task-sync window (e.g. 1-day reconciliation) would miss
-    // entries logged earlier in the week.  The upsert is idempotent so re-scanning is safe.
+    // The configured per-space lookback is a *floor*: a short task-sync window
+    // (e.g. 1-day reconciliation) must not shrink the time-entry window, or
+    // entries logged earlier in the week would never be picked up. But when
+    // the caller explicitly asks for a *longer* window (e.g. a manual 140-day
+    // backfill), respect it — otherwise old time entries on recently-updated
+    // tasks (think: an expense task touched in April with hours logged back
+    // in January) are permanently invisible. The upsert is idempotent so
+    // re-scanning is safe.
     const endDate = Date.now();
-    const teLookbackDays = space?.backfillLookbackDays ?? days;
+    const teLookbackDays = Math.max(days, space?.backfillLookbackDays ?? days);
     const teStartDate = subtractDays(teLookbackDays).getTime();
     const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
     const jobOpts = this.queues.defaultJobOptions();
