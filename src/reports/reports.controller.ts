@@ -81,7 +81,7 @@ export class ReportsController {
 
   @Get('time-entries/cost-trend')
   @ApiOperation({ summary: 'Time-bucketed cost trend for the Overview chart. bucket=day|week|month; defaults vary by bucket if from/to are omitted.' })
-  async costTrend(
+  costTrend(
     @Query('bucket') bucket?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,

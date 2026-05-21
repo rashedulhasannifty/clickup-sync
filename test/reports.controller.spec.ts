@@ -16,17 +16,18 @@ describe('ReportsController', () => {
       expect(svc.costTrend).toHaveBeenCalledWith('day', '2026-05-01', '2026-05-21');
     });
 
-    it('rejects bucket="hour" with BadRequestException', async () => {
+    it('rejects bucket="hour" with BadRequestException', () => {
       const svc = makeService();
       const ctrl = new ReportsController(svc);
-      await expect(ctrl.costTrend('hour' as any)).rejects.toBeInstanceOf(BadRequestException);
+      expect(() => ctrl.costTrend('hour' as any)).toThrow(BadRequestException);
       expect(svc.costTrend).not.toHaveBeenCalled();
     });
 
-    it('rejects missing bucket', async () => {
+    it('rejects missing bucket', () => {
       const svc = makeService();
       const ctrl = new ReportsController(svc);
-      await expect(ctrl.costTrend(undefined as any)).rejects.toBeInstanceOf(BadRequestException);
+      expect(() => ctrl.costTrend(undefined as any)).toThrow(BadRequestException);
+      expect(svc.costTrend).not.toHaveBeenCalled();
     });
 
     it.each(['day', 'week', 'month'] as const)('accepts bucket=%s', async (b) => {
