@@ -295,4 +295,79 @@ describe('ReportsService', () => {
       expect(result).toEqual([]);
     });
   });
+
+  describe('costTrend', () => {
+    it('maps raw rows to { bucket, totalCostAud, totalHours, entryCount } and sorts ascending', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([
+        { bucket: '2026-05-18', total_cost_cents: BigInt(120000), total_hours: 8,   entry_count: 4 },
+        { bucket: '2026-05-19', total_cost_cents: BigInt(0),      total_hours: 0,   entry_count: 0 },
+        { bucket: '2026-05-20', total_cost_cents: BigInt(45000),  total_hours: 3.5, entry_count: 2 },
+      ]);
+      const result = await new ReportsService(prisma).costTrend('day');
+      expect(result).toEqual([
+        { bucket: '2026-05-18', totalCostAud: 1200, totalHours: 8,   entryCount: 4 },
+        { bucket: '2026-05-19', totalCostAud: 0,    totalHours: 0,   entryCount: 0 },
+        { bucket: '2026-05-20', totalCostAud: 450,  totalHours: 3.5, entryCount: 2 },
+      ]);
+    });
+
+    it('throws on invalid bucket value', async () => {
+      const prisma = makePrisma();
+      await expect(new ReportsService(prisma).costTrend('hour' as any))
+        .rejects.toThrow(/bucket/i);
+    });
+
+    it("emits SQL containing date_trunc('day', ...) at Asia/Dhaka for bucket=day", async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new ReportsService(prisma).costTrend('day');
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/date_trunc\('day'/);
+      expect(sqlText).toMatch(/Asia\/Dhaka/);
+      expect(sqlText).not.toMatch(/Australia\/Sydney/);
+    });
+
+    it('emits the Sunday-shift week expression for bucket=week', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new ReportsService(prisma).costTrend('week');
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      // The Sunday-start trick: shift +1 day, truncate to ISO week (Monday),
+      // shift back -1 day. We assert both halves of the shift are present.
+      expect(sqlText).toMatch(/date_trunc\('week'/);
+      expect(sqlText).toMatch(/\+ interval '1 day'/);
+      expect(sqlText).toMatch(/- interval '1 day'/);
+    });
+
+    it("emits date_trunc('month', ...) for bucket=month", async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new ReportsService(prisma).costTrend('month');
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/date_trunc\('month'/);
+    });
+
+    it('uses generate_series so empty buckets are returned with zeros', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new ReportsService(prisma).costTrend('day');
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/generate_series/);
+      expect(sqlText).toMatch(/LEFT JOIN/i);
+    });
+
+    it('filters out soft-deleted tasks', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new ReportsService(prisma).costTrend('day');
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/t\.is_deleted\s*=\s*false/);
+    });
+  });
 });

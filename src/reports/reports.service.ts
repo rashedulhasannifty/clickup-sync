@@ -9,6 +9,15 @@ function defaultFrom(): Date {
   return d;
 }
 
+function defaultFromForBucket(bucket: 'day' | 'week' | 'month'): Date {
+  const d = new Date();
+  if (bucket === 'day')   { d.setDate(d.getDate() - 30); return d; }
+  if (bucket === 'week')  { d.setDate(d.getDate() - 7 * 12); return d; }
+  // month: 12 months back
+  d.setMonth(d.getMonth() - 12);
+  return d;
+}
+
 function parseDate(value: string | undefined, fallback: Date): Date {
   if (!value) return fallback;
   const d = new Date(value);
@@ -663,6 +672,91 @@ export class ReportsService {
       memberCount: Number(r.member_count),
       hoursLogged: Number(r.hours_logged),
       costAud: Number(r.cost_cents) / 100,
+    }));
+  }
+
+  /**
+   * Time-bucketed cost trend for the Overview page.
+   *
+   * Buckets in Asia/Dhaka local time (no DST, UTC+6). Week buckets are
+   * Sunday-start: Postgres's date_trunc('week', ...) is Monday-based, so we
+   * shift +1 day before truncating and shift back -1 day after, which moves
+   * the week boundary from Mon→Sun→Mon to Sun→Sat→Sun.
+   *
+   * Empty buckets are returned with zeros (via generate_series LEFT JOIN)
+   * so the chart shows a continuous timeline instead of gaps.
+   */
+  async costTrend(
+    bucket: 'day' | 'week' | 'month',
+    fromParam?: string,
+    toParam?: string,
+  ) {
+    if (bucket !== 'day' && bucket !== 'week' && bucket !== 'month') {
+      throw new Error(`Invalid bucket "${bucket}" (expected day|week|month)`);
+    }
+
+    const from = parseDate(fromParam, defaultFromForBucket(bucket));
+    const to = parseDate(toParam, new Date());
+
+    // Build the bucket expression. Applied to `e.start_time AT TIME ZONE 'Asia/Dhaka'`
+    // for the aggregate, and to the input range for generate_series.
+    // Use Prisma.raw() for the timezone string so it is emitted as a literal SQL
+    // identifier rather than a parameterized placeholder. This keeps the timezone
+    // visible in the compiled SQL text (required by tests) and avoids Postgres
+    // rejecting a parameter where a constant string is expected in AT TIME ZONE.
+    const TZ = Prisma.raw(`'Asia/Dhaka'`);
+    const bucketExpr = (tsLocal: Prisma.Sql): Prisma.Sql => {
+      if (bucket === 'day')   return Prisma.sql`date_trunc('day', ${tsLocal})`;
+      if (bucket === 'month') return Prisma.sql`date_trunc('month', ${tsLocal})`;
+      // Sunday-start week: shift +1d, truncate Mon-based week, shift -1d.
+      return Prisma.sql`(date_trunc('week', ${tsLocal} + interval '1 day') - interval '1 day')`;
+    };
+    const interval =
+      bucket === 'day'   ? Prisma.sql`interval '1 day'`   :
+      bucket === 'week'  ? Prisma.sql`interval '1 week'`  :
+                           Prisma.sql`interval '1 month'`;
+
+    const aggBucket    = bucketExpr(Prisma.sql`(e.start_time AT TIME ZONE ${TZ})`);
+    const seriesStart  = bucketExpr(Prisma.sql`(${from}::timestamptz AT TIME ZONE ${TZ})`);
+    const seriesEnd    = bucketExpr(Prisma.sql`(${to  }::timestamptz AT TIME ZONE ${TZ})`);
+
+    type Row = {
+      bucket: string;
+      total_cost_cents: bigint;
+      total_hours: number;
+      entry_count: number;
+    };
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      WITH series AS (
+        SELECT generate_series(${seriesStart}, ${seriesEnd}, ${interval}) AS bucket_local
+      ),
+      agg AS (
+        SELECT ${aggBucket}                                    AS bucket_local,
+               COALESCE(SUM(e.cost_cents), 0)::bigint          AS total_cost_cents,
+               COALESCE(SUM(e.duration_hours), 0)::float       AS total_hours,
+               COUNT(*)::int                                   AS entry_count
+        FROM clickup_time_entries e
+        JOIN clickup_tasks t ON e.task_id = t.task_id
+        WHERE e.start_time IS NOT NULL
+          AND e.start_time >= ${from}
+          AND e.start_time <= ${to}
+          AND t.is_deleted = false
+        GROUP BY 1
+      )
+      SELECT to_char(s.bucket_local, 'YYYY-MM-DD')             AS bucket,
+             COALESCE(a.total_cost_cents, 0)::bigint           AS total_cost_cents,
+             COALESCE(a.total_hours, 0)::float                 AS total_hours,
+             COALESCE(a.entry_count, 0)::int                   AS entry_count
+      FROM series s
+      LEFT JOIN agg a ON a.bucket_local = s.bucket_local
+      ORDER BY s.bucket_local ASC
+    `);
+
+    return rows.map((r) => ({
+      bucket: r.bucket,
+      totalCostAud: Number(r.total_cost_cents) / 100,
+      totalHours: Number(r.total_hours),
+      entryCount: Number(r.entry_count),
     }));
   }
 }
