@@ -40,9 +40,9 @@ else — no special-case logic.
 2. Card header has a **D / W / M** segmented toggle (right-aligned).
    - `D` → daily buckets, default window = rolling 30 days back from now
      (i.e. `from = now − 30 days`, `to = now`).
-   - `W` → weekly buckets (**week starts Sunday**, ends Saturday; AU local
+   - `W` → weekly buckets (**week starts Sunday**, ends Saturday; BD local
      calendar), default window = rolling 12 weeks back from now.
-   - `M` → monthly buckets (calendar month, AU local), default window =
+   - `M` → monthly buckets (calendar month, BD local), default window =
      rolling 12 months back from now.
    - The window is rolling (not calendar-aligned). The current partial
      bucket — e.g. today on `D`, this week on `W` — is included and shown
@@ -60,9 +60,14 @@ else — no special-case logic.
 
 - Title: "Cost by client" + bucket subtitle (e.g. "Week of May 18 – May 24,
   2026").
-- Body: table with columns `Client`, `Hours`, `Cost (AUD)`, sorted by cost
-  desc. Rows where `totalCostAud === 0` are filtered out client-side so the
-  drawer doesn't list every known client.
+- Body: table with columns `Client`, `Hours`, `Cost`, sorted by cost desc
+  then by hours desc (so rows with no cost but real hours still sort
+  meaningfully).
+- All rows returned by the endpoint are shown — none filtered client-side.
+  Rows where `totalCostAud === 0` render a **"no rate"** pill (amber tone,
+  using the existing `Pill` component) in the Cost column instead of `$0`.
+  This surfaces the missing-rates problem at the client level instead of
+  hiding it.
 - Each row links to `/time-entries?from=<bucketStart>&to=<bucketEnd>&search=<client>`.
 - Footer total: sum of cost across visible rows (should match the clicked
   point's value).
@@ -109,7 +114,7 @@ week  → date_trunc('week', ts_local + interval '1 day') - interval '1 day'
 month → date_trunc('month', ts_local)
 ```
 
-Where `ts_local = (timestamp AT TIME ZONE 'Australia/Sydney')`.
+Where `ts_local = (timestamp AT TIME ZONE 'Asia/Dhaka')`.
 
 ```sql
 -- $BUCKET ∈ {'day', 'week', 'month'} — validated before reaching SQL.
@@ -151,9 +156,9 @@ Concrete bucket expressions the service layer assembles per `bucket`:
 
 | bucket | Expression on `e.start_time` (and on `$FROM`/`$TO` for the series) |
 |---|---|
-| `day`   | `date_trunc('day',   e.start_time AT TIME ZONE 'Australia/Sydney')` |
-| `week`  | `date_trunc('week', (e.start_time AT TIME ZONE 'Australia/Sydney') + interval '1 day') - interval '1 day'` |
-| `month` | `date_trunc('month', e.start_time AT TIME ZONE 'Australia/Sydney')` |
+| `day`   | `date_trunc('day',   e.start_time AT TIME ZONE 'Asia/Dhaka')` |
+| `week`  | `date_trunc('week', (e.start_time AT TIME ZONE 'Asia/Dhaka') + interval '1 day') - interval '1 day'` |
+| `month` | `date_trunc('month', e.start_time AT TIME ZONE 'Asia/Dhaka')` |
 
 Notes:
 - `$BUCKET` is a validated enum string assembled into the SQL fragment
@@ -230,10 +235,10 @@ OverviewPage
 
 ## Timezone
 
-All bucketing done in **`Australia/Sydney`** local time. A time entry whose
+All bucketing done in **`Asia/Dhaka`** local time. A time entry whose
 UTC `start_time` is `2026-05-20T23:30:00Z` (which is May 21 09:30 AEST) must
 land in the May 21 day bucket. The SQL uses
-`date_trunc(bucket, start_time AT TIME ZONE 'Australia/Sydney')` to enforce
+`date_trunc(bucket, start_time AT TIME ZONE 'Asia/Dhaka')` to enforce
 this.
 
 `generate_series` also runs in local time so empty-bucket fill aligns with
@@ -255,10 +260,12 @@ the aggregate.
     *different* weekly buckets (the Saturday in the earlier week, the
     Sunday in the new week).
 - `costTrend('month', ...)`:
-  - One entry on the last day of one month (AU local) and one on the first
+  - One entry on the last day of one month (BD local) and one on the first
     day of the next; assert they're in different buckets.
-- Timezone edge case: entry with UTC `start_time = '2026-05-20T23:30:00Z'`
-  groups into the `2026-05-21` daily bucket (Sydney is UTC+10).
+- Timezone edge case: entry with UTC `start_time = '2026-05-20T18:30:00Z'`
+  groups into the `2026-05-21` daily bucket (Dhaka is UTC+6, so this is
+  May 21 00:30 BD local). The same UTC instant minus one hour
+  (`'2026-05-20T17:30:00Z'` = May 20 23:30 BD local) lands in `2026-05-20`.
 - Excludes soft-deleted tasks: entry on a `is_deleted = true` task isn't
   counted.
 - Excludes entries with `start_time IS NULL`.
@@ -286,6 +293,9 @@ the dashboard). Manual verification checklist:
 - [ ] Network failure on trend renders inline error, no white-screen.
 - [ ] Drawer Retry button re-fetches after a transient failure.
 - [ ] Card respects dark mode (existing `--accent` token).
+- [ ] A bucket containing a client whose entries all hit `NO_RATE_FOUND`
+      shows that client in the drawer with a "no rate" pill in the Cost
+      column (not filtered out).
 
 ## Out of scope (deferred)
 
@@ -298,9 +308,11 @@ the dashboard). Manual verification checklist:
 ## Risks
 
 - **Timezone correctness** — if `pg_timezone_names` doesn't include
-  `Australia/Sydney` in some environment the query fails. Mitigated: this
-  zone is in the default Postgres timezone DB and the deployment already
-  uses Postgres 16. Spec covers a TZ assertion.
+  `Asia/Dhaka` in some environment the query fails. Mitigated: this zone
+  ships with the default Postgres timezone DB on every supported platform
+  and the deployment already uses Postgres 16. Spec covers a TZ assertion.
+  Dhaka has no DST so bucket boundaries are stable year-round (one less
+  edge case than the Sydney variant would have introduced).
 - **`date_trunc` literal vs parameter** — Prisma's `$queryRaw` passes
   values as bind parameters; `date_trunc` accepts the bucket as text, so
   this works, but we must still validate the input enum before reaching SQL
