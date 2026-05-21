@@ -10,6 +10,19 @@ Add an ERP-style cost trend chart to the Overview page showing total client
 labour cost over time, with daily / weekly / monthly granularity and a
 per-client drill-down on click.
 
+## Currency note (known debt)
+
+The schema's `currency` columns and existing response field names
+(`totalCostAud`) are stale — the team treats the stored values as USD. A
+codebase-wide rename (`Aud` → `Usd`, schema default, formatter) is a
+separate larger task and is **out of scope here**.
+
+To avoid making the inconsistency worse, this chart's new endpoint matches
+the existing convention: response field stays `totalCostAud`, formatter
+stays `fmt.money` (which already renders `$` via `narrowSymbol`). When the
+broader migration lands, this chart renames in lockstep with everything
+else — no special-case logic.
+
 ## Non-goals
 
 - Per-client multi-series lines on the trend itself (rejected during
@@ -27,8 +40,8 @@ per-client drill-down on click.
 2. Card header has a **D / W / M** segmented toggle (right-aligned).
    - `D` → daily buckets, default window = rolling 30 days back from now
      (i.e. `from = now − 30 days`, `to = now`).
-   - `W` → weekly buckets (week starts Monday, AU local), default window =
-     rolling 12 weeks back from now.
+   - `W` → weekly buckets (**week starts Sunday**, ends Saturday; AU local
+     calendar), default window = rolling 12 weeks back from now.
    - `M` → monthly buckets (calendar month, AU local), default window =
      rolling 12 months back from now.
    - The window is rolling (not calendar-aligned). The current partial
@@ -87,20 +100,35 @@ Response:
 
 #### SQL shape (Postgres)
 
+Bucket expression — Sunday-start weeks require a shift trick since
+Postgres's `date_trunc('week', ...)` is Monday-based:
+
+```
+day   → date_trunc('day',   ts_local)
+week  → date_trunc('week', ts_local + interval '1 day') - interval '1 day'
+month → date_trunc('month', ts_local)
+```
+
+Where `ts_local = (timestamp AT TIME ZONE 'Australia/Sydney')`.
+
 ```sql
+-- $BUCKET ∈ {'day', 'week', 'month'} — validated before reaching SQL.
+-- $BUCKET_EXPR is the bucket expression above, applied to the input column.
+-- $BUCKET_INTERVAL = '1 day' | '1 week' | '1 month'.
+
 WITH series AS (
   SELECT generate_series(
-    date_trunc($BUCKET, $FROM::timestamptz AT TIME ZONE 'Australia/Sydney'),
-    date_trunc($BUCKET, $TO::timestamptz   AT TIME ZONE 'Australia/Sydney'),
-    ('1 ' || $BUCKET)::interval
+    $BUCKET_EXPR_APPLIED_TO_FROM,
+    $BUCKET_EXPR_APPLIED_TO_TO,
+    $BUCKET_INTERVAL::interval
   ) AS bucket_local
 ),
 agg AS (
   SELECT
-    date_trunc($BUCKET, e.start_time AT TIME ZONE 'Australia/Sydney') AS bucket_local,
-    COALESCE(SUM(e.cost_cents), 0)::bigint   AS total_cost_cents,
-    COALESCE(SUM(e.duration_hours), 0)::float AS total_hours,
-    COUNT(*)::int                             AS entry_count
+    $BUCKET_EXPR_APPLIED_TO_START_TIME            AS bucket_local,
+    COALESCE(SUM(e.cost_cents), 0)::bigint        AS total_cost_cents,
+    COALESCE(SUM(e.duration_hours), 0)::float     AS total_hours,
+    COUNT(*)::int                                  AS entry_count
   FROM clickup_time_entries e
   JOIN clickup_tasks t ON e.task_id = t.task_id
   WHERE e.start_time IS NOT NULL
@@ -119,10 +147,18 @@ LEFT JOIN agg a ON a.bucket_local = s.bucket_local
 ORDER BY s.bucket_local ASC;
 ```
 
+Concrete bucket expressions the service layer assembles per `bucket`:
+
+| bucket | Expression on `e.start_time` (and on `$FROM`/`$TO` for the series) |
+|---|---|
+| `day`   | `date_trunc('day',   e.start_time AT TIME ZONE 'Australia/Sydney')` |
+| `week`  | `date_trunc('week', (e.start_time AT TIME ZONE 'Australia/Sydney') + interval '1 day') - interval '1 day'` |
+| `month` | `date_trunc('month', e.start_time AT TIME ZONE 'Australia/Sydney')` |
+
 Notes:
-- `$BUCKET` is a validated string literal interpolated server-side after the
-  enum check; not passed as a bind parameter (`date_trunc` requires a literal
-  in some clients).
+- `$BUCKET` is a validated enum string assembled into the SQL fragment
+  server-side after the enum check; not a bind parameter. Inputs other than
+  `day|week|month` are rejected before SQL assembly.
 - Existing index on `clickup_time_entries.start_time` is sufficient; bucket
   count is small (max ~365 daily) so no further indexing needed.
 
@@ -212,8 +248,12 @@ the aggregate.
     window = May 18 – May 20.
   - Asserts 3 buckets returned, May 19 row has zeros, totals sum correctly.
 - `costTrend('week', ...)`:
-  - Two entries in two adjacent ISO weeks; asserts each week bucket has
-    correct sum and `bucket` is Monday in `YYYY-MM-DD` form.
+  - Two entries in two adjacent Sunday-start weeks; asserts each week
+    bucket has correct sum and `bucket` is the **Sunday** date in
+    `YYYY-MM-DD` form.
+  - Edge case: entries on a Saturday and the following Sunday land in
+    *different* weekly buckets (the Saturday in the earlier week, the
+    Sunday in the new week).
 - `costTrend('month', ...)`:
   - One entry on the last day of one month (AU local) and one on the first
     day of the next; assert they're in different buckets.
