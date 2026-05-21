@@ -37,6 +37,25 @@ export function useTimeEntriesByUser() {
   });
 }
 
+export interface CostTrendPoint {
+  bucket: string;        // 'YYYY-MM-DD'
+  totalCostAud: number;  // dollars
+  totalHours: number;
+  entryCount: number;
+}
+
+export function useCostTrend(
+  bucket: 'day' | 'week' | 'month',
+  from?: string,
+  to?: string,
+) {
+  return useQuery<CostTrendPoint[]>({
+    queryKey: ['cost-trend', bucket, from ?? null, to ?? null],
+    queryFn: () => reportsApi.costTrend({ bucket, from, to }),
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useTimeEntriesByClient() {
   const { fromDate, toDate } = useGlobalFilters();
   return useQuery({
