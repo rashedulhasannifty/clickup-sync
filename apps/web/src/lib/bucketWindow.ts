@@ -1,3 +1,5 @@
+import type { CostTrendBucket } from '../hooks/useReports';
+
 const DHAKA_OFFSET_MS = 6 * 60 * 60 * 1000; // UTC+6, no DST.
 
 /**
@@ -14,7 +16,7 @@ const DHAKA_OFFSET_MS = 6 * 60 * 60 * 1000; // UTC+6, no DST.
  */
 export function bucketWindowUtc(
   bucket: string,
-  bucketType: 'day' | 'week' | 'month',
+  bucketType: CostTrendBucket,
 ): { from: string; to: string } {
   const [yStr, mStr, dStr] = bucket.split('-');
   const y = Number(yStr);
@@ -34,6 +36,9 @@ export function bucketWindowUtc(
     endExclusiveUtcMs = startUtcMs + 7 * 24 * 60 * 60 * 1000;
   } else {
     // month: end = first day of next month at midnight BD local.
+    // m is 1-indexed here; Date.UTC expects 0-indexed months, so passing m
+    // directly yields "first day of next month at BD-local midnight" — which is
+    // exactly the exclusive end we want.
     endExclusiveUtcMs = Date.UTC(y, m, 1) - DHAKA_OFFSET_MS;
   }
 
@@ -49,7 +54,7 @@ export function bucketWindowUtc(
  * - week:  'Week of May 17 – May 23, 2026'
  * - month: 'May 2026'
  */
-export function bucketLabel(bucket: string, bucketType: 'day' | 'week' | 'month'): string {
+export function bucketLabel(bucket: string, bucketType: CostTrendBucket): string {
   const [yStr, mStr, dStr] = bucket.split('-');
   const y = Number(yStr);
   const m = Number(mStr) - 1;
@@ -63,5 +68,11 @@ export function bucketLabel(bucket: string, bucketType: 'day' | 'week' | 'month'
   if (bucketType === 'month') return fmtMonth.format(start);
   // week: Sunday start, Saturday end
   const end = new Date(Date.UTC(y, m, d + 6));
-  return `Week of ${fmtMon.format(start)} – ${fmtMon.format(end)}, ${y}`;
+  const startYear = start.getUTCFullYear();
+  const endYear = end.getUTCFullYear();
+  if (startYear === endYear) {
+    return `Week of ${fmtMon.format(start)} – ${fmtMon.format(end)}, ${endYear}`;
+  }
+  // Cross-year (e.g. Dec 28 – Jan 3): include both years so the range is unambiguous.
+  return `Week of ${fmtMon.format(start)}, ${startYear} – ${fmtMon.format(end)}, ${endYear}`;
 }
