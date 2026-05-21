@@ -1,5 +1,6 @@
 import { apiClient } from './client';
 import { parseRatesListResponse } from './rates';
+import type { CostTrendBucket } from '../hooks/useReports';
 
 export const reportsApi = {
   tasksSummary: () => apiClient.get('/reports/tasks/summary').then(r => r.data),
@@ -11,7 +12,7 @@ export const reportsApi = {
     apiClient.get('/reports/time-entries/by-user', { params }).then(r => r.data),
   timeEntriesByClient: (params?: { from?: string; to?: string }) =>
     apiClient.get('/reports/time-entries/by-client', { params }).then(r => r.data),
-  costTrend: (params: { bucket: 'day' | 'week' | 'month'; from?: string; to?: string }) =>
+  costTrend: (params: { bucket: CostTrendBucket; from?: string; to?: string }) =>
     apiClient.get('/reports/time-entries/cost-trend', { params }).then(r => r.data),
   timeEntriesByDepartment: (params?: { from?: string; to?: string }) =>
     apiClient.get('/reports/time-entries/by-department', { params }).then(r => r.data),

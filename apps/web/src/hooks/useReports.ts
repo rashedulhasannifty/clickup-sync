@@ -37,6 +37,8 @@ export function useTimeEntriesByUser() {
   });
 }
 
+export type CostTrendBucket = 'day' | 'week' | 'month';
+
 export interface CostTrendPoint {
   bucket: string;        // 'YYYY-MM-DD'
   totalCostAud: number;  // dollars
@@ -45,12 +47,12 @@ export interface CostTrendPoint {
 }
 
 export function useCostTrend(
-  bucket: 'day' | 'week' | 'month',
+  bucket: CostTrendBucket,
   from?: string,
   to?: string,
 ) {
   return useQuery<CostTrendPoint[]>({
-    queryKey: ['cost-trend', bucket, from ?? null, to ?? null],
+    queryKey: ['cost-trend', bucket, from || null, to || null],
     queryFn: () => reportsApi.costTrend({ bucket, from, to }),
     placeholderData: keepPreviousData,
   });
