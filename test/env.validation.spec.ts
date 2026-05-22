@@ -25,6 +25,7 @@ describe('validateEnv', () => {
       const result = validateEnv(prodBase);
       expect(result.NODE_ENV).toBe('production');
       expect(result.CLICKUP_WEBHOOK_SECRET).toBe('wh-secret-value');
+      expect(result.ADMIN_API_KEY).toBe('admin-key-min-32-chars-long-padding');
     });
 
     it('rejects production when CLICKUP_WEBHOOK_SECRET is missing', () => {
@@ -34,12 +35,22 @@ describe('validateEnv', () => {
 
     it('rejects production when ADMIN_API_KEY is missing', () => {
       expect(() => validateEnv({ ...prodBase, ADMIN_API_KEY: '' }))
-        .toThrow(/ADMIN_API_KEY/);
+        .toThrow(/ADMIN_API_KEY is required/);
     });
 
     it('rejects production when ADMIN_API_KEY is too short (< 32 chars)', () => {
       expect(() => validateEnv({ ...prodBase, ADMIN_API_KEY: 'short' }))
-        .toThrow(/ADMIN_API_KEY/);
+        .toThrow(/at least 32 characters/);
+    });
+
+    it('rejects production when ADMIN_API_KEY is exactly 31 chars (boundary)', () => {
+      expect(() => validateEnv({ ...prodBase, ADMIN_API_KEY: 'a'.repeat(31) }))
+        .toThrow(/at least 32 characters/);
+    });
+
+    it('accepts production when ADMIN_API_KEY is exactly 32 chars (boundary)', () => {
+      const result = validateEnv({ ...prodBase, ADMIN_API_KEY: 'a'.repeat(32) });
+      expect(result.ADMIN_API_KEY).toBe('a'.repeat(32));
     });
 
     it('allows empty secrets in development (preserves dev-mode bypass)', () => {

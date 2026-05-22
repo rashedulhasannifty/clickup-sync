@@ -18,6 +18,7 @@ const schema = z.object({
   JOB_BACKOFF_DELAY_MS: z.coerce.number().default(30000),
   RECONCILE_EVERY_MINUTES: z.coerce.number().default(15),
   RECONCILE_LOOKBACK_HOURS: z.coerce.number().default(2),
+// Production requires non-empty secrets; dev/test allows empty values for convenience
 }).superRefine((env, ctx) => {
   if (env.NODE_ENV !== 'production') return;
   if (!env.CLICKUP_WEBHOOK_SECRET) {
@@ -27,11 +28,17 @@ const schema = z.object({
       message: 'CLICKUP_WEBHOOK_SECRET is required when NODE_ENV=production',
     });
   }
-  if (!env.ADMIN_API_KEY || env.ADMIN_API_KEY.length < 32) {
+  if (!env.ADMIN_API_KEY) {
     ctx.addIssue({
       code: 'custom',
       path: ['ADMIN_API_KEY'],
-      message: 'ADMIN_API_KEY (min 32 chars) is required when NODE_ENV=production',
+      message: 'ADMIN_API_KEY is required when NODE_ENV=production',
+    });
+  } else if (env.ADMIN_API_KEY.length < 32) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['ADMIN_API_KEY'],
+      message: 'ADMIN_API_KEY must be at least 32 characters when NODE_ENV=production',
     });
   }
 });
