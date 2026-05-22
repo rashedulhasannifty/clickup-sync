@@ -8,6 +8,34 @@ describe('ReportsController', () => {
     } as any;
   }
 
+  describe('overviewDeltas', () => {
+    function makeServiceWithDeltas() {
+      return {
+        overviewDeltas: jest.fn().mockResolvedValue({
+          current: { totalHours: 10, totalCostAud: 1000 },
+          prior:   { totalHours: 8,  totalCostAud: 800 },
+        }),
+      } as any;
+    }
+
+    it('passes from/to through to the service', async () => {
+      const svc = makeServiceWithDeltas();
+      const ctrl = new ReportsController(svc);
+      await ctrl.overviewDeltas('2026-05-01', '2026-05-31');
+      expect(svc.overviewDeltas).toHaveBeenCalledWith('2026-05-01', '2026-05-31');
+    });
+
+    it('returns the service result unchanged', async () => {
+      const svc = makeServiceWithDeltas();
+      const ctrl = new ReportsController(svc);
+      const result = await ctrl.overviewDeltas();
+      expect(result).toEqual({
+        current: { totalHours: 10, totalCostAud: 1000 },
+        prior:   { totalHours: 8,  totalCostAud: 800 },
+      });
+    });
+  });
+
   describe('costTrend', () => {
     it('passes bucket + from + to through to the service for valid bucket', async () => {
       const svc = makeService();

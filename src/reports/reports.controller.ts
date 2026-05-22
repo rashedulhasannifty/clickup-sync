@@ -92,6 +92,12 @@ export class ReportsController {
     return this.reports.costTrend(bucket, from, to);
   }
 
+  @Get('overview-deltas')
+  @ApiOperation({ summary: 'Current-period totals (hours, cost) and equal-length prior-period totals for the Overview KPI deltas.' })
+  overviewDeltas(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.reports.overviewDeltas(from, to);
+  }
+
   @Get('time-entries')
   @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, billable, search, spaceId, missingOnly)' })
   timeEntriesList(
