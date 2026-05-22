@@ -44,6 +44,9 @@ const SyncLogsPage = React.lazy(() =>
 const SettingsPage = React.lazy(() =>
 	import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
 );
+const AuditLogPage = React.lazy(() =>
+	import('./pages/AuditLogPage').then((m) => ({ default: m.AuditLogPage })),
+);
 
 function ProtectedRoute() {
 	const key = localStorage.getItem('adminApiKey');
@@ -124,6 +127,14 @@ export default function App() {
 									element={
 										<React.Suspense fallback={Fallback}>
 											<SyncLogsPage />
+										</React.Suspense>
+									}
+								/>
+								<Route
+									path="/audit-log"
+									element={
+										<React.Suspense fallback={Fallback}>
+											<AuditLogPage />
 										</React.Suspense>
 									}
 								/>

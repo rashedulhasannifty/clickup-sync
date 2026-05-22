@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   Home, CheckSquare, Clock, AlertTriangle, DollarSign,
-  Layers, Webhook, Settings, PanelLeft, type LucideIcon,
+  Layers, Webhook, ShieldCheck, Settings, PanelLeft, type LucideIcon,
 } from 'lucide-react';
 import { useStats } from '../../hooks/useReports';
 
@@ -29,6 +29,7 @@ export function Sidebar({ onCommandPalette: _onCommandPalette }: { onCommandPale
     { to: '/assignee-rates', label: 'Assignee Rates', icon: DollarSign },
     { to: '/spaces',         label: 'Spaces',         icon: Layers },
     { to: '/sync-logs',      label: 'Sync Logs',      icon: Webhook },
+    { to: '/audit-log',      label: 'Audit Log',      icon: ShieldCheck },
     { to: '/settings',       label: 'Settings',       icon: Settings },
   ];
 
