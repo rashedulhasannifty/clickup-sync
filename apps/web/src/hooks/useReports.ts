@@ -165,3 +165,24 @@ export function useSpaces() {
 export function useAssigneeRates() {
   return useQuery({ queryKey: ['assignee-rates'], queryFn: () => reportsApi.assigneeRates({ limit: 200 }) });
 }
+
+export interface OverviewDeltas {
+  current: { totalHours: number; totalCostAud: number };
+  prior:   { totalHours: number; totalCostAud: number };
+}
+
+/**
+ * `from`/`to` default to the global filter's range (topbar). Callers like
+ * CostTrendCard pass their own range when the trend chart's window differs
+ * from the topbar (e.g. weekly view with the default 12-week window).
+ */
+export function useOverviewDeltas(from?: string, to?: string) {
+  const filters = useGlobalFilters();
+  const effFrom = from ?? filters.fromDate;
+  const effTo = to ?? filters.toDate;
+  return useQuery<OverviewDeltas>({
+    queryKey: ['overview-deltas', effFrom, effTo],
+    queryFn: () => reportsApi.overviewDeltas({ from: effFrom, to: effTo }),
+    placeholderData: keepPreviousData,
+  });
+}
