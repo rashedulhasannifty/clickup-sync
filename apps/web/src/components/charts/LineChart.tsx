@@ -106,21 +106,21 @@ export function LineChart({
     return Math.max(0, Math.min(data.length - 1, i));
   }
 
-  // Tooltip placement: clamp horizontally so first/last points don't clip,
-  // and flip below when the point sits in the top quarter of the chart.
+  // Tooltip placement: clamp horizontally so first/last points don't clip.
+  // Always renders above the dot — the Card has padding above the chart
+  // area, so even the highest dot has room for the tooltip to extend into.
   let tooltipNode: ReactNode = null;
   if (hovered && hoveredPt) {
     const xPct = (hoveredPt[0] / w) * 100;
     const clampedX = Math.max(12, Math.min(88, xPct));
-    const flipBelow = hoveredPt[1] < height * 0.25;
     tooltipNode = (
       <div
         role="tooltip"
         style={{
           position: 'absolute',
           left: `${clampedX}%`,
-          top: flipBelow ? hoveredPt[1] + 8 : hoveredPt[1] - 6,
-          transform: flipBelow ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
+          top: hoveredPt[1] - 10,
+          transform: 'translate(-50%, -100%)',
           background: 'var(--surface)',
           border: '1px solid var(--border)',
           borderRadius: 6,
@@ -130,7 +130,7 @@ export function LineChart({
           color: 'var(--text)',
           whiteSpace: 'nowrap',
           pointerEvents: 'none',
-          zIndex: 2,
+          zIndex: 10,
         }}
       >
         {renderTooltip ? renderTooltip(hovered) : (
