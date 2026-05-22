@@ -3,6 +3,15 @@ import { sha256 } from '../common/utils/hash';
 
 export interface ParsedWebhook { eventType: string | null; taskId: string | null; loggedUserId: string | null; fingerprint: string; payload: unknown; }
 
+export interface StatusChangeRecord {
+  occurredAt: Date;
+  changedByUserId: string | null;
+  changedByUserName: string | null;
+  before: unknown;
+  after: unknown;
+  raw: unknown;
+}
+
 @Injectable()
 export class WebhookParserService {
   parse(payload: any): ParsedWebhook {
@@ -16,5 +25,27 @@ export class WebhookParserService {
     const rawLoggedUserId = body.history_items?.[0]?.user?.id ?? payload?.history_items?.[0]?.user?.id ?? null;
     const loggedUserId = rawLoggedUserId != null ? String(rawLoggedUserId) : null;
     return { eventType, taskId, loggedUserId, fingerprint, payload };
+  }
+
+  extractStatusChanges(payload: any): StatusChangeRecord[] {
+    const body = payload?.body ?? payload ?? {};
+    const items: any[] = Array.isArray(body.history_items) ? body.history_items : [];
+    const out: StatusChangeRecord[] = [];
+    for (const item of items) {
+      if (!item || item.field !== 'status') continue;
+      const rawDate = item.date;
+      const occurredAt = new Date(typeof rawDate === 'string' ? Number(rawDate) : rawDate);
+      if (Number.isNaN(occurredAt.getTime())) continue;
+      const userId = item.user?.id ?? null;
+      out.push({
+        occurredAt,
+        changedByUserId: userId != null ? String(userId) : null,
+        changedByUserName: item.user?.username ?? null,
+        before: item.before ?? null,
+        after: item.after ?? null,
+        raw: item,
+      });
+    }
+    return out;
   }
 }

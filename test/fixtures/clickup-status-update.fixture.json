@@ -1,0 +1,28 @@
+{
+  "event": "taskStatusUpdated",
+  "task_id": "86abcdef0",
+  "history_items": [
+    {
+      "id": "hist_1",
+      "type": 1,
+      "date": "1716470400000",
+      "field": "status",
+      "parent_id": "list_1",
+      "data": {},
+      "source": null,
+      "user": { "id": 12345, "username": "Rashedul Hasan", "email": "r@example.com" },
+      "before": { "status": "open",       "color": "#94a3b8", "type": "open"   },
+      "after":  { "status": "in progress","color": "#3b82f6", "type": "custom" }
+    },
+    {
+      "id": "hist_2",
+      "type": 1,
+      "date": "1716470500000",
+      "field": "priority",
+      "parent_id": "list_1",
+      "user": { "id": 12345 },
+      "before": { "priority": null },
+      "after":  { "priority": "high" }
+    }
+  ]
+}
