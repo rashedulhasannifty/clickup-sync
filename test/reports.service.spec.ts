@@ -432,4 +432,79 @@ describe('ReportsService', () => {
       expect(sqlText).toMatch(/t\.is_deleted\s*=\s*false/);
     });
   });
+
+  describe('anomalies', () => {
+    it('maps daily spike rows to { date, totalCostAud, medianAud, multiplier }', async () => {
+      const prisma = makePrisma();
+      // Two raw queries: daily, then client. Stub in order.
+      prisma.$queryRaw
+        .mockResolvedValueOnce([{
+          date: '2026-05-04',
+          total_cost_cents: BigInt(192000),
+          median_cost_cents: BigInt(45600),
+          multiplier: 4.21,
+        }])
+        .mockResolvedValueOnce([]);
+      const result = await new ReportsService(prisma).anomalies();
+      expect(result.dailySpikes).toEqual([{
+        date: '2026-05-04',
+        totalCostAud: 1920,
+        medianAud: 456,
+        multiplier: 4.21,
+      }]);
+    });
+
+    it('maps client spike rows to { client, lastWeekCostAud, baselineMedianAud, multiplier }', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{
+          client: 'Acme',
+          week_cost_cents: BigInt(210000),
+          baseline_median_cents: BigInt(67000),
+          multiplier: 3.13,
+        }]);
+      const result = await new ReportsService(prisma).anomalies();
+      expect(result.clientSpikes).toEqual([{
+        client: 'Acme',
+        lastWeekCostAud: 2100,
+        baselineMedianAud: 670,
+        multiplier: 3.13,
+      }]);
+    });
+
+    it('returns empty arrays when no spikes', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      const result = await new ReportsService(prisma).anomalies();
+      expect(result).toEqual({ dailySpikes: [], clientSpikes: [] });
+    });
+
+    it("daily query uses Asia/Dhaka, percentile_cont(0.5), $50 floor, 2x median, soft-delete filter", async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new ReportsService(prisma).anomalies();
+      const dailyCall = prisma.$queryRaw.mock.calls[0][0];
+      const sql: string = dailyCall.sql ?? dailyCall.text ?? String(dailyCall);
+      expect(sql).toMatch(/Asia\/Dhaka/);
+      expect(sql).toMatch(/percentile_cont\(0\.5\)/);
+      expect(sql).toMatch(/5000/);              // $50 floor in cents
+      expect(sql).toMatch(/2\s*\*\s*m\.median/i);
+      expect(sql).toMatch(/t\.is_deleted\s*=\s*false/);
+    });
+
+    it('client query uses Sunday-start week shift and 90-day baseline excluding last 7 days', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new ReportsService(prisma).anomalies();
+      const clientCall = prisma.$queryRaw.mock.calls[1][0];
+      const sql: string = clientCall.sql ?? clientCall.text ?? String(clientCall);
+      expect(sql).toMatch(/date_trunc\('week'/);
+      expect(sql).toMatch(/\+ interval '1 day'/);
+      expect(sql).toMatch(/- interval '1 day'/);
+      expect(sql).toMatch(/interval '90 days'/);
+      expect(sql).toMatch(/interval '7 days'/);
+      expect(sql).toMatch(/t\.is_deleted\s*=\s*false/);
+    });
+  });
 });

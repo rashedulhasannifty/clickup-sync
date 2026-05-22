@@ -811,4 +811,122 @@ export class ReportsService {
       entryCount: Number(r.entry_count),
     }));
   }
+
+  /**
+   * Statistical-rule anomaly detection for the Overview "Anomalies" panel.
+   *
+   * Daily spike rule: a BD-local day in the last 30 where day_cost > 2x the
+   *   median day_cost (over non-zero days) AND day_cost > $50.
+   *
+   * Client spike rule: a client whose last-7-days cost > 2x their 90-day
+   *   weekly-median (over Sunday-start weeks in the [90d, 7d) window),
+   *   AND last-7-days cost > $50.
+   *
+   * Both rules require median > 0 to avoid Infinity multipliers on
+   *   brand-new metrics. Soft-deleted tasks excluded.
+   */
+  async anomalies() {
+    const TZ = Prisma.raw("'Asia/Dhaka'");
+    type DailyRow = {
+      date: string;
+      total_cost_cents: bigint;
+      median_cost_cents: bigint | number;
+      multiplier: number;
+    };
+    type ClientRow = {
+      client: string;
+      week_cost_cents: bigint;
+      baseline_median_cents: bigint | number;
+      multiplier: number;
+    };
+
+    const [dailyRows, clientRows] = await Promise.all([
+      this.prisma.$queryRaw<DailyRow[]>(Prisma.sql`
+        WITH daily_costs AS (
+          SELECT date_trunc('day', e.start_time AT TIME ZONE ${TZ}) AS day_local,
+                 SUM(e.cost_cents)::bigint AS day_cents
+          FROM clickup_time_entries e
+          JOIN clickup_tasks t ON e.task_id = t.task_id
+          WHERE e.start_time IS NOT NULL
+            AND e.start_time >= now() - interval '30 days'
+            AND t.is_deleted = false
+          GROUP BY 1
+        ),
+        median AS (
+          SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY day_cents) AS median_cents
+          FROM daily_costs
+          WHERE day_cents > 0
+        )
+        SELECT to_char(d.day_local, 'YYYY-MM-DD')                AS date,
+               d.day_cents                                        AS total_cost_cents,
+               m.median_cents                                     AS median_cost_cents,
+               (d.day_cents::float / NULLIF(m.median_cents, 0))::float AS multiplier
+        FROM daily_costs d, median m
+        WHERE d.day_cents > 5000
+          AND m.median_cents > 0
+          AND d.day_cents > 2 * m.median_cents
+        ORDER BY d.day_local DESC
+        LIMIT 10
+      `),
+
+      this.prisma.$queryRaw<ClientRow[]>(Prisma.sql`
+        WITH last_7 AS (
+          SELECT t.client, SUM(e.cost_cents)::bigint AS week_cents
+          FROM clickup_time_entries e
+          JOIN clickup_tasks t ON e.task_id = t.task_id
+          WHERE e.start_time IS NOT NULL
+            AND e.start_time >= now() - interval '7 days'
+            AND t.client IS NOT NULL AND t.client <> ''
+            AND t.is_deleted = false
+          GROUP BY t.client
+        ),
+        baseline_weeks AS (
+          SELECT t.client,
+                 (date_trunc('week', (e.start_time AT TIME ZONE ${TZ}) + interval '1 day') - interval '1 day') AS week_local,
+                 SUM(e.cost_cents)::bigint AS week_cents
+          FROM clickup_time_entries e
+          JOIN clickup_tasks t ON e.task_id = t.task_id
+          WHERE e.start_time IS NOT NULL
+            AND e.start_time >= now() - interval '90 days'
+            AND e.start_time <  now() - interval '7 days'
+            AND t.client IS NOT NULL AND t.client <> ''
+            AND t.is_deleted = false
+          GROUP BY t.client, 2
+        ),
+        baseline AS (
+          SELECT client,
+                 percentile_cont(0.5) WITHIN GROUP (ORDER BY week_cents) AS median_week_cents
+          FROM baseline_weeks
+          WHERE week_cents > 0
+          GROUP BY client
+        )
+        SELECT l.client                                                     AS client,
+               l.week_cents                                                  AS week_cost_cents,
+               b.median_week_cents                                           AS baseline_median_cents,
+               (l.week_cents::float / NULLIF(b.median_week_cents, 0))::float AS multiplier
+        FROM last_7 l
+        JOIN baseline b ON b.client = l.client
+        WHERE l.week_cents > 5000
+          AND b.median_week_cents > 0
+          AND l.week_cents > 2 * b.median_week_cents
+        ORDER BY multiplier DESC
+        LIMIT 10
+      `),
+    ]);
+
+    return {
+      dailySpikes: dailyRows.map(r => ({
+        date: r.date,
+        totalCostAud: Number(r.total_cost_cents) / 100,
+        medianAud: Number(r.median_cost_cents) / 100,
+        multiplier: Number(r.multiplier),
+      })),
+      clientSpikes: clientRows.map(r => ({
+        client: r.client,
+        lastWeekCostAud: Number(r.week_cost_cents) / 100,
+        baselineMedianAud: Number(r.baseline_median_cents) / 100,
+        multiplier: Number(r.multiplier),
+      })),
+    };
+  }
 }
