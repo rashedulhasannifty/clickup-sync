@@ -116,6 +116,15 @@ describe('ReportsService', () => {
       const result = await new ReportsService(prisma).timeEntriesByClient();
       expect(result[0]).toEqual({ client: 'Acme Corp', totalHours: 5.5, totalCostAud: 825 });
     });
+
+    it('excludes soft-deleted tasks from the SQL', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new ReportsService(prisma).timeEntriesByClient();
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/t\.is_deleted\s*=\s*false/);
+    });
   });
 
   describe('timeEntriesByDepartment', () => {

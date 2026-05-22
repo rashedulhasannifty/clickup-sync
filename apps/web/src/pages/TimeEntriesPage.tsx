@@ -62,16 +62,16 @@ export function TimeEntriesPage() {
     const urlTo = searchParams.get('to');
     if (!urlSearch && !urlFrom && !urlTo) return;
 
-    if (urlSearch) {
-      setSearchRaw(urlSearch);
-      setSearch(urlSearch);
-    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (urlSearch) { setSearchRaw(urlSearch); setSearch(urlSearch); }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (urlFrom && urlTo) {
       setDateRange('custom');
       setCustomFrom(urlFrom);
       setCustomTo(urlTo);
     }
     // Strip the params now that we've consumed them.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSearchParams({}, { replace: true });
     // We intentionally run this effect only once on mount. The deps are stable
     // setters from context plus searchParams (we re-read but don't depend on

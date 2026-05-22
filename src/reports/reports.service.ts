@@ -233,6 +233,7 @@ export class ReportsService {
       FROM clickup_time_entries e
       JOIN clickup_tasks t ON e.task_id = t.task_id
       WHERE e.start_time >= ${from} AND e.start_time <= ${to}
+        AND t.is_deleted = false
         AND t.client IS NOT NULL AND t.client <> ''
       GROUP BY t.client
       ORDER BY total_cost_cents DESC
