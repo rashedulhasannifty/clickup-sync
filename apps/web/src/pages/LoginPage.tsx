@@ -36,6 +36,23 @@ export function LoginPage() {
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
+            <label className="text-xs font-medium text-[var(--text-muted)] block mb-1.5">
+              Your name (for audit log) <span className="text-[var(--text-faint)]">— optional</span>
+            </label>
+            <input
+              type="text"
+              defaultValue={localStorage.getItem('adminUserName') ?? ''}
+              onChange={e => {
+                const v = e.target.value.trim();
+                if (v) localStorage.setItem('adminUserName', v);
+                else localStorage.removeItem('adminUserName');
+              }}
+              placeholder="e.g. rashedul"
+              autoComplete="name"
+              className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+            />
+          </div>
+          <div>
             <label className="text-xs font-medium text-[var(--text-muted)] block mb-1.5">Admin API Key</label>
             <input
               type="password"
