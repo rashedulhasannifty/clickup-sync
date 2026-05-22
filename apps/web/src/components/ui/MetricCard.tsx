@@ -6,7 +6,7 @@ interface MetricCardProps {
   label: string;
   value: string | number;
   sublabel?: string;
-  delta?: string;
+  delta?: React.ReactNode;
   deltaTone?: 'up' | 'down' | 'neutral';
   trend?: number[];
   icon?: React.ReactNode;
@@ -60,11 +60,15 @@ export function MetricCard({ label, value, sublabel, delta, deltaTone, trend, ic
       {(delta || trend) && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, position: 'relative' }}>
           {delta && (
-            <span style={{ fontSize: 11, fontWeight: 600, color: deltaColor, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-              {deltaTone === 'up' && <TrendingUp size={12} />}
-              {deltaTone === 'down' && <TrendingDown size={12} />}
-              {delta}
-            </span>
+            typeof delta === 'string' ? (
+              <span style={{ fontSize: 11, fontWeight: 600, color: deltaColor, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                {deltaTone === 'up' && <TrendingUp size={12} />}
+                {deltaTone === 'down' && <TrendingDown size={12} />}
+                {delta}
+              </span>
+            ) : (
+              <div style={{ marginTop: 4 }}>{delta}</div>
+            )
           )}
           {trend && <Sparkline data={trend} color="var(--accent)" />}
         </div>

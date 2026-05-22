@@ -13,8 +13,10 @@ import {
   useWebhookEvents,
   useSyncHealth,
   useSprintPoints,
+  useOverviewDeltas,
 } from '../hooks/useReports';
 import { MetricCard } from '../components/ui/MetricCard';
+import { Delta } from '../components/ui/Delta';
 import { Card } from '../components/ui/Card';
 import { PageHeader } from '../components/ui/PageHeader';
 import { QueryError } from '../components/ui/QueryError';
@@ -89,7 +91,10 @@ export function OverviewPage() {
   // a custom-range pair). The time/cost cards' sublabels used to hardcode
   // "last 30d" regardless of what the user picked — values were correct but
   // the label lied. This drives them from the source of truth.
-  const { dateRangeLabel } = useGlobalFilters();
+  const { dateRangeLabel, dateRange, customFrom, customTo } = useGlobalFilters();
+
+  const deltasQ = useOverviewDeltas();
+  const deltas = deltasQ.data;
 
   const stats          = useStats();
   const tasksSummary   = useTasksSummary();
@@ -121,6 +126,20 @@ export function OverviewPage() {
   const userRows = (timeByUser.data as UserTimeRow[] | undefined) ?? [];
   const totalHours = userRows.reduce((s, r) => s + r.totalHours, 0);
   const totalCost  = userRows.reduce((s, r) => s + r.totalCostAud, 0);
+
+  // Short range label for delta pills — derived from the topbar's dateRange.
+  // For custom ranges, compute day count from the actual window.
+  const rangeShort = (() => {
+    if (dateRange === '24h')  return '24h';
+    if (dateRange === '7d')   return '7d';
+    if (dateRange === '30d')  return '30d';
+    if (dateRange === '90d')  return '90d';
+    if (dateRange === 'custom' && customFrom && customTo) {
+      const days = Math.max(1, Math.round((new Date(customTo).getTime() - new Date(customFrom).getTime()) / 86400000));
+      return `${days}d`;
+    }
+    return 'period';
+  })();
 
   const missingRates  = sd?.missingRateEntries ?? 0;
   const failedJobs    = sd?.failedJobsLast24h ?? 0;
@@ -278,7 +297,7 @@ export function OverviewPage() {
           label="Time tracked"
           value={timeByUser.isLoading ? '—' : fmt.hours(totalHours)}
           sublabel={dateRangeLabel}
-          delta={`${userRows.length} assignees`}
+          delta={deltas && <Delta current={deltas.current.totalHours} prior={deltas.prior.totalHours} rangeLabel={rangeShort} />}
           icon={<Clock size={14} strokeWidth={1.75} />}
           onClick={() => navigate('/time-entries')}
         />
@@ -286,6 +305,7 @@ export function OverviewPage() {
           label="Calculated cost"
           value={timeByUser.isLoading ? '—' : moneyAud(totalCost)}
           sublabel={dateRangeLabel}
+          delta={deltas && <Delta current={deltas.current.totalCostAud} prior={deltas.prior.totalCostAud} rangeLabel={rangeShort} />}
           icon={<DollarSign size={14} strokeWidth={1.75} />}
         />
         <MetricCard
