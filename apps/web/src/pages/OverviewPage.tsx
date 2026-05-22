@@ -22,6 +22,7 @@ import { Pill } from '../components/ui/Pill';
 import { Button } from '../components/ui/Button';
 import { BarChart } from '../components/charts/BarChart';
 import { DonutChart } from '../components/charts/DonutChart';
+import { CostTrendCard } from '../components/charts/CostTrendCard';
 import { fmt } from '../lib/formatters';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 
@@ -330,6 +331,9 @@ export function OverviewPage() {
           <HealthIndicator status={lastSyncAt ? 'healthy' : 'warning'} label="Last task update" value={lastSyncAt ? fmt.relative(lastSyncAt) : '—'} />
         </div>
       </Card>
+
+      {/* Cost trend */}
+      <CostTrendCard />
 
       {/* Charts Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
