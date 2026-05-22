@@ -835,7 +835,7 @@ export class ReportsService {
     const { from, to, groupBy } = args;
     const bucketExpr =
       groupBy === 'week'
-        ? Prisma.sql`to_char(date_trunc('week', last_done + interval '1 day') - interval '1 day', 'YYYY-MM-DD')`
+        ? Prisma.sql`to_char(date_trunc('week', (last_done AT TIME ZONE 'Asia/Dhaka') + interval '1 day') - interval '1 day', 'YYYY-MM-DD')`
         : groupBy === 'client'
           ? Prisma.sql`COALESCE(NULLIF(t.client, ''), 'Unattributed')`
           : Prisma.sql`COALESCE(NULLIF(t.department, ''), 'Unattributed')`;
@@ -925,8 +925,7 @@ export class ReportsService {
             GREATEST(occurred_at, ${from})                                    AS interval_start,
             LEAST(COALESCE(next_at, ${to}), ${to})                            AS interval_end
           FROM ordered
-          WHERE occurred_at <= ${to}
-            AND COALESCE(next_at, ${to}) >= ${from}
+          WHERE COALESCE(next_at, ${to}) >= ${from}
         )
         SELECT
           status,
