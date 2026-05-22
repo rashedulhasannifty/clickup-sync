@@ -19,6 +19,13 @@ interface LineChartProps {
   renderTooltip?: (d: LineData) => ReactNode;
   /** Optional formatter for the max-value scale label rendered at top-right. */
   formatMax?: (v: number) => string;
+  /**
+   * Optional dashed tail rendered past the last data point. When set, the
+   * chart draws a dashed segment from the last actual point extending
+   * forward (half a bucket-width) to the projected value. The Y scale
+   * auto-expands to include `toValue` so the tail never clips above.
+   */
+  dashedTail?: { toValue: number } | null;
 }
 
 // Horizontal viewBox padding so the line doesn't crash into the card edges.
@@ -56,6 +63,7 @@ export function LineChart({
   onPointClick,
   renderTooltip,
   formatMax,
+  dashedTail,
 }: LineChartProps) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -65,8 +73,12 @@ export function LineChart({
 
   if (!data || data.length < 2) return <ChartEmpty height={height} />;
 
-  const max = Math.max(...data.map(d => d.value));
-  const min = Math.min(...data.map(d => d.value));
+  const dataMax = Math.max(...data.map(d => d.value));
+  const dataMin = Math.min(...data.map(d => d.value));
+  // If a dashedTail is provided, expand the Y range to include it so the
+  // dashed line never clips above the chart area.
+  const max = dashedTail ? Math.max(dataMax, dashedTail.toValue) : dataMax;
+  const min = dashedTail ? Math.min(dataMin, dashedTail.toValue) : dataMin;
   const range = max - min || 1;
   const w = 100;
   const padY = 8;
@@ -191,6 +203,27 @@ export function LineChart({
           strokeLinejoin="round"
           vectorEffect="non-scaling-stroke"
         />
+        {dashedTail && (() => {
+          const lastX = points[points.length - 1][0];
+          const lastY = points[points.length - 1][1];
+          // Extend half a step past the last actual point so the tail
+          // visibly leans into the gutter without overflowing the SVG
+          // bounds. `step` is the data-point spacing in viewBox units.
+          const tipX = Math.min(w - 1, lastX + step / 2);
+          const tipY = height - padY - ((dashedTail.toValue - min) / range) * (height - padY * 2);
+          return (
+            <path
+              d={`M ${lastX},${lastY} L ${tipX},${tipY}`}
+              fill="none"
+              stroke={color}
+              strokeOpacity={0.5}
+              strokeWidth="1.5"
+              strokeDasharray="3 3"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          );
+        })()}
         <rect
           x={PAD_X}
           y={0}
