@@ -25,6 +25,7 @@ import { Button } from '../components/ui/Button';
 import { BarChart } from '../components/charts/BarChart';
 import { DonutChart } from '../components/charts/DonutChart';
 import { CostTrendCard } from '../components/charts/CostTrendCard';
+import { AnomaliesPanel } from '../components/AnomaliesPanel';
 import { fmt } from '../lib/formatters';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 
@@ -442,49 +443,52 @@ export function OverviewPage() {
           </table>
         </Card>
 
-        {/* Alerts */}
-        <Card
-          padding={0}
-          title="Alerts"
-          subtitle="Items needing operator attention"
-          action={alerts.length > 0 ? <Pill tone="amber">{alerts.length}</Pill> : undefined}
-        >
-          {alerts.length === 0 ? (
-            <div style={{ padding: 16 }}>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No active alerts.</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {alerts.map((a, i) => (
-                <button
-                  key={i}
-                  onClick={() => navigate(a.target)}
-                  style={{
-                    display: 'flex', alignItems: 'flex-start', gap: 10,
-                    padding: '12px 16px',
-                    borderBottom: i < alerts.length - 1 ? '1px solid var(--border-soft)' : 0,
-                    background: 'transparent', border: 0, cursor: 'pointer', textAlign: 'left', color: 'inherit',
-                  }}
-                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--hover)'}
-                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
-                >
-                  <span style={{
-                    width: 26, height: 26, borderRadius: 7, flexShrink: 0,
-                    background: `var(--pill-${a.tone}-bg)`, color: `var(--pill-${a.tone}-text)`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>{a.icon}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>{a.title}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{a.body}</div>
-                  </div>
-                  <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-                    {a.action} <ChevronRight size={12} />
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-        </Card>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+          {/* Alerts */}
+          <Card
+            padding={0}
+            title="Alerts"
+            subtitle="Items needing operator attention"
+            action={alerts.length > 0 ? <Pill tone="amber">{alerts.length}</Pill> : undefined}
+          >
+            {alerts.length === 0 ? (
+              <div style={{ padding: 16 }}>
+                <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No active alerts.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {alerts.map((a, i) => (
+                  <button
+                    key={i}
+                    onClick={() => navigate(a.target)}
+                    style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 10,
+                      padding: '12px 16px',
+                      borderBottom: i < alerts.length - 1 ? '1px solid var(--border-soft)' : 0,
+                      background: 'transparent', border: 0, cursor: 'pointer', textAlign: 'left', color: 'inherit',
+                    }}
+                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--hover)'}
+                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+                  >
+                    <span style={{
+                      width: 26, height: 26, borderRadius: 7, flexShrink: 0,
+                      background: `var(--pill-${a.tone}-bg)`, color: `var(--pill-${a.tone}-text)`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>{a.icon}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>{a.title}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{a.body}</div>
+                    </div>
+                    <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                      {a.action} <ChevronRight size={12} />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </Card>
+          <AnomaliesPanel />
+        </div>
       </div>
 
       {/* Sprint points */}

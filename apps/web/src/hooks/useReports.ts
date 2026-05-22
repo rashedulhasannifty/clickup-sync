@@ -162,6 +162,35 @@ export function useSpaces() {
   return useQuery({ queryKey: ['spaces'], queryFn: reportsApi.spaces });
 }
 
+export interface DailySpike {
+  date: string;
+  totalCostAud: number;
+  medianAud: number;
+  multiplier: number;
+}
+
+export interface ClientSpike {
+  client: string;
+  lastWeekCostAud: number;
+  baselineMedianAud: number;
+  multiplier: number;
+}
+
+export interface Anomalies {
+  dailySpikes: DailySpike[];
+  clientSpikes: ClientSpike[];
+}
+
+export function useAnomalies() {
+  return useQuery<Anomalies>({
+    queryKey: ['anomalies'],
+    queryFn: () => reportsApi.anomalies(),
+    // Anomalies are computed off rolling windows that don't shift often; a
+    // 60s stale time keeps the panel responsive without hammering the DB.
+    staleTime: 60_000,
+  });
+}
+
 export function useAssigneeRates() {
   return useQuery({ queryKey: ['assignee-rates'], queryFn: () => reportsApi.assigneeRates({ limit: 200 }) });
 }

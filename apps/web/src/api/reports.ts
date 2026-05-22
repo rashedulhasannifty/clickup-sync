@@ -35,6 +35,7 @@ export const reportsApi = {
     apiClient.get('/reports/ops/dead-letters', { params }).then(r => r.data),
   stats: () => apiClient.get('/reports/ops/stats').then(r => r.data),
   missingRates: () => apiClient.get('/reports/ops/missing-rates').then(r => r.data),
+  anomalies: () => apiClient.get('/reports/anomalies').then(r => r.data),
   spaces: () => apiClient.get('/reports/spaces').then(r => r.data),
   assigneeRates: (params?: { page?: number; limit?: number }) =>
     apiClient
