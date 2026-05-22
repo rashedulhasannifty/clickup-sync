@@ -1,4 +1,4 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
 import { AdminApiKeyGuard } from '../src/admin/admin-api-key.guard';
 
 describe('AdminApiKeyGuard', () => {
@@ -28,5 +28,17 @@ describe('AdminApiKeyGuard', () => {
 
   it('passes when ADMIN_API_KEY is not configured (dev mode)', () => {
     expect(makeGuard('').canActivate(makeCtx(undefined))).toBe(true);
+  });
+
+  it('throws InternalServerErrorException in production when key is empty', () => {
+    const prevEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(() => makeGuard('').canActivate(makeCtx(undefined)))
+        .toThrow(/Admin API key missing in production/);
+    } finally {
+      if (prevEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prevEnv;
+    }
   });
 });
