@@ -25,6 +25,7 @@ import { Button } from '../components/ui/Button';
 import { BarChart } from '../components/charts/BarChart';
 import { DonutChart } from '../components/charts/DonutChart';
 import { CostTrendCard } from '../components/charts/CostTrendCard';
+import { CycleTimeCard } from '../components/charts/CycleTimeCard';
 import { AnomaliesPanel } from '../components/AnomaliesPanel';
 import { fmt } from '../lib/formatters';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
@@ -355,6 +356,9 @@ export function OverviewPage() {
 
       {/* Cost trend */}
       <CostTrendCard />
+
+      {/* Cycle time */}
+      <CycleTimeCard />
 
       {/* Charts Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
