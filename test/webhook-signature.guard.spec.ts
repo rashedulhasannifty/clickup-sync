@@ -40,7 +40,8 @@ describe('WebhookSignatureGuard', () => {
       expect(() => makeGuard('').canActivate(makeCtx(undefined, undefined)))
         .toThrow(/Webhook secret missing in production/);
     } finally {
-      process.env.NODE_ENV = prevEnv;
+      if (prevEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prevEnv;
     }
   });
 });
