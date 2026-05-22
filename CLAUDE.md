@@ -315,11 +315,21 @@ When implementing this in code:
 
 ## Known starter limitations
 
-This is an initial starter, not a finished production system. Expected next work:
+This service is internal-only and intentionally narrow in scope. Items still expected next:
 
-- Add explicit webhook signature verification middleware.
-- Add manual admin endpoints for backfill, task sync, retry, and webhook registration.
-- Expand tests for real ClickUp payload variants.
-- Add structured logging.
-- Add production observability and alerting.
-- Add an audit table for tracked-time replacement/splitting.
+- Per-user authentication (login, sessions, password hashing). Today admins share one `ADMIN_API_KEY`; the audit log binds attribution to an advisory `X-Admin-User` header, not a gated identity.
+- Audit gap alerts (banner when admin actions arrive without `X-Admin-User`, or when audit writes start failing).
+- v2 status-change event types: `taskMoved`, `taskAssigneeUpdated`, `taskPriorityUpdated`. v1 captures only `taskStatusUpdated` into `clickup_task_events`.
+- Cycle-time drill-downs by client and department (backend accepts `groupBy=client|department`; UI surface is single bucket).
+- "Resolve / won't-fix" path for dead-letter jobs (today you can only retry).
+- Currency rename (the `*Aud` field names and the `currency` columns hold USD in practice — see the `currency-aud-usd-debt` memory).
+
+Already in place (do not re-implement):
+
+- Webhook signature verification (`src/webhooks/webhook-signature.guard.ts`, HMAC-SHA256, hard-required in prod)
+- Admin API key gate (`src/admin/admin-api-key.guard.ts`, hard-required in prod)
+- Manual admin endpoints (sync task, backfill, replacement backfill, retry-failed-webhooks, dead-letter list/retry, rates CRUD, tag-mapping CRUD, recalc, register webhook, live backfill progress — all in `src/admin/admin.controller.ts`)
+- Dead-letter storage + inspector (`DeadLetterJob` + `DeadLetterRepository` + admin endpoints)
+- Time-entry replacement with audit (`TimeEntryReplacement` model + `AssigneeReplacementService`; audit row written before original delete; `originalEntryId @unique` for idempotency)
+- Admin audit log (`AdminAuditLog` model + `AuditLogInterceptor` on `AdminController`, write actions only, viewable at `/audit-log`)
+- Status-change history capture (`clickup_task_events`, subscribed to `taskStatusUpdated`; cycle-time + time-in-status reports at `/reports/cycle-time` and `/reports/time-in-status`; card on Overview page)
