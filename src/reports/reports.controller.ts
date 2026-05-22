@@ -40,6 +40,12 @@ export class ReportsController {
     return this.reports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived);
   }
 
+  @Get('anomalies')
+  @ApiOperation({ summary: 'Spend-spike anomalies for the Overview panel — daily totals and per-client weekly totals exceeding their median baselines.' })
+  anomalies() {
+    return this.reports.anomalies();
+  }
+
   @Get('time-entries/by-user')
   @ApiOperation({ summary: 'Total hours and cost per assignee' })
   timeEntriesByUser(@Query('from') from?: string, @Query('to') to?: string) {

@@ -36,6 +36,22 @@ describe('ReportsController', () => {
     });
   });
 
+  describe('anomalies', () => {
+    it('returns the service result unchanged', async () => {
+      const svc = {
+        anomalies: jest.fn().mockResolvedValue({
+          dailySpikes: [{ date: '2026-05-04', totalCostAud: 1920, medianAud: 456, multiplier: 4.21 }],
+          clientSpikes: [],
+        }),
+      } as any;
+      const ctrl = new ReportsController(svc);
+      const result = await ctrl.anomalies();
+      expect(svc.anomalies).toHaveBeenCalledTimes(1);
+      expect(result.dailySpikes).toHaveLength(1);
+      expect(result.clientSpikes).toEqual([]);
+    });
+  });
+
   describe('costTrend', () => {
     it('passes bucket + from + to through to the service for valid bucket', async () => {
       const svc = makeService();
