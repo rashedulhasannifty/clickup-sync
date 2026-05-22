@@ -2,18 +2,25 @@ import { useMemo, useState } from 'react';
 import { Card } from '../ui/Card';
 import { LineChart } from './LineChart';
 import { useCostTrend } from '../../hooks/useReports';
-import type { CostTrendPoint } from '../../hooks/useReports';
+import type { CostTrendBucket, CostTrendPoint } from '../../hooks/useReports';
 import { useGlobalFilters } from '../../hooks/useGlobalFilters';
 import { CostBucketDrawer } from '../CostBucketDrawer';
 import { fmt } from '../../lib/formatters';
 
-type Bucket = 'day' | 'week' | 'month';
+// Day-count fallbacks for the rolling default window. The `month` branch uses
+// setMonth(-12) directly (calendar-month math) and doesn't read from here, so
+// it's intentionally omitted.
+const BUCKET_DEFAULTS_DAYS: Record<Exclude<CostTrendBucket, 'month'>, number> = { day: 30, week: 7 * 12 };
 
-const BUCKET_DEFAULTS_DAYS: Record<Bucket, number> = { day: 30, week: 7 * 12, month: 365 };
+const BUCKET_ARIA: Record<CostTrendBucket, string> = {
+  day: 'daily',
+  week: 'weekly',
+  month: 'monthly',
+};
 
 function moneyAud(dollars: number) { return fmt.money(Math.round(dollars * 100)); }
 
-function defaultRangeForBucket(bucket: Bucket): { from: string; to: string } {
+function defaultRangeForBucket(bucket: CostTrendBucket): { from: string; to: string } {
   // Rolling window to now. Month uses ~365d back, which generally produces
   // 12-13 monthly buckets — good enough; bucketing happens server-side.
   const to = new Date();
@@ -23,7 +30,7 @@ function defaultRangeForBucket(bucket: Bucket): { from: string; to: string } {
   return { from: from.toISOString(), to: to.toISOString() };
 }
 
-function shortBucketLabel(p: CostTrendPoint, bucket: Bucket): string {
+function shortBucketLabel(p: CostTrendPoint, bucket: CostTrendBucket): string {
   const [y, m, d] = p.bucket.split('-').map(Number);
   const dt = new Date(Date.UTC(y, m - 1, d));
   if (bucket === 'month') return dt.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
@@ -31,7 +38,7 @@ function shortBucketLabel(p: CostTrendPoint, bucket: Bucket): string {
   return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
-function windowDescription(bucket: Bucket, customActive: boolean): string {
+function windowDescription(bucket: CostTrendBucket, customActive: boolean): string {
   if (customActive) return 'custom range';
   if (bucket === 'day')   return 'last 30 days';
   if (bucket === 'week')  return 'last 12 weeks';
@@ -39,7 +46,7 @@ function windowDescription(bucket: Bucket, customActive: boolean): string {
 }
 
 export function CostTrendCard() {
-  const [bucket, setBucket] = useState<Bucket>('day');
+  const [bucket, setBucket] = useState<CostTrendBucket>('day');
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
 
   // Topbar override = explicit custom range. Other presets (7d/30d/90d)
@@ -87,12 +94,12 @@ export function CostTrendCard() {
                   style={{
                     padding: '4px 10px', fontSize: 11, fontWeight: 600,
                     background: active ? 'var(--accent)' : 'var(--surface)',
-                    color: active ? 'var(--accent-foreground, white)' : 'var(--text-muted)',
+                    color: active ? '#fff' : 'var(--text-muted)',
                     border: 0, cursor: 'pointer',
                     borderLeft: b === 'day' ? 0 : '1px solid var(--border)',
                   }}
                   aria-pressed={active}
-                  aria-label={`Switch to ${b}ly granularity`}
+                  aria-label={`Switch to ${BUCKET_ARIA[b]} granularity`}
                 >
                   {b === 'day' ? 'D' : b === 'week' ? 'W' : 'M'}
                 </button>
