@@ -830,13 +830,13 @@ export class ReportsService {
     type DailyRow = {
       date: string;
       total_cost_cents: bigint;
-      median_cost_cents: bigint | number;
+      median_cost_cents: number;
       multiplier: number;
     };
     type ClientRow = {
       client: string;
       week_cost_cents: bigint;
-      baseline_median_cents: bigint | number;
+      baseline_median_cents: number;
       multiplier: number;
     };
 
@@ -859,7 +859,7 @@ export class ReportsService {
         )
         SELECT to_char(d.day_local, 'YYYY-MM-DD')                AS date,
                d.day_cents                                        AS total_cost_cents,
-               m.median_cents                                     AS median_cost_cents,
+               m.median_cents::float                              AS median_cost_cents,
                (d.day_cents::float / NULLIF(m.median_cents, 0))::float AS multiplier
         FROM daily_costs d, median m
         WHERE d.day_cents > 5000
@@ -902,7 +902,7 @@ export class ReportsService {
         )
         SELECT l.client                                                     AS client,
                l.week_cents                                                  AS week_cost_cents,
-               b.median_week_cents                                           AS baseline_median_cents,
+               b.median_week_cents::float                                    AS baseline_median_cents,
                (l.week_cents::float / NULLIF(b.median_week_cents, 0))::float AS multiplier
         FROM last_7 l
         JOIN baseline b ON b.client = l.client

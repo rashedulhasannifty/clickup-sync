@@ -441,7 +441,7 @@ describe('ReportsService', () => {
         .mockResolvedValueOnce([{
           date: '2026-05-04',
           total_cost_cents: BigInt(192000),
-          median_cost_cents: BigInt(45600),
+          median_cost_cents: 45600,
           multiplier: 4.21,
         }])
         .mockResolvedValueOnce([]);
@@ -461,7 +461,7 @@ describe('ReportsService', () => {
         .mockResolvedValueOnce([{
           client: 'Acme',
           week_cost_cents: BigInt(210000),
-          baseline_median_cents: BigInt(67000),
+          baseline_median_cents: 67000,
           multiplier: 3.13,
         }]);
       const result = await new ReportsService(prisma).anomalies();
