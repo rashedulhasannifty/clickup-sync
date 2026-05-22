@@ -305,6 +305,59 @@ describe('ReportsService', () => {
     });
   });
 
+  describe('overviewDeltas', () => {
+    it('returns current + prior totals mapped to dollars', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw
+        .mockResolvedValueOnce([{ total_hours: 124.5, total_cost_cents: BigInt(1843250) }])
+        .mockResolvedValueOnce([{ total_hours: 105.0, total_cost_cents: BigInt(1560000) }]);
+      const result = await new ReportsService(prisma).overviewDeltas(
+        '2026-05-01T00:00:00.000Z',
+        '2026-05-31T23:59:59.999Z',
+      );
+      expect(result).toEqual({
+        current: { totalHours: 124.5, totalCostAud: 18432.5 },
+        prior:   { totalHours: 105,   totalCostAud: 15600 },
+      });
+    });
+
+    it('computes the prior window as [from - (to - from), from)', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([{ total_hours: 0, total_cost_cents: BigInt(0) }]);
+      await new ReportsService(prisma).overviewDeltas(
+        '2026-05-15T00:00:00.000Z',
+        '2026-05-20T00:00:00.000Z',
+      );
+      const priorCall = prisma.$queryRaw.mock.calls[1][0];
+      const sqlText: string = priorCall.sql ?? priorCall.text ?? String(priorCall);
+      expect(sqlText).toMatch(/SUM\(e\.cost_cents\)/);
+      const values: unknown[] = priorCall.values ?? [];
+      const isoStrings = values
+        .map(v => (v instanceof Date ? v.toISOString() : String(v)))
+        .join(' ');
+      expect(isoStrings).toMatch(/2026-05-10T00:00:00\.000Z/);
+      expect(isoStrings).toMatch(/2026-05-15T00:00:00\.000Z/);
+    });
+
+    it('excludes soft-deleted tasks in both windows', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([{ total_hours: 0, total_cost_cents: BigInt(0) }]);
+      await new ReportsService(prisma).overviewDeltas();
+      const call0: string = prisma.$queryRaw.mock.calls[0][0].sql ?? String(prisma.$queryRaw.mock.calls[0][0]);
+      const call1: string = prisma.$queryRaw.mock.calls[1][0].sql ?? String(prisma.$queryRaw.mock.calls[1][0]);
+      expect(call0).toMatch(/t\.is_deleted\s*=\s*false/);
+      expect(call1).toMatch(/t\.is_deleted\s*=\s*false/);
+    });
+
+    it('handles null sums (no rows in window)', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([{ total_hours: null, total_cost_cents: null }]);
+      const result = await new ReportsService(prisma).overviewDeltas();
+      expect(result.current).toEqual({ totalHours: 0, totalCostAud: 0 });
+      expect(result.prior).toEqual({ totalHours: 0, totalCostAud: 0 });
+    });
+  });
+
   describe('costTrend', () => {
     it('maps raw rows to { bucket, totalCostAud, totalHours, entryCount } and sorts ascending', async () => {
       const prisma = makePrisma();

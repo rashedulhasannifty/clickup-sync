@@ -222,6 +222,54 @@ export class ReportsService {
       .sort((a, b) => b.totalCostAud - a.totalCostAud);
   }
 
+  /**
+   * Current-period totals and the equal-length prior-period totals, used by
+   * the Overview page's KPI cards to render period-over-period deltas. The
+   * prior window is `[from - (to - from), from)` — exclusive on the upper
+   * bound so it doesn't overlap with the current window.
+   *
+   * Soft-deleted tasks are excluded from both windows.
+   */
+  async overviewDeltas(fromParam?: string, toParam?: string) {
+    const from = parseDate(fromParam, defaultFrom());
+    const to = parseDate(toParam, new Date());
+    const spanMs = to.getTime() - from.getTime();
+    const priorFrom = new Date(from.getTime() - spanMs);
+    const priorTo = from;
+
+    type Row = { total_hours: number | null; total_cost_cents: bigint | null };
+    const sumWindow = (winFrom: Date, winTo: Date, upperOp: 'lte' | 'lt') => {
+      const upper = upperOp === 'lte'
+        ? Prisma.sql`e.start_time <= ${winTo}`
+        : Prisma.sql`e.start_time <  ${winTo}`;
+      return this.prisma.$queryRaw<Row[]>(Prisma.sql`
+        SELECT COALESCE(SUM(e.duration_hours), 0)::float AS total_hours,
+               COALESCE(SUM(e.cost_cents), 0)::bigint   AS total_cost_cents
+        FROM clickup_time_entries e
+        JOIN clickup_tasks t ON e.task_id = t.task_id
+        WHERE e.start_time IS NOT NULL
+          AND e.start_time >= ${winFrom}
+          AND ${upper}
+          AND t.is_deleted = false
+      `);
+    };
+
+    const [currentRows, priorRows] = await Promise.all([
+      sumWindow(from, to, 'lte'),
+      sumWindow(priorFrom, priorTo, 'lt'),
+    ]);
+
+    const mapRow = (r: Row) => ({
+      totalHours: Number(r.total_hours ?? 0),
+      totalCostAud: Number(r.total_cost_cents ?? 0n) / 100,
+    });
+
+    return {
+      current: mapRow(currentRows[0] ?? { total_hours: 0, total_cost_cents: 0n }),
+      prior:   mapRow(priorRows[0]   ?? { total_hours: 0, total_cost_cents: 0n }),
+    };
+  }
+
   async timeEntriesByClient(fromParam?: string, toParam?: string) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
