@@ -17,6 +17,36 @@ interface LineChartProps {
   onPointClick?: (d: LineData, index: number) => void;
   /** Custom tooltip body. Default shows label/date + value. */
   renderTooltip?: (d: LineData) => ReactNode;
+  /** Optional formatter for the max-value scale label rendered at top-right. */
+  formatMax?: (v: number) => string;
+}
+
+// Horizontal viewBox padding so the line doesn't crash into the card edges.
+// In viewBox units (= percent of rendered width because viewBox width = 100).
+const PAD_X = 4;
+
+// Catmull-Rom → cubic Bezier path. Smooth curve passing through every point.
+// For 2 points falls back to a straight line; for ≥3 each segment derives
+// control points from neighbours for C1 continuity.
+function smoothPath(points: [number, number][]): string {
+  if (points.length === 0) return '';
+  if (points.length === 1) return `M ${points[0][0]},${points[0][1]}`;
+  if (points.length === 2) {
+    return `M ${points[0][0]},${points[0][1]} L ${points[1][0]},${points[1][1]}`;
+  }
+  let d = `M ${points[0][0]},${points[0][1]}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i - 1] ?? points[i];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2] ?? p2;
+    const cp1x = p1[0] + (p2[0] - p0[0]) / 6;
+    const cp1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const cp2x = p2[0] - (p3[0] - p1[0]) / 6;
+    const cp2y = p2[1] - (p3[1] - p1[1]) / 6;
+    d += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2[0]},${p2[1]}`;
+  }
+  return d;
 }
 
 export function LineChart({
@@ -25,13 +55,12 @@ export function LineChart({
   height = 160,
   onPointClick,
   renderTooltip,
+  formatMax,
 }: LineChartProps) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   // A stable per-instance id so multiple LineCharts on the same page
-  // don't collide on the gradient `id` (which previously keyed only on
-  // data length + height, so two adjacent charts of the same shape
-  // shared a gradient).
+  // don't collide on the gradient `id`.
   const gradId = `lg-${useId()}`;
 
   if (!data || data.length < 2) return <ChartEmpty height={height} />;
@@ -41,38 +70,47 @@ export function LineChart({
   const range = max - min || 1;
   const w = 100;
   const padY = 8;
-  const step = w / (data.length - 1);
-  const points = data.map((d, i) => [i * step, height - padY - ((d.value - min) / range) * (height - padY * 2)] as [number, number]);
-  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p[0]} ${p[1]}`).join(' ');
-  const area = `${path} L ${w} ${height} L 0 ${height} Z`;
+  const usableW = w - 2 * PAD_X;
+  const step = usableW / (data.length - 1);
+  const points = data.map((d, i) => [
+    PAD_X + i * step,
+    height - padY - ((d.value - min) / range) * (height - padY * 2),
+  ] as [number, number]);
+
+  const linePath = smoothPath(points);
+  const firstX = points[0][0];
+  const lastX = points[points.length - 1][0];
+  const area = `${linePath} L ${lastX},${height} L ${firstX},${height} Z`;
+
   const labelStep = Math.max(1, Math.floor(data.length / 6));
   const labelItems = data.filter((_, i) => i % labelStep === 0);
 
   const hovered = hoverIdx != null ? data[hoverIdx] : null;
   const hoveredPt = hoverIdx != null ? points[hoverIdx] : null;
 
-  // Single full-chart overlay <rect> drives hover + click via the nearest-X
-  // point. This avoids the mouseleave/mouseenter flicker that per-point hit
-  // circles produce on dense (30+) charts when the mouse crosses the seam
-  // between two adjacent targets.
+  // Single full-chart overlay rect drives hover + click via the nearest-X
+  // point. Avoids the mouseleave/mouseenter flicker that per-point hit
+  // circles produce on dense charts where targets overlap.
   function nearestIndex(clientX: number): number {
     const wrap = wrapperRef.current;
     if (!wrap) return 0;
     const rect = wrap.getBoundingClientRect();
     if (rect.width === 0) return 0;
-    const px = Math.max(0, Math.min(rect.width, clientX - rect.left));
-    const i = Math.round((px / rect.width) * (data.length - 1));
+    // Subtract the inset so a click at the visual line position maps to the
+    // right bucket (the data spans PAD_X..w-PAD_X in viewBox units).
+    const padPx = (PAD_X / w) * rect.width;
+    const usablePx = rect.width - 2 * padPx;
+    if (usablePx <= 0) return 0;
+    const px = Math.max(0, Math.min(usablePx, clientX - rect.left - padPx));
+    const i = Math.round((px / usablePx) * (data.length - 1));
     return Math.max(0, Math.min(data.length - 1, i));
   }
 
   // Tooltip placement: clamp horizontally so first/last points don't clip,
-  // and flip below the dot when the point sits in the top quarter of the
-  // chart so the tooltip doesn't get pulled above the container.
+  // and flip below when the point sits in the top quarter of the chart.
   let tooltipNode: ReactNode = null;
   if (hovered && hoveredPt) {
     const xPct = (hoveredPt[0] / w) * 100;
-    // Approximate tooltip half-width as a percent of container width. With a
-    // small tooltip and a typical chart >200px wide, ~12% is conservative.
     const clampedX = Math.max(12, Math.min(88, xPct));
     const flipBelow = hoveredPt[1] < height * 0.25;
     tooltipNode = (
@@ -92,7 +130,7 @@ export function LineChart({
           color: 'var(--text)',
           whiteSpace: 'nowrap',
           pointerEvents: 'none',
-          zIndex: 1,
+          zIndex: 2,
         }}
       >
         {renderTooltip ? renderTooltip(hovered) : (
@@ -107,6 +145,23 @@ export function LineChart({
 
   return (
     <div ref={wrapperRef} style={{ width: '100%', position: 'relative' }}>
+      {formatMax && (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            fontSize: 10,
+            color: 'var(--text-muted)',
+            fontVariantNumeric: 'tabular-nums',
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}
+        >
+          {formatMax(max)}
+        </div>
+      )}
       <svg
         viewBox={`0 0 ${w} ${height}`}
         preserveAspectRatio="none"
@@ -125,30 +180,19 @@ export function LineChart({
           </linearGradient>
         </defs>
         <path d={area} fill={`url(#${gradId})`} />
-        <path d={path} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
-        {points.map((p, i) => {
-          const isHover = hoverIdx === i;
-          return (
-            <circle
-              key={i}
-              cx={p[0]}
-              cy={p[1]}
-              r={isHover ? '2.4' : '1.4'}
-              fill={color}
-              style={{ transition: 'r 120ms ease-out', pointerEvents: 'none' }}
-            />
-          );
-        })}
-        {/*
-          One transparent rect on top of the chart captures hover and click.
-          Nearest-X lookup is done by reading the wrapper div's bounding rect.
-          This is the standard pattern for dense SVG line charts — avoids the
-          flicker that per-point hit circles produce when targets overlap.
-        */}
+        <path
+          d={linePath}
+          fill="none"
+          stroke={color}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+        />
         <rect
-          x={0}
+          x={PAD_X}
           y={0}
-          width={w}
+          width={usableW}
           height={height}
           fill="transparent"
           onMouseMove={(e) => setHoverIdx(nearestIndex(e.clientX))}
@@ -161,7 +205,15 @@ export function LineChart({
         />
       </svg>
       {tooltipNode}
-      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0 0', fontSize: 10, color: 'var(--text-muted)' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          padding: `4px ${PAD_X}% 0`,
+          fontSize: 10,
+          color: 'var(--text-muted)',
+        }}
+      >
         {labelItems.map((d, i) => (
           <span key={i}>{d.label ?? (d.date ? new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '')}</span>
         ))}

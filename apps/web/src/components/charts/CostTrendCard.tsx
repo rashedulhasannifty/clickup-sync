@@ -116,6 +116,7 @@ export function CostTrendCard() {
           <LineChart
             data={chartData}
             height={200}
+            formatMax={moneyAud}
             onPointClick={(d) => d.key && setSelectedBucket(d.key)}
             renderTooltip={(d) => {
               const point = data.find(p => p.bucket === d.key);
