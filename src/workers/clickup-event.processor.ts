@@ -1,18 +1,33 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
+import * as crypto from 'crypto';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { WebhookEventsRepository } from '../webhooks/webhook-events.repository';
+import { WebhookParserService } from '../webhooks/webhook-parser.service';
+import { PrismaService } from '../database/prisma.service';
 
 @Injectable()
 @Processor(QUEUES.CLICKUP_WEBHOOKS)
 export class ClickupEventProcessor extends WorkerHost {
   private readonly logger = new Logger(ClickupEventProcessor.name);
-  constructor(private readonly queues: QueueService, private readonly events: WebhookEventsRepository) { super(); }
+  constructor(
+    private readonly queues: QueueService,
+    private readonly events: WebhookEventsRepository,
+    private readonly parser: WebhookParserService,
+    private readonly prisma: PrismaService,
+  ) { super(); }
 
   async process(job: Job<any>) {
-    const { eventType, taskId, fingerprint, loggedUserId } = job.data;
+    const { eventType, taskId, fingerprint, loggedUserId, payload } = job.data;
+
+    if (eventType === 'taskStatusUpdated') {
+      await this.persistStatusChanges(taskId, payload);
+      await this.events.markProcessed(fingerprint).catch((e) => this.logger.warn(e.message));
+      return;
+    }
+
     if (!taskId && eventType !== 'taskDeleted') return;
     if (eventType === 'taskDeleted') {
       await this.queues.get(QUEUES.CLICKUP_TASKS).add(JOBS.DELETE_CLICKUP_TASK, { taskId }, this.queues.defaultJobOptions());
@@ -28,5 +43,41 @@ export class ClickupEventProcessor extends WorkerHost {
       await this.queues.get(QUEUES.CLICKUP_TASKS).add(JOBS.SYNC_CLICKUP_TASK, { taskId }, this.queues.defaultJobOptions());
     }
     await this.events.markProcessed(fingerprint).catch((e) => this.logger.warn(e.message));
+  }
+
+  private async persistStatusChanges(taskId: string | null, payload: unknown) {
+    if (!taskId) return;
+    const records = this.parser.extractStatusChanges(payload);
+    for (const r of records) {
+      const fp = crypto
+        .createHash('sha256')
+        .update([
+          taskId,
+          'taskStatusUpdated',
+          r.occurredAt.toISOString(),
+          JSON.stringify(r.before),
+          JSON.stringify(r.after),
+        ].join('|'))
+        .digest('hex');
+      try {
+        await this.prisma.clickupTaskEvent.upsert({
+          where: { fingerprint: fp },
+          create: {
+            taskId,
+            eventType: 'taskStatusUpdated',
+            occurredAt: r.occurredAt,
+            changedByUserId: r.changedByUserId,
+            changedByUserName: r.changedByUserName,
+            before: r.before as any,
+            after: r.after as any,
+            fingerprint: fp,
+            raw: r.raw as any,
+          },
+          update: {},
+        });
+      } catch (err) {
+        this.logger.error(`Failed to persist task event for ${taskId}`, err as Error);
+      }
+    }
   }
 }
