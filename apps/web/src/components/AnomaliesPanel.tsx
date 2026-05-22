@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { TrendingUp } from 'lucide-react';
+import { TrendingUp, ChevronRight } from 'lucide-react';
 import { Card } from './ui/Card';
 import { fmt } from '../lib/formatters';
 import { useAnomalies } from '../hooks/useReports';
@@ -93,6 +93,20 @@ export function AnomaliesPanel() {
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>{r.title}</div>
                 <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.subtitle}</div>
               </div>
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'var(--accent)',
+                  fontWeight: 600,
+                  whiteSpace: 'nowrap',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  flexShrink: 0,
+                }}
+              >
+                view <ChevronRight size={12} />
+              </span>
             </button>
           ))}
         </div>

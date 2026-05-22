@@ -100,13 +100,11 @@ export function CostTrendCard() {
     key: p.bucket,
   }));
 
-  const hasAnySpend = data.some(p => p.totalCostAud > 0);
-
   return (
     <>
       <Card
         title="Client cost trend"
-        subtitle={`${bucket === 'day' ? 'Daily' : bucket === 'week' ? 'Weekly' : 'Monthly'} — ${windowDescription(bucket, useTopbar)} · ${moneyAud(totalCostAud)} total${!hasAnySpend && !q.isLoading ? ' · no spend in this period' : ''}`}
+        subtitle={`${bucket === 'day' ? 'Daily' : bucket === 'week' ? 'Weekly' : 'Monthly'} — ${windowDescription(bucket, useTopbar)} · ${moneyAud(totalCostAud)} total`}
         padding={16}
         action={
           <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
