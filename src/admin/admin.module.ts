@@ -8,10 +8,13 @@ import { TasksModule } from '../tasks/tasks.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
 import { AdminApiKeyGuard } from './admin-api-key.guard';
 import { AdminController } from './admin.controller';
+import { AuditLogRepository } from './audit-log.repository';
+import { AuditLogInterceptor } from './audit-log.interceptor';
 
 @Module({
   imports: [QueuesModule, JobsModule, ClickupModule, TimeEntriesModule, RatesModule, TasksModule, WebhooksModule],
-  providers: [AdminApiKeyGuard],
+  providers: [AdminApiKeyGuard, AuditLogRepository, AuditLogInterceptor],
   controllers: [AdminController],
+  exports: [AuditLogRepository],
 })
 export class AdminModule {}

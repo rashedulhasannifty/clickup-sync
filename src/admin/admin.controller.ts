@@ -1,6 +1,8 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { AdminApiKeyGuard } from './admin-api-key.guard';
+import { AuditLogInterceptor } from './audit-log.interceptor';
+import { AuditLogRepository } from './audit-log.repository';
 import { SyncTaskDto } from './dto/sync-task.dto';
 import { BackfillDto } from './dto/backfill.dto';
 import { BackfillReplacementDto } from './dto/backfill-replacement.dto';
@@ -32,6 +34,7 @@ function parseId(id: string): bigint {
 @ApiTags('admin')
 @ApiSecurity('x-admin-key')
 @UseGuards(AdminApiKeyGuard)
+@UseInterceptors(AuditLogInterceptor)
 @Controller('admin')
 export class AdminController {
   constructor(
@@ -47,6 +50,7 @@ export class AdminController {
     private readonly webhookEvents: WebhookEventsRepository,
     private readonly webhookParser: WebhookParserService,
     private readonly prisma: PrismaService,
+    private readonly auditLog: AuditLogRepository,
   ) {}
 
   @Get('ping')
@@ -363,5 +367,27 @@ export class AdminController {
   @ApiOperation({ summary: 'Delete a tag → assignee mapping' })
   deleteTagAssignee(@Param('id') id: string) {
     return this.tagAssigneeRepo.remove(parseId(id));
+  }
+
+  // ── Audit log viewer ───────────────────────────────────────────────────────
+
+  @Get('audit-log')
+  @ApiOperation({ summary: 'Paginated admin audit log (write actions only).' })
+  async listAuditLog(
+    @Query('limit') limit = '50',
+    @Query('offset') offset = '0',
+    @Query('actor') actor?: string,
+    @Query('routePattern') routePattern?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.auditLog.findMany({
+      actor: actor?.trim() || undefined,
+      routePattern: routePattern?.trim() || undefined,
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
+      limit: Number(limit) || 50,
+      offset: Number(offset) || 0,
+    });
   }
 }

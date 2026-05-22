@@ -79,6 +79,10 @@ describe('AdminController', () => {
     } as any;
   }
 
+  function makeAuditLog() {
+    return { findMany: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
+  }
+
   function makeCtrl(queues?: any, deadLetters?: any, webhooks?: any, timeEntriesRepo?: any, webhookEvents?: any, webhookParser?: any, prisma?: any) {
     return new AdminController(
       queues ?? makeQueues(),
@@ -93,6 +97,7 @@ describe('AdminController', () => {
       webhookEvents ?? makeWebhookEvents(),
       webhookParser ?? makeWebhookParser(),
       prisma ?? makePrisma(),
+      makeAuditLog(),
     );
   }
 
@@ -365,6 +370,7 @@ describe('AdminController', () => {
       makeWebhookEvents(),
       makeWebhookParser(),
       makePrisma(),
+      makeAuditLog(),
     );
   }
 
