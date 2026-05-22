@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Card } from '../ui/Card';
 import { LineChart } from './LineChart';
-import { useCostTrend } from '../../hooks/useReports';
+import { useCostTrend, useOverviewDeltas } from '../../hooks/useReports';
 import type { CostTrendBucket, CostTrendPoint } from '../../hooks/useReports';
 import { useGlobalFilters } from '../../hooks/useGlobalFilters';
 import { CostBucketDrawer } from '../CostBucketDrawer';
 import { fmt } from '../../lib/formatters';
+import { currentPeriodProgress } from '../../lib/periodProgress';
+import { Delta } from '../ui/Delta';
 
 // Day-count fallbacks for the rolling default window. The `month` branch uses
 // setMonth(-12) directly (calendar-month math) and doesn't read from here, so
@@ -63,8 +65,32 @@ export function CostTrendCard() {
     return defaultRangeForBucket(bucket);
   }, [bucket, useTopbar, customFrom, customTo]);
 
+  // Period-over-period delta for the trend total — uses the chart's effective
+  // range (which may differ from the topbar when in default bucket mode).
+  const deltasQ = useOverviewDeltas(range.from, range.to);
+
   const q = useCostTrend(bucket, range.from, range.to);
   const data = q.data ?? [];
+
+  const totalCostAud = data.reduce((s, p) => s + p.totalCostAud, 0);
+
+  const subtitleRangeShort =
+    useTopbar
+      ? (() => {
+          const days = Math.max(1, Math.round((new Date(range.to).getTime() - new Date(range.from).getTime()) / 86400000));
+          return `${days}d`;
+        })()
+      : (bucket === 'day' ? '30d' : bucket === 'week' ? '12w' : '12mo');
+
+  // Forecast: if the last bucket is the current incomplete period AND we're
+  // past the 5% elapsed-fraction floor AND there's spend to extrapolate
+  // from, project it forward to the end of the period.
+  const lastPoint = data[data.length - 1];
+  const progress = lastPoint ? currentPeriodProgress(lastPoint.bucket, bucket) : null;
+  const elapsedFrac = progress ? progress.elapsed / progress.total : 0;
+  const projection = (progress && elapsedFrac >= 0.05 && lastPoint && lastPoint.totalCostAud > 0)
+    ? lastPoint.totalCostAud * (progress.total / progress.elapsed)
+    : null;
 
   // Map to LineChart's data shape. The `key` carries the bucket string so we
   // can resolve clicks back to the drawer window.
@@ -80,7 +106,7 @@ export function CostTrendCard() {
     <>
       <Card
         title="Client cost trend"
-        subtitle={`${bucket === 'day' ? 'Daily' : bucket === 'week' ? 'Weekly' : 'Monthly'} — ${windowDescription(bucket, useTopbar)}${!hasAnySpend && !q.isLoading ? ' · no spend in this period' : ''}`}
+        subtitle={`${bucket === 'day' ? 'Daily' : bucket === 'week' ? 'Weekly' : 'Monthly'} — ${windowDescription(bucket, useTopbar)} · ${moneyAud(totalCostAud)} total${!hasAnySpend && !q.isLoading ? ' · no spend in this period' : ''}`}
         padding={16}
         action={
           <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
@@ -108,6 +134,15 @@ export function CostTrendCard() {
           </div>
         }
       >
+        {deltasQ.data && (
+          <div style={{ marginBottom: 8 }}>
+            <Delta
+              current={deltasQ.data.current.totalCostAud}
+              prior={deltasQ.data.prior.totalCostAud}
+              rangeLabel={subtitleRangeShort}
+            />
+          </div>
+        )}
         {q.isError ? (
           <div style={{ fontSize: 13, color: 'var(--red)', padding: '8px 0' }}>
             Couldn't load cost trend.
@@ -117,9 +152,11 @@ export function CostTrendCard() {
             data={chartData}
             height={200}
             formatMax={moneyAud}
+            dashedTail={projection != null ? { toValue: projection } : null}
             onPointClick={(d) => d.key && setSelectedBucket(d.key)}
             renderTooltip={(d) => {
               const point = data.find(p => p.bucket === d.key);
+              const isCurrentBucket = lastPoint && d.key === lastPoint.bucket && projection != null;
               return (
                 <>
                   <div style={{ fontWeight: 600 }}>{d.label}</div>
@@ -127,6 +164,11 @@ export function CostTrendCard() {
                   {point && (
                     <div style={{ color: 'var(--text-muted)', fontSize: 10, marginTop: 2 }}>
                       {fmt.hours(point.totalHours)} · {point.entryCount} entr{point.entryCount === 1 ? 'y' : 'ies'}
+                    </div>
+                  )}
+                  {isCurrentBucket && projection != null && (
+                    <div style={{ color: 'var(--text-muted)', fontSize: 10, marginTop: 4, fontStyle: 'italic' }}>
+                      Projected: {moneyAud(projection)} at current pace
                     </div>
                   )}
                 </>
