@@ -255,7 +255,10 @@ export class ReportsService {
     };
 
     const [currentRows, priorRows] = await Promise.all([
+      // 'lte': current window is closed-right on `to` (matches other endpoints).
       sumWindow(from, to, 'lte'),
+      // 'lt': prior window is open-right on `from` so a row at exactly `from`
+      // is counted only in the current window, not both.
       sumWindow(priorFrom, priorTo, 'lt'),
     ]);
 
