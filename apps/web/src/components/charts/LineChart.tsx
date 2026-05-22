@@ -204,6 +204,37 @@ export function LineChart({
           }}
         />
       </svg>
+      {/*
+        Markers are HTML overlays, not SVG circles. The SVG uses
+        preserveAspectRatio="none", which stretches the X axis ~15× to fill
+        the card width — that turned `<circle>` markers into horizontal
+        dashes. Positioning the dots as absolutely-placed DOM elements keeps
+        them perfectly circular regardless of the SVG aspect ratio.
+      */}
+      {points.map(([x, y], i) => {
+        const isHover = hoverIdx === i;
+        const size = isHover ? 8 : 6;
+        return (
+          <span
+            key={i}
+            aria-hidden
+            style={{
+              position: 'absolute',
+              left: `${(x / w) * 100}%`,
+              top: y,
+              width: size,
+              height: size,
+              borderRadius: '50%',
+              background: color,
+              boxShadow: isHover ? `0 0 0 3px ${color}33` : 'none',
+              transform: 'translate(-50%, -50%)',
+              transition: 'width 120ms ease-out, height 120ms ease-out, box-shadow 120ms ease-out',
+              pointerEvents: 'none',
+              zIndex: 1,
+            }}
+          />
+        );
+      })}
       {tooltipNode}
       <div
         style={{
