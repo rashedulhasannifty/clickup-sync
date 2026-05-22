@@ -23,11 +23,11 @@ export function CostBucketDrawer({ open, bucket, bucketType, onClose }: CostBuck
 
   // Compute the window unconditionally when we have a bucket, so the
   // react-query key is stable per bucket+type pair.
-  const window = bucket ? bucketWindowUtc(bucket, bucketType) : null;
+  const bucketRange = bucket ? bucketWindowUtc(bucket, bucketType) : null;
 
   const q = useQuery<ClientRow[]>({
     queryKey: ['cost-trend-drawer', bucketType, bucket],
-    queryFn: () => reportsApi.timeEntriesByClient({ from: window!.from, to: window!.to }),
+    queryFn: () => reportsApi.timeEntriesByClient({ from: bucketRange!.from, to: bucketRange!.to }),
     enabled: open && !!bucket,
   });
 
@@ -106,8 +106,8 @@ export function CostBucketDrawer({ open, bucket, bucketType, onClose }: CostBuck
                   <tr
                     key={r.client}
                     onClick={() => {
-                      if (!window) return;
-                      navigate(`/time-entries?from=${encodeURIComponent(window.from)}&to=${encodeURIComponent(window.to)}&search=${encodeURIComponent(r.client)}`);
+                      if (!bucketRange) return;
+                      navigate(`/time-entries?from=${encodeURIComponent(bucketRange.from)}&to=${encodeURIComponent(bucketRange.to)}&search=${encodeURIComponent(r.client)}`);
                     }}
                     style={{ cursor: 'pointer', borderBottom: '1px solid var(--border-soft)' }}
                     onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = 'var(--hover)'}

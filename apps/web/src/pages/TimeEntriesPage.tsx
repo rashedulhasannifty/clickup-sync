@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Clock, DollarSign, AlertTriangle, CircleCheck, Download, RefreshCw,
@@ -42,7 +42,7 @@ const STATUS_OPTIONS = [
 export function TimeEntriesPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { space, fromDate, toDate } = useGlobalFilters();
+  const { space, fromDate, toDate, setDateRange, setCustomFrom, setCustomTo } = useGlobalFilters();
   const { data: byUser } = useTimeEntriesByUser();
   const syncAllTimeEntries = useSyncAllTimeEntries();
 
@@ -50,6 +50,35 @@ export function TimeEntriesPage() {
   const [pageSize, setPageSize] = useState(50);
   const [searchRaw, setSearchRaw] = useState('');
   const [search, setSearch] = useState('');
+
+  // Apply URL params from external navigations (e.g. CostBucketDrawer row click
+  // passes ?from=...&to=...&search=...). We snapshot the params once and clear
+  // them so back-navigation doesn't re-apply, and so the global filter context
+  // is the only source of truth once the page is interactive.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const urlSearch = searchParams.get('search');
+    const urlFrom = searchParams.get('from');
+    const urlTo = searchParams.get('to');
+    if (!urlSearch && !urlFrom && !urlTo) return;
+
+    if (urlSearch) {
+      setSearchRaw(urlSearch);
+      setSearch(urlSearch);
+    }
+    if (urlFrom && urlTo) {
+      setDateRange('custom');
+      setCustomFrom(urlFrom);
+      setCustomTo(urlTo);
+    }
+    // Strip the params now that we've consumed them.
+    setSearchParams({}, { replace: true });
+    // We intentionally run this effect only once on mount. The deps are stable
+    // setters from context plus searchParams (we re-read but don't depend on
+    // its identity for re-runs).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [userId, setUserId] = useState('');
   const [billable, setBillable] = useState('');
   const [status, setStatus] = useState('');
