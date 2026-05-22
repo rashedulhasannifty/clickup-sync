@@ -42,3 +42,14 @@ export const reportsApi = {
       .get('/admin/rates', { params: { page: 1, limit: 200, ...params } })
       .then((r) => parseRatesListResponse(r.data)),
 };
+
+export interface CycleTimeItem { bucket: string; meanHours: number; medianHours: number; p90Hours: number; taskCount: number; }
+export interface TimeInStatusItem { status: string; color: string | null; totalHours: number; taskCount: number; }
+export interface ReportMeta { minOccurredAt: string | null; }
+
+export const cycleTimeApi = {
+  cycleTime: (params: { from?: string; to?: string; groupBy?: 'week' | 'client' | 'department' } = {}): Promise<{ items: CycleTimeItem[]; meta: ReportMeta }> =>
+    apiClient.get('/reports/cycle-time', { params }).then(r => r.data),
+  timeInStatus: (params: { from?: string; to?: string } = {}): Promise<{ items: TimeInStatusItem[]; meta: ReportMeta }> =>
+    apiClient.get('/reports/time-in-status', { params }).then(r => r.data),
+};

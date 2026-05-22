@@ -215,3 +215,21 @@ export function useOverviewDeltas(from?: string, to?: string) {
     placeholderData: keepPreviousData,
   });
 }
+
+import { cycleTimeApi } from '../api/reports';
+
+export function useCycleTime(params: { from?: string; to?: string; groupBy?: 'week' | 'client' | 'department' } = {}) {
+  return useQuery({
+    queryKey: ['cycle-time', params],
+    queryFn: () => cycleTimeApi.cycleTime(params),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useTimeInStatus(params: { from?: string; to?: string } = {}) {
+  return useQuery({
+    queryKey: ['time-in-status', params],
+    queryFn: () => cycleTimeApi.timeInStatus(params),
+    refetchInterval: 60_000,
+  });
+}
