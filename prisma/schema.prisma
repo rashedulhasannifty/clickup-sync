@@ -214,3 +214,40 @@ model TimeEntryReplacement {
   @@index([originalUserId])
   @@map("time_entry_replacements")
 }
+
+model AdminAuditLog {
+  id           BigInt   @id @default(autoincrement())
+  occurredAt   DateTime @default(now()) @map("occurred_at")
+  actor        String?
+  method       String
+  path         String
+  routePattern String?  @map("route_pattern")
+  statusCode   Int      @map("status_code")
+  durationMs   Int?     @map("duration_ms")
+  ip           String?
+  userAgent    String?  @map("user_agent")
+  requestBody  Json?    @map("request_body")
+  errorMessage String?  @map("error_message")
+
+  @@index([occurredAt])
+  @@index([actor, occurredAt])
+  @@index([routePattern, occurredAt])
+  @@map("admin_audit_log")
+}
+
+model ClickupTaskEvent {
+  id                BigInt   @id @default(autoincrement())
+  taskId            String   @map("task_id")
+  eventType         String   @map("event_type")
+  occurredAt        DateTime @map("occurred_at")
+  changedByUserId   String?  @map("changed_by_user_id")
+  changedByUserName String?  @map("changed_by_user_name")
+  before            Json?
+  after             Json?
+  fingerprint       String   @unique
+  raw               Json?
+
+  @@index([taskId, occurredAt])
+  @@index([eventType, occurredAt])
+  @@map("clickup_task_events")
+}
