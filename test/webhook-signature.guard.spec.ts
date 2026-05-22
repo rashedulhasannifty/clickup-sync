@@ -1,5 +1,5 @@
 import * as crypto from 'crypto';
-import { UnauthorizedException } from '@nestjs/common';
+import { InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
 import { WebhookSignatureGuard } from '../src/webhooks/webhook-signature.guard';
 
 describe('WebhookSignatureGuard', () => {
@@ -31,5 +31,16 @@ describe('WebhookSignatureGuard', () => {
 
   it('passes and warns when CLICKUP_WEBHOOK_SECRET is empty (dev mode)', () => {
     expect(makeGuard('').canActivate(makeCtx(undefined, undefined))).toBe(true);
+  });
+
+  it('throws InternalServerErrorException in production when secret is empty', () => {
+    const prevEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(() => makeGuard('').canActivate(makeCtx(undefined, undefined)))
+        .toThrow(/Webhook secret missing in production/);
+    } finally {
+      process.env.NODE_ENV = prevEnv;
+    }
   });
 });

@@ -1,4 +1,11 @@
-import { CanActivate, ExecutionContext, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import type { Request } from 'express';
@@ -13,6 +20,10 @@ export class WebhookSignatureGuard implements CanActivate {
     const secret = this.config.get<string>('CLICKUP_WEBHOOK_SECRET', '');
 
     if (!secret) {
+      if (process.env.NODE_ENV === 'production') {
+        // Env validation catches this at boot; this is defense-in-depth.
+        throw new InternalServerErrorException('Webhook secret missing in production');
+      }
       this.logger.warn('CLICKUP_WEBHOOK_SECRET not set — skipping signature verification (dev mode)');
       return true;
     }
