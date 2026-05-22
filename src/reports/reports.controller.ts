@@ -167,4 +167,25 @@ export class ReportsController {
   @Get('spaces')
   @ApiOperation({ summary: 'Per-space task, hour, and cost aggregates' })
   spaces() { return this.reports.spaces(); }
+
+  @Get('cycle-time')
+  @ApiOperation({ summary: 'Cycle-time aggregates (first open → last done) bucketed by week, client, or department.' })
+  cycleTime(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('groupBy') groupBy?: string,
+  ) {
+    const groupByVal = groupBy === 'client' || groupBy === 'department' ? groupBy : 'week';
+    const fromDate = from ? new Date(from) : new Date(Date.now() - 90 * 86400000);
+    const toDate = to ? new Date(to) : new Date();
+    return this.reports.cycleTime({ from: fromDate, to: toDate, groupBy: groupByVal });
+  }
+
+  @Get('time-in-status')
+  @ApiOperation({ summary: 'Total hours each task spent in each status, over the window.' })
+  timeInStatus(@Query('from') from?: string, @Query('to') to?: string) {
+    const fromDate = from ? new Date(from) : new Date(Date.now() - 90 * 86400000);
+    const toDate = to ? new Date(to) : new Date();
+    return this.reports.timeInStatus({ from: fromDate, to: toDate });
+  }
 }
