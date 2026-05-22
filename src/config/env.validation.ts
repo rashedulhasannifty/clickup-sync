@@ -9,13 +9,31 @@ const schema = z.object({
   CLICKUP_TEAM_ID: z.string().default('3450636'),
   CLICKUP_WEBHOOK_ENDPOINT: z.string().optional().default(''),
   CLICKUP_WEBHOOK_SECRET: z.string().optional().default(''),
-  CLICKUP_WEBHOOK_EVENTS: z.string().default('taskCreated,taskUpdated,taskDeleted,taskTimeTrackedUpdated'),
+  CLICKUP_WEBHOOK_EVENTS: z.string().default(
+    'taskCreated,taskUpdated,taskDeleted,taskTimeTrackedUpdated,taskStatusUpdated'
+  ),
   CLICKUP_AGENCY_USER_ID: z.string().default('3584055'),
   ADMIN_API_KEY: z.string().optional().default(''),
   JOB_ATTEMPTS: z.coerce.number().default(5),
   JOB_BACKOFF_DELAY_MS: z.coerce.number().default(30000),
   RECONCILE_EVERY_MINUTES: z.coerce.number().default(15),
   RECONCILE_LOOKBACK_HOURS: z.coerce.number().default(2),
+}).superRefine((env, ctx) => {
+  if (env.NODE_ENV !== 'production') return;
+  if (!env.CLICKUP_WEBHOOK_SECRET) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['CLICKUP_WEBHOOK_SECRET'],
+      message: 'CLICKUP_WEBHOOK_SECRET is required when NODE_ENV=production',
+    });
+  }
+  if (!env.ADMIN_API_KEY || env.ADMIN_API_KEY.length < 32) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['ADMIN_API_KEY'],
+      message: 'ADMIN_API_KEY (min 32 chars) is required when NODE_ENV=production',
+    });
+  }
 });
 
 export type Env = z.infer<typeof schema>;
