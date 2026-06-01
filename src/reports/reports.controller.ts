@@ -86,8 +86,9 @@ export class ReportsController {
     @Query('search') search?: string,
     @Query('spaceId') spaceId?: string,
     @Query('missingOnly') missingOnly?: string,
+    @Query('client') client?: string,
   ) {
-    return this.reports.timeEntriesAggregates(userId, from, to, status, billable, search, spaceId, missingOnly);
+    return this.reports.timeEntriesAggregates(userId, from, to, status, billable, search, spaceId, missingOnly, client);
   }
 
   @Get('time-entries/cost-trend')

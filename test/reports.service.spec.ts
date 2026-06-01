@@ -645,4 +645,16 @@ describe('ReportsService', () => {
       expect(result.items[0].client).toBeNull();
     });
   });
+
+  describe('timeEntriesAggregates (client filter)', () => {
+    it('filters aggregates by client via the task relation', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).timeEntriesAggregates(
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'Acme Corp',
+      );
+      const arg = prisma.clickupTimeEntry.groupBy.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ task: { client: 'Acme Corp' } });
+    });
+  });
 });
