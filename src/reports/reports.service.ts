@@ -369,6 +369,10 @@ export class ReportsService {
     const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: from, lte: to } };
     const and: Prisma.ClickupTimeEntryWhereInput[] = [];
     if (spaceId) and.push({ task: { spaceId, isDeleted: false } });
+    // Intentionally no `isDeleted: false` here (unlike the spaceId clause):
+    // the base list shows entries regardless of task soft-deletion, so the
+    // client filter stays consistent with that. Don't "fix" this to exclude
+    // deleted tasks — it would make client-only vs client+space disagree.
     if (client) and.push({ task: { client } });
     if (userId) where.userId = userId;
     if (missingOnly === 'true') {
@@ -458,6 +462,10 @@ export class ReportsService {
     const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: from, lte: to } };
     const and: Prisma.ClickupTimeEntryWhereInput[] = [];
     if (spaceId) and.push({ task: { spaceId, isDeleted: false } });
+    // Intentionally no `isDeleted: false` here (unlike the spaceId clause):
+    // the base list shows entries regardless of task soft-deletion, so the
+    // client filter stays consistent with that. Don't "fix" this to exclude
+    // deleted tasks — it would make client-only vs client+space disagree.
     if (client) and.push({ task: { client } });
     if (userId) where.userId = userId;
     if (missingOnly === 'true') {
