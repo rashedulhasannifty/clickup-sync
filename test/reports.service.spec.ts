@@ -63,6 +63,31 @@ describe('ReportsService', () => {
     });
   });
 
+  describe('tasksClients', () => {
+    it('maps distinct client rows to { client, taskCount }', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([
+        { client: 'Acme Corp', task_count: BigInt(12) },
+        { client: 'Globex', task_count: BigInt(3) },
+      ]);
+      const result = await new ReportsService(prisma).tasksClients();
+      expect(result).toEqual([
+        { client: 'Acme Corp', taskCount: 12 },
+        { client: 'Globex', taskCount: 3 },
+      ]);
+    });
+
+    it('excludes soft-deleted tasks and empty clients in the SQL', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new ReportsService(prisma).tasksClients();
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/is_deleted\s*=\s*false/);
+      expect(sqlText).toMatch(/client\s*<>\s*''/);
+    });
+  });
+
   describe('timeEntriesByUser', () => {
     it('converts durationHours.toNumber() and costCents BigInt to totalCostAud', async () => {
       const prisma = makePrisma();

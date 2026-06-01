@@ -108,6 +108,20 @@ export class ReportsService {
     return rows.map((r) => ({ name: r.name, email: r.email, taskCount: Number(r.task_count) }));
   }
 
+  async tasksClients() {
+    type Row = { client: string; task_count: bigint };
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      SELECT client, COUNT(*)::bigint AS task_count
+      FROM clickup_tasks
+      WHERE is_deleted = false
+        AND client IS NOT NULL
+        AND client <> ''
+      GROUP BY client
+      ORDER BY client ASC
+    `);
+    return rows.map((r) => ({ client: r.client, taskCount: Number(r.task_count) }));
+  }
+
   async tasks(
     spaceId?: string,
     status?: string,
