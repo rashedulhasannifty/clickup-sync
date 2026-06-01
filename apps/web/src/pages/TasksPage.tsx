@@ -5,7 +5,7 @@ import {
   Search, Download, RefreshCw, X, CheckSquare, Copy, ExternalLink,
   CircleCheck, Inbox,
 } from 'lucide-react';
-import { useTasks, useTasksAssignees, useTasksSummary } from '../hooks/useReports';
+import { useTasks, useTasksAssignees, useTasksSummary, useClients } from '../hooks/useReports';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Pill } from '../components/ui/Pill';
@@ -233,6 +233,7 @@ export function TasksPage() {
   const queryClient = useQueryClient();
   const { data: assigneesData } = useTasksAssignees();
   const { data: summary } = useTasksSummary();
+  const { data: clientsData } = useClients();
 
   // Debounced search: typing fires `searchRaw` immediately, but the request
   // (and `page=1` reset) only fire after 300ms of quiet, matching TimeEntriesPage.
@@ -242,6 +243,7 @@ export function TasksPage() {
   const [priorityFilter, setPriorityFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
   const [assigneeFilter, setAssigneeFilter] = useState('');
+  const [clientFilter, setClientFilter] = useState('');
   const [archivedFilter, setArchivedFilter] = useState('exclude');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -271,6 +273,17 @@ export function TasksPage() {
     return opts;
   }, [assigneesData]);
 
+  const clientOptions = useMemo(() => {
+    const rows = (Array.isArray(clientsData) ? clientsData : []) as { client: string; taskCount?: number }[];
+    const opts = [{ value: '', label: 'Any client' }];
+    for (const r of rows) {
+      if (!r.client) continue;
+      const count = typeof r.taskCount === 'number' ? ` (${r.taskCount})` : '';
+      opts.push({ value: r.client, label: `${r.client}${count}` });
+    }
+    return opts;
+  }, [clientsData]);
+
   // Drive status dropdown from actual stored statuses so picking one always matches.
   // ClickUp statuses are list-configured strings — a hardcoded list misses real values
   // (e.g. "to do", "complete") and includes ones that never appear (e.g. "open").
@@ -296,11 +309,12 @@ export function TasksPage() {
     type: typeFilter || undefined,
     search: search || undefined,
     assigneeId: assigneeFilter || undefined,
+    client: clientFilter || undefined,
     archived: archivedFilter,
     // Global topbar date range filters by task `updated_date`.
     from: fromDate || undefined,
     to: toDate || undefined,
-  }), [page, pageSize, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, archivedFilter, fromDate, toDate]);
+  }), [page, pageSize, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, archivedFilter, fromDate, toDate]);
 
   const tasksQuery = useTasks(taskParams as Record<string, string | number | undefined>);
   const { data, isLoading, refetch } = tasksQuery;
@@ -311,7 +325,7 @@ export function TasksPage() {
   const openTask = taskId ? (items.find((t) => String(t.taskId ?? t.task_id) === taskId) ?? null) : null;
 
   const hasFilters = !!(
-    searchRaw || search || statusFilter || priorityFilter || typeFilter || assigneeFilter || archivedFilter !== 'exclude'
+    searchRaw || search || statusFilter || priorityFilter || typeFilter || assigneeFilter || clientFilter || archivedFilter !== 'exclude'
   );
 
   function reset() {
@@ -321,6 +335,7 @@ export function TasksPage() {
     setPriorityFilter('');
     setTypeFilter('');
     setAssigneeFilter('');
+    setClientFilter('');
     setArchivedFilter('exclude');
     setPage(1);
   }
@@ -591,6 +606,7 @@ export function TasksPage() {
         <Select size="md" value={statusFilter} onChange={v => { setStatusFilter(v); setPage(1); }} options={statusOptions} />
         <Select size="md" value={priorityFilter} onChange={v => { setPriorityFilter(v); setPage(1); }} options={PRIORITY_OPTIONS} />
         <Select size="md" value={assigneeFilter} onChange={v => { setAssigneeFilter(v); setPage(1); }} options={assigneeOptions} />
+        <Select size="md" value={clientFilter} onChange={v => { setClientFilter(v); setPage(1); }} options={clientOptions} />
         <Select size="md" value={typeFilter} onChange={v => { setTypeFilter(v); setPage(1); }} options={TYPE_OPTIONS} />
         <Select size="md" value={archivedFilter} onChange={v => { setArchivedFilter(v); setPage(1); }} options={ARCHIVED_OPTIONS} />
         {hasFilters && (
