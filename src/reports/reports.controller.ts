@@ -122,9 +122,10 @@ export class ReportsController {
     @Query('search') search?: string,
     @Query('spaceId') spaceId?: string,
     @Query('missingOnly') missingOnly?: string,
+    @Query('client') client?: string,
   ) {
     return this.reports.timeEntriesList(
-      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly,
+      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly, client,
     );
   }
 

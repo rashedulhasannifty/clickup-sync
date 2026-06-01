@@ -446,6 +446,7 @@ export class ReportsService {
     search?: string,
     spaceId?: string,
     missingOnly?: string,
+    client?: string,
   ) {
     // Same rationale as `tasks()`: cap allows CSV export to fetch the entire
     // filtered set; normal pagination tops out at 100 rows/page.
@@ -455,6 +456,7 @@ export class ReportsService {
     const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: from, lte: to } };
     const and: Prisma.ClickupTimeEntryWhereInput[] = [];
     if (spaceId) and.push({ task: { spaceId, isDeleted: false } });
+    if (client) and.push({ task: { client } });
     if (userId) where.userId = userId;
     if (missingOnly === 'true') {
       where.status = 'NO_RATE_FOUND';
@@ -487,7 +489,7 @@ export class ReportsService {
           startTime: true, endTime: true, durationHours: true, hourlyRateCents: true,
           costCents: true, status: true, billable: true, description: true, syncedAt: true,
           rateId: true, currency: true,
-          task: { select: { taskName: true } },
+          task: { select: { taskName: true, client: true } },
         },
       }),
       this.prisma.clickupTimeEntry.count({ where }),
@@ -497,6 +499,7 @@ export class ReportsService {
         timeEntryId: e.timeEntryId,
         taskId: e.taskId ?? '',
         taskName: e.task?.taskName ?? null,
+        client: e.task?.client ?? null,
         userId: e.userId ?? '',
         userName: e.userName,
         userEmail: e.userEmail,
