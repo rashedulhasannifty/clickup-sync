@@ -18,6 +18,10 @@ export function useTasksAssignees() {
   return useQuery({ queryKey: ['tasks-assignees'], queryFn: reportsApi.tasksAssignees });
 }
 
+export function useClients() {
+  return useQuery({ queryKey: ['clients'], queryFn: reportsApi.clients });
+}
+
 export function useTasks(params: Record<string, string | number | undefined>) {
   return useQuery({
     queryKey: ['tasks', params],
