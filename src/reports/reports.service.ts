@@ -108,6 +108,20 @@ export class ReportsService {
     return rows.map((r) => ({ name: r.name, email: r.email, taskCount: Number(r.task_count) }));
   }
 
+  async tasksClients() {
+    type Row = { client: string; task_count: bigint };
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      SELECT client, COUNT(*)::bigint AS task_count
+      FROM clickup_tasks
+      WHERE is_deleted = false
+        AND client IS NOT NULL
+        AND client <> ''
+      GROUP BY client
+      ORDER BY client ASC
+    `);
+    return rows.map((r) => ({ client: r.client, taskCount: Number(r.task_count) }));
+  }
+
   async tasks(
     spaceId?: string,
     status?: string,
@@ -120,6 +134,7 @@ export class ReportsService {
     assigneeId?: string,
     type?: string,
     archived?: string,
+    client?: string,
   ) {
     // Cap kept generous so the dashboard's "Export CSV" can pull a complete
     // filtered set in one shot. The page UI never offers > 100 rows/page, so
@@ -139,6 +154,7 @@ export class ReportsService {
     if (spaceId) where.spaceId = spaceId;
     if (status) where.status = status;
     if (priority) where.priority = priority;
+    if (client) where.client = client;
     if (type === 'parent') where.parentTaskId = null;
     if (type === 'subtask') where.parentTaskId = { not: null };
     if (assigneeId) where.assigneesNames = { contains: assigneeId, mode: 'insensitive' };
@@ -346,12 +362,18 @@ export class ReportsService {
     search?: string,
     spaceId?: string,
     missingOnly?: string,
+    client?: string,
   ) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
     const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: from, lte: to } };
     const and: Prisma.ClickupTimeEntryWhereInput[] = [];
     if (spaceId) and.push({ task: { spaceId, isDeleted: false } });
+    // Intentionally no `isDeleted: false` here (unlike the spaceId clause):
+    // the base list shows entries regardless of task soft-deletion, so the
+    // client filter stays consistent with that. Don't "fix" this to exclude
+    // deleted tasks — it would make client-only vs client+space disagree.
+    if (client) and.push({ task: { client } });
     if (userId) where.userId = userId;
     if (missingOnly === 'true') {
       where.status = 'NO_RATE_FOUND';
@@ -430,6 +452,7 @@ export class ReportsService {
     search?: string,
     spaceId?: string,
     missingOnly?: string,
+    client?: string,
   ) {
     // Same rationale as `tasks()`: cap allows CSV export to fetch the entire
     // filtered set; normal pagination tops out at 100 rows/page.
@@ -439,6 +462,11 @@ export class ReportsService {
     const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: from, lte: to } };
     const and: Prisma.ClickupTimeEntryWhereInput[] = [];
     if (spaceId) and.push({ task: { spaceId, isDeleted: false } });
+    // Intentionally no `isDeleted: false` here (unlike the spaceId clause):
+    // the base list shows entries regardless of task soft-deletion, so the
+    // client filter stays consistent with that. Don't "fix" this to exclude
+    // deleted tasks — it would make client-only vs client+space disagree.
+    if (client) and.push({ task: { client } });
     if (userId) where.userId = userId;
     if (missingOnly === 'true') {
       where.status = 'NO_RATE_FOUND';
@@ -471,7 +499,7 @@ export class ReportsService {
           startTime: true, endTime: true, durationHours: true, hourlyRateCents: true,
           costCents: true, status: true, billable: true, description: true, syncedAt: true,
           rateId: true, currency: true,
-          task: { select: { taskName: true } },
+          task: { select: { taskName: true, client: true } },
         },
       }),
       this.prisma.clickupTimeEntry.count({ where }),
@@ -481,6 +509,7 @@ export class ReportsService {
         timeEntryId: e.timeEntryId,
         taskId: e.taskId ?? '',
         taskName: e.task?.taskName ?? null,
+        client: e.task?.client ?? null,
         userId: e.userId ?? '',
         userName: e.userName,
         userEmail: e.userEmail,

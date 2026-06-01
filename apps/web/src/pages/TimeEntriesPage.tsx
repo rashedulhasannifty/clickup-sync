@@ -5,7 +5,7 @@ import {
   Clock, DollarSign, AlertTriangle, CircleCheck, Download, RefreshCw,
   Search, X,
 } from 'lucide-react';
-import { useTimeEntriesList, useTimeEntriesByUser, useTimeEntriesAggregates } from '../hooks/useReports';
+import { useTimeEntriesList, useTimeEntriesByUser, useTimeEntriesAggregates, useClients } from '../hooks/useReports';
 import { useMutation } from '@tanstack/react-query';
 import { reportsApi } from '../api/reports';
 import { csvFilename, downloadCsv, toCsv, type CsvColumn } from '../lib/csv';
@@ -44,6 +44,7 @@ export function TimeEntriesPage() {
   const queryClient = useQueryClient();
   const { space, fromDate, toDate, setDateRange, setCustomFrom, setCustomTo } = useGlobalFilters();
   const { data: byUser } = useTimeEntriesByUser();
+  const { data: clientsData } = useClients();
   const syncAllTimeEntries = useSyncAllTimeEntries();
 
   const [page, setPage] = useState(1);
@@ -83,6 +84,7 @@ export function TimeEntriesPage() {
   const [billable, setBillable] = useState('');
   const [status, setStatus] = useState('');
   const [missingOnly, setMissingOnly] = useState(false);
+  const [clientFilter, setClientFilter] = useState('');
   const [selectedEntry, setSelectedEntry] = useState<TimeEntryItem | null>(null);
   // Inline banner replaces the previous `alert()` for sync results — a native
   // alert blocked the page until dismissed and looked off-brand. Banner
@@ -125,18 +127,29 @@ export function TimeEntriesPage() {
     return opts;
   }, [byUser]);
 
+  const clientOptions = useMemo(() => {
+    const rows = (Array.isArray(clientsData) ? clientsData : []) as { client: string; taskCount?: number }[];
+    const opts = [{ value: '', label: 'Any client' }];
+    for (const r of rows) {
+      if (!r.client) continue;
+      opts.push({ value: r.client, label: r.client });
+    }
+    return opts;
+  }, [clientsData]);
+
   const params: Record<string, string | number | undefined> = useMemo(() => ({
     limit: pageSize,
     offset: (page - 1) * pageSize,
     search: search || undefined,
     userId: userId || undefined,
+    client: clientFilter || undefined,
     billable: billable === 'true' || billable === 'false' ? billable : undefined,
     status: missingOnly ? undefined : (status || undefined),
     missingOnly: missingOnly ? 'true' : undefined,
     spaceId: space !== 'all' ? space : undefined,
     from: fromDate || undefined,
     to: toDate || undefined,
-  }), [pageSize, page, search, userId, billable, status, missingOnly, space, fromDate, toDate]);
+  }), [pageSize, page, search, userId, clientFilter, billable, status, missingOnly, space, fromDate, toDate]);
 
   const timeEntriesQuery = useTimeEntriesList(params);
   const { data, isLoading } = timeEntriesQuery;
@@ -151,6 +164,7 @@ export function TimeEntriesPage() {
         { header: 'User ID',       value: 'userId' },
         { header: 'User name',     value: 'userName' },
         { header: 'User email',    value: 'userEmail' },
+        { header: 'Client',        value: 'client' },
         { header: 'Start',         value: 'startTime' },
         { header: 'End',           value: 'endTime' },
         { header: 'Duration (h)', value: 'durationHours' },
@@ -191,13 +205,14 @@ export function TimeEntriesPage() {
   const calculatedCount = agg?.costCalculatedCount ?? 0;
 
   const hasFilters = !!(
-    search || userId || billable || status || missingOnly
+    search || userId || clientFilter || billable || status || missingOnly
   );
 
   const reset = useCallback(() => {
     setSearchRaw('');
     setSearch('');
     setUserId('');
+    setClientFilter('');
     setBillable('');
     setStatus('');
     setMissingOnly(false);
@@ -238,6 +253,16 @@ export function TimeEntriesPage() {
           <Avatar user={{ name: row.userName }} size={22} />
           <span style={{ fontSize: 13 }}>{row.userName}</span>
         </span>
+      ),
+    },
+    {
+      key: 'client',
+      header: 'Client',
+      width: 140,
+      render: (row) => (
+        row.client
+          ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{row.client}</span>
+          : <span style={{ color: 'var(--text-faint)' }}>—</span>
       ),
     },
     {
@@ -417,6 +442,7 @@ export function TimeEntriesPage() {
           />
         </div>
         <Select size="md" options={assigneeOptions} value={userId} onChange={(v) => { setUserId(v); setPage(1); }} />
+        <Select size="md" options={clientOptions} value={clientFilter} onChange={(v) => { setClientFilter(v); setPage(1); }} />
         <Select size="md" options={BILLABLE_OPTIONS} value={billable} onChange={(v) => { setBillable(v); setPage(1); }} />
         <Select size="md" options={STATUS_OPTIONS} value={status} onChange={(v) => { setStatus(v); setPage(1); }} disabled={missingOnly} />
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' }}>
