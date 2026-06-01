@@ -88,6 +88,25 @@ describe('ReportsService', () => {
     });
   });
 
+  describe('tasks (client filter)', () => {
+    it('adds an exact client equality to the where clause when client is given', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, 'Acme Corp',
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.client).toBe('Acme Corp');
+    });
+
+    it('omits the client clause when client is undefined', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).tasks();
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.client).toBeUndefined();
+    });
+  });
+
   describe('timeEntriesByUser', () => {
     it('converts durationHours.toNumber() and costCents BigInt to totalCostAud', async () => {
       const prisma = makePrisma();

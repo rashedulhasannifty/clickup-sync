@@ -134,6 +134,7 @@ export class ReportsService {
     assigneeId?: string,
     type?: string,
     archived?: string,
+    client?: string,
   ) {
     // Cap kept generous so the dashboard's "Export CSV" can pull a complete
     // filtered set in one shot. The page UI never offers > 100 rows/page, so
@@ -153,6 +154,7 @@ export class ReportsService {
     if (spaceId) where.spaceId = spaceId;
     if (status) where.status = status;
     if (priority) where.priority = priority;
+    if (client) where.client = client;
     if (type === 'parent') where.parentTaskId = null;
     if (type === 'subtask') where.parentTaskId = { not: null };
     if (assigneeId) where.assigneesNames = { contains: assigneeId, mode: 'insensitive' };
