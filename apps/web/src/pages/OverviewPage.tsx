@@ -179,6 +179,14 @@ export function OverviewPage() {
     .slice(0, 6)
     .map((r, i) => ({ label: r.userName, value: r.totalHours, color: SPACE_COLORS[i % SPACE_COLORS.length] }));
 
+  // BarChart: cost by assignee (top 6). Same source array as timeByUserData
+  // but sorted/mapped by totalCostAud. Raw dollars are passed straight to
+  // moneyAud() in the card body, matching the "Cost by department" tile.
+  const costByUserData = [...userRows]
+    .sort((a, b) => b.totalCostAud - a.totalCostAud)
+    .slice(0, 6)
+    .map((r, i) => ({ label: r.userName, value: r.totalCostAud, color: SPACE_COLORS[i % SPACE_COLORS.length] }));
+
   // BarChart: cost by department
   const deptRows = (timeByDept.data as DeptTimeRow[] | undefined) ?? [];
   const costByDeptData = [...deptRows]
@@ -372,6 +380,10 @@ export function OverviewPage() {
 
         <Card title="Time tracked by assignee" subtitle={`Hours logged in ${dateRangeLabel}`} padding={16}>
           <BarChart data={timeByUserData} direction="horizontal" formatValue={fmt.hours} />
+        </Card>
+
+        <Card title="Cost by assignee" subtitle="Top 6 by calculated labor cost" padding={16}>
+          <BarChart data={costByUserData} direction="horizontal" formatValue={(v) => moneyAud(v)} />
         </Card>
 
         <Card title="Cost by department" subtitle="Calculated labor cost" padding={16}>
