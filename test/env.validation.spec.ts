@@ -17,20 +17,30 @@ describe('validateEnv', () => {
     const prodBase = {
       ...base,
       NODE_ENV: 'production',
-      CLICKUP_WEBHOOK_SECRET: 'wh-secret-value',
+      APP_ENCRYPTION_KEY: 'a'.repeat(64),
       ADMIN_API_KEY: 'admin-key-min-32-chars-long-padding',
     };
 
-    it('accepts production when CLICKUP_WEBHOOK_SECRET and ADMIN_API_KEY are present', () => {
+    it('accepts production when APP_ENCRYPTION_KEY and ADMIN_API_KEY are present', () => {
       const result = validateEnv(prodBase);
       expect(result.NODE_ENV).toBe('production');
-      expect(result.CLICKUP_WEBHOOK_SECRET).toBe('wh-secret-value');
+      expect(result.APP_ENCRYPTION_KEY).toBe('a'.repeat(64));
       expect(result.ADMIN_API_KEY).toBe('admin-key-min-32-chars-long-padding');
     });
 
-    it('rejects production when CLICKUP_WEBHOOK_SECRET is missing', () => {
-      expect(() => validateEnv({ ...prodBase, CLICKUP_WEBHOOK_SECRET: '' }))
-        .toThrow(/CLICKUP_WEBHOOK_SECRET/);
+    it('does NOT require CLICKUP_WEBHOOK_SECRET in production (now UI-managed)', () => {
+      const result = validateEnv({ ...prodBase, CLICKUP_WEBHOOK_SECRET: '' });
+      expect(result.CLICKUP_WEBHOOK_SECRET).toBe('');
+    });
+
+    it('rejects production when APP_ENCRYPTION_KEY is missing', () => {
+      expect(() => validateEnv({ ...prodBase, APP_ENCRYPTION_KEY: '' }))
+        .toThrow(/APP_ENCRYPTION_KEY/);
+    });
+
+    it('rejects production when APP_ENCRYPTION_KEY is too short (< 32 chars)', () => {
+      expect(() => validateEnv({ ...prodBase, APP_ENCRYPTION_KEY: 'short' }))
+        .toThrow(/APP_ENCRYPTION_KEY/);
     });
 
     it('rejects production when ADMIN_API_KEY is missing', () => {

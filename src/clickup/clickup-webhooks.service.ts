@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { ClickupClient } from './clickup.client';
+import { SettingsService } from '../settings/settings.service';
 
 export type RegisterWebhookResult =
   | { action: 'existing'; webhookId: string; endpoint: string }
-  | { action: 'created'; webhookId: string; secret: string; endpoint: string };
+  | { action: 'created'; webhookId: string; endpoint: string; secretStored: boolean };
 
 @Injectable()
 export class ClickupWebhooksService {
@@ -12,14 +12,17 @@ export class ClickupWebhooksService {
 
   constructor(
     private readonly client: ClickupClient,
-    private readonly config: ConfigService,
+    private readonly settings: SettingsService,
   ) {}
 
-  async register(): Promise<RegisterWebhookResult> {
-    const teamId = this.config.get<string>('CLICKUP_TEAM_ID', '3450636');
-    const endpoint = this.config.get<string>('CLICKUP_WEBHOOK_ENDPOINT', '');
-    const eventsRaw = this.config.get<string>('CLICKUP_WEBHOOK_EVENTS', 'taskCreated,taskUpdated,taskDeleted,taskTimeTrackedUpdated');
-    const events = eventsRaw.split(',').map((e) => e.trim()).filter(Boolean);
+  async register(actor?: string): Promise<RegisterWebhookResult> {
+    const teamId = this.settings.getTeamId();
+    const endpoint = this.settings.getWebhookEndpoint();
+    const events = this.settings
+      .getWebhookEvents()
+      .split(',')
+      .map((e) => e.trim())
+      .filter(Boolean);
 
     const existing = await this.client.getWebhooks(teamId);
     const active = existing.find((w) => w.endpoint === endpoint && w.health?.status === 'active');
@@ -30,7 +33,23 @@ export class ClickupWebhooksService {
     }
 
     const created = await this.client.createWebhook(teamId, endpoint, events);
-    this.logger.log(`New webhook registered: ${created.id}. Save the returned secret to CLICKUP_WEBHOOK_SECRET in .env and restart.`);
-    return { action: 'created', webhookId: created.id, secret: created.secret, endpoint };
+
+    // Persist the secret ClickUp returned so signature verification works
+    // immediately — no copy-paste into .env, no restart.
+    let secretStored = false;
+    if (created.secret) {
+      try {
+        await this.settings.setWebhookSecret(created.secret, actor);
+        secretStored = true;
+      } catch (err) {
+        this.logger.error(
+          `Webhook ${created.id} created but the secret could not be stored (${(err as Error).message}). ` +
+            'Set APP_ENCRYPTION_KEY so the secret can be saved.',
+        );
+      }
+    }
+
+    this.logger.log(`New webhook registered: ${created.id}. Secret stored: ${secretStored}.`);
+    return { action: 'created', webhookId: created.id, endpoint, secretStored };
   }
 }

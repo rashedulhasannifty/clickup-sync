@@ -3,15 +3,19 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { ClickUpMember, ClickUpTask, ClickUpTaskPage, ClickUpTimeEntry, ClickUpWebhook, CreateTimeEntryPayload } from './clickup.types';
 import { buildTimeEntriesQuery } from './time-entries.util';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class ClickupClient {
   private readonly logger = new Logger(ClickupClient.name);
   private readonly baseUrl = 'https://api.clickup.com/api/v2';
 
-  constructor(private readonly http: HttpService) {}
+  constructor(
+    private readonly http: HttpService,
+    private readonly settings: SettingsService,
+  ) {}
 
-  private headers() { return { Authorization: process.env.CLICKUP_API_TOKEN || '' }; }
+  private headers() { return { Authorization: this.settings.getApiToken() }; }
 
   private async request<T>(method: 'GET'|'POST'|'DELETE', path: string, data?: unknown): Promise<T> {
     try {

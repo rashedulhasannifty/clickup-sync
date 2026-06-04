@@ -7,7 +7,7 @@ describe('WebhookSignatureGuard', () => {
   const body = Buffer.from('{"event":"taskCreated","task_id":"abc"}');
 
   function makeGuard(secret: string) {
-    return new WebhookSignatureGuard({ get: (_k: string, def: string) => secret || def } as any);
+    return new WebhookSignatureGuard({ getWebhookSecret: () => secret } as any);
   }
 
   function makeCtx(rawBody: Buffer | undefined, signature: string | undefined) {
@@ -29,7 +29,7 @@ describe('WebhookSignatureGuard', () => {
     expect(() => makeGuard(SECRET).canActivate(makeCtx(body, 'badsig'))).toThrow(UnauthorizedException);
   });
 
-  it('passes and warns when CLICKUP_WEBHOOK_SECRET is empty (dev mode)', () => {
+  it('passes and warns when the webhook secret is empty (dev mode)', () => {
     expect(makeGuard('').canActivate(makeCtx(undefined, undefined))).toBe(true);
   });
 
@@ -38,7 +38,7 @@ describe('WebhookSignatureGuard', () => {
     process.env.NODE_ENV = 'production';
     try {
       expect(() => makeGuard('').canActivate(makeCtx(undefined, undefined)))
-        .toThrow(/Webhook secret missing in production/);
+        .toThrow(/Webhook secret not configured/);
     } finally {
       if (prevEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = prevEnv;

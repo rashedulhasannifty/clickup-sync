@@ -37,7 +37,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   // silently capped to the R&D Apps 20-day configured lookback.
   it('expands the time-entry window when lookbackDays override exceeds the space floor', async () => {
     const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636' } as any);
 
     const beforeMs = Date.now();
     await svc.backfillSpace(RD_APPS_ID, 140);
@@ -55,7 +55,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   // time logged earlier in the week is invisible until the next full backfill.
   it('keeps the space floor when the lookbackDays override is shorter', async () => {
     const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636' } as any);
 
     const beforeMs = Date.now();
     await svc.backfillSpace(RD_APPS_ID, 1);
@@ -71,7 +71,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   // Unknown space → no configured floor → use the override as-is.
   it('uses the lookbackDays override directly when the space is not configured', async () => {
     const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636' } as any);
 
     const beforeMs = Date.now();
     await svc.backfillSpace('99999999', 45);

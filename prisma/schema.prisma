@@ -129,6 +129,21 @@ model ClickupWebhookSeen {
   @@map("clickup_webhook_seen")
 }
 
+// Single-row table (id = "singleton") holding UI-managed ClickUp connection
+// settings. Secret columns hold AES-256-GCM ciphertext (see CryptoService).
+model AppSettings {
+  id                 String   @id @default("singleton")
+  clickupApiTokenEnc String?  @map("clickup_api_token_enc")
+  webhookSecretEnc   String?  @map("webhook_secret_enc")
+  clickupTeamId      String?  @map("clickup_team_id")
+  webhookEndpoint    String?  @map("webhook_endpoint")
+  webhookEvents      String?  @map("webhook_events")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedBy          String?  @map("updated_by")
+
+  @@map("app_settings")
+}
+
 model SyncCheckpoint {
   id                     BigInt   @id @default(autoincrement())
   source                 String

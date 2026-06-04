@@ -11,6 +11,7 @@ import { TasksService } from '../tasks/tasks.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { ReplacementJobData } from './assignee-replacement.service';
 import { ClickUpTimeEntry } from '../clickup/clickup.types';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class TimeEntriesService {
@@ -25,10 +26,11 @@ export class TimeEntriesService {
     private readonly tagAssigneeMap: TagAssigneeMapRepository,
     private readonly tasksRepo: TasksRepository,
     private readonly tasksService: TasksService,
+    private readonly settings: SettingsService,
   ) {}
 
   async syncTaskTimeEntries(taskId: string, assigneeIds?: string[], startDate?: number, endDate?: number) {
-    const teamId = process.env.CLICKUP_TEAM_ID || '3450636';
+    const teamId = this.settings.getTeamId();
 
     // Ensure the task row exists before upserting any time entries — otherwise
     // the FK on `clickup_time_entries.task_id → clickup_tasks.task_id` blows

@@ -6,6 +6,7 @@ import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { subtractDays } from '../common/utils/date-utils';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class BackfillService {
@@ -15,12 +16,13 @@ export class BackfillService {
     private readonly tasks: TasksService,
     private readonly checkpoints: SyncCheckpointsRepository,
     private readonly queues: QueueService,
+    private readonly settings: SettingsService,
   ) {}
 
   async backfillSpace(spaceId: string, lookbackDays?: number) {
     const space = CLICKUP_SPACES.find((s) => s.id === spaceId);
     const days = lookbackDays ?? space?.backfillLookbackDays ?? 7;
-    const teamId = process.env.CLICKUP_TEAM_ID || '3450636';
+    const teamId = this.settings.getTeamId();
     await this.checkpoints.markAttempt('clickup', 'space', spaceId);
 
     const rawTasks = await this.clickup.getAllTasksBySpace(spaceId, {
