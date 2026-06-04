@@ -135,6 +135,7 @@ export class ReportsService {
     type?: string,
     archived?: string,
     client?: string,
+    taskIds?: string,
   ) {
     // Cap kept generous so the dashboard's "Export CSV" can pull a complete
     // filtered set in one shot. The page UI never offers > 100 rows/page, so
@@ -158,6 +159,10 @@ export class ReportsService {
     if (type === 'parent') where.parentTaskId = null;
     if (type === 'subtask') where.parentTaskId = { not: null };
     if (assigneeId) where.assigneesNames = { contains: assigneeId, mode: 'insensitive' };
+    if (taskIds) {
+      const ids = taskIds.split(',').map(s => s.trim()).filter(Boolean);
+      if (ids.length > 0) where.taskId = { in: ids };
+    }
     if (fromParam || toParam) {
       where.updatedDate = { gte: parseDate(fromParam, new Date(0)), lte: parseDate(toParam, new Date()) };
     }
@@ -679,26 +684,95 @@ export class ReportsService {
       affected_hours: number;
       first_date: Date;
       latest_date: Date;
+      affected_task_count: bigint;
+      affected_tasks: Array<{ taskId: string; taskName: string }>;
     };
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      WITH missing AS (
+        SELECT
+          e.user_id,
+          e.task_id,
+          e.user_name,
+          e.user_email,
+          e.duration_hours,
+          e.start_time
+        FROM clickup_time_entries e
+        WHERE e.user_id IS NOT NULL
+          AND NOT EXISTS (
+            -- Inclusive closed-closed interval [valid_from, valid_to], matching
+            -- cost-calculator.service.ts. The earlier exclusive upper bound
+            -- over-counted entries on the exact valid_to boundary (e.g. an
+            -- entry on Dec 31 against a rate ending Dec 31): cost-calculator
+            -- costs them as COST_CALCULATED, but the card still listed them
+            -- as missing. Card and page-aggregate counts then diverged by
+            -- exactly the boundary count.
+            SELECT 1 FROM assignee_rates r
+            WHERE r.assignee_id = e.user_id
+              AND r.valid_from <= e.start_time::date
+              AND (r.valid_to IS NULL OR r.valid_to >= e.start_time::date)
+          )
+      ),
+      per_user AS (
+        SELECT
+          user_id,
+          MAX(user_name) AS user_name,
+          MAX(user_email) AS user_email,
+          COUNT(*)::bigint AS missing_count,
+          COALESCE(SUM(duration_hours), 0)::float AS affected_hours,
+          MIN(start_time) AS first_date,
+          MAX(start_time) AS latest_date
+        FROM missing
+        GROUP BY user_id
+      ),
+      tasks_per_user AS (
+        -- INNER JOIN + is_deleted = false: the Tasks page hard-filters
+        -- soft-deleted rows (reports.service.ts tasks() line 145), so we must
+        -- not list/count tasks here that the "Show more" deep link can't show.
+        -- Otherwise the card's count would exceed what the Tasks page renders.
+        SELECT
+          m.user_id,
+          m.task_id,
+          MAX(t.task_name) AS task_name,
+          MAX(m.start_time) AS task_latest
+        FROM missing m
+        JOIN clickup_tasks t ON t.task_id = m.task_id AND t.is_deleted = false
+        WHERE m.task_id IS NOT NULL
+        GROUP BY m.user_id, m.task_id
+      ),
+      ranked AS (
+        SELECT
+          user_id,
+          task_id,
+          task_name,
+          task_latest,
+          ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY task_latest DESC) AS rn
+        FROM tasks_per_user
+      ),
+      agg_tasks AS (
+        SELECT
+          user_id,
+          COUNT(*)::bigint AS affected_task_count,
+          COALESCE(
+            jsonb_agg(jsonb_build_object('taskId', task_id, 'taskName', task_name) ORDER BY task_latest DESC)
+              FILTER (WHERE rn <= 500),
+            '[]'::jsonb
+          ) AS affected_tasks
+        FROM ranked
+        GROUP BY user_id
+      )
       SELECT
-        e.user_id,
-        MAX(e.user_name) AS user_name,
-        MAX(e.user_email) AS user_email,
-        COUNT(*)::bigint AS missing_count,
-        COALESCE(SUM(e.duration_hours), 0)::float AS affected_hours,
-        MIN(e.start_time) AS first_date,
-        MAX(e.start_time) AS latest_date
-      FROM clickup_time_entries e
-      WHERE e.user_id IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM assignee_rates r
-          WHERE r.assignee_id = e.user_id
-            AND r.valid_from <= e.start_time::date
-            AND (r.valid_to IS NULL OR r.valid_to > e.start_time::date)
-        )
-      GROUP BY e.user_id
-      ORDER BY COUNT(*) DESC
+        pu.user_id,
+        pu.user_name,
+        pu.user_email,
+        pu.missing_count,
+        pu.affected_hours,
+        pu.first_date,
+        pu.latest_date,
+        COALESCE(at.affected_task_count, 0)::bigint AS affected_task_count,
+        COALESCE(at.affected_tasks, '[]'::jsonb) AS affected_tasks
+      FROM per_user pu
+      LEFT JOIN agg_tasks at USING (user_id)
+      ORDER BY pu.missing_count DESC
     `);
     return rows.map(r => ({
       userId: r.user_id,
@@ -708,6 +782,8 @@ export class ReportsService {
       affectedHours: Number(r.affected_hours),
       firstDate: r.first_date,
       latestDate: r.latest_date,
+      affectedTaskCount: Number(r.affected_task_count),
+      affectedTasks: r.affected_tasks ?? [],
     }));
   }
 

@@ -43,6 +43,11 @@ const TAB_ITEMS = [
   { value: 'queue', label: 'Triage queue' },
 ];
 
+interface AffectedTask {
+  taskId: string;
+  taskName: string;
+}
+
 interface MissingRateItem {
   userId: string;
   userName: string;
@@ -51,6 +56,8 @@ interface MissingRateItem {
   affectedHours: number;
   firstDate: string;
   latestDate: string;
+  affectedTaskCount: number;
+  affectedTasks: AffectedTask[];
 }
 
 function getSeverity(missingCount: number): {
@@ -67,10 +74,22 @@ function estimatedMissingCostCents(row: MissingRateItem): number {
   return Math.round(row.affectedHours * PLACEHOLDER_RATE_CENTS_PER_H);
 }
 
+const INLINE_TASK_LIMIT = 5;
+
 function MissingRateGroupCard({ item, navigate }: { item: MissingRateItem; navigate: ReturnType<typeof useNavigate> }) {
   const [expanded, setExpanded] = useState(false);
   const sev = getSeverity(item.missingCount);
-  const affectedTasks: string[] = [];
+  const allAffectedTasks = item.affectedTasks ?? [];
+  const totalAffected = item.affectedTaskCount ?? allAffectedTasks.length;
+  const inlineTasks = allAffectedTasks.slice(0, INLINE_TASK_LIMIT);
+  const remainder = Math.max(0, totalAffected - inlineTasks.length);
+  const isTruncatedFromBackend = totalAffected > allAffectedTasks.length;
+
+  function showAllAffectedInTasksPage() {
+    const taskIds = allAffectedTasks.map((t) => t.taskId).join(',');
+    if (!taskIds) return;
+    navigate(`/tasks?taskIds=${encodeURIComponent(taskIds)}`);
+  }
 
   return (
     <div
@@ -168,35 +187,69 @@ function MissingRateGroupCard({ item, navigate }: { item: MissingRateItem; navig
           }}
         >
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          {expanded ? 'Hide' : 'Show'} affected tasks ({affectedTasks.length})
+          {expanded ? 'Hide' : 'Show'} affected tasks ({totalAffected})
         </button>
         {expanded && (
-          <ul
-            style={{
-              listStyle: 'none',
-              padding: '8px 0 0 16px',
-              margin: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 4,
-            }}
-          >
-            {affectedTasks.map((t, i) => (
-              <li
-                key={i}
+          <>
+            <ul
+              style={{
+                listStyle: 'none',
+                padding: '8px 0 0 16px',
+                margin: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+              }}
+            >
+              {inlineTasks.map((t) => (
+                <li
+                  key={t.taskId}
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--text)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <span style={{ color: 'var(--text-faint)', marginRight: 6 }}>·</span>
+                  {t.taskName}
+                </li>
+              ))}
+            </ul>
+            {remainder > 0 && (
+              <button
+                type="button"
+                onClick={showAllAffectedInTasksPage}
                 style={{
+                  marginTop: 8,
+                  marginLeft: 16,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: 'transparent',
+                  border: 0,
+                  padding: 0,
                   fontSize: 12,
-                  color: 'var(--text)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
+                  color: 'var(--accent, var(--text))',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                  fontFamily: 'inherit',
+                  textDecoration: 'underline',
                 }}
+                title={
+                  isTruncatedFromBackend
+                    ? `Opens Tasks page with the ${allAffectedTasks.length} most recent affected tasks. True total: ${totalAffected}.`
+                    : `Opens Tasks page filtered to all ${totalAffected} affected tasks.`
+                }
               >
-                <span style={{ color: 'var(--text-faint)', marginRight: 6 }}>·</span>
-                {t}
-              </li>
-            ))}
-          </ul>
+                {isTruncatedFromBackend
+                  ? `Show more · open ${allAffectedTasks.length} of ${totalAffected} in Tasks`
+                  : `Show more · open all ${totalAffected} in Tasks`}
+                <ChevronRight size={12} />
+              </button>
+            )}
+          </>
         )}
       </div>
 

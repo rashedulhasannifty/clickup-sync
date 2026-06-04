@@ -107,6 +107,28 @@ describe('ReportsService', () => {
     });
   });
 
+  describe('tasks (taskIds filter)', () => {
+    it('parses comma-separated taskIds into where.taskId.in', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, 't1,t2 , ,t3',
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.taskId).toEqual({ in: ['t1', 't2', 't3'] });
+    });
+
+    it('omits the taskId clause when taskIds resolves to an empty list', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, ' , , ',
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.taskId).toBeUndefined();
+    });
+  });
+
   describe('timeEntriesByUser', () => {
     it('converts durationHours.toNumber() and costCents BigInt to totalCostAud', async () => {
       const prisma = makePrisma();
@@ -308,13 +330,51 @@ describe('ReportsService', () => {
     it('queries NO_RATE_FOUND entries grouped by user and maps fields', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([
-        { user_id: 'u1', user_name: 'Alice', user_email: 'a@x.com', missing_count: BigInt(3), affected_hours: 5.5, first_date: new Date('2025-01-01'), latest_date: new Date('2025-01-15') },
+        {
+          user_id: 'u1',
+          user_name: 'Alice',
+          user_email: 'a@x.com',
+          missing_count: BigInt(3),
+          affected_hours: 5.5,
+          first_date: new Date('2025-01-01'),
+          latest_date: new Date('2025-01-15'),
+          affected_task_count: BigInt(2),
+          affected_tasks: [
+            { taskId: 't1', taskName: 'Task one' },
+            { taskId: 't2', taskName: 'Task two' },
+          ],
+        },
       ]);
       const result = await new ReportsService(prisma).missingRates();
       expect(result).toHaveLength(1);
       expect(result[0].userId).toBe('u1');
       expect(result[0].missingCount).toBe(3);
       expect(result[0].affectedHours).toBe(5.5);
+      expect(result[0].affectedTaskCount).toBe(2);
+      expect(result[0].affectedTasks).toEqual([
+        { taskId: 't1', taskName: 'Task one' },
+        { taskId: 't2', taskName: 'Task two' },
+      ]);
+    });
+
+    it('defaults affectedTasks to empty array when DB returns null', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          user_id: 'u2',
+          user_name: 'Bob',
+          user_email: 'b@x.com',
+          missing_count: BigInt(1),
+          affected_hours: 0.5,
+          first_date: new Date('2025-02-01'),
+          latest_date: new Date('2025-02-01'),
+          affected_task_count: BigInt(0),
+          affected_tasks: null,
+        },
+      ]);
+      const result = await new ReportsService(prisma).missingRates();
+      expect(result[0].affectedTasks).toEqual([]);
+      expect(result[0].affectedTaskCount).toBe(0);
     });
 
     it('returns empty array when no missing-rate entries exist', async () => {

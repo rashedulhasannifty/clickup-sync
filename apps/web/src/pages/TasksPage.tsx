@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, type ReactNode } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQueryClient, useMutation } from '@tanstack/react-query';
 import {
   Search, Download, RefreshCw, X, CheckSquare, Copy, ExternalLink,
@@ -245,8 +245,31 @@ export function TasksPage() {
   const [assigneeFilter, setAssigneeFilter] = useState('');
   const [clientFilter, setClientFilter] = useState('');
   const [archivedFilter, setArchivedFilter] = useState('exclude');
+  const [taskIdsFilter, setTaskIdsFilter] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+
+  // Apply ?taskIds= from deep-links (e.g. Missing Rates "Show more" button).
+  // Snapshot once on mount and strip the query so back-navigation doesn't
+  // re-apply, and so the in-page filter state is the source of truth. We also
+  // flip `archivedFilter` to 'include' so an archived affected-task isn't
+  // silently hidden by the default 'exclude'.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const raw = searchParams.get('taskIds');
+    if (!raw) return;
+    const ids = raw.split(',').map(s => s.trim()).filter(Boolean);
+    if (ids.length === 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTaskIdsFilter(ids);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setArchivedFilter('include');
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPage(1);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -300,10 +323,15 @@ export function TasksPage() {
     return opts;
   }, [summary]);
 
+  const isDeepLink = taskIdsFilter.length > 0;
   const taskParams = useMemo(() => ({
     limit: pageSize,
     offset: (page - 1) * pageSize,
-    spaceId: space !== 'all' ? space : undefined,
+    // Topbar space and date range are intentionally bypassed when a taskIds
+    // deep link is active. The user clicked through with an explicit task set
+    // (e.g. from Missing Rates); layering an unrelated `updated_date` window
+    // on top would silently drop tasks they expected to see.
+    spaceId: isDeepLink ? undefined : (space !== 'all' ? space : undefined),
     status: statusFilter || undefined,
     priority: priorityFilter || undefined,
     type: typeFilter || undefined,
@@ -311,10 +339,11 @@ export function TasksPage() {
     assigneeId: assigneeFilter || undefined,
     client: clientFilter || undefined,
     archived: archivedFilter,
+    taskIds: isDeepLink ? taskIdsFilter.join(',') : undefined,
     // Global topbar date range filters by task `updated_date`.
-    from: fromDate || undefined,
-    to: toDate || undefined,
-  }), [page, pageSize, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, archivedFilter, fromDate, toDate]);
+    from: isDeepLink ? undefined : (fromDate || undefined),
+    to: isDeepLink ? undefined : (toDate || undefined),
+  }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, archivedFilter, taskIdsFilter, fromDate, toDate]);
 
   const tasksQuery = useTasks(taskParams as Record<string, string | number | undefined>);
   const { data, isLoading, refetch } = tasksQuery;
@@ -325,7 +354,7 @@ export function TasksPage() {
   const openTask = taskId ? (items.find((t) => String(t.taskId ?? t.task_id) === taskId) ?? null) : null;
 
   const hasFilters = !!(
-    searchRaw || search || statusFilter || priorityFilter || typeFilter || assigneeFilter || clientFilter || archivedFilter !== 'exclude'
+    searchRaw || search || statusFilter || priorityFilter || typeFilter || assigneeFilter || clientFilter || archivedFilter !== 'exclude' || taskIdsFilter.length > 0
   );
 
   function reset() {
@@ -337,6 +366,7 @@ export function TasksPage() {
     setAssigneeFilter('');
     setClientFilter('');
     setArchivedFilter('exclude');
+    setTaskIdsFilter([]);
     setPage(1);
   }
 
@@ -589,6 +619,36 @@ export function TasksPage() {
           </>
         }
       />
+
+      {taskIdsFilter.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '10px 14px',
+            background: 'var(--amber-bg, var(--muted-bg))',
+            border: '1px solid var(--amber, var(--border))',
+            borderRadius: 10,
+            fontSize: 13,
+          }}
+        >
+          <Pill tone="amber" size="xs">deep link</Pill>
+          <span style={{ color: 'var(--text)' }}>
+            Filtered to {taskIdsFilter.length} specific task{taskIdsFilter.length === 1 ? '' : 's'} from Missing Rates.
+            <span style={{ color: 'var(--text-muted)' }}> Topbar space &amp; date range are bypassed. Archived tasks are included.</span>
+          </span>
+          <span style={{ flex: 1 }} />
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<X size={12} strokeWidth={1.75} />}
+            onClick={() => { setTaskIdsFilter([]); setPage(1); }}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
 
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',

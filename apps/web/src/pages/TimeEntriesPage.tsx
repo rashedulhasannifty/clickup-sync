@@ -52,16 +52,33 @@ export function TimeEntriesPage() {
   const [searchRaw, setSearchRaw] = useState('');
   const [search, setSearch] = useState('');
 
+  const [userId, setUserId] = useState('');
+  const [billable, setBillable] = useState('');
+  const [status, setStatus] = useState('');
+  const [missingOnly, setMissingOnly] = useState(false);
+  const [clientFilter, setClientFilter] = useState('');
+  const [selectedEntry, setSelectedEntry] = useState<TimeEntryItem | null>(null);
+  // True when the user arrived via a Missing-Rates "Entries" deep link
+  // (userId + missingOnly together). In that mode we bypass the topbar
+  // space/date globals so the page renders the full unfiltered set the user
+  // expected from the source card. The chip shows the bypass; clicking Clear
+  // drops out of the mode.
+  const [deepLinkActive, setDeepLinkActive] = useState(false);
+
   // Apply URL params from external navigations (e.g. CostBucketDrawer row click
-  // passes ?from=...&to=...&search=...). We snapshot the params once and clear
-  // them so back-navigation doesn't re-apply, and so the global filter context
+  // passes ?from=...&to=...&search=...; MissingRatesPage card passes
+  // ?userId=...&status=NO_RATE_FOUND). We snapshot the params once and clear
+  // them so back-navigation doesn't re-apply, and so the in-page filter state
   // is the only source of truth once the page is interactive.
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
     const urlSearch = searchParams.get('search');
     const urlFrom = searchParams.get('from');
     const urlTo = searchParams.get('to');
-    if (!urlSearch && !urlFrom && !urlTo) return;
+    const urlUserId = searchParams.get('userId');
+    const urlStatus = searchParams.get('status');
+    const urlMissingOnly = searchParams.get('missingOnly');
+    if (!urlSearch && !urlFrom && !urlTo && !urlUserId && !urlStatus && !urlMissingOnly) return;
 
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (urlSearch) { setSearchRaw(urlSearch); setSearch(urlSearch); }
@@ -70,6 +87,30 @@ export function TimeEntriesPage() {
       setDateRange('custom');
       setCustomFrom(urlFrom);
       setCustomTo(urlTo);
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (urlUserId) setUserId(urlUserId);
+    // `missingOnly=true` and `status=NO_RATE_FOUND` are two ways to express the
+    // same intent. The page's `missingOnly` toggle is the canonical UI control,
+    // so prefer it when present; the `status` param is consumed only as a
+    // fallback. The page's own effect (line 113) clears `status` whenever
+    // `missingOnly` flips on, so they can't both be active.
+    const wantsMissingOnly = urlMissingOnly === 'true' || urlStatus === 'NO_RATE_FOUND';
+    if (wantsMissingOnly) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMissingOnly(true);
+    } else if (urlStatus) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setStatus(urlStatus);
+    }
+    // Deep-link mode: arrived from MissingRates with userId + missingOnly. The
+    // user expects the full set for that assignee, not whatever the topbar
+    // happens to be filtered to. Bypass topbar globals (space, from, to).
+    // Skipped when the caller explicitly passes from/to (e.g. CostBucketDrawer
+    // pre-narrows the window and we want to honor it).
+    if (urlUserId && wantsMissingOnly && !urlFrom && !urlTo) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDeepLinkActive(true);
     }
     // Strip the params now that we've consumed them.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -80,12 +121,6 @@ export function TimeEntriesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [userId, setUserId] = useState('');
-  const [billable, setBillable] = useState('');
-  const [status, setStatus] = useState('');
-  const [missingOnly, setMissingOnly] = useState(false);
-  const [clientFilter, setClientFilter] = useState('');
-  const [selectedEntry, setSelectedEntry] = useState<TimeEntryItem | null>(null);
   // Inline banner replaces the previous `alert()` for sync results — a native
   // alert blocked the page until dismissed and looked off-brand. Banner
   // auto-dismisses after 5s, same pattern as AssigneeRatesPage's recalcMsg.
@@ -146,10 +181,12 @@ export function TimeEntriesPage() {
     billable: billable === 'true' || billable === 'false' ? billable : undefined,
     status: missingOnly ? undefined : (status || undefined),
     missingOnly: missingOnly ? 'true' : undefined,
-    spaceId: space !== 'all' ? space : undefined,
-    from: fromDate || undefined,
-    to: toDate || undefined,
-  }), [pageSize, page, search, userId, clientFilter, billable, status, missingOnly, space, fromDate, toDate]);
+    // Topbar space/date globals are bypassed in deep-link mode (arrived from
+    // Missing Rates). See deepLinkActive declaration for rationale.
+    spaceId: deepLinkActive ? undefined : (space !== 'all' ? space : undefined),
+    from: deepLinkActive ? undefined : (fromDate || undefined),
+    to: deepLinkActive ? undefined : (toDate || undefined),
+  }), [pageSize, page, search, userId, clientFilter, billable, status, missingOnly, deepLinkActive, space, fromDate, toDate]);
 
   const timeEntriesQuery = useTimeEntriesList(params);
   const { data, isLoading } = timeEntriesQuery;
@@ -216,6 +253,7 @@ export function TimeEntriesPage() {
     setBillable('');
     setStatus('');
     setMissingOnly(false);
+    setDeepLinkActive(false);
     setPage(1);
   }, []);
 
@@ -427,6 +465,36 @@ export function TimeEntriesPage() {
           onClick={() => navigate('/missing-rates')}
         />
       </div>
+
+      {deepLinkActive && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '10px 14px',
+            background: 'var(--amber-bg, var(--muted-bg))',
+            border: '1px solid var(--amber, var(--border))',
+            borderRadius: 10,
+            fontSize: 13,
+          }}
+        >
+          <Pill tone="amber" size="xs">deep link</Pill>
+          <span style={{ color: 'var(--text)' }}>
+            Showing all missing-rate entries for this assignee.
+            <span style={{ color: 'var(--text-muted)' }}> Topbar space &amp; date range are bypassed.</span>
+          </span>
+          <span style={{ flex: 1 }} />
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<X size={12} strokeWidth={1.75} />}
+            onClick={() => { setDeepLinkActive(false); setPage(1); }}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
 
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
