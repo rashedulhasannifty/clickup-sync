@@ -1,0 +1,113 @@
+name: Deploy
+
+# Push to main → run quality checks → build & push image to GHCR → deploy to server.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# Never run two deploys to the same server at once; let an in-flight deploy finish.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/rashedulhasansojib/clickup-sync
+
+jobs:
+  # ── 1. Quality gate ─────────────────────────────────────────────────────────
+  quality:
+    runs-on: ubuntu-latest
+    env:
+      # Dummy values so `prisma generate`, the Nest build, and unit tests can
+      # load config. No real DB/Redis is contacted (all tests are unit specs).
+      DATABASE_URL: postgresql://user:pass@localhost:5432/db?schema=public
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      # NOTE: `npm run lint` is intentionally NOT a gate yet — the backend has no
+      # root ESLint flat config (eslint.config.js), so the script currently exits
+      # non-zero. Add a root config + clean up violations, then uncomment:
+      # - run: npm run lint
+      - run: npm run test
+      - run: npm run build
+      - run: npm run build:web
+
+  # ── 2. Build the image and push to GHCR ─────────────────────────────────────
+  build-and-push:
+    needs: quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── 3. Deploy: sync compose/Caddyfile, then pull image + restart on server ───
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # Keep the server's compose file + Caddyfile in sync with the repo.
+      # The server keeps its own .env (never copied/overwritten).
+      - name: Copy deploy files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "docker-compose.prod.yml,Caddyfile"
+          target: ${{ secrets.DEPLOY_PATH }}
+
+      - name: Pull image and restart
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          # Forward these into the SSH session (GHCR_TOKEN is the ephemeral,
+          # job-scoped GITHUB_TOKEN — no long-lived registry secret on the box).
+          envs: IMAGE_TAG,GHCR_TOKEN,GHCR_USER
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            export IMAGE_TAG="$IMAGE_TAG"
+            docker compose -f docker-compose.prod.yml pull api
+            docker compose -f docker-compose.prod.yml up -d
+            docker logout ghcr.io
+            # Reclaim disk: drop unused images older than 7 days (per-SHA tags
+            # aren't dangling, so plain `prune -f` would leave them to pile up).
+            docker image prune -af --filter "until=168h"
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}

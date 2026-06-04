@@ -35,6 +35,10 @@ Add a BullMQ job to `clickup-backfills` with payload:
 
 Rates are managed in the dashboard (`/assignee-rates`) via `POST|PATCH|DELETE /admin/rates`. Changing a rate automatically triggers a scoped `recalculate-costs` job on the `maintenance` queue that recomputes costs for affected `clickup_time_entries`. There is no Google Sheets sync. For a manual full recalculation, call `POST /admin/rates/recalculate`.
 
+## Production deployment
+
+For a full server setup (Docker Compose + Caddy with automatic HTTPS on Ubuntu), see `docs/DEPLOYMENT.md`.
+
 ## Production checklist
 
 - Use managed PostgreSQL/Neon and Redis.

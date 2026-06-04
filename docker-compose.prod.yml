@@ -1,0 +1,88 @@
+# Production stack for a single Ubuntu host.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Postgres and Redis are NOT published to the host (only `expose`d on the
+# internal compose network) — this matters because Docker-published ports
+# bypass ufw. Only Caddy publishes 80/443.
+#
+# Variables read from ./.env (compose substitutes ${...} automatically):
+#   DOMAIN             public hostname, e.g. clickup-sync.example.com
+#   POSTGRES_PASSWORD  must match the password embedded in DATABASE_URL
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: clickup_sync
+      POSTGRES_USER: clickup
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clickup -d clickup_sync"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    # CI publishes this image to GHCR; the deploy pulls it by commit SHA
+    # (IMAGE_TAG), falling back to :latest for a manual `docker compose up`.
+    # `build: .` is kept so you can still build locally with `up -d --build`.
+    image: ghcr.io/rashedulhasansojib/clickup-sync:${IMAGE_TAG:-latest}
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    expose:
+      - "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Apply migrations, then start. prisma migrate deploy is idempotent.
+    command: sh -c "npm run prisma:deploy && npm run start:prod"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

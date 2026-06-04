@@ -1,0 +1,19 @@
+# Caddy reverse proxy with automatic HTTPS (Let's Encrypt).
+# DOMAIN is injected from .env via docker-compose.prod.yml.
+#
+# Caddy obtains and renews the TLS certificate automatically as long as:
+#   - DOMAIN's DNS A/AAAA record points at this server, and
+#   - ports 80 and 443 are reachable from the internet.
+#
+# Optional: to receive Let's Encrypt expiry notices, add a global block above
+# the site, e.g.:
+#   {
+#       email you@example.com
+#   }
+
+{$DOMAIN} {
+	encode gzip
+
+	# Everything (dashboard at "/" and API/webhooks under "/api") is one origin.
+	reverse_proxy api:3000
+}

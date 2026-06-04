@@ -67,3 +67,7 @@ This starter intentionally includes the first working structure and core logic, 
 5. Production logging and alerting.
 
 See `docs/ARCHITECTURE.md` and `docs/OPERATIONS.md` for implementation details.
+
+## Setup & deployment
+
+For the complete walkthrough — local dev, production deploy on Ubuntu (Docker Compose + Caddy/HTTPS), ClickUp webhook registration, and CI/CD with GitHub Actions — see **`docs/SETUP_GUIDE.md`** (all steps in one file). `docs/DEPLOYMENT.md` covers the deploy + CI/CD portion specifically.

@@ -1,0 +1,17 @@
+# Keep the build context small and deterministic.
+# node_modules are reinstalled inside the image; dist is rebuilt.
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+.gitignore
+coverage
+*.log
+/logs
+.DS_Store
+# Never ship real secrets into an image layer
+.env
+.env.local
+.env.*
+!.env.example
