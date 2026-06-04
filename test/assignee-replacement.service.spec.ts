@@ -77,6 +77,7 @@ function buildMocks(
     replacements,
     costsService,
     timeEntriesRepo,
+    { getTeamId: () => '3450636' } as any,
   );
 
   return {

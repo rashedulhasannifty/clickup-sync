@@ -1,18 +1,23 @@
 import { z } from 'zod';
+import { isValidEncryptionKey } from '../settings/crypto.service';
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().default(3000),
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
-  CLICKUP_API_TOKEN: z.string().min(1),
+  // ClickUp connection values are now UI-managed (stored in app_settings) and
+  // fall back to these env vars when unset. All optional so a fresh instance can
+  // boot and be configured from the dashboard.
+  CLICKUP_API_TOKEN: z.string().optional().default(''),
   CLICKUP_TEAM_ID: z.string().default('3450636'),
+  // Key for encrypting settings secrets at rest (see CryptoService).
+  APP_ENCRYPTION_KEY: z.string().optional().default(''),
   CLICKUP_WEBHOOK_ENDPOINT: z.string().optional().default(''),
   CLICKUP_WEBHOOK_SECRET: z.string().optional().default(''),
   CLICKUP_WEBHOOK_EVENTS: z.string().default(
     'taskCreated,taskUpdated,taskDeleted,taskTimeTrackedUpdated,taskStatusUpdated'
   ),
-  CLICKUP_AGENCY_USER_ID: z.string().default('3584055'),
   ADMIN_API_KEY: z.string().optional().default(''),
   JOB_ATTEMPTS: z.coerce.number().default(5),
   JOB_BACKOFF_DELAY_MS: z.coerce.number().default(30000),
@@ -21,11 +26,15 @@ const schema = z.object({
 // Production requires non-empty secrets; dev/test allows empty values for convenience
 }).superRefine((env, ctx) => {
   if (env.NODE_ENV !== 'production') return;
-  if (!env.CLICKUP_WEBHOOK_SECRET) {
+  // The ClickUp webhook secret is no longer required from env — it can be stored
+  // in app_settings via the dashboard (Register webhook). But the encryption key
+  // that protects those stored secrets IS required in production.
+  if (!isValidEncryptionKey(env.APP_ENCRYPTION_KEY)) {
     ctx.addIssue({
       code: 'custom',
-      path: ['CLICKUP_WEBHOOK_SECRET'],
-      message: 'CLICKUP_WEBHOOK_SECRET is required when NODE_ENV=production',
+      path: ['APP_ENCRYPTION_KEY'],
+      message:
+        'APP_ENCRYPTION_KEY must be a valid 32-byte key (64 hex chars, or base64-encoded 32 bytes) when NODE_ENV=production',
     });
   }
   if (!env.ADMIN_API_KEY) {

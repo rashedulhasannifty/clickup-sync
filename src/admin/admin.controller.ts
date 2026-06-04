@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, NotFoundException, Param, Patch, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { AdminApiKeyGuard } from './admin-api-key.guard';
 import { AuditLogInterceptor } from './audit-log.interceptor';
@@ -10,6 +10,8 @@ import { CreateRateDto } from './dto/create-rate.dto';
 import { UpdateRateDto } from './dto/update-rate.dto';
 import { CreateTagAssigneeDto } from './dto/create-tag-assignee.dto';
 import { UpdateTagAssigneeDto } from './dto/update-tag-assignee.dto';
+import { UpdateSettingsDto } from './dto/update-settings.dto';
+import { SettingsService } from '../settings/settings.service';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { PrismaService } from '../database/prisma.service';
@@ -51,6 +53,7 @@ export class AdminController {
     private readonly webhookParser: WebhookParserService,
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogRepository,
+    private readonly settings: SettingsService,
   ) {}
 
   @Get('ping')
@@ -62,7 +65,7 @@ export class AdminController {
   @Get('workspace-members')
   @ApiOperation({ summary: 'List ClickUp workspace members' })
   async listWorkspaceMembers() {
-    const teamId = process.env.CLICKUP_TEAM_ID ?? '';
+    const teamId = this.settings.getTeamId();
     const members = await this.clickup.getTeamMembers(teamId);
     return members.map((m) => ({
       id: String(m.user.id),
@@ -197,9 +200,29 @@ export class AdminController {
 
   @Post('webhooks/register')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Register NestJS webhook with ClickUp — idempotent, returns secret on first creation' })
-  registerWebhook() {
-    return this.webhooks.register();
+  @ApiOperation({ summary: 'Register NestJS webhook with ClickUp — idempotent; stores the signing secret encrypted on first creation' })
+  registerWebhook(@Headers('x-admin-user') adminUser?: string) {
+    return this.webhooks.register(adminUser?.trim() || undefined);
+  }
+
+  // ── ClickUp connection settings ─────────────────────────────────────────────
+
+  @Get('settings')
+  @ApiOperation({ summary: 'Get ClickUp connection settings (secrets masked)' })
+  getSettings() {
+    return this.settings.getMasked();
+  }
+
+  @Patch('settings')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Update ClickUp connection settings. Secrets are written only when supplied.' })
+  updateSettings(@Body() dto: UpdateSettingsDto, @Headers('x-admin-user') adminUser?: string) {
+    if ((dto.apiToken || dto.webhookSecret) && !this.settings.getMasked().encryptionEnabled) {
+      throw new BadRequestException(
+        'Cannot store secrets: APP_ENCRYPTION_KEY is not configured on the server. Set it (64 hex chars) and restart.',
+      );
+    }
+    return this.settings.update(dto, adminUser?.trim() || undefined);
   }
 
   @Post('webhooks/retry-failed')

@@ -11,6 +11,7 @@ import { TasksService } from '../tasks/tasks.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { ReplacementJobData } from './assignee-replacement.service';
 import { ClickUpTimeEntry } from '../clickup/clickup.types';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class TimeEntriesService {
@@ -25,10 +26,11 @@ export class TimeEntriesService {
     private readonly tagAssigneeMap: TagAssigneeMapRepository,
     private readonly tasksRepo: TasksRepository,
     private readonly tasksService: TasksService,
+    private readonly settings: SettingsService,
   ) {}
 
   async syncTaskTimeEntries(taskId: string, assigneeIds?: string[], startDate?: number, endDate?: number) {
-    const teamId = process.env.CLICKUP_TEAM_ID || '3450636';
+    const teamId = this.settings.getTeamId();
 
     // Ensure the task row exists before upserting any time entries — otherwise
     // the FK on `clickup_time_entries.task_id → clickup_tasks.task_id` blows
@@ -79,8 +81,8 @@ export class TimeEntriesService {
     // Tag-based assignee replacement. Triggered by the *time entry's own tags*
     // (e.g. an interval tagged "ahmad"), regardless of who logged it — that's
     // the convention ClickUp surfaces in the data and what the n8n workflow
-    // relied on. The previous `userId === CLICKUP_AGENCY_USER_ID` gate matched
-    // the wrong dimension and never fired on real data.
+    // relied on. (An earlier approach gated on the logger's user id, which
+    // matched the wrong dimension and never fired on real data.)
     const activeMap = await this.tagAssigneeMap.findAllActive();
     if (activeMap.length > 0) {
       const activeTagNames = new Set(activeMap.map((m) => m.tagName.toLowerCase()));

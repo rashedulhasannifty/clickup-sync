@@ -83,6 +83,14 @@ describe('AdminController', () => {
     return { findMany: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
   }
 
+  function makeSettings() {
+    return {
+      getTeamId: () => '3450636',
+      getMasked: jest.fn().mockReturnValue({ teamId: '3450636', encryptionEnabled: true }),
+      update: jest.fn().mockResolvedValue({ teamId: '3450636' }),
+    } as any;
+  }
+
   function makeCtrl(queues?: any, deadLetters?: any, webhooks?: any, timeEntriesRepo?: any, webhookEvents?: any, webhookParser?: any, prisma?: any) {
     return new AdminController(
       queues ?? makeQueues(),
@@ -98,6 +106,7 @@ describe('AdminController', () => {
       webhookParser ?? makeWebhookParser(),
       prisma ?? makePrisma(),
       makeAuditLog(),
+      makeSettings(),
     );
   }
 
@@ -371,8 +380,51 @@ describe('AdminController', () => {
       makeWebhookParser(),
       makePrisma(),
       makeAuditLog(),
+      makeSettings(),
     );
   }
+
+  function ctrlWithSettings(settings: any) {
+    return new AdminController(
+      makeQueues(),
+      makeDeadLetters(),
+      makeClickup(),
+      makeWebhooks(),
+      makeTimeEntriesRepo(),
+      makeRatesRepo(),
+      makeTagAssigneeRepo(),
+      makeTasksRepo(),
+      makeRatesService(),
+      makeWebhookEvents(),
+      makeWebhookParser(),
+      makePrisma(),
+      makeAuditLog(),
+      settings,
+    );
+  }
+
+  describe('settings', () => {
+    it('getSettings returns masked settings from the service', () => {
+      const masked = { teamId: '1', apiTokenSet: true, encryptionEnabled: true };
+      const settings = { getMasked: jest.fn().mockReturnValue(masked) } as any;
+      expect(ctrlWithSettings(settings).getSettings()).toBe(masked);
+    });
+
+    it('updateSettings rejects secret writes when encryption is disabled', () => {
+      const settings = { getMasked: jest.fn().mockReturnValue({ encryptionEnabled: false }), update: jest.fn() } as any;
+      expect(() => ctrlWithSettings(settings).updateSettings({ apiToken: 'pk_x' }, 'me')).toThrow(/APP_ENCRYPTION_KEY/);
+      expect(settings.update).not.toHaveBeenCalled();
+    });
+
+    it('updateSettings delegates non-secret fields with the actor', async () => {
+      const settings = {
+        getMasked: jest.fn().mockReturnValue({ encryptionEnabled: true }),
+        update: jest.fn().mockResolvedValue({ teamId: '9' }),
+      } as any;
+      await ctrlWithSettings(settings).updateSettings({ teamId: '9' }, 'me');
+      expect(settings.update).toHaveBeenCalledWith({ teamId: '9' }, 'me');
+    });
+  });
 
   describe('rates CRUD', () => {
     it('listRates delegates to ratesRepo.findAll (read path stays on the repo)', async () => {

@@ -43,6 +43,7 @@ function makeService(overrides: Partial<{
 
   const service = new TimeEntriesService(
     clickup, normalizer, repo, costsService, queues, members, tagAssigneeMap, tasksRepo, tasksService,
+    { getTeamId: () => '3450636' } as any,
   );
 
   return { service, exists, syncTask, getMemberIds, getTimeEntries, upsert, costs, findAllActive };

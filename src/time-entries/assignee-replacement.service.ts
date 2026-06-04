@@ -5,6 +5,7 @@ import { TagAssigneeMapRepository } from './tag-assignee-map.repository';
 import { TimeEntryReplacementsRepository } from './time-entry-replacements.repository';
 import { CostCalculatorService } from './cost-calculator.service';
 import { TimeEntriesRepository } from './time-entries.repository';
+import { SettingsService } from '../settings/settings.service';
 
 export interface ReplacementJobData {
   timeEntryId: string;
@@ -30,10 +31,11 @@ export class AssigneeReplacementService {
     private readonly replacements: TimeEntryReplacementsRepository,
     private readonly costs: CostCalculatorService,
     private readonly timeEntries: TimeEntriesRepository,
+    private readonly settings: SettingsService,
   ) {}
 
   async replaceEntry(data: ReplacementJobData): Promise<{ status: 'replaced' | 'skipped' | 'no_mapping' }> {
-    const teamId = process.env.CLICKUP_TEAM_ID || '3450636';
+    const teamId = this.settings.getTeamId();
 
     // 1. Idempotency check
     const existing = await this.replacements.findByOriginalEntryId(data.timeEntryId);

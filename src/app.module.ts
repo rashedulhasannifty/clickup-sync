@@ -8,6 +8,7 @@ import { join } from 'path';
 import { validateEnv } from './config/env.validation';
 import { buildBullConnection } from './config/connection.config';
 import { DatabaseModule } from './database/database.module';
+import { SettingsModule } from './settings/settings.module';
 import { ClickupModule } from './clickup/clickup.module';
 import { QueuesModule } from './queues/queues.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
@@ -33,6 +34,7 @@ import { HealthController } from './health/health.controller';
       useFactory: () => ({ connection: buildBullConnection(process.env.REDIS_URL ?? '') }),
     }),
     DatabaseModule,
+    SettingsModule,
     ClickupModule,
     QueuesModule,
     WebhooksModule,

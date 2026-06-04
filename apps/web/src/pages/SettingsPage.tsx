@@ -9,6 +9,8 @@ import {
 import { useSpaces, useSyncHealth } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
 import { useRegisterWebhook, useTestClickupConnection } from '../hooks/useAdmin';
+import { useSettings, useUpdateSettings } from '../hooks/useSettings';
+import type { SettingsPatch } from '../api/settings';
 import type { TagAssignee } from '../api/tag-assignee';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Tabs } from '../components/ui/Tabs';
@@ -30,15 +32,6 @@ const TAB_ITEMS = [
   { value: 'scopes', label: 'Scope filters' },
   { value: 'members', label: 'Members & access' },
   { value: 'notifications', label: 'Notifications' },
-];
-
-const WEBHOOK_EVENTS = [
-  'taskCreated',
-  'taskUpdated',
-  'taskDeleted',
-  'taskStatusUpdated',
-  'taskAssigneeUpdated',
-  'taskTimeTrackedUpdated',
 ];
 
 const PALETTE = ['#7B68EE', '#FF02F0', '#49CCF9', '#10b981', '#f59e0b', '#ef4444'];
@@ -127,6 +120,45 @@ export function SettingsPage() {
   const deleteTagAssignee = useDeleteTagAssignee();
   const registerWebhook = useRegisterWebhook();
   const testConnection = useTestClickupConnection();
+  const settingsQuery = useSettings();
+  const updateSettings = useUpdateSettings();
+
+  // Editable ClickUp connection form. API token + webhook secret are write-only:
+  // empty means "leave unchanged"; the masked status comes from the query.
+  const [connForm, setConnForm] = useState({
+    teamId: '',
+    webhookEndpoint: '',
+    webhookEvents: '',
+    apiToken: '',
+    webhookSecret: '',
+  });
+  useEffect(() => {
+    const s = settingsQuery.data;
+    if (!s) return;
+    setConnForm((f) => ({
+      ...f,
+      teamId: s.teamId ?? '',
+      webhookEndpoint: s.webhookEndpoint ?? '',
+      webhookEvents: s.webhookEvents ?? '',
+    }));
+  }, [settingsQuery.data]);
+
+  function saveConnection() {
+    const patch: SettingsPatch = {
+      teamId: connForm.teamId,
+      webhookEndpoint: connForm.webhookEndpoint,
+      webhookEvents: connForm.webhookEvents,
+    };
+    if (connForm.apiToken.trim()) patch.apiToken = connForm.apiToken.trim();
+    if (connForm.webhookSecret.trim()) patch.webhookSecret = connForm.webhookSecret.trim();
+    updateSettings.mutate(patch, {
+      onSuccess: () => {
+        showBanner('Settings saved.', 'blue');
+        setConnForm((f) => ({ ...f, apiToken: '', webhookSecret: '' }));
+      },
+      onError: (err) => showBanner(`Save failed: ${(err as Error).message}`, 'red'),
+    });
+  }
 
   // Auto-dismissing inline banner for Test connection / Register webhook
   // results — same pattern as the other pages.
@@ -160,7 +192,6 @@ export function SettingsPage() {
 
   const lastSyncAt = syncHealth.data?.[0]?.lastSuccessfulSyncAt;
   const webhookStatus = syncHealth.data?.[0]?.status ?? 'Unknown';
-  const webhookUrl = import.meta.env.VITE_WEBHOOK_URL ?? 'https://your-domain.com/webhooks/clickup';
 
   const spaceRows = Array.isArray(spacesQuery.data) ? spacesQuery.data : [];
 
@@ -225,8 +256,19 @@ export function SettingsPage() {
 
       {activeTab === 'connection' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
+          {settingsQuery.data && !settingsQuery.data.encryptionEnabled && (
+            <Callout tone="amber" icon={<AlertTriangle size={13} />}>
+              Secret storage is disabled — <code style={{ fontFamily: 'ui-monospace, monospace' }}>APP_ENCRYPTION_KEY</code> isn't set on
+              the server. You can edit the team ID and webhook URL, but the API token and signing secret can't be saved until that key is
+              configured (64 hex chars) and the backend restarts.
+            </Callout>
+          )}
+
           <Card>
-            <SectionTitle title="ClickUp workspace" subtitle="Source of truth for tasks, time tracking, and rates." />
+            <SectionTitle
+              title="ClickUp connection"
+              subtitle="API token and workspace used as the source of truth. Saved to the database — changes apply without a redeploy."
+            />
             <div
               style={{
                 display: 'flex',
@@ -256,7 +298,7 @@ export function SettingsPage() {
                 C
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Nifty IT Solution</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>ClickUp workspace</div>
                 <div
                   style={{
                     fontSize: 12,
@@ -268,21 +310,49 @@ export function SettingsPage() {
                     flexWrap: 'wrap',
                   }}
                 >
-                  <span style={{ fontFamily: 'ui-monospace, monospace' }}>workspace_id: 3450636</span>
+                  <span style={{ fontFamily: 'ui-monospace, monospace' }}>workspace_id: {connForm.teamId || '—'}</span>
                   <span>·</span>
-                  <span>Connected by API key</span>
+                  <span>{settingsQuery.data?.apiTokenSet ? 'Token configured' : 'No token'}</span>
                 </div>
               </div>
-              <Pill tone="green" icon={<CircleCheck size={11} />}>
-                Connected
+              <Pill tone={settingsQuery.data?.apiTokenSet ? 'green' : 'gray'} icon={<CircleCheck size={11} />}>
+                {settingsQuery.data?.apiTokenSet ? 'Connected' : 'No token'}
               </Pill>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
+              <Field label="Team / Workspace ID">
+                <Input
+                  value={connForm.teamId}
+                  onChange={(e) => setConnForm((f) => ({ ...f, teamId: e.target.value }))}
+                  placeholder="3450636"
+                />
+              </Field>
+              <Field
+                label="API token"
+                hint={
+                  settingsQuery.data?.apiTokenSet
+                    ? `A token is set (ending ••${settingsQuery.data.apiTokenLast4 ?? ''}). Enter a new value to replace it.`
+                    : 'No token set. Use a Workspace Owner/Admin token (pk_…).'
+                }
+              >
+                <Input
+                  value={connForm.apiToken}
+                  type="password"
+                  icon={<Lock size={14} />}
+                  placeholder={settingsQuery.data?.apiTokenSet ? '•••• leave blank to keep current' : 'pk_...'}
+                  onChange={(e) => setConnForm((f) => ({ ...f, apiToken: e.target.value }))}
+                />
+              </Field>
             </div>
 
             <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
               <Stat label="Last successful sync" value={lastSyncAt ? fmt.relative(lastSyncAt) : '—'} />
               <Stat label="Webhook endpoint" value={webhookEndpointLabel} />
-              <Stat label="Token expires" value="—" />
-              <Stat label="API quota (today)" value="—" />
+              <Stat
+                label="Settings updated"
+                value={settingsQuery.data?.updatedAt ? fmt.relative(settingsQuery.data.updatedAt) : '—'}
+              />
             </div>
 
             <div
@@ -308,7 +378,7 @@ export function SettingsPage() {
                       ),
                     onError: (err) =>
                       showBanner(
-                        `Connection failed: ${(err as Error).message}. Check CLICKUP_API_TOKEN and CLICKUP_TEAM_ID in the backend env.`,
+                        `Connection failed: ${(err as Error).message}. Save a valid API token and team ID below, then retry.`,
                         'red',
                       ),
                   })
@@ -316,11 +386,6 @@ export function SettingsPage() {
               >
                 Test connection
               </Button>
-              {/* Token rotation and disconnect are handled out-of-band today
-                  — rotate via .env update + restart, disconnect by deleting
-                  the webhook + clearing the token. Removing the buttons until
-                  there's a real backend path so the UI doesn't lie about what
-                  it can do. */}
             </div>
           </Card>
 
@@ -347,20 +412,35 @@ export function SettingsPage() {
               )}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
-              <Field label="Endpoint URL" hint="Set via VITE_WEBHOOK_URL — not editable here">
-                <Input value={webhookUrl} readOnly icon={<Lock size={14} />} onChange={() => undefined} />
+              <Field label="Endpoint URL" hint="Public HTTPS URL ClickUp posts events to. Ends with /api/webhooks/clickup.">
+                <Input
+                  value={connForm.webhookEndpoint}
+                  onChange={(e) => setConnForm((f) => ({ ...f, webhookEndpoint: e.target.value }))}
+                  placeholder="https://your-domain.com/api/webhooks/clickup"
+                />
               </Field>
-              <Field label="Subscribed events">
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {WEBHOOK_EVENTS.map((ev) => (
-                    <Pill key={ev} tone="blue" size="sm">
-                      {ev}
-                    </Pill>
-                  ))}
-                </div>
+              <Field label="Subscribed events" hint="Comma-separated ClickUp event types.">
+                <Input
+                  value={connForm.webhookEvents}
+                  onChange={(e) => setConnForm((f) => ({ ...f, webhookEvents: e.target.value }))}
+                  placeholder="taskCreated,taskUpdated,taskDeleted,taskTimeTrackedUpdated,taskStatusUpdated"
+                />
               </Field>
-              <Field label="Signing secret" hint="Stored in CLICKUP_WEBHOOK_SECRET on the server — not editable here">
-                <Input value="whsec_••••••••••••••••••••" readOnly type="password" onChange={() => undefined} />
+              <Field
+                label="Signing secret"
+                hint={
+                  settingsQuery.data?.webhookSecretSet
+                    ? 'A secret is stored (encrypted). Register webhook re-issues it, or enter one manually to override.'
+                    : 'Not set — click Register webhook to create and store one automatically.'
+                }
+              >
+                <Input
+                  value={connForm.webhookSecret}
+                  type="password"
+                  icon={<Lock size={14} />}
+                  placeholder={settingsQuery.data?.webhookSecretSet ? '•••• leave blank to keep current' : 'set via Register webhook'}
+                  onChange={(e) => setConnForm((f) => ({ ...f, webhookSecret: e.target.value }))}
+                />
               </Field>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <Button
@@ -369,14 +449,15 @@ export function SettingsPage() {
                   onClick={() =>
                     registerWebhook.mutate(undefined, {
                       onSuccess: (res) => {
-                        const data = res as { webhookId?: string; action?: string };
+                        const data = res as { webhookId?: string; action?: string; secretStored?: boolean };
                         const existing = data.action === 'existing';
                         showBanner(
                           existing
-                            ? `Webhook already active (id ${data.webhookId ?? '—'})`
-                            : `Webhook registered (id ${data.webhookId ?? '—'}). Save the secret returned by ClickUp to CLICKUP_WEBHOOK_SECRET and restart.`,
-                          'blue',
+                            ? `Webhook already active (id ${data.webhookId ?? '—'}).`
+                            : `Webhook registered (id ${data.webhookId ?? '—'}). ${data.secretStored ? 'Signing secret stored automatically.' : 'Secret could NOT be stored — set APP_ENCRYPTION_KEY.'}`,
+                          data.secretStored === false ? 'red' : 'blue',
                         );
+                        settingsQuery.refetch();
                       },
                       onError: (err) => showBanner(`Webhook registration failed: ${(err as Error).message}`, 'red'),
                     })
@@ -387,6 +468,13 @@ export function SettingsPage() {
               </div>
             </div>
           </Card>
+
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Button variant="accent" loading={updateSettings.isPending} onClick={saveConnection}>
+              Save changes
+            </Button>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Applies immediately — no restart required.</span>
+          </div>
         </div>
       )}
 
