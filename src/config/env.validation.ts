@@ -18,7 +18,6 @@ const schema = z.object({
   CLICKUP_WEBHOOK_EVENTS: z.string().default(
     'taskCreated,taskUpdated,taskDeleted,taskTimeTrackedUpdated,taskStatusUpdated'
   ),
-  CLICKUP_AGENCY_USER_ID: z.string().default('3584055'),
   ADMIN_API_KEY: z.string().optional().default(''),
   JOB_ATTEMPTS: z.coerce.number().default(5),
   JOB_BACKOFF_DELAY_MS: z.coerce.number().default(30000),

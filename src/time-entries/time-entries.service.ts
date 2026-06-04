@@ -81,8 +81,8 @@ export class TimeEntriesService {
     // Tag-based assignee replacement. Triggered by the *time entry's own tags*
     // (e.g. an interval tagged "ahmad"), regardless of who logged it — that's
     // the convention ClickUp surfaces in the data and what the n8n workflow
-    // relied on. The previous `userId === CLICKUP_AGENCY_USER_ID` gate matched
-    // the wrong dimension and never fired on real data.
+    // relied on. (An earlier approach gated on the logger's user id, which
+    // matched the wrong dimension and never fired on real data.)
     const activeMap = await this.tagAssigneeMap.findAllActive();
     if (activeMap.length > 0) {
       const activeTagNames = new Set(activeMap.map((m) => m.tagName.toLowerCase()));
