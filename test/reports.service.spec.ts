@@ -924,6 +924,19 @@ describe('ReportsService', () => {
     });
   });
 
+  describe('timeEntriesList (folder filter)', () => {
+    it('filters by folderId via the task relation in where.AND', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).timeEntriesList(
+        undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, 'F1',
+      );
+      const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ task: { folderId: 'F1' } });
+    });
+  });
+
   describe('timeEntriesAggregates (client filter)', () => {
     it('filters aggregates by client via the task relation', async () => {
       const prisma = makePrisma();

@@ -505,6 +505,7 @@ export class ReportsService {
     missingOnly?: string,
     client?: string,
     listId?: string,
+    folderId?: string,
   ) {
     // Same rationale as `tasks()`: cap allows CSV export to fetch the entire
     // filtered set; normal pagination tops out at 100 rows/page.
@@ -520,6 +521,7 @@ export class ReportsService {
     // deleted tasks — it would make client-only vs client+space disagree.
     if (client) and.push({ task: { client } });
     if (listId) and.push({ task: { listId } });
+    if (folderId) and.push({ task: { folderId } });
     if (userId) where.userId = userId;
     if (missingOnly === 'true') {
       where.status = 'NO_RATE_FOUND';
