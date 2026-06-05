@@ -82,7 +82,8 @@ export function TimeEntriesPage() {
     const urlUserId = searchParams.get('userId');
     const urlStatus = searchParams.get('status');
     const urlMissingOnly = searchParams.get('missingOnly');
-    if (!urlSearch && !urlFrom && !urlTo && !urlUserId && !urlStatus && !urlMissingOnly) return;
+    const urlClient = searchParams.get('client');
+    if (!urlSearch && !urlFrom && !urlTo && !urlUserId && !urlStatus && !urlMissingOnly && !urlClient) return;
 
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (urlSearch) { setSearchRaw(urlSearch); setSearch(urlSearch); }
@@ -94,6 +95,8 @@ export function TimeEntriesPage() {
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (urlUserId) setUserId(urlUserId);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (urlClient) setClientFilter(urlClient);
     // `missingOnly=true` and `status=NO_RATE_FOUND` are two ways to express the
     // same intent. The page's `missingOnly` toggle is the canonical UI control,
     // so prefer it when present; the `status` param is consumed only as a

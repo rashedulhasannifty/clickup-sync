@@ -133,5 +133,8 @@ function dailyLink(iso: string): string {
 function clientLink(client: string): string {
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
-  return `/time-entries?from=${encodeURIComponent(weekAgo.toISOString())}&to=${encodeURIComponent(now.toISOString())}&search=${encodeURIComponent(client)}`;
+  // Filter by the dedicated `client` param, NOT `search`: the time-entries
+  // search clause matches task name / assignee / IDs but not the task's client,
+  // so a client-name search returns nothing.
+  return `/time-entries?from=${encodeURIComponent(weekAgo.toISOString())}&to=${encodeURIComponent(now.toISOString())}&client=${encodeURIComponent(client)}`;
 }
