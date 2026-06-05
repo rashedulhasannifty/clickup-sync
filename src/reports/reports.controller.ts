@@ -26,6 +26,10 @@ export class ReportsController {
   @ApiOperation({ summary: 'Distinct task clients for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks.client (non-empty, non-deleted), with per-client task counts.' })
   tasksClients() { return this.reports.tasksClients(); }
 
+  @Get('lists')
+  @ApiOperation({ summary: 'Distinct ClickUp lists for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks (list_id/list_name, non-empty, non-deleted) with per-list task counts. Pass spaceId to scope to one space.' })
+  tasksLists(@Query('spaceId') spaceId?: string) { return this.reports.tasksLists(spaceId); }
+
   @Get('tasks')
   @ApiOperation({ summary: 'Paginated task list with filters. `archived`: exclude (default, hide archived) | include | only (archived tasks). Soft-deleted rows are always excluded.' })
   tasks(
@@ -103,6 +107,19 @@ export class ReportsController {
       throw new BadRequestException(`Invalid bucket "${bucket ?? ''}" (expected day|week|month)`);
     }
     return this.reports.costTrend(bucket, from, to);
+  }
+
+  @Get('time-entries/cost-trend-by-assignee')
+  @ApiOperation({ summary: 'Time-bucketed labor cost split by assignee for the stacked Assignee cost trend chart. bucket=day|week|month; top assignees by cost are returned, the rest collapsed into "Other".' })
+  costTrendByAssignee(
+    @Query('bucket') bucket?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    if (bucket !== 'day' && bucket !== 'week' && bucket !== 'month') {
+      throw new BadRequestException(`Invalid bucket "${bucket ?? ''}" (expected day|week|month)`);
+    }
+    return this.reports.costTrendByAssignee(bucket, from, to);
   }
 
   @Get('overview-deltas')

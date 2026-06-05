@@ -122,6 +122,26 @@ export class ReportsService {
     return rows.map((r) => ({ client: r.client, taskCount: Number(r.task_count) }));
   }
 
+  async tasksLists(spaceId?: string) {
+    type Row = { list_id: string; list_name: string; space_name: string | null; task_count: bigint };
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      SELECT list_id, list_name, MAX(space_name) AS space_name, COUNT(*)::bigint AS task_count
+      FROM clickup_tasks
+      WHERE is_deleted = false
+        AND list_id IS NOT NULL
+        AND list_name <> ''
+        ${spaceId ? Prisma.sql`AND space_id = ${spaceId}` : Prisma.empty}
+      GROUP BY list_id, list_name
+      ORDER BY MAX(space_name) ASC, list_name ASC
+    `);
+    return rows.map((r) => ({
+      listId: r.list_id,
+      listName: r.list_name,
+      spaceName: r.space_name,
+      taskCount: Number(r.task_count),
+    }));
+  }
+
   async tasks(
     spaceId?: string,
     status?: string,
@@ -915,6 +935,102 @@ export class ReportsService {
       totalHours: Number(r.total_hours),
       entryCount: Number(r.entry_count),
     }));
+  }
+
+  /**
+   * Labor cost per time bucket, broken down by assignee — feeds the stacked
+   * "Assignee cost trend" chart. Mirrors `costTrend`'s bucketing/timezone logic
+   * so the two charts line up. Assignees beyond the top `topN` (by total cost
+   * over the range) are collapsed into a single "Other" segment to keep the
+   * stack legible.
+   *
+   * Returns continuous `buckets` (including zero-cost periods via the same
+   * generate_series the line chart uses) plus the ordered segment keys and a
+   * per-bucket cost map in dollars.
+   */
+  async costTrendByAssignee(
+    bucket: 'day' | 'week' | 'month',
+    fromParam?: string,
+    toParam?: string,
+    topN = 8,
+  ) {
+    if (bucket !== 'day' && bucket !== 'week' && bucket !== 'month') {
+      throw new Error(`Invalid bucket "${bucket}" (expected day|week|month)`);
+    }
+
+    const from = parseDate(fromParam, defaultFromForBucket(bucket));
+    const to = parseDate(toParam, new Date());
+
+    const TZ = Prisma.raw(`'Asia/Dhaka'`);
+    const bucketExpr = (tsLocal: Prisma.Sql): Prisma.Sql => {
+      if (bucket === 'day')   return Prisma.sql`date_trunc('day', ${tsLocal})`;
+      if (bucket === 'month') return Prisma.sql`date_trunc('month', ${tsLocal})`;
+      return Prisma.sql`(date_trunc('week', ${tsLocal} + interval '1 day') - interval '1 day')`;
+    };
+    const interval =
+      bucket === 'day'   ? Prisma.sql`interval '1 day'`   :
+      bucket === 'week'  ? Prisma.sql`interval '1 week'`  :
+                           Prisma.sql`interval '1 month'`;
+
+    const aggBucket   = bucketExpr(Prisma.sql`(e.start_time AT TIME ZONE ${TZ})`);
+    const seriesStart = bucketExpr(Prisma.sql`(${from}::timestamptz AT TIME ZONE ${TZ})`);
+    const seriesEnd   = bucketExpr(Prisma.sql`(${to  }::timestamptz AT TIME ZONE ${TZ})`);
+
+    // Continuous bucket axis (same shape as costTrend's `series`), so periods
+    // with no logged time still render as gaps in the trend.
+    type BucketRow = { bucket: string };
+    const bucketRows = await this.prisma.$queryRaw<BucketRow[]>(Prisma.sql`
+      SELECT to_char(generate_series(${seriesStart}, ${seriesEnd}, ${interval}), 'YYYY-MM-DD') AS bucket
+      ORDER BY 1 ASC
+    `);
+    const buckets = bucketRows.map((r) => r.bucket);
+
+    // Cost per (bucket, assignee). The bucket string uses the identical
+    // to_char(bucketExpr) form as the axis above so the keys line up exactly.
+    type AggRow = { bucket: string; assignee: string; cost_cents: bigint };
+    const aggRows = await this.prisma.$queryRaw<AggRow[]>(Prisma.sql`
+      SELECT to_char(${aggBucket}, 'YYYY-MM-DD')                       AS bucket,
+             COALESCE(NULLIF(e.user_name, ''), e.user_id, 'Unknown')   AS assignee,
+             COALESCE(SUM(e.cost_cents), 0)::bigint                    AS cost_cents
+      FROM clickup_time_entries e
+      JOIN clickup_tasks t ON e.task_id = t.task_id
+      WHERE e.start_time IS NOT NULL
+        AND e.start_time >= ${from}
+        AND e.start_time <= ${to}
+        AND t.is_deleted = false
+      GROUP BY 1, 2
+    `);
+
+    // Rank assignees by total cost across the whole range to choose the top N.
+    const totals = new Map<string, number>();
+    for (const r of aggRows) {
+      totals.set(r.assignee, (totals.get(r.assignee) ?? 0) + Number(r.cost_cents));
+    }
+    const topAssignees = [...totals.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, topN)
+      .map(([name]) => name);
+    const topSet = new Set(topAssignees);
+    const hasOther = totals.size > topSet.size;
+
+    // bucket -> (assignee/"Other") -> dollars
+    const matrix = new Map<string, Map<string, number>>();
+    for (const r of aggRows) {
+      const key = topSet.has(r.assignee) ? r.assignee : 'Other';
+      const row = matrix.get(r.bucket) ?? new Map<string, number>();
+      row.set(key, (row.get(key) ?? 0) + Number(r.cost_cents) / 100);
+      matrix.set(r.bucket, row);
+    }
+
+    const assignees = [...topAssignees, ...(hasOther ? ['Other'] : [])];
+    const points = buckets.map((b) => {
+      const row = matrix.get(b);
+      const values: Record<string, number> = {};
+      for (const a of assignees) values[a] = row?.get(a) ?? 0;
+      return { bucket: b, values };
+    });
+
+    return { buckets, assignees, points };
   }
 
   /**
