@@ -5,7 +5,7 @@ import {
   Search, Download, RefreshCw, X, CheckSquare, Copy, ExternalLink,
   CircleCheck, Inbox,
 } from 'lucide-react';
-import { useTasks, useTasksAssignees, useTasksSummary, useClients, useLists } from '../hooks/useReports';
+import { useTasks, useTasksAssignees, useTasksSummary, useClients, useLists, useFolders } from '../hooks/useReports';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Pill } from '../components/ui/Pill';
@@ -235,6 +235,7 @@ export function TasksPage() {
   const { data: summary } = useTasksSummary();
   const { data: clientsData } = useClients();
   const { data: listsData } = useLists(space !== 'all' ? space : undefined);
+  const { data: foldersData } = useFolders(space !== 'all' ? space : undefined);
 
   // Debounced search: typing fires `searchRaw` immediately, but the request
   // (and `page=1` reset) only fire after 300ms of quiet, matching TimeEntriesPage.
@@ -246,6 +247,7 @@ export function TasksPage() {
   const [assigneeFilter, setAssigneeFilter] = useState('');
   const [clientFilter, setClientFilter] = useState('');
   const [listFilter, setListFilter] = useState('');
+  const [folderFilter, setFolderFilter] = useState('');
   const [archivedFilter, setArchivedFilter] = useState('exclude');
   const [taskIdsFilter, setTaskIdsFilter] = useState<string[]>([]);
   const [page, setPage] = useState(1);
@@ -286,6 +288,8 @@ export function TasksPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setListFilter('');
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFolderFilter('');
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(1);
   }, [space]);
@@ -331,6 +335,19 @@ export function TasksPage() {
     return opts;
   }, [listsData, space]);
 
+  const folderOptions = useMemo(() => {
+    const rows = (Array.isArray(foldersData) ? foldersData : []) as { folderId: string; folderName: string; spaceName?: string | null; taskCount?: number }[];
+    const showSpace = space === 'all';
+    const opts = [{ value: '', label: 'Any folder' }];
+    for (const r of rows) {
+      if (!r.folderId) continue;
+      const count = typeof r.taskCount === 'number' ? ` (${r.taskCount})` : '';
+      const label = showSpace && r.spaceName ? `${r.spaceName} · ${r.folderName}${count}` : `${r.folderName}${count}`;
+      opts.push({ value: r.folderId, label });
+    }
+    return opts;
+  }, [foldersData, space]);
+
   // Drive status dropdown from actual stored statuses so picking one always matches.
   // ClickUp statuses are list-configured strings — a hardcoded list misses real values
   // (e.g. "to do", "complete") and includes ones that never appear (e.g. "open").
@@ -363,12 +380,13 @@ export function TasksPage() {
     assigneeId: assigneeFilter || undefined,
     client: clientFilter || undefined,
     listId: listFilter || undefined,
+    folderId: folderFilter || undefined,
     archived: archivedFilter,
     taskIds: isDeepLink ? taskIdsFilter.join(',') : undefined,
     // Global topbar date range filters by task `updated_date`.
     from: isDeepLink ? undefined : (fromDate || undefined),
     to: isDeepLink ? undefined : (toDate || undefined),
-  }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, listFilter, archivedFilter, taskIdsFilter, fromDate, toDate]);
+  }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, listFilter, folderFilter, archivedFilter, taskIdsFilter, fromDate, toDate]);
 
   const tasksQuery = useTasks(taskParams as Record<string, string | number | undefined>);
   const { data, isLoading, refetch } = tasksQuery;
@@ -379,7 +397,7 @@ export function TasksPage() {
   const openTask = taskId ? (items.find((t) => String(t.taskId ?? t.task_id) === taskId) ?? null) : null;
 
   const hasFilters = !!(
-    searchRaw || search || statusFilter || priorityFilter || typeFilter || assigneeFilter || clientFilter || listFilter || archivedFilter !== 'exclude' || taskIdsFilter.length > 0
+    searchRaw || search || statusFilter || priorityFilter || typeFilter || assigneeFilter || clientFilter || listFilter || folderFilter || archivedFilter !== 'exclude' || taskIdsFilter.length > 0
   );
 
   function reset() {
@@ -391,6 +409,7 @@ export function TasksPage() {
     setAssigneeFilter('');
     setClientFilter('');
     setListFilter('');
+    setFolderFilter('');
     setArchivedFilter('exclude');
     setTaskIdsFilter([]);
     setPage(1);
@@ -693,6 +712,7 @@ export function TasksPage() {
         <Select size="md" value={priorityFilter} onChange={v => { setPriorityFilter(v); setPage(1); }} options={PRIORITY_OPTIONS} />
         <Select size="md" value={assigneeFilter} onChange={v => { setAssigneeFilter(v); setPage(1); }} options={assigneeOptions} />
         <Select size="md" value={clientFilter} onChange={v => { setClientFilter(v); setPage(1); }} options={clientOptions} />
+        <Select size="md" value={folderFilter} onChange={v => { setFolderFilter(v); setPage(1); }} options={folderOptions} />
         <Select size="md" value={listFilter} onChange={v => { setListFilter(v); setPage(1); }} options={listOptions} />
         <Select size="md" value={typeFilter} onChange={v => { setTypeFilter(v); setPage(1); }} options={TYPE_OPTIONS} />
         <Select size="md" value={archivedFilter} onChange={v => { setArchivedFilter(v); setPage(1); }} options={ARCHIVED_OPTIONS} />
