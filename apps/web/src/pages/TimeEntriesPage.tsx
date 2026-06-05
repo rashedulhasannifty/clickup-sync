@@ -68,6 +68,11 @@ export function TimeEntriesPage() {
   // expected from the source card. The chip shows the bypass; clicking Clear
   // drops out of the mode.
   const [deepLinkActive, setDeepLinkActive] = useState(false);
+  // True when arrived from the Overview Anomalies panel (spaceScope=all). Spend
+  // anomalies are computed across all spaces, so we drop the topbar space filter
+  // to reproduce the figure — but, unlike deepLinkActive, we keep the explicit
+  // date window the anomaly link passed.
+  const [bypassSpace, setBypassSpace] = useState(false);
 
   // Apply URL params from external navigations (e.g. CostBucketDrawer row click
   // passes ?from=...&to=...&search=...; MissingRatesPage card passes
@@ -83,7 +88,8 @@ export function TimeEntriesPage() {
     const urlStatus = searchParams.get('status');
     const urlMissingOnly = searchParams.get('missingOnly');
     const urlClient = searchParams.get('client');
-    if (!urlSearch && !urlFrom && !urlTo && !urlUserId && !urlStatus && !urlMissingOnly && !urlClient) return;
+    const urlSpaceScope = searchParams.get('spaceScope');
+    if (!urlSearch && !urlFrom && !urlTo && !urlUserId && !urlStatus && !urlMissingOnly && !urlClient && !urlSpaceScope) return;
 
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (urlSearch) { setSearchRaw(urlSearch); setSearch(urlSearch); }
@@ -97,6 +103,10 @@ export function TimeEntriesPage() {
     if (urlUserId) setUserId(urlUserId);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (urlClient) setClientFilter(urlClient);
+    // Anomaly "view" links pass spaceScope=all — drop the topbar space filter
+    // (anomalies are cross-space) while still honoring the explicit date window.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (urlSpaceScope === 'all') setBypassSpace(true);
     // `missingOnly=true` and `status=NO_RATE_FOUND` are two ways to express the
     // same intent. The page's `missingOnly` toggle is the canonical UI control,
     // so prefer it when present; the `status` param is consumed only as a
@@ -225,11 +235,12 @@ export function TimeEntriesPage() {
     status: missingOnly ? undefined : (status || undefined),
     missingOnly: missingOnly ? 'true' : undefined,
     // Topbar space/date globals are bypassed in deep-link mode (arrived from
-    // Missing Rates). See deepLinkActive declaration for rationale.
-    spaceId: deepLinkActive ? undefined : (space !== 'all' ? space : undefined),
+    // Missing Rates). bypassSpace (from an Anomalies "view") drops only the
+    // space filter, keeping the explicit date window. See the state declarations.
+    spaceId: (deepLinkActive || bypassSpace) ? undefined : (space !== 'all' ? space : undefined),
     from: deepLinkActive ? undefined : (fromDate || undefined),
     to: deepLinkActive ? undefined : (toDate || undefined),
-  }), [pageSize, page, search, userId, clientFilter, listFilter, folderFilter, billable, status, missingOnly, deepLinkActive, space, fromDate, toDate]);
+  }), [pageSize, page, search, userId, clientFilter, listFilter, folderFilter, billable, status, missingOnly, deepLinkActive, bypassSpace, space, fromDate, toDate]);
 
   const timeEntriesQuery = useTimeEntriesList(params);
   const { data, isLoading } = timeEntriesQuery;
@@ -300,6 +311,7 @@ export function TimeEntriesPage() {
     setStatus('');
     setMissingOnly(false);
     setDeepLinkActive(false);
+    setBypassSpace(false);
     setPage(1);
   }, []);
 
@@ -546,6 +558,36 @@ export function TimeEntriesPage() {
             variant="ghost"
             icon={<X size={12} strokeWidth={1.75} />}
             onClick={() => { setDeepLinkActive(false); setPage(1); }}
+          >
+            Clear
+          </Button>
+        </div>
+      )}
+
+      {bypassSpace && !deepLinkActive && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '10px 14px',
+            background: 'var(--amber-bg, var(--muted-bg))',
+            border: '1px solid var(--amber, var(--border))',
+            borderRadius: 10,
+            fontSize: 13,
+          }}
+        >
+          <Pill tone="amber" size="xs">anomaly</Pill>
+          <span style={{ color: 'var(--text)' }}>
+            Showing a spend anomaly across all spaces.
+            <span style={{ color: 'var(--text-muted)' }}> Topbar space is bypassed.</span>
+          </span>
+          <span style={{ flex: 1 }} />
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<X size={12} strokeWidth={1.75} />}
+            onClick={() => { setBypassSpace(false); setPage(1); }}
           >
             Clear
           </Button>
