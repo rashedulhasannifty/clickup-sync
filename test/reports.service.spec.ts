@@ -881,4 +881,16 @@ describe('ReportsService', () => {
       expect(and).toContainEqual({ task: { client: 'Acme Corp' } });
     });
   });
+
+  describe('timeEntriesAggregates (list filter)', () => {
+    it('filters aggregates by listId via the task relation', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).timeEntriesAggregates(
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'L1',
+      );
+      const arg = prisma.clickupTimeEntry.groupBy.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ task: { listId: 'L1' } });
+    });
+  });
 });

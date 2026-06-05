@@ -390,6 +390,7 @@ export class ReportsService {
     spaceId?: string,
     missingOnly?: string,
     client?: string,
+    listId?: string,
   ) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
@@ -401,6 +402,7 @@ export class ReportsService {
     // client filter stays consistent with that. Don't "fix" this to exclude
     // deleted tasks — it would make client-only vs client+space disagree.
     if (client) and.push({ task: { client } });
+    if (listId) and.push({ task: { listId } });
     if (userId) where.userId = userId;
     if (missingOnly === 'true') {
       where.status = 'NO_RATE_FOUND';
