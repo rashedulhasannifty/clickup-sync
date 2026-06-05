@@ -141,6 +141,25 @@ describe('ReportsService', () => {
     });
   });
 
+  describe('tasks (list filter)', () => {
+    it('adds an exact listId equality to the where clause when listId is given', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, 'L1',
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.listId).toBe('L1');
+    });
+
+    it('omits the listId clause when listId is undefined', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).tasks();
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.listId).toBeUndefined();
+    });
+  });
+
   describe('tasks (taskIds filter)', () => {
     it('parses comma-separated taskIds into where.taskId.in', async () => {
       const prisma = makePrisma();
