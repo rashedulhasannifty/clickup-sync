@@ -30,6 +30,10 @@ export class ReportsController {
   @ApiOperation({ summary: 'Distinct ClickUp lists for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks (list_id/list_name, non-empty, non-deleted) with per-list task counts. Pass spaceId to scope to one space.' })
   tasksLists(@Query('spaceId') spaceId?: string) { return this.reports.tasksLists(spaceId); }
 
+  @Get('folders')
+  @ApiOperation({ summary: 'Distinct ClickUp folders for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks (folder_id/folder_name, non-empty, non-deleted) with per-folder task counts. Pass spaceId to scope to one space.' })
+  tasksFolders(@Query('spaceId') spaceId?: string) { return this.reports.tasksFolders(spaceId); }
+
   @Get('tasks')
   @ApiOperation({ summary: 'Paginated task list with filters. `archived`: exclude (default, hide archived) | include | only (archived tasks). Soft-deleted rows are always excluded.' })
   tasks(
@@ -47,8 +51,9 @@ export class ReportsController {
     @Query('client') client?: string,
     @Query('taskIds') taskIds?: string,
     @Query('listId') listId?: string,
+    @Query('folderId') folderId?: string,
   ) {
-    return this.reports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId);
+    return this.reports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId);
   }
 
   @Get('anomalies')
@@ -94,8 +99,9 @@ export class ReportsController {
     @Query('missingOnly') missingOnly?: string,
     @Query('client') client?: string,
     @Query('listId') listId?: string,
+    @Query('folderId') folderId?: string,
   ) {
-    return this.reports.timeEntriesAggregates(userId, from, to, status, billable, search, spaceId, missingOnly, client, listId);
+    return this.reports.timeEntriesAggregates(userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId);
   }
 
   @Get('time-entries/cost-trend')
@@ -145,9 +151,10 @@ export class ReportsController {
     @Query('missingOnly') missingOnly?: string,
     @Query('client') client?: string,
     @Query('listId') listId?: string,
+    @Query('folderId') folderId?: string,
   ) {
     return this.reports.timeEntriesList(
-      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly, client, listId,
+      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly, client, listId, folderId,
     );
   }
 

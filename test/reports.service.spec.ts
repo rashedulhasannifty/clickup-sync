@@ -122,6 +122,41 @@ describe('ReportsService', () => {
     });
   });
 
+  describe('tasksFolders', () => {
+    it('maps distinct folder rows to { folderId, folderName, spaceName, taskCount }', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([
+        { folder_id: 'F1', folder_name: 'Q3 Campaigns', space_name: 'Digital Marketing', task_count: BigInt(9) },
+        { folder_id: 'F2', folder_name: 'Internal', space_name: 'R&D Apps', task_count: BigInt(4) },
+      ]);
+      const result = await new ReportsService(prisma).tasksFolders();
+      expect(result).toEqual([
+        { folderId: 'F1', folderName: 'Q3 Campaigns', spaceName: 'Digital Marketing', taskCount: 9 },
+        { folderId: 'F2', folderName: 'Internal', spaceName: 'R&D Apps', taskCount: 4 },
+      ]);
+    });
+
+    it('scopes by space_id when spaceId is given', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new ReportsService(prisma).tasksFolders('3577824');
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/space_id\s*=/);
+    });
+
+    it('excludes soft-deleted tasks, null folders, and empty folder names in the SQL', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new ReportsService(prisma).tasksFolders();
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/is_deleted\s*=\s*false/);
+      expect(sqlText).toMatch(/folder_id\s+IS\s+NOT\s+NULL/i);
+      expect(sqlText).toMatch(/folder_name\s*<>\s*''/);
+    });
+  });
+
   describe('tasks (client filter)', () => {
     it('adds an exact client equality to the where clause when client is given', async () => {
       const prisma = makePrisma();
@@ -157,6 +192,25 @@ describe('ReportsService', () => {
       await new ReportsService(prisma).tasks();
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
       expect(arg.where.listId).toBeUndefined();
+    });
+  });
+
+  describe('tasks (folder filter)', () => {
+    it('adds an exact folderId equality to the where clause when folderId is given', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'F1',
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.folderId).toBe('F1');
+    });
+
+    it('omits the folderId clause when folderId is undefined', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).tasks();
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.folderId).toBeUndefined();
     });
   });
 
@@ -870,6 +924,19 @@ describe('ReportsService', () => {
     });
   });
 
+  describe('timeEntriesList (folder filter)', () => {
+    it('filters by folderId via the task relation in where.AND', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).timeEntriesList(
+        undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, 'F1',
+      );
+      const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ task: { folderId: 'F1' } });
+    });
+  });
+
   describe('timeEntriesAggregates (client filter)', () => {
     it('filters aggregates by client via the task relation', async () => {
       const prisma = makePrisma();
@@ -891,6 +958,18 @@ describe('ReportsService', () => {
       const arg = prisma.clickupTimeEntry.groupBy.mock.calls[0][0];
       const and = (arg.where.AND ?? []) as any[];
       expect(and).toContainEqual({ task: { listId: 'L1' } });
+    });
+  });
+
+  describe('timeEntriesAggregates (folder filter)', () => {
+    it('filters aggregates by folderId via the task relation', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).timeEntriesAggregates(
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'F1',
+      );
+      const arg = prisma.clickupTimeEntry.groupBy.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ task: { folderId: 'F1' } });
     });
   });
 });

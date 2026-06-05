@@ -142,6 +142,26 @@ export class ReportsService {
     }));
   }
 
+  async tasksFolders(spaceId?: string) {
+    type Row = { folder_id: string; folder_name: string; space_name: string | null; task_count: bigint };
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      SELECT folder_id, folder_name, MAX(space_name) AS space_name, COUNT(*)::bigint AS task_count
+      FROM clickup_tasks
+      WHERE is_deleted = false
+        AND folder_id IS NOT NULL
+        AND folder_name <> ''
+        ${spaceId ? Prisma.sql`AND space_id = ${spaceId}` : Prisma.empty}
+      GROUP BY folder_id, folder_name
+      ORDER BY MAX(space_name) ASC, folder_name ASC
+    `);
+    return rows.map((r) => ({
+      folderId: r.folder_id,
+      folderName: r.folder_name,
+      spaceName: r.space_name,
+      taskCount: Number(r.task_count),
+    }));
+  }
+
   async tasks(
     spaceId?: string,
     status?: string,
@@ -157,6 +177,7 @@ export class ReportsService {
     client?: string,
     taskIds?: string,
     listId?: string,
+    folderId?: string,
   ) {
     // Cap kept generous so the dashboard's "Export CSV" can pull a complete
     // filtered set in one shot. The page UI never offers > 100 rows/page, so
@@ -178,6 +199,7 @@ export class ReportsService {
     if (priority) where.priority = priority;
     if (client) where.client = client;
     if (listId) where.listId = listId;
+    if (folderId) where.folderId = folderId;
     if (type === 'parent') where.parentTaskId = null;
     if (type === 'subtask') where.parentTaskId = { not: null };
     if (assigneeId) where.assigneesNames = { contains: assigneeId, mode: 'insensitive' };
@@ -391,6 +413,7 @@ export class ReportsService {
     missingOnly?: string,
     client?: string,
     listId?: string,
+    folderId?: string,
   ) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
@@ -403,6 +426,7 @@ export class ReportsService {
     // deleted tasks — it would make client-only vs client+space disagree.
     if (client) and.push({ task: { client } });
     if (listId) and.push({ task: { listId } });
+    if (folderId) and.push({ task: { folderId } });
     if (userId) where.userId = userId;
     if (missingOnly === 'true') {
       where.status = 'NO_RATE_FOUND';
@@ -483,6 +507,7 @@ export class ReportsService {
     missingOnly?: string,
     client?: string,
     listId?: string,
+    folderId?: string,
   ) {
     // Same rationale as `tasks()`: cap allows CSV export to fetch the entire
     // filtered set; normal pagination tops out at 100 rows/page.
@@ -498,6 +523,7 @@ export class ReportsService {
     // deleted tasks — it would make client-only vs client+space disagree.
     if (client) and.push({ task: { client } });
     if (listId) and.push({ task: { listId } });
+    if (folderId) and.push({ task: { folderId } });
     if (userId) where.userId = userId;
     if (missingOnly === 'true') {
       where.status = 'NO_RATE_FOUND';
