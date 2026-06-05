@@ -825,6 +825,51 @@ describe('ReportsService', () => {
     });
   });
 
+  describe('timeEntriesList (list filter + column)', () => {
+    it('filters by listId via the task relation in where.AND', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).timeEntriesList(
+        undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, 'L1',
+      );
+      const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ task: { listId: 'L1' } });
+    });
+
+    it('selects the related task listName and maps it onto each row', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.findMany.mockResolvedValue([{
+        timeEntryId: 't1', taskId: 'k1', userId: 'u1', userName: 'Alice', userEmail: 'a@x.com',
+        startTime: new Date('2026-05-01T00:00:00Z'), endTime: null,
+        durationHours: { toNumber: () => 2 }, hourlyRateCents: BigInt(15000),
+        costCents: BigInt(30000), status: 'COST_CALCULATED', billable: true,
+        description: null, syncedAt: new Date('2026-05-01T00:00:00Z'), rateId: null, currency: 'USD',
+        task: { taskName: 'Build thing', client: 'Acme Corp', listName: 'Backlog' },
+      }]);
+      prisma.clickupTimeEntry.count.mockResolvedValue(1);
+      const result = await new ReportsService(prisma).timeEntriesList();
+      const selectArg = prisma.clickupTimeEntry.findMany.mock.calls[0][0].select;
+      expect(selectArg.task.select.listName).toBe(true);
+      expect(result.items[0].listName).toBe('Backlog');
+    });
+
+    it('maps listName to null when the entry has no task', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.findMany.mockResolvedValue([{
+        timeEntryId: 't2', taskId: null, userId: 'u1', userName: 'Bob', userEmail: null,
+        startTime: new Date('2026-05-01T00:00:00Z'), endTime: null,
+        durationHours: { toNumber: () => 1 }, hourlyRateCents: BigInt(0),
+        costCents: BigInt(0), status: 'SYNCED', billable: false,
+        description: null, syncedAt: new Date('2026-05-01T00:00:00Z'), rateId: null, currency: 'USD',
+        task: null,
+      }]);
+      prisma.clickupTimeEntry.count.mockResolvedValue(1);
+      const result = await new ReportsService(prisma).timeEntriesList();
+      expect(result.items[0].listName).toBeNull();
+    });
+  });
+
   describe('timeEntriesAggregates (client filter)', () => {
     it('filters aggregates by client via the task relation', async () => {
       const prisma = makePrisma();

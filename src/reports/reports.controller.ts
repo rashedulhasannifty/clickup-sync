@@ -143,9 +143,10 @@ export class ReportsController {
     @Query('spaceId') spaceId?: string,
     @Query('missingOnly') missingOnly?: string,
     @Query('client') client?: string,
+    @Query('listId') listId?: string,
   ) {
     return this.reports.timeEntriesList(
-      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly, client,
+      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly, client, listId,
     );
   }
 

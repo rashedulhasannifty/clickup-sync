@@ -480,6 +480,7 @@ export class ReportsService {
     spaceId?: string,
     missingOnly?: string,
     client?: string,
+    listId?: string,
   ) {
     // Same rationale as `tasks()`: cap allows CSV export to fetch the entire
     // filtered set; normal pagination tops out at 100 rows/page.
@@ -494,6 +495,7 @@ export class ReportsService {
     // client filter stays consistent with that. Don't "fix" this to exclude
     // deleted tasks — it would make client-only vs client+space disagree.
     if (client) and.push({ task: { client } });
+    if (listId) and.push({ task: { listId } });
     if (userId) where.userId = userId;
     if (missingOnly === 'true') {
       where.status = 'NO_RATE_FOUND';
@@ -526,7 +528,7 @@ export class ReportsService {
           startTime: true, endTime: true, durationHours: true, hourlyRateCents: true,
           costCents: true, status: true, billable: true, description: true, syncedAt: true,
           rateId: true, currency: true,
-          task: { select: { taskName: true, client: true } },
+          task: { select: { taskName: true, client: true, listName: true } },
         },
       }),
       this.prisma.clickupTimeEntry.count({ where }),
@@ -537,6 +539,7 @@ export class ReportsService {
         taskId: e.taskId ?? '',
         taskName: e.task?.taskName ?? null,
         client: e.task?.client ?? null,
+        listName: e.task?.listName ?? null,
         userId: e.userId ?? '',
         userName: e.userName,
         userEmail: e.userEmail,
