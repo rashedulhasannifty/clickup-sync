@@ -9,6 +9,8 @@ export const reportsApi = {
   clients: () => apiClient.get('/reports/clients').then(r => r.data),
   lists: (params?: { spaceId?: string }) =>
     apiClient.get('/reports/lists', { params }).then(r => r.data),
+  folders: (params?: { spaceId?: string }) =>
+    apiClient.get('/reports/folders', { params }).then(r => r.data),
   tasks: (params: Record<string, string | number | undefined>) =>
     apiClient.get('/reports/tasks', { params }).then(r => r.data),
   timeEntriesByUser: (params?: { from?: string; to?: string }) =>

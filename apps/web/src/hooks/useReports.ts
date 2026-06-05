@@ -29,6 +29,13 @@ export function useLists(spaceId?: string) {
   });
 }
 
+export function useFolders(spaceId?: string) {
+  return useQuery({
+    queryKey: ['folders', spaceId ?? 'all'],
+    queryFn: () => reportsApi.folders(spaceId ? { spaceId } : undefined),
+  });
+}
+
 export function useTasks(params: Record<string, string | number | undefined>) {
   return useQuery({
     queryKey: ['tasks', params],
