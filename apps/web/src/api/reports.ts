@@ -7,6 +7,8 @@ export const reportsApi = {
   tasksBySpaceStatus: () => apiClient.get('/reports/tasks/by-space-status').then(r => r.data),
   tasksAssignees: () => apiClient.get('/reports/tasks/assignees').then(r => r.data),
   clients: () => apiClient.get('/reports/clients').then(r => r.data),
+  lists: (params?: { spaceId?: string }) =>
+    apiClient.get('/reports/lists', { params }).then(r => r.data),
   tasks: (params: Record<string, string | number | undefined>) =>
     apiClient.get('/reports/tasks', { params }).then(r => r.data),
   timeEntriesByUser: (params?: { from?: string; to?: string }) =>
@@ -17,6 +19,8 @@ export const reportsApi = {
     apiClient.get('/reports/time-entries/by-client', { params }).then(r => r.data),
   costTrend: (params: { bucket: CostTrendBucket; from?: string; to?: string }) =>
     apiClient.get('/reports/time-entries/cost-trend', { params }).then(r => r.data),
+  costTrendByAssignee: (params: { bucket: CostTrendBucket; from?: string; to?: string }) =>
+    apiClient.get('/reports/time-entries/cost-trend-by-assignee', { params }).then(r => r.data),
   timeEntriesByDepartment: (params?: { from?: string; to?: string }) =>
     apiClient.get('/reports/time-entries/by-department', { params }).then(r => r.data),
   timeEntriesBillableSummary: (params?: { from?: string; to?: string }) =>

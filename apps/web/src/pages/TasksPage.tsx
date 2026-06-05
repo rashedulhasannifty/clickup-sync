@@ -5,7 +5,7 @@ import {
   Search, Download, RefreshCw, X, CheckSquare, Copy, ExternalLink,
   CircleCheck, Inbox,
 } from 'lucide-react';
-import { useTasks, useTasksAssignees, useTasksSummary, useClients } from '../hooks/useReports';
+import { useTasks, useTasksAssignees, useTasksSummary, useClients, useLists } from '../hooks/useReports';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Pill } from '../components/ui/Pill';
@@ -234,6 +234,7 @@ export function TasksPage() {
   const { data: assigneesData } = useTasksAssignees();
   const { data: summary } = useTasksSummary();
   const { data: clientsData } = useClients();
+  const { data: listsData } = useLists(space !== 'all' ? space : undefined);
 
   // Debounced search: typing fires `searchRaw` immediately, but the request
   // (and `page=1` reset) only fire after 300ms of quiet, matching TimeEntriesPage.
@@ -244,6 +245,7 @@ export function TasksPage() {
   const [typeFilter, setTypeFilter] = useState('');
   const [assigneeFilter, setAssigneeFilter] = useState('');
   const [clientFilter, setClientFilter] = useState('');
+  const [listFilter, setListFilter] = useState('');
   const [archivedFilter, setArchivedFilter] = useState('exclude');
   const [taskIdsFilter, setTaskIdsFilter] = useState<string[]>([]);
   const [page, setPage] = useState(1);
@@ -279,6 +281,15 @@ export function TasksPage() {
     return () => clearTimeout(t);
   }, [searchRaw]);
 
+  // A ClickUp list belongs to a single space, so a selection made under one
+  // space is meaningless after the topbar space changes — clear it.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setListFilter('');
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPage(1);
+  }, [space]);
+
   // Source the dropdown from /reports/tasks/assignees, not from
   // time-entries-by-user — otherwise assignees with zero logged hours (e.g.
   // expense-only tasks like Hello Ahmad's) silently disappear from the filter
@@ -306,6 +317,19 @@ export function TasksPage() {
     }
     return opts;
   }, [clientsData]);
+
+  const listOptions = useMemo(() => {
+    const rows = (Array.isArray(listsData) ? listsData : []) as { listId: string; listName: string; spaceName?: string | null; taskCount?: number }[];
+    const showSpace = space === 'all';
+    const opts = [{ value: '', label: 'Any list' }];
+    for (const r of rows) {
+      if (!r.listId) continue;
+      const count = typeof r.taskCount === 'number' ? ` (${r.taskCount})` : '';
+      const label = showSpace && r.spaceName ? `${r.spaceName} · ${r.listName}${count}` : `${r.listName}${count}`;
+      opts.push({ value: r.listId, label });
+    }
+    return opts;
+  }, [listsData, space]);
 
   // Drive status dropdown from actual stored statuses so picking one always matches.
   // ClickUp statuses are list-configured strings — a hardcoded list misses real values
@@ -338,12 +362,13 @@ export function TasksPage() {
     search: search || undefined,
     assigneeId: assigneeFilter || undefined,
     client: clientFilter || undefined,
+    listId: listFilter || undefined,
     archived: archivedFilter,
     taskIds: isDeepLink ? taskIdsFilter.join(',') : undefined,
     // Global topbar date range filters by task `updated_date`.
     from: isDeepLink ? undefined : (fromDate || undefined),
     to: isDeepLink ? undefined : (toDate || undefined),
-  }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, archivedFilter, taskIdsFilter, fromDate, toDate]);
+  }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, listFilter, archivedFilter, taskIdsFilter, fromDate, toDate]);
 
   const tasksQuery = useTasks(taskParams as Record<string, string | number | undefined>);
   const { data, isLoading, refetch } = tasksQuery;
@@ -354,7 +379,7 @@ export function TasksPage() {
   const openTask = taskId ? (items.find((t) => String(t.taskId ?? t.task_id) === taskId) ?? null) : null;
 
   const hasFilters = !!(
-    searchRaw || search || statusFilter || priorityFilter || typeFilter || assigneeFilter || clientFilter || archivedFilter !== 'exclude' || taskIdsFilter.length > 0
+    searchRaw || search || statusFilter || priorityFilter || typeFilter || assigneeFilter || clientFilter || listFilter || archivedFilter !== 'exclude' || taskIdsFilter.length > 0
   );
 
   function reset() {
@@ -365,6 +390,7 @@ export function TasksPage() {
     setTypeFilter('');
     setAssigneeFilter('');
     setClientFilter('');
+    setListFilter('');
     setArchivedFilter('exclude');
     setTaskIdsFilter([]);
     setPage(1);
@@ -667,6 +693,7 @@ export function TasksPage() {
         <Select size="md" value={priorityFilter} onChange={v => { setPriorityFilter(v); setPage(1); }} options={PRIORITY_OPTIONS} />
         <Select size="md" value={assigneeFilter} onChange={v => { setAssigneeFilter(v); setPage(1); }} options={assigneeOptions} />
         <Select size="md" value={clientFilter} onChange={v => { setClientFilter(v); setPage(1); }} options={clientOptions} />
+        <Select size="md" value={listFilter} onChange={v => { setListFilter(v); setPage(1); }} options={listOptions} />
         <Select size="md" value={typeFilter} onChange={v => { setTypeFilter(v); setPage(1); }} options={TYPE_OPTIONS} />
         <Select size="md" value={archivedFilter} onChange={v => { setArchivedFilter(v); setPage(1); }} options={ARCHIVED_OPTIONS} />
         {hasFilters && (

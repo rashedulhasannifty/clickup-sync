@@ -5,7 +5,7 @@ import {
   Clock, DollarSign, AlertTriangle, CircleCheck, Download, RefreshCw,
   Search, X,
 } from 'lucide-react';
-import { useTimeEntriesList, useTimeEntriesByUser, useTimeEntriesAggregates, useClients } from '../hooks/useReports';
+import { useTimeEntriesList, useTimeEntriesByUser, useTimeEntriesAggregates, useClients, useLists } from '../hooks/useReports';
 import { useMutation } from '@tanstack/react-query';
 import { reportsApi } from '../api/reports';
 import { csvFilename, downloadCsv, toCsv, type CsvColumn } from '../lib/csv';
@@ -45,6 +45,7 @@ export function TimeEntriesPage() {
   const { space, fromDate, toDate, setDateRange, setCustomFrom, setCustomTo } = useGlobalFilters();
   const { data: byUser } = useTimeEntriesByUser();
   const { data: clientsData } = useClients();
+  const { data: listsData } = useLists(space !== 'all' ? space : undefined);
   const syncAllTimeEntries = useSyncAllTimeEntries();
 
   const [page, setPage] = useState(1);
@@ -57,6 +58,7 @@ export function TimeEntriesPage() {
   const [status, setStatus] = useState('');
   const [missingOnly, setMissingOnly] = useState(false);
   const [clientFilter, setClientFilter] = useState('');
+  const [listFilter, setListFilter] = useState('');
   const [selectedEntry, setSelectedEntry] = useState<TimeEntryItem | null>(null);
   // True when the user arrived via a Missing-Rates "Entries" deep link
   // (userId + missingOnly together). In that mode we bypass the topbar
@@ -149,6 +151,13 @@ export function TimeEntriesPage() {
     if (missingOnly) setStatus('');
   }, [missingOnly]);
 
+  // A ClickUp list belongs to a single space — clear the selection when the
+  // topbar space changes so a stale list ID doesn't filter to zero rows.
+  useEffect(() => {
+    setListFilter('');
+    setPage(1);
+  }, [space]);
+
   const assigneeOptions = useMemo(() => {
     const rows = (byUser ?? []) as { userId?: string; userName: string }[];
     const seen = new Set<string>();
@@ -172,12 +181,26 @@ export function TimeEntriesPage() {
     return opts;
   }, [clientsData]);
 
+  const listOptions = useMemo(() => {
+    const rows = (Array.isArray(listsData) ? listsData : []) as { listId: string; listName: string; spaceName?: string | null; taskCount?: number }[];
+    const showSpace = space === 'all';
+    const opts = [{ value: '', label: 'Any list' }];
+    for (const r of rows) {
+      if (!r.listId) continue;
+      const count = typeof r.taskCount === 'number' ? ` (${r.taskCount})` : '';
+      const label = showSpace && r.spaceName ? `${r.spaceName} · ${r.listName}${count}` : `${r.listName}${count}`;
+      opts.push({ value: r.listId, label });
+    }
+    return opts;
+  }, [listsData, space]);
+
   const params: Record<string, string | number | undefined> = useMemo(() => ({
     limit: pageSize,
     offset: (page - 1) * pageSize,
     search: search || undefined,
     userId: userId || undefined,
     client: clientFilter || undefined,
+    listId: listFilter || undefined,
     billable: billable === 'true' || billable === 'false' ? billable : undefined,
     status: missingOnly ? undefined : (status || undefined),
     missingOnly: missingOnly ? 'true' : undefined,
@@ -186,7 +209,7 @@ export function TimeEntriesPage() {
     spaceId: deepLinkActive ? undefined : (space !== 'all' ? space : undefined),
     from: deepLinkActive ? undefined : (fromDate || undefined),
     to: deepLinkActive ? undefined : (toDate || undefined),
-  }), [pageSize, page, search, userId, clientFilter, billable, status, missingOnly, deepLinkActive, space, fromDate, toDate]);
+  }), [pageSize, page, search, userId, clientFilter, listFilter, billable, status, missingOnly, deepLinkActive, space, fromDate, toDate]);
 
   const timeEntriesQuery = useTimeEntriesList(params);
   const { data, isLoading } = timeEntriesQuery;
@@ -202,6 +225,7 @@ export function TimeEntriesPage() {
         { header: 'User name',     value: 'userName' },
         { header: 'User email',    value: 'userEmail' },
         { header: 'Client',        value: 'client' },
+        { header: 'List',          value: 'listName' },
         { header: 'Start',         value: 'startTime' },
         { header: 'End',           value: 'endTime' },
         { header: 'Duration (h)', value: 'durationHours' },
@@ -242,7 +266,7 @@ export function TimeEntriesPage() {
   const calculatedCount = agg?.costCalculatedCount ?? 0;
 
   const hasFilters = !!(
-    search || userId || clientFilter || billable || status || missingOnly
+    search || userId || clientFilter || listFilter || billable || status || missingOnly
   );
 
   const reset = useCallback(() => {
@@ -250,6 +274,7 @@ export function TimeEntriesPage() {
     setSearch('');
     setUserId('');
     setClientFilter('');
+    setListFilter('');
     setBillable('');
     setStatus('');
     setMissingOnly(false);
@@ -300,6 +325,16 @@ export function TimeEntriesPage() {
       render: (row) => (
         row.client
           ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{row.client}</span>
+          : <span style={{ color: 'var(--text-faint)' }}>—</span>
+      ),
+    },
+    {
+      key: 'listName',
+      header: 'List',
+      width: 140,
+      render: (row) => (
+        row.listName
+          ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{row.listName}</span>
           : <span style={{ color: 'var(--text-faint)' }}>—</span>
       ),
     },
@@ -511,6 +546,7 @@ export function TimeEntriesPage() {
         </div>
         <Select size="md" options={assigneeOptions} value={userId} onChange={(v) => { setUserId(v); setPage(1); }} />
         <Select size="md" options={clientOptions} value={clientFilter} onChange={(v) => { setClientFilter(v); setPage(1); }} />
+        <Select size="md" options={listOptions} value={listFilter} onChange={(v) => { setListFilter(v); setPage(1); }} />
         <Select size="md" options={BILLABLE_OPTIONS} value={billable} onChange={(v) => { setBillable(v); setPage(1); }} />
         <Select size="md" options={STATUS_OPTIONS} value={status} onChange={(v) => { setStatus(v); setPage(1); }} disabled={missingOnly} />
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' }}>
