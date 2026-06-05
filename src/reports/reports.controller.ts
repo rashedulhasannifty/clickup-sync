@@ -51,8 +51,9 @@ export class ReportsController {
     @Query('client') client?: string,
     @Query('taskIds') taskIds?: string,
     @Query('listId') listId?: string,
+    @Query('folderId') folderId?: string,
   ) {
-    return this.reports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId);
+    return this.reports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId);
   }
 
   @Get('anomalies')

@@ -195,6 +195,25 @@ describe('ReportsService', () => {
     });
   });
 
+  describe('tasks (folder filter)', () => {
+    it('adds an exact folderId equality to the where clause when folderId is given', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'F1',
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.folderId).toBe('F1');
+    });
+
+    it('omits the folderId clause when folderId is undefined', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).tasks();
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.folderId).toBeUndefined();
+    });
+  });
+
   describe('tasks (taskIds filter)', () => {
     it('parses comma-separated taskIds into where.taskId.in', async () => {
       const prisma = makePrisma();
