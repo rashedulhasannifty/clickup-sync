@@ -122,6 +122,41 @@ describe('ReportsService', () => {
     });
   });
 
+  describe('tasksFolders', () => {
+    it('maps distinct folder rows to { folderId, folderName, spaceName, taskCount }', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([
+        { folder_id: 'F1', folder_name: 'Q3 Campaigns', space_name: 'Digital Marketing', task_count: BigInt(9) },
+        { folder_id: 'F2', folder_name: 'Internal', space_name: 'R&D Apps', task_count: BigInt(4) },
+      ]);
+      const result = await new ReportsService(prisma).tasksFolders();
+      expect(result).toEqual([
+        { folderId: 'F1', folderName: 'Q3 Campaigns', spaceName: 'Digital Marketing', taskCount: 9 },
+        { folderId: 'F2', folderName: 'Internal', spaceName: 'R&D Apps', taskCount: 4 },
+      ]);
+    });
+
+    it('scopes by space_id when spaceId is given', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new ReportsService(prisma).tasksFolders('3577824');
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/space_id\s*=/);
+    });
+
+    it('excludes soft-deleted tasks, null folders, and empty folder names in the SQL', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new ReportsService(prisma).tasksFolders();
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/is_deleted\s*=\s*false/);
+      expect(sqlText).toMatch(/folder_id\s+IS\s+NOT\s+NULL/i);
+      expect(sqlText).toMatch(/folder_name\s*<>\s*''/);
+    });
+  });
+
   describe('tasks (client filter)', () => {
     it('adds an exact client equality to the where clause when client is given', async () => {
       const prisma = makePrisma();
