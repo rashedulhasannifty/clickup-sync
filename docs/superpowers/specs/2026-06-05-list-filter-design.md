@@ -112,5 +112,7 @@ Extend `test/reports.service.spec.ts`:
 - Persisting the list selection in the global topbar filter context (it stays
   page-local, like status/priority/client).
 - A List filter anywhere other than these two pages.
-- Filtering by ClickUp Folder (the layer between Space and List) — not currently
-  stored as a queryable column.
+- Filtering by ClickUp Folder (the layer between Space and List) — handled
+  separately in `2026-06-05-folder-filter-design.md`. (Earlier this note claimed
+  folder data wasn't stored; that was incorrect — `folder_id`/`folder_name` are
+  stored and populated.)
