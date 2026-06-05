@@ -127,11 +127,17 @@ function dailyLink(iso: string): string {
   const endMs = startMs + 86_400_000 - 1;
   const from = new Date(startMs).toISOString();
   const to   = new Date(endMs).toISOString();
-  return `/time-entries?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  // spaceScope=all: anomalies are computed across all spaces, so bypass the
+  // topbar space filter on the destination — otherwise a non-'all' space hides
+  // the spike's rows and the day shows a fraction (or nothing).
+  return `/time-entries?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&spaceScope=all`;
 }
 
 function clientLink(client: string): string {
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
-  return `/time-entries?from=${encodeURIComponent(weekAgo.toISOString())}&to=${encodeURIComponent(now.toISOString())}&search=${encodeURIComponent(client)}`;
+  // Filter by the dedicated `client` param, NOT `search`: the time-entries
+  // search clause matches task name / assignee / IDs but not the task's client,
+  // so a client-name search returns nothing.
+  return `/time-entries?from=${encodeURIComponent(weekAgo.toISOString())}&to=${encodeURIComponent(now.toISOString())}&client=${encodeURIComponent(client)}&spaceScope=all`;
 }
