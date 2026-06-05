@@ -22,6 +22,13 @@ export function useClients() {
   return useQuery({ queryKey: ['clients'], queryFn: reportsApi.clients });
 }
 
+export function useLists(spaceId?: string) {
+  return useQuery({
+    queryKey: ['lists', spaceId ?? 'all'],
+    queryFn: () => reportsApi.lists(spaceId ? { spaceId } : undefined),
+  });
+}
+
 export function useTasks(params: Record<string, string | number | undefined>) {
   return useQuery({
     queryKey: ['tasks', params],
@@ -58,6 +65,24 @@ export function useCostTrend(
   return useQuery<CostTrendPoint[]>({
     queryKey: ['cost-trend', bucket, from || null, to || null],
     queryFn: () => reportsApi.costTrend({ bucket, from, to }),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export interface AssigneeCostTrend {
+  buckets: string[];          // 'YYYY-MM-DD', ordered, continuous (incl. empty periods)
+  assignees: string[];        // stack/legend order: top assignees by cost, then 'Other'
+  points: { bucket: string; values: Record<string, number> }[]; // dollars per assignee
+}
+
+export function useAssigneeCostTrend(
+  bucket: CostTrendBucket,
+  from?: string,
+  to?: string,
+) {
+  return useQuery<AssigneeCostTrend>({
+    queryKey: ['cost-trend-by-assignee', bucket, from || null, to || null],
+    queryFn: () => reportsApi.costTrendByAssignee({ bucket, from, to }),
     placeholderData: keepPreviousData,
   });
 }
