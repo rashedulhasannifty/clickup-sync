@@ -44,6 +44,35 @@ POST /webhooks/clickup
 
 The endpoint saves the raw ClickUp payload, dedupes it, queues processing, and returns quickly.
 
+## Authentication & roles
+
+Access is per-user with role-based access control, organized around a single tenant **Organization**.
+
+- **First signup claims the org.** The first `POST /auth/signup` attaches the new user to the seed org as its **Owner** and renames the org. After an Owner exists, public signup is closed (403) — everyone else joins by **email invitation** sent by an Owner/Admin.
+- **Roles:**
+  - **Owner** — org secrets (ClickUp API token, webhook secret, team ID, webhook registration) plus everything Admins can do.
+  - **Admin** — operations: rates/tag-mapping CRUD, recalc, sync/backfill, dead-letter & webhook retry, view audit log, invite Members/Admins. Cannot touch org secrets or Owners.
+  - **Member** — read-only: dashboards and reports, no write actions.
+- **Sessions** are HTTP-only cookies, DB-backed (token stored only as a SHA-256 hash). Expired sessions are swept hourly.
+- **`ADMIN_API_KEY`** is no longer a shared admin login — it is now a machine/automation credential that authenticates as a synthetic Owner.
+
+New environment variables (see `.env.example`):
+
+```env
+DEFAULT_ORG_NAME=Default Org
+SESSION_MAX_AGE_DAYS=30
+SESSION_IDLE_TIMEOUT_DAYS=7
+APP_BASE_URL=http://localhost:5173      # used to build invite links
+ALLOWED_ORIGINS=http://localhost:5173   # comma-separated CORS origins for the SPA
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASS=
+MAIL_FROM="ClickUp Sync <no-reply@example.com>"
+```
+
+If SMTP is unconfigured, the dev mailer logs the invite link to the console.
+
 ## Source workflow mapping
 
 | n8n behavior | NestJS location |

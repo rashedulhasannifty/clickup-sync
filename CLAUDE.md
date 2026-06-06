@@ -317,8 +317,7 @@ When implementing this in code:
 
 This service is internal-only and intentionally narrow in scope. Items still expected next:
 
-- Per-user authentication (login, sessions, password hashing). Today admins share one `ADMIN_API_KEY`; the audit log binds attribution to an advisory `X-Admin-User` header, not a gated identity.
-- Audit gap alerts (banner when admin actions arrive without `X-Admin-User`, or when audit writes start failing).
+- Per-ORG data isolation (`org_id` on ClickUp data tables, per-org sync/queries, true multi-org self-serve signup). Per-user auth + a single tenant org exist now (see below), but all ClickUp data still belongs to one implicit seed org — this is Spec 2.
 - v2 status-change event types: `taskMoved`, `taskAssigneeUpdated`, `taskPriorityUpdated`. v1 captures only `taskStatusUpdated` into `clickup_task_events`.
 - Cycle-time drill-downs by client and department (backend accepts `groupBy=client|department`; UI surface is single bucket).
 - "Resolve / won't-fix" path for dead-letter jobs (today you can only retry).
@@ -333,3 +332,4 @@ Already in place (do not re-implement):
 - Time-entry replacement with audit (`TimeEntryReplacement` model + `AssigneeReplacementService`; audit row written before original delete; `originalEntryId @unique` for idempotency)
 - Admin audit log (`AdminAuditLog` model + `AuditLogInterceptor` on `AdminController`, write actions only, viewable at `/audit-log`)
 - Status-change history capture (`clickup_task_events`, subscribed to `taskStatusUpdated`; cycle-time + time-in-status reports at `/reports/cycle-time` and `/reports/time-in-status`; card on Overview page)
+- Per-user authentication & RBAC (`src/auth/*`): email/password login (`scrypt` hashing, NIST-style policy), HTTP-only cookie sessions that are DB-backed with SHA-256-hashed tokens and an hourly expired-session sweep (`SessionCleanupService`). One `Organization` tenant with three roles — Owner (org secrets + everything), Admin (ops + invite), Member (read-only) — enforced app-wide by a global `AuthGuard` + `RolesGuard`. Self-serve signup claims the seed org and becomes its first Owner; after that signup is closed and users join by email invitation (`nodemailer`/SMTP, dev transport logs the link). The shared `ADMIN_API_KEY` now authenticates as a synthetic Owner machine credential. The audit log actor is derived from the authenticated session user (the spoofable `X-Admin-User` header is retired). Note: per-ORG data isolation (`org_id` on ClickUp data tables, multi-org sync) is still pending — see Spec 2 and `docs/superpowers/specs/2026-06-06-auth-orgs-rbac-design.md`.

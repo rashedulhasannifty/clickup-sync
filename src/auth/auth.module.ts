@@ -6,6 +6,7 @@ import { PasswordService } from './password.service';
 import { TokenService } from './token.service';
 import { PermissionsService } from './permissions.service';
 import { SessionService } from './session.service';
+import { SessionCleanupService } from './session-cleanup.service';
 import { MailerService } from './mailer.service';
 import { AuthService } from './auth.service';
 import { InvitationService } from './invitation.service';
@@ -24,7 +25,7 @@ import { UsersController } from './users.controller';
   imports: [ConfigModule, AdminModule],
   controllers: [AuthController, InvitationController, UsersController],
   providers: [
-    PasswordService, TokenService, PermissionsService, SessionService, MailerService,
+    PasswordService, TokenService, PermissionsService, SessionService, SessionCleanupService, MailerService,
     AuthService, InvitationService, UsersService,
     OrgRepository, UserRepository, SessionRepository, InvitationRepository,
     { provide: APP_GUARD, useClass: AuthGuard },

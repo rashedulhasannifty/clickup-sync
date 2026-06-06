@@ -17,7 +17,7 @@ interface NavItem {
 export function Sidebar({ onCommandPalette: _onCommandPalette }: { onCommandPalette?: () => void }) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true');
   const { data: stats } = useStats();
-  const { hasRole } = useAuth();
+  const { hasRole, user, org } = useAuth();
   const isAdmin = hasRole('ADMIN');
 
   useEffect(() => {
@@ -137,10 +137,10 @@ export function Sidebar({ onCommandPalette: _onCommandPalette }: { onCommandPale
               color: '#fff', fontSize: 11, fontWeight: 700,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0,
-            }}>A</span>
+            }}>{(org?.name ?? 'O').charAt(0).toUpperCase()}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Admin</div>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>API key auth</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={org?.name ?? undefined}>{org?.name ?? 'Organization'}</div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{user?.role ?? ''}</div>
             </div>
             <button
               onClick={() => setCollapsed(true)}
