@@ -1,14 +1,4 @@
-import axios from 'axios';
 import { apiClient } from './client';
-
-export async function validateAdminKey(key: string): Promise<boolean> {
-  try {
-    await axios.get('/api/admin/ping', { headers: { 'x-admin-key': key } });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export type WorkspaceMember = {
   id: string;

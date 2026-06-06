@@ -1,24 +1,30 @@
 import axios from 'axios';
 
+function readCookie(name: string): string | null {
+  const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 export const apiClient = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
+  withCredentials: true,
 });
 
 apiClient.interceptors.request.use((config) => {
-  const key = localStorage.getItem('adminApiKey') ?? (import.meta.env.VITE_ADMIN_API_KEY as string) ?? '';
-  if (key) config.headers['x-admin-key'] = key;
-  const userName = localStorage.getItem('adminUserName')?.trim() ?? '';
-  if (userName) config.headers['x-admin-user'] = userName;
+  const method = (config.method ?? 'get').toUpperCase();
+  if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(method)) {
+    const csrf = readCookie('csrf');
+    if (csrf) config.headers['x-csrf-token'] = csrf;
+  }
   return config;
 });
 
 apiClient.interceptors.response.use(
   (r) => r,
   (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('adminApiKey');
-      window.location.href = '/login';
+    if (error.response?.status === 401 && !location.pathname.startsWith('/login')) {
+      location.href = '/login';
     }
     return Promise.reject(error);
   },
