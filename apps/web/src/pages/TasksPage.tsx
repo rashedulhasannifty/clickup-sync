@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useTasks, useTasksAssignees, useTasksSummary, useClients, useLists, useFolders } from '../hooks/useReports';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
+import { useAuth } from '../hooks/useAuth';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Pill } from '../components/ui/Pill';
 import { Button } from '../components/ui/Button';
@@ -415,6 +416,9 @@ export function TasksPage() {
     setPage(1);
   }
 
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole('ADMIN');
+
   const backfill = useMutation({
     mutationFn: () => (space !== 'all' ? adminApi.backfill(space, 7) : Promise.resolve(null)),
     onSuccess: () => {
@@ -649,18 +653,20 @@ export function TasksPage() {
             >
               Export CSV
             </Button>
-            <Button
-              variant="accent"
-              size="md"
-              icon={<RefreshCw size={13} strokeWidth={1.75} />}
-              loading={backfill.isPending}
-              onClick={() => {
-                if (space !== 'all') backfill.mutate();
-                else void refetch();
-              }}
-            >
-              Sync now
-            </Button>
+            {isAdmin && (
+              <Button
+                variant="accent"
+                size="md"
+                icon={<RefreshCw size={13} strokeWidth={1.75} />}
+                loading={backfill.isPending}
+                onClick={() => {
+                  if (space !== 'all') backfill.mutate();
+                  else void refetch();
+                }}
+              >
+                Sync now
+              </Button>
+            )}
           </>
         }
       />

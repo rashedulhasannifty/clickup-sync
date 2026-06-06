@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Search, Moon, Sun, Bell, Calendar, Layers } from 'lucide-react';
+import { Search, Moon, Sun, Bell, Calendar, Layers, LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Kbd } from '../ui/Kbd';
 import { useGlobalFilters, type DateRange } from '../../hooks/useGlobalFilters';
 import { useSpaces, useSyncHealth } from '../../hooks/useReports';
+import { useAuth } from '../../hooks/useAuth';
 import { fmt } from '../../lib/formatters';
 
 // Spaces in the project's CLICKUP_SPACES config. Used as a fallback label so
@@ -84,6 +85,7 @@ function DateInput({ value, onChange, placeholder }: { value: string; onChange: 
 
 export function TopBar({ onSearchClick }: { onSearchClick?: () => void }) {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const { dateRange, space, setDateRange, setSpace, customFrom, customTo, setCustomFrom, setCustomTo } = useGlobalFilters();
   const { data: health } = useSyncHealth();
   const { data: spacesData } = useSpaces();
@@ -229,6 +231,44 @@ export function TopBar({ onSearchClick }: { onSearchClick?: () => void }) {
       >
         <Bell size={14} strokeWidth={1.75} />
         <span style={{ position: 'absolute', top: 4, right: 5, width: 6, height: 6, borderRadius: 999, background: 'var(--amber)' }} />
+      </button>
+
+      {/* Divider */}
+      <div style={{ height: 20, width: 1, background: 'var(--border)', flexShrink: 0 }} />
+
+      {/* Signed-in user + sign out */}
+      {user?.email && (
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 500,
+            color: 'var(--text-muted)',
+            maxWidth: 200,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={user.email}
+        >
+          {user.email}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={() => void logout()}
+        title="Sign out"
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          height: 32, padding: '0 10px',
+          border: '1px solid var(--border)',
+          background: 'var(--surface)', color: 'var(--text)',
+          borderRadius: 7, cursor: 'pointer',
+          fontSize: 12, fontWeight: 500, fontFamily: 'inherit',
+          flexShrink: 0,
+        }}
+      >
+        <LogOut size={14} strokeWidth={1.75} />
+        Sign out
       </button>
     </header>
   );

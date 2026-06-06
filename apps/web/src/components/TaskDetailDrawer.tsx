@@ -10,6 +10,7 @@ import { Skeleton } from './ui/Skeleton';
 import { MetricCard } from './ui/MetricCard';
 import { useTimeEntriesList } from '../hooks/useReports';
 import { useSyncTask } from '../hooks/useAdmin';
+import { useAuth } from '../hooks/useAuth';
 
 export interface TaskItem {
   [key: string]: unknown;
@@ -75,6 +76,8 @@ function MetaRow({ label, children }: { label: string; children: React.ReactNode
 export function TaskDetailDrawer({ taskId, task, onClose }: Props) {
   const [activeTab, setActiveTab] = useState<string>('overview');
   const syncTask = useSyncTask();
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole('ADMIN');
 
   const { data: timeData, isLoading: timeLoading } = useTimeEntriesList(
     taskId ? { taskId, limit: 50 } : {},
@@ -96,7 +99,7 @@ export function TaskDetailDrawer({ taskId, task, onClose }: Props) {
     if (taskId) syncTask.mutate(taskId);
   }
 
-  const headerActions = (
+  const headerActions = isAdmin ? (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <Button
         variant="accent"
@@ -108,7 +111,7 @@ export function TaskDetailDrawer({ taskId, task, onClose }: Props) {
         Sync now
       </Button>
     </div>
-  );
+  ) : null;
 
   return (
     <Drawer

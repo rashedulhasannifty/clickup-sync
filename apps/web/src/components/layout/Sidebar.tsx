@@ -5,6 +5,7 @@ import {
   Layers, Webhook, ShieldCheck, Settings, PanelLeft, type LucideIcon,
 } from 'lucide-react';
 import { useStats } from '../../hooks/useReports';
+import { useAuth } from '../../hooks/useAuth';
 
 interface NavItem {
   to: string;
@@ -16,11 +17,14 @@ interface NavItem {
 export function Sidebar({ onCommandPalette: _onCommandPalette }: { onCommandPalette?: () => void }) {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true');
   const { data: stats } = useStats();
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole('ADMIN');
 
   useEffect(() => {
     localStorage.setItem('sidebarCollapsed', String(collapsed));
   }, [collapsed]);
 
+  // Audit Log and Settings are admin-only; members see everything else.
   const navItems: NavItem[] = [
     { to: '/overview',       label: 'Overview',       icon: Home },
     { to: '/tasks',          label: 'Tasks',          icon: CheckSquare },
@@ -29,8 +33,12 @@ export function Sidebar({ onCommandPalette: _onCommandPalette }: { onCommandPale
     { to: '/assignee-rates', label: 'Assignee Rates', icon: DollarSign },
     { to: '/spaces',         label: 'Spaces',         icon: Layers },
     { to: '/sync-logs',      label: 'Sync Logs',      icon: Webhook },
-    { to: '/audit-log',      label: 'Audit Log',      icon: ShieldCheck },
-    { to: '/settings',       label: 'Settings',       icon: Settings },
+    ...(isAdmin
+      ? [
+          { to: '/audit-log', label: 'Audit Log', icon: ShieldCheck },
+          { to: '/settings',  label: 'Settings',  icon: Settings },
+        ]
+      : []),
   ];
 
   return (

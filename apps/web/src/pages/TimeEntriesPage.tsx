@@ -26,6 +26,7 @@ import { Pill } from '../components/ui/Pill';
 import { TimeEntryDrawer } from '../components/TimeEntryDrawer';
 import type { TimeEntryItem } from '../components/TimeEntryDrawer';
 import { useSyncAllTimeEntries } from '../hooks/useAdmin';
+import { useAuth } from '../hooks/useAuth';
 
 const BILLABLE_OPTIONS = [
   { value: '', label: 'Billable + non' },
@@ -48,6 +49,8 @@ export function TimeEntriesPage() {
   const { data: listsData } = useLists(space !== 'all' ? space : undefined);
   const { data: foldersData } = useFolders(space !== 'all' ? space : undefined);
   const syncAllTimeEntries = useSyncAllTimeEntries();
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole('ADMIN');
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -473,21 +476,23 @@ export function TimeEntriesPage() {
             >
               Export CSV
             </Button>
-            <Button
-              size="md"
-              variant="default"
-              icon={<RefreshCw size={13} strokeWidth={1.75} />}
-              loading={syncAllTimeEntries.isPending}
-              onClick={() => syncAllTimeEntries.mutate(undefined, {
-                onSuccess: (res) => {
-                  void queryClient.invalidateQueries({ queryKey: ['time-entries-list'] });
-                  void queryClient.invalidateQueries({ queryKey: ['time-entries-by-user'] });
-                  showBanner(`Queued ${res.queued} time-entry sync jobs — counts will refresh as workers complete.`);
-                },
-              })}
-            >
-              Sync time entries
-            </Button>
+            {isAdmin && (
+              <Button
+                size="md"
+                variant="default"
+                icon={<RefreshCw size={13} strokeWidth={1.75} />}
+                loading={syncAllTimeEntries.isPending}
+                onClick={() => syncAllTimeEntries.mutate(undefined, {
+                  onSuccess: (res) => {
+                    void queryClient.invalidateQueries({ queryKey: ['time-entries-list'] });
+                    void queryClient.invalidateQueries({ queryKey: ['time-entries-by-user'] });
+                    showBanner(`Queued ${res.queued} time-entry sync jobs — counts will refresh as workers complete.`);
+                  },
+                })}
+              >
+                Sync time entries
+              </Button>
+            )}
           </>
         }
       />
