@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { Building2, User, Mail, Lock } from 'lucide-react';
 import { authApi } from '../api/auth';
 import { useAuth } from '../hooks/useAuth';
+import { AuthShell, AuthField, PasswordField, AuthButton, AuthError } from '../components/auth/AuthShell';
 
 export function SignupPage() {
   const [form, setForm] = useState({ orgName: '', name: '', email: '', password: '' });
@@ -11,7 +13,7 @@ export function SignupPage() {
   const { refresh } = useAuth();
 
   function update(field: keyof typeof form, value: string) {
-    setForm(prev => ({ ...prev, [field]: value }));
+    setForm((prev) => ({ ...prev, [field]: value }));
     setError('');
   }
 
@@ -40,79 +42,61 @@ export function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--page-bg)' }}>
-      <div className="w-full max-w-sm bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-lg)] p-8 shadow-lg">
-        {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 rounded-xl mb-4" style={{ background: 'var(--accent-grad)' }} />
-          <h1 className="text-xl font-bold text-[var(--text)]">Set up your organization</h1>
-          <p className="text-sm text-[var(--text-muted)] mt-1">Create the owner account</p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div>
-            <label className="text-xs font-medium text-[var(--text-muted)] block mb-1.5">Organization name</label>
-            <input
-              type="text"
-              value={form.orgName}
-              onChange={e => update('orgName', e.target.value)}
-              placeholder="Acme Inc."
-              autoComplete="organization"
-              className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] transition-colors"
-            />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-[var(--text-muted)] block mb-1.5">Your name</label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={e => update('name', e.target.value)}
-              placeholder="e.g. rashedul"
-              autoComplete="name"
-              className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] transition-colors"
-            />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-[var(--text-muted)] block mb-1.5">Email</label>
-            <input
-              type="email"
-              value={form.email}
-              onChange={e => update('email', e.target.value)}
-              placeholder="you@example.com"
-              autoComplete="email"
-              className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] transition-colors"
-            />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-[var(--text-muted)] block mb-1.5">Password</label>
-            <input
-              type="password"
-              value={form.password}
-              onChange={e => update('password', e.target.value)}
-              placeholder="Create a password"
-              autoComplete="new-password"
-              className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] transition-colors"
-            />
-            <p className="text-xs text-[var(--text-faint)] mt-1">At least 10 characters</p>
-            {error && <p className="text-xs text-[var(--red)] mt-1">{error}</p>}
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2 text-sm font-medium text-white rounded-[var(--radius)] transition-colors disabled:opacity-60"
-            style={{ background: 'var(--accent)' }}
-          >
-            {loading ? 'Creating…' : 'Create organization'}
-          </button>
-        </form>
-
-        <p className="text-xs text-[var(--text-muted)] text-center mt-6">
-          <Link to="/login" className="hover:text-[var(--accent)] transition-colors">
+    <AuthShell
+      title="Set up your organization"
+      subtitle="Create the owner account"
+      icon={Building2}
+      footer={
+        <p className="text-xs text-[var(--text-muted)]">
+          <Link to="/login" className="font-medium text-[var(--accent)] hover:underline">
             ← Back to sign in
           </Link>
         </p>
-      </div>
-    </div>
+      }
+    >
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <AuthField
+          label="Organization name"
+          icon={Building2}
+          type="text"
+          value={form.orgName}
+          onChange={(e) => update('orgName', e.target.value)}
+          placeholder="Acme Inc."
+          autoComplete="organization"
+          autoFocus
+        />
+        <AuthField
+          label="Your name"
+          icon={User}
+          type="text"
+          value={form.name}
+          onChange={(e) => update('name', e.target.value)}
+          placeholder="e.g. Rashedul"
+          autoComplete="name"
+        />
+        <AuthField
+          label="Email"
+          icon={Mail}
+          type="email"
+          value={form.email}
+          onChange={(e) => update('email', e.target.value)}
+          placeholder="you@example.com"
+          autoComplete="email"
+        />
+        <PasswordField
+          label="Password"
+          icon={Lock}
+          value={form.password}
+          onChange={(e) => update('password', e.target.value)}
+          placeholder="Create a password"
+          autoComplete="new-password"
+          hint="At least 10 characters"
+        />
+        <AuthError message={error} />
+        <AuthButton type="submit" loading={loading}>
+          {loading ? 'Creating…' : 'Create organization'}
+        </AuthButton>
+      </form>
+    </AuthShell>
   );
 }
