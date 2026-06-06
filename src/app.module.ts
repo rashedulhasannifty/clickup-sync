@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { TerminusModule } from '@nestjs/terminus';
 import { BullModule } from '@nestjs/bullmq';
 import { ServeStaticModule } from '@nestjs/serve-static';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { join } from 'path';
 import { validateEnv } from './config/env.validation';
 import { buildBullConnection } from './config/connection.config';
@@ -19,6 +20,7 @@ import { SyncModule } from './sync/sync.module';
 import { WorkersModule } from './workers/workers.module';
 import { AdminModule } from './admin/admin.module';
 import { ReportsModule } from './reports/reports.module';
+import { AuthModule } from './auth/auth.module';
 import { HealthController } from './health/health.controller';
 
 @Module({
@@ -45,6 +47,8 @@ import { HealthController } from './health/health.controller';
     WorkersModule,
     AdminModule,
     ReportsModule,
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 5 }]),
+    AuthModule,
   ],
   controllers: [HealthController],
 })

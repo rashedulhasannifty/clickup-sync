@@ -5,6 +5,7 @@ import { JOBS, QUEUES } from '../queues/queue.constants';
 import { WebhookParserService } from './webhook-parser.service';
 import { WebhookEventsRepository } from './webhook-events.repository';
 import { WebhookSignatureGuard } from './webhook-signature.guard';
+import { Public } from '../auth/decorators';
 
 @ApiTags('webhooks')
 @Controller('webhooks')
@@ -17,6 +18,7 @@ export class ClickupWebhookController {
     private readonly queues: QueueService,
   ) {}
 
+  @Public()
   @Post('clickup')
   @HttpCode(200)
   async receive(@Body() payload: unknown) {

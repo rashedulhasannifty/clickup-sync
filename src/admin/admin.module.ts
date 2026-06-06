@@ -15,6 +15,6 @@ import { AuditLogInterceptor } from './audit-log.interceptor';
   imports: [QueuesModule, JobsModule, ClickupModule, TimeEntriesModule, RatesModule, TasksModule, WebhooksModule],
   providers: [AdminApiKeyGuard, AuditLogRepository, AuditLogInterceptor],
   controllers: [AdminController],
-  exports: [AuditLogRepository],
+  exports: [AuditLogRepository, AuditLogInterceptor],
 })
 export class AdminModule {}
