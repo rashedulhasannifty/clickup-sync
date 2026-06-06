@@ -50,6 +50,13 @@ describe('Auth + RBAC (e2e)', () => {
   });
 
   afterAll(async () => {
+    // Clean up the fixtures this suite created so it doesn't leave an Owner
+    // behind in a shared/dev database (which would close the signup window).
+    if (prisma) {
+      await prisma.session.deleteMany();
+      await prisma.invitation.deleteMany();
+      await prisma.user.deleteMany();
+    }
     if (app) await app.close();
   });
 
