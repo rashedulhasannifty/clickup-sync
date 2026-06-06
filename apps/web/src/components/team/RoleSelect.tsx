@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ShieldCheck, Shield, Users, ChevronDown, ChevronsUpDown, Check, type LucideIcon } from 'lucide-react';
 import { Pill } from '../ui/Pill';
 import type { Role } from '../../api/auth';
@@ -58,14 +59,36 @@ export function RoleSelect({
 }: RoleSelectProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  // Position the menu with fixed coords from the trigger's rect so it can escape
+  // any scrollable/overflow-clipped ancestor (e.g. the Modal body, the Drawer).
+  useLayoutEffect(() => {
+    if (!open || !ref.current) { setCoords(null); return; }
+    const r = ref.current.getBoundingClientRect();
+    const w = variant === 'select' ? Math.max(width, r.width) : width;
+    let left = align === 'right' ? r.right - w : r.left;
+    left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+    setCoords({ top: r.bottom + 6, left, width: w });
+  }, [open, align, width, variant]);
 
   useEffect(() => {
     if (!open) return;
-    const h = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (ref.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
     };
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
+    const close = () => setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true); // capture: catches inner scrollers
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
   }, [open]);
 
   const meta = ROLE_META[value];
@@ -135,14 +158,18 @@ export function RoleSelect({
           <ChevronsUpDown size={15} style={{ color: 'var(--text-faint)' }} />
         </button>
       )}
-      {open && !disabled && (
+      {open && !disabled && coords && createPortal(
         <div
+          ref={menuRef}
+          onClick={(e) => e.stopPropagation()}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 6px)',
-            [align]: 0,
-            zIndex: 50,
-            width,
+            position: 'fixed',
+            top: coords.top,
+            left: coords.left,
+            zIndex: 1000,
+            width: coords.width,
+            maxHeight: 'min(60vh, 360px)',
+            overflowY: 'auto',
             background: 'var(--surface)',
             border: '1px solid var(--border)',
             borderRadius: 11,
@@ -219,7 +246,8 @@ export function RoleSelect({
               </button>
             );
           })}
-        </div>
+        </div>,
+        document.body,
       )}
     </span>
   );
