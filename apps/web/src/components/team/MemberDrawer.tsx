@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Clock, Send, Trash2, ShieldCheck } from 'lucide-react';
+import { Clock, Send, Trash2, ShieldCheck, X } from 'lucide-react';
 import { Drawer } from '../ui/Drawer';
 import { Button } from '../ui/Button';
 import { Avatar } from '../ui/Avatar';
@@ -73,9 +73,22 @@ export function MemberDrawer({
   changingRole?: boolean;
 }) {
   const { pending } = member;
-  const displayName = member.name?.trim() || member.email.split('@')[0];
-  const avatarUser = { name: member.name?.trim() || member.email, initials: member.email.slice(0, 2).toUpperCase() };
-  const roleDisabled = (isSelf && member.role === 'OWNER') || pending || changingRole;
+  const trimmedName = member.name?.trim();
+  const displayName = trimmedName || member.email.split('@')[0];
+  const avatarUser = trimmedName
+    ? {
+        name: trimmedName,
+        initials: trimmedName
+          .split(/\s+/)
+          .map((p) => p[0])
+          .join('')
+          .toUpperCase()
+          .slice(0, 2),
+      }
+    : { name: member.email, initials: member.email.slice(0, 2).toUpperCase() };
+  // Mirror the table row: an OWNER row an admin can't act on (or your own
+  // OWNER row) keeps the role control locked. Pending invites have no editable role.
+  const roleDisabled = (isSelf && member.role === 'OWNER') || pending || changingRole || (!pending && !canRemove);
 
   return (
     <Drawer open onClose={onClose} width={460}>
@@ -126,6 +139,23 @@ export function MemberDrawer({
             )}
           </div>
         </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          style={{
+            border: 0,
+            background: 'transparent',
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+            padding: 5,
+            borderRadius: 6,
+            display: 'flex',
+            flexShrink: 0,
+          }}
+        >
+          <X size={17} />
+        </button>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 20px 20px' }}>

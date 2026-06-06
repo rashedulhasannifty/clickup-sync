@@ -42,7 +42,18 @@ function emailLabel(email: string) {
 }
 
 function avatarFor(name: string | null, email: string) {
-  return { name: name?.trim() || email, initials: email.slice(0, 2).toUpperCase() };
+  const trimmed = name?.trim();
+  if (trimmed) {
+    const initials = trimmed
+      .split(/\s+/)
+      .map((p) => p[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+    return { name: trimmed, initials };
+  }
+  // No name (e.g. pending invites): fall back to two-letter email initials.
+  return { name: email, initials: email.slice(0, 2).toUpperCase() };
 }
 
 // ── Row overflow menu ─────────────────────────────────────────────────────────
