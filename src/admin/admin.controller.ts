@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, NotFoundException, Param, Patch, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, NotFoundException, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
-import { AdminApiKeyGuard } from './admin-api-key.guard';
+import { Role } from '@prisma/client';
+import { Roles } from '../auth/decorators';
 import { AuditLogInterceptor } from './audit-log.interceptor';
 import { AuditLogRepository } from './audit-log.repository';
 import { SyncTaskDto } from './dto/sync-task.dto';
@@ -35,7 +36,7 @@ function parseId(id: string): bigint {
 
 @ApiTags('admin')
 @ApiSecurity('x-admin-key')
-@UseGuards(AdminApiKeyGuard)
+@Roles(Role.OWNER, Role.ADMIN)
 @UseInterceptors(AuditLogInterceptor)
 @Controller('admin')
 export class AdminController {
@@ -199,6 +200,7 @@ export class AdminController {
   }
 
   @Post('webhooks/register')
+  @Roles(Role.OWNER)
   @HttpCode(200)
   @ApiOperation({ summary: 'Register NestJS webhook with ClickUp — idempotent; stores the signing secret encrypted on first creation' })
   registerWebhook(@Headers('x-admin-user') adminUser?: string) {
@@ -214,6 +216,7 @@ export class AdminController {
   }
 
   @Patch('settings')
+  @Roles(Role.OWNER)
   @HttpCode(200)
   @ApiOperation({ summary: 'Update ClickUp connection settings. Secrets are written only when supplied.' })
   updateSettings(@Body() dto: UpdateSettingsDto, @Headers('x-admin-user') adminUser?: string) {

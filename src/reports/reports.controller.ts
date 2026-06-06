@@ -1,11 +1,9 @@
-import { BadRequestException, Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
-import { AdminApiKeyGuard } from '../admin/admin-api-key.guard';
 import { ReportsService } from './reports.service';
 
 @ApiTags('reports')
 @ApiSecurity('x-admin-key')
-@UseGuards(AdminApiKeyGuard)
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
