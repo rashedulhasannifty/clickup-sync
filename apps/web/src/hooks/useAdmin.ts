@@ -35,14 +35,6 @@ export function useRegisterWebhook() {
   return useMutation({ mutationFn: adminApi.registerWebhook });
 }
 
-export function useRetryDeadLetter() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => adminApi.retryDeadLetter(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['dead-letters'] }),
-  });
-}
-
 export function useRetryFailedWebhooks() {
   const qc = useQueryClient();
   return useMutation({

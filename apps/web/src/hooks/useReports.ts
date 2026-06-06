@@ -76,24 +76,6 @@ export function useCostTrend(
   });
 }
 
-export interface AssigneeCostTrend {
-  buckets: string[];          // 'YYYY-MM-DD', ordered, continuous (incl. empty periods)
-  assignees: string[];        // stack/legend order: top assignees by cost, then 'Other'
-  points: { bucket: string; values: Record<string, number> }[]; // dollars per assignee
-}
-
-export function useAssigneeCostTrend(
-  bucket: CostTrendBucket,
-  from?: string,
-  to?: string,
-) {
-  return useQuery<AssigneeCostTrend>({
-    queryKey: ['cost-trend-by-assignee', bucket, from || null, to || null],
-    queryFn: () => reportsApi.costTrendByAssignee({ bucket, from, to }),
-    placeholderData: keepPreviousData,
-  });
-}
-
 export function useTimeEntriesByClient() {
   const { fromDate, toDate } = useGlobalFilters();
   return useQuery({
@@ -107,14 +89,6 @@ export function useTimeEntriesByDepartment() {
   return useQuery({
     queryKey: ['time-entries-by-dept', fromDate, toDate],
     queryFn: () => reportsApi.timeEntriesByDepartment({ from: fromDate, to: toDate }),
-  });
-}
-
-export function useTimeEntriesBillableSummary() {
-  const { fromDate, toDate } = useGlobalFilters();
-  return useQuery({
-    queryKey: ['billable-summary', fromDate, toDate],
-    queryFn: () => reportsApi.timeEntriesBillableSummary({ from: fromDate, to: toDate }),
   });
 }
 
@@ -182,14 +156,6 @@ export function useJobLogs(params?: { queueName?: string; status?: string; limit
   });
 }
 
-export function useDeadLetters(params?: { limit?: number; offset?: number }) {
-  return useQuery({
-    queryKey: ['dead-letters', params],
-    queryFn: () => reportsApi.deadLetters(params),
-    placeholderData: keepPreviousData,
-  });
-}
-
 export function useMissingRates() {
   return useQuery({ queryKey: ['missing-rates'], queryFn: reportsApi.missingRates });
 }
@@ -225,10 +191,6 @@ export function useAnomalies() {
     // 60s stale time keeps the panel responsive without hammering the DB.
     staleTime: 60_000,
   });
-}
-
-export function useAssigneeRates() {
-  return useQuery({ queryKey: ['assignee-rates'], queryFn: () => reportsApi.assigneeRates({ limit: 200 }) });
 }
 
 export interface OverviewDeltas {
