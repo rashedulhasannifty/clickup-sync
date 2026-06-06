@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { Building2, User, Mail, Lock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { User, Mail, Lock, Building2 } from 'lucide-react';
 import { authApi } from '../api/auth';
 import { useAuth } from '../hooks/useAuth';
-import { AuthShell, AuthField, PasswordField, AuthButton, AuthError } from '../components/auth/AuthShell';
+import {
+  AuthShell, AuthCard, AuthHeading, AuthField, AuthSubmit, SSOButton, Divider,
+  PasswordStrength, BrandMark,
+} from '../components/auth/AuthShell';
 
 export function SignupPage() {
   const [form, setForm] = useState({ orgName: '', name: '', email: '', password: '' });
@@ -31,72 +34,44 @@ export function SignupPage() {
       await refresh();
       navigate('/overview', { replace: true });
     } catch (err: any) {
-      if (err?.response?.status === 409) {
-        setError('Signup is closed — ask an admin for an invite.');
-      } else {
-        setError('Could not create your account.');
-      }
-    } finally {
+      setError(err?.response?.status === 409
+        ? 'Signup is closed — ask an admin for an invite.'
+        : 'Could not create your account.');
       setLoading(false);
     }
   }
 
   return (
-    <AuthShell
-      title="Set up your organization"
-      subtitle="Create the owner account"
-      icon={Building2}
-      footer={
-        <p className="text-xs text-[var(--text-muted)]">
-          <Link to="/login" className="font-medium text-[var(--accent)] hover:underline">
-            ← Back to sign in
-          </Link>
-        </p>
-      }
-    >
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <AuthField
-          label="Organization name"
-          icon={Building2}
-          type="text"
-          value={form.orgName}
-          onChange={(e) => update('orgName', e.target.value)}
-          placeholder="Acme Inc."
-          autoComplete="organization"
-          autoFocus
-        />
-        <AuthField
-          label="Your name"
-          icon={User}
-          type="text"
-          value={form.name}
-          onChange={(e) => update('name', e.target.value)}
-          placeholder="e.g. Rashedul"
-          autoComplete="name"
-        />
-        <AuthField
-          label="Email"
-          icon={Mail}
-          type="email"
-          value={form.email}
-          onChange={(e) => update('email', e.target.value)}
-          placeholder="you@example.com"
-          autoComplete="email"
-        />
-        <PasswordField
-          label="Password"
-          icon={Lock}
-          value={form.password}
-          onChange={(e) => update('password', e.target.value)}
-          placeholder="Create a password"
-          autoComplete="new-password"
-          hint="At least 10 characters"
-        />
-        <AuthError message={error} />
-        <AuthButton type="submit" loading={loading}>
-          {loading ? 'Creating…' : 'Create organization'}
-        </AuthButton>
-      </form>
+    <AuthShell maxWidth={432}>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 22 }}><BrandMark /></div>
+      <AuthCard>
+        <AuthHeading title="Create your account" subtitle="Set up a workspace to start syncing ClickUp data." />
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <SSOButton>Sign up with Google</SSOButton>
+          <Divider label="or" />
+          <AuthField label="Full name" icon={User} autoComplete="name" autoFocus
+            value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="Jane Cooper" />
+          <AuthField label="Work email" type="email" icon={Mail} autoComplete="email"
+            value={form.email} onChange={(e) => update('email', e.target.value)} placeholder="you@company.com" />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <AuthField label="Password" type="password" icon={Lock} autoComplete="new-password"
+              value={form.password} onChange={(e) => update('password', e.target.value)} placeholder="Create a password" />
+            <PasswordStrength value={form.password} />
+          </div>
+          <AuthField label="Workspace name" icon={Building2}
+            value={form.orgName} onChange={(e) => update('orgName', e.target.value)} placeholder="Acme Co"
+            hint="You can rename this later in Settings."
+            error={error || undefined} />
+          <AuthSubmit loading={loading}>Create account</AuthSubmit>
+          <p style={{ fontSize: 11.5, color: 'var(--text-faint)', textAlign: 'center', margin: 0, lineHeight: 1.5 }}>
+            By creating an account you agree to our Terms of Service and Privacy Policy.
+          </p>
+        </form>
+      </AuthCard>
+      <p style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-muted)', marginTop: 18 }}>
+        Already have an account?{' '}
+        <button onClick={() => navigate('/login')} style={{ background: 'none', border: 0, padding: 0, fontSize: 13, fontWeight: 600, color: 'var(--accent-strong)', cursor: 'pointer' }}>Sign in</button>
+      </p>
     </AuthShell>
   );
 }

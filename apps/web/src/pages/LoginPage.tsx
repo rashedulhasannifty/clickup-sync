@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Mail, Lock } from 'lucide-react';
 import { authApi } from '../api/auth';
 import { useAuth } from '../hooks/useAuth';
-import { AuthShell, AuthField, PasswordField, AuthButton, AuthError } from '../components/auth/AuthShell';
+import {
+  AuthShell, AuthCard, AuthHeading, AuthField, AuthSubmit, SSOButton, Divider, BrandMark,
+} from '../components/auth/AuthShell';
+import { Switch } from '../components/ui/Switch';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [keep, setKeep] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -31,48 +35,40 @@ export function LoginPage() {
       navigate('/overview', { replace: true });
     } catch {
       setError('Invalid email or password');
-    } finally {
       setLoading(false);
     }
   }
 
   return (
-    <AuthShell
-      title="Welcome back"
-      subtitle="Sign in to ClickUp Sync"
-      footer={
-        <p className="text-xs text-[var(--text-muted)]">
-          First time here?{' '}
-          <Link to="/signup" className="font-medium text-[var(--accent)] hover:underline">
-            Set up your organization →
-          </Link>
-        </p>
-      }
-    >
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <AuthField
-          label="Email"
-          icon={Mail}
-          type="email"
-          value={email}
-          onChange={(e) => { setEmail(e.target.value); setError(''); }}
-          placeholder="you@example.com"
-          autoComplete="email"
-          autoFocus
-        />
-        <PasswordField
-          label="Password"
-          icon={Lock}
-          value={password}
-          onChange={(e) => { setPassword(e.target.value); setError(''); }}
-          placeholder="Enter your password"
-          autoComplete="current-password"
-        />
-        <AuthError message={error} />
-        <AuthButton type="submit" loading={loading}>
-          {loading ? 'Signing in…' : 'Sign in'}
-        </AuthButton>
-      </form>
+    <AuthShell>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 22 }}><BrandMark /></div>
+      <AuthCard>
+        <AuthHeading title="Sign in" subtitle="Welcome back. Sign in to your workspace." />
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <SSOButton>Continue with Google</SSOButton>
+          <Divider label="or" />
+          <AuthField
+            label="Work email" type="email" name="email" icon={Mail} autoComplete="email" autoFocus
+            value={email} onChange={(e) => { setEmail(e.target.value); setError(''); }}
+            placeholder="you@company.com"
+            error={error || undefined}
+          />
+          <AuthField
+            label="Password" type="password" name="password" icon={Lock} autoComplete="current-password"
+            value={password} onChange={(e) => { setPassword(e.target.value); setError(''); }}
+            placeholder="••••••••"
+            right={<span title="Password reset is coming soon" style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-faint)', cursor: 'default' }}>Forgot?</span>}
+          />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
+            <Switch checked={keep} onChange={setKeep} /> Keep me signed in
+          </label>
+          <AuthSubmit loading={loading}>Sign in</AuthSubmit>
+        </form>
+      </AuthCard>
+      <p style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-muted)', marginTop: 18 }}>
+        New to ClickUp Sync?{' '}
+        <button onClick={() => navigate('/signup')} style={{ background: 'none', border: 0, padding: 0, fontSize: 13, fontWeight: 600, color: 'var(--accent-strong)', cursor: 'pointer' }}>Create an account</button>
+      </p>
     </AuthShell>
   );
 }
