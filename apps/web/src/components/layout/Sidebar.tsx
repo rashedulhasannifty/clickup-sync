@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   Home, CheckSquare, Clock, AlertTriangle, DollarSign,
-  Layers, Webhook, ShieldCheck, Settings, PanelLeft, type LucideIcon,
+  Layers, Webhook, ShieldCheck, Settings, PanelLeft, UsersRound, type LucideIcon,
 } from 'lucide-react';
 import { useStats } from '../../hooks/useReports';
 import { useAuth } from '../../hooks/useAuth';
@@ -35,6 +35,7 @@ export function Sidebar({ onCommandPalette: _onCommandPalette }: { onCommandPale
     { to: '/sync-logs',      label: 'Sync Logs',      icon: Webhook },
     ...(isAdmin
       ? [
+          { to: '/team',      label: 'Team',      icon: UsersRound },
           { to: '/audit-log', label: 'Audit Log', icon: ShieldCheck },
           { to: '/settings',  label: 'Settings',  icon: Settings },
         ]

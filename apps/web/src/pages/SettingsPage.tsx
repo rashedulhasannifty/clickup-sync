@@ -10,12 +10,10 @@ import { useSpaces, useSyncHealth } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
 import { useRegisterWebhook, useTestClickupConnection } from '../hooks/useAdmin';
 import { useSettings, useUpdateSettings } from '../hooks/useSettings';
-import { useOrgUsers, useInvites, useUserMutations } from '../hooks/useUsers';
 import { useAuth } from '../hooks/useAuth';
 import { RequireRole } from '../components/RequireRole';
 import type { SettingsPatch } from '../api/settings';
 import type { TagAssignee } from '../api/tag-assignee';
-import type { Role } from '../api/auth';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Tabs } from '../components/ui/Tabs';
 import { Card } from '../components/ui/Card';
@@ -23,7 +21,6 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Switch } from '../components/ui/Switch';
 import { Pill } from '../components/ui/Pill';
-import { Avatar } from '../components/ui/Avatar';
 import { Callout } from '../components/ui/Callout';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Field } from '../components/ui/Field';
@@ -34,7 +31,6 @@ const ALL_TAB_ITEMS = [
   { value: 'connection', label: 'Connection', ownerOnly: true },
   { value: 'sync', label: 'Sync rules', ownerOnly: false },
   { value: 'scopes', label: 'Scope filters', ownerOnly: false },
-  { value: 'members', label: 'Members & access', ownerOnly: false },
   { value: 'notifications', label: 'Notifications', ownerOnly: false },
 ];
 
@@ -114,299 +110,9 @@ const emptyForm: TagFormState = {
   active: true,
 };
 
-const ROLE_PILL_TONE: Record<Role, 'purple' | 'blue' | 'gray'> = {
-  OWNER: 'purple',
-  ADMIN: 'blue',
-  MEMBER: 'gray',
-};
-
-function MembersAccess({ onBanner }: { onBanner: (text: string, tone?: 'blue' | 'red') => void }) {
-  const { user, hasRole } = useAuth();
-  const usersQuery = useOrgUsers();
-  const invitesQuery = useInvites();
-  const m = useUserMutations();
-
-  const isOwner = hasRole('OWNER');
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<Role>('MEMBER');
-
-  function err(e: unknown) {
-    onBanner((e as Error).message || 'Action failed.', 'red');
-  }
-
-  function sendInvite() {
-    const email = inviteEmail.trim();
-    if (!email) return;
-    m.invite.mutate(
-      { email, role: inviteRole },
-      {
-        onSuccess: () => {
-          onBanner('Invitation sent.', 'blue');
-          setInviteEmail('');
-          setInviteRole('MEMBER');
-        },
-        onError: err,
-      },
-    );
-  }
-
-  const users = usersQuery.data ?? [];
-  const pendingInvites = (invitesQuery.data ?? []).filter((i) => i.status === 'PENDING');
-
-  // Role options: ADMIN/MEMBER always; OWNER only when the viewer is an owner.
-  const inviteRoleOptions = [
-    { value: 'ADMIN', label: 'Admin' },
-    { value: 'MEMBER', label: 'Member' },
-  ];
-  const changeRoleOptions = isOwner
-    ? [
-        { value: 'OWNER', label: 'Owner' },
-        { value: 'ADMIN', label: 'Admin' },
-        { value: 'MEMBER', label: 'Member' },
-      ]
-    : [
-        { value: 'ADMIN', label: 'Admin' },
-        { value: 'MEMBER', label: 'Member' },
-      ];
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 860 }}>
-      {/* ─── Users table ─── */}
-      <Card padding={0}>
-        <div
-          style={{
-            padding: '14px 16px',
-            borderBottom: '1px solid var(--border-soft)',
-          }}
-        >
-          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Members & access</div>
-          <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-            People with access to this workspace. Roles control what each member can do.
-          </div>
-        </div>
-
-        {usersQuery.isLoading ? (
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', padding: 16 }}>Loading…</p>
-        ) : usersQuery.isError ? (
-          <p style={{ fontSize: 13, color: 'var(--red)', padding: 16 }}>
-            Could not load members: {(usersQuery.error as Error).message}
-          </p>
-        ) : users.length === 0 ? (
-          <EmptyState title="No members" body="Invite teammates using the form below." />
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead>
-              <tr
-                style={{
-                  background: 'var(--muted-bg)',
-                  textTransform: 'uppercase',
-                  fontSize: 10,
-                  color: 'var(--text-muted)',
-                  letterSpacing: '0.05em',
-                  fontWeight: 600,
-                }}
-              >
-                <th style={{ textAlign: 'left', padding: '8px 16px' }}>Member</th>
-                <th style={{ textAlign: 'left', padding: '8px 12px' }}>Role</th>
-                <th style={{ textAlign: 'left', padding: '8px 12px' }}>Status</th>
-                <th style={{ textAlign: 'left', padding: '8px 12px' }}>Last login</th>
-                <th style={{ width: 160, padding: '8px 16px' }} />
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u, i) => {
-                const isSelf = u.id === user?.id;
-                const rowIsOwner = u.role === 'OWNER';
-                // An owner row can only be acted on by an owner; never act on yourself.
-                const canActOnRow = !isSelf && (!rowIsOwner || isOwner);
-                const displayName = u.name?.trim() || u.email;
-                return (
-                  <tr key={u.id} style={{ borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined }}>
-                    <td style={{ padding: '12px 16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <Avatar name={displayName} size={28} />
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, color: 'var(--text)' }}>
-                            {displayName}
-                            {isSelf && (
-                              <span style={{ color: 'var(--text-faint)', fontWeight: 500, marginLeft: 6 }}>(you)</span>
-                            )}
-                          </div>
-                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{u.email}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px' }}>
-                      {canActOnRow ? (
-                        <Select
-                          size="sm"
-                          value={u.role}
-                          options={changeRoleOptions}
-                          disabled={m.changeRole.isPending}
-                          onChange={(v) =>
-                            m.changeRole.mutate({ id: u.id, role: v as Role }, { onError: err })
-                          }
-                        />
-                      ) : (
-                        <Pill tone={ROLE_PILL_TONE[u.role]} size="sm">
-                          {u.role.charAt(0) + u.role.slice(1).toLowerCase()}
-                        </Pill>
-                      )}
-                    </td>
-                    <td style={{ padding: '12px' }}>
-                      {u.status === 'ACTIVE' ? (
-                        <Pill tone="green" size="xs" icon={<CircleCheck size={10} />}>active</Pill>
-                      ) : (
-                        <Pill tone="gray" size="xs">disabled</Pill>
-                      )}
-                    </td>
-                    <td style={{ padding: '12px', color: 'var(--text-muted)' }}>
-                      {u.lastLoginAt ? fmt.relative(u.lastLoginAt) : '—'}
-                    </td>
-                    <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                      {canActOnRow ? (
-                        <div style={{ display: 'inline-flex', gap: 4 }}>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={m.setStatus.isPending}
-                            onClick={() =>
-                              m.setStatus.mutate(
-                                { id: u.id, status: u.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' },
-                                { onError: err },
-                              )
-                            }
-                          >
-                            {u.status === 'ACTIVE' ? 'Disable' : 'Enable'}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="danger"
-                            disabled={m.remove.isPending}
-                            onClick={() => {
-                              if (!window.confirm(`Remove ${displayName} from this workspace?`)) return;
-                              m.remove.mutate(u.id, { onError: err });
-                            }}
-                          >
-                            Remove
-                          </Button>
-                        </div>
-                      ) : (
-                        <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{isSelf ? 'you' : '—'}</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </Card>
-
-      {/* ─── Invite form ─── */}
-      <Card>
-        <SectionTitle title="Invite a teammate" subtitle="They'll receive an email with a link to set up their account." />
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginTop: 12, flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <Field label="Email">
-              <Input
-                value={inviteEmail}
-                type="email"
-                placeholder="teammate@example.com"
-                onChange={(e) => setInviteEmail(e.target.value)}
-              />
-            </Field>
-          </div>
-          <Field label="Role">
-            <Select
-              size="md"
-              value={inviteRole}
-              options={inviteRoleOptions}
-              onChange={(v) => setInviteRole(v as Role)}
-            />
-          </Field>
-          <Button variant="accent" loading={m.invite.isPending} onClick={sendInvite} disabled={!inviteEmail.trim()}>
-            Send invite
-          </Button>
-        </div>
-      </Card>
-
-      {/* ─── Pending invites ─── */}
-      <Card>
-        <SectionTitle title="Pending invites" subtitle="Invitations that haven't been accepted yet." />
-        {invitesQuery.isLoading ? (
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 12 }}>Loading…</p>
-        ) : pendingInvites.length === 0 ? (
-          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 12 }}>No pending invites.</p>
-        ) : (
-          <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', marginTop: 12 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr
-                  style={{
-                    background: 'var(--muted-bg)',
-                    textTransform: 'uppercase',
-                    fontSize: 10,
-                    color: 'var(--text-muted)',
-                    letterSpacing: '0.05em',
-                    fontWeight: 600,
-                  }}
-                >
-                  <th style={{ textAlign: 'left', padding: '8px 16px' }}>Email</th>
-                  <th style={{ textAlign: 'left', padding: '8px 12px' }}>Role</th>
-                  <th style={{ textAlign: 'left', padding: '8px 12px' }}>Expires</th>
-                  <th style={{ width: 160, padding: '8px 16px' }} />
-                </tr>
-              </thead>
-              <tbody>
-                {pendingInvites.map((inv, i) => (
-                  <tr key={inv.id} style={{ borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined }}>
-                    <td style={{ padding: '10px 16px', color: 'var(--text)' }}>{inv.email}</td>
-                    <td style={{ padding: '10px 12px' }}>
-                      <Pill tone={ROLE_PILL_TONE[inv.role]} size="sm">
-                        {inv.role.charAt(0) + inv.role.slice(1).toLowerCase()}
-                      </Pill>
-                    </td>
-                    <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>
-                      {inv.expiresAt ? fmt.relative(inv.expiresAt) : '—'}
-                    </td>
-                    <td style={{ padding: '10px 16px', textAlign: 'right' }}>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={m.resend.isPending}
-                        onClick={() =>
-                          m.resend.mutate(inv.id, {
-                            onSuccess: () => onBanner('Invitation resent.', 'blue'),
-                            onError: err,
-                          })
-                        }
-                      >
-                        Resend
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        disabled={m.revoke.isPending}
-                        onClick={() => m.revoke.mutate(inv.id, { onError: err })}
-                      >
-                        Revoke
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-}
-
 export function SettingsPage() {
   const { hasRole } = useAuth();
-  const [activeTab, setActiveTab] = useState(() => (hasRole('OWNER') ? 'connection' : 'members'));
+  const [activeTab, setActiveTab] = useState(() => (hasRole('OWNER') ? 'connection' : 'sync'));
   const syncHealth = useSyncHealth();
   const spacesQuery = useSpaces();
   const tagAssignee = useTagAssignee();
@@ -1112,8 +818,6 @@ export function SettingsPage() {
               the exclusion list, and the workers honor it. */}
         </div>
       )}
-
-      {activeTab === 'members' && <MembersAccess onBanner={showBanner} />}
 
       {activeTab === 'notifications' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>

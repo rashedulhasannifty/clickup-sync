@@ -2,7 +2,7 @@ import { apiClient } from './client';
 import type { Role } from './auth';
 
 export interface OrgUser {
-  id: string; email: string; name: string | null; role: Role; status: 'ACTIVE' | 'DISABLED'; lastLoginAt: string | null;
+  id: string; email: string; name: string | null; role: Role; status: 'ACTIVE' | 'DISABLED'; lastLoginAt: string | null; createdAt: string;
 }
 export interface Invite { id: string; email: string; role: Role; status: string; expiresAt: string; createdAt: string; }
 

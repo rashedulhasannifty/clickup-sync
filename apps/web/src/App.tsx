@@ -49,6 +49,9 @@ const SettingsPage = React.lazy(() =>
 const AuditLogPage = React.lazy(() =>
 	import('./pages/AuditLogPage').then((m) => ({ default: m.AuditLogPage })),
 );
+const TeamPage = React.lazy(() =>
+	import('./pages/TeamPage').then((m) => ({ default: m.TeamPage })),
+);
 const SignupPage = React.lazy(() =>
 	import('./pages/SignupPage').then((m) => ({ default: m.SignupPage })),
 );
@@ -155,6 +158,16 @@ export default function App() {
 										<React.Suspense fallback={Fallback}>
 											<SyncLogsPage />
 										</React.Suspense>
+									}
+								/>
+								<Route
+									path="/team"
+									element={
+										<RequireRole min="ADMIN" redirect="/overview">
+											<React.Suspense fallback={Fallback}>
+												<TeamPage />
+											</React.Suspense>
+										</RequireRole>
 									}
 								/>
 								<Route
