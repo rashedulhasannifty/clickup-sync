@@ -6,6 +6,7 @@ import 'reflect-metadata';
   return this.toString();
 };
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
@@ -16,7 +17,11 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   app.use(helmet());
   app.use(compression());
-  app.enableCors();
+  app.use(cookieParser());
+  app.enableCors({
+    origin: (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173').split(',').map((s) => s.trim()),
+    credentials: true,
+  });
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
