@@ -49,6 +49,14 @@ const SettingsPage = React.lazy(() =>
 const AuditLogPage = React.lazy(() =>
 	import('./pages/AuditLogPage').then((m) => ({ default: m.AuditLogPage })),
 );
+const SignupPage = React.lazy(() =>
+	import('./pages/SignupPage').then((m) => ({ default: m.SignupPage })),
+);
+const AcceptInvitePage = React.lazy(() =>
+	import('./pages/AcceptInvitePage').then((m) => ({
+		default: m.AcceptInvitePage,
+	})),
+);
 
 function ProtectedRoute() {
 	const { loading, user } = useAuth();
@@ -66,6 +74,22 @@ export default function App() {
 				<BrowserRouter>
 					<Routes>
 						<Route path="/login" element={<LoginPage />} />
+						<Route
+							path="/signup"
+							element={
+								<React.Suspense fallback={Fallback}>
+									<SignupPage />
+								</React.Suspense>
+							}
+						/>
+						<Route
+							path="/invite/:token"
+							element={
+								<React.Suspense fallback={Fallback}>
+									<AcceptInvitePage />
+								</React.Suspense>
+							}
+						/>
 						<Route element={<ProtectedRoute />}>
 							<Route element={<AppLayout />}>
 								<Route index element={<Navigate to="/overview" replace />} />

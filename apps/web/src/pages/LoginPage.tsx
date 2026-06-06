@@ -1,27 +1,37 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { validateAdminKey } from '../api/admin';
+import { useNavigate, Link } from 'react-router-dom';
+import { authApi } from '../api/auth';
+import { useAuth } from '../hooks/useAuth';
 
 export function LoginPage() {
-  const [key, setKey] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { refresh, user } = useAuth();
 
   useEffect(() => {
-    if (localStorage.getItem('adminApiKey')) navigate('/overview', { replace: true });
-  }, [navigate]);
+    if (user) navigate('/overview', { replace: true });
+  }, [user, navigate]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!key.trim()) { setError('Please enter your admin API key'); return; }
+    if (!email.trim() || !password) {
+      setError('Enter your email and password');
+      return;
+    }
     setLoading(true);
     setError('');
-    const valid = await validateAdminKey(key.trim());
-    setLoading(false);
-    if (!valid) { setError('Invalid admin API key'); return; }
-    localStorage.setItem('adminApiKey', key.trim());
-    navigate('/overview', { replace: true });
+    try {
+      await authApi.login(email.trim(), password);
+      await refresh();
+      navigate('/overview', { replace: true });
+    } catch {
+      setError('Invalid email or password');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -36,29 +46,23 @@ export function LoginPage() {
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
-            <label className="text-xs font-medium text-[var(--text-muted)] block mb-1.5">
-              Your name (for audit log) <span className="text-[var(--text-faint)]">— optional</span>
-            </label>
+            <label className="text-xs font-medium text-[var(--text-muted)] block mb-1.5">Email</label>
             <input
-              type="text"
-              defaultValue={localStorage.getItem('adminUserName') ?? ''}
-              onChange={e => {
-                const v = e.target.value.trim();
-                if (v) localStorage.setItem('adminUserName', v);
-                else localStorage.removeItem('adminUserName');
-              }}
-              placeholder="e.g. rashedul"
-              autoComplete="name"
+              type="email"
+              value={email}
+              onChange={e => { setEmail(e.target.value); setError(''); }}
+              placeholder="you@example.com"
+              autoComplete="email"
               className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] transition-colors"
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-[var(--text-muted)] block mb-1.5">Admin API Key</label>
+            <label className="text-xs font-medium text-[var(--text-muted)] block mb-1.5">Password</label>
             <input
               type="password"
-              value={key}
-              onChange={e => { setKey(e.target.value); setError(''); }}
-              placeholder="Enter your admin key"
+              value={password}
+              onChange={e => { setPassword(e.target.value); setError(''); }}
+              placeholder="Enter your password"
               autoComplete="current-password"
               className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] transition-colors"
             />
@@ -71,9 +75,15 @@ export function LoginPage() {
             className="w-full py-2 text-sm font-medium text-white rounded-[var(--radius)] transition-colors disabled:opacity-60"
             style={{ background: 'var(--accent)' }}
           >
-            {loading ? 'Verifying…' : 'Sign in'}
+            {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
+
+        <p className="text-xs text-[var(--text-muted)] text-center mt-6">
+          <Link to="/signup" className="hover:text-[var(--accent)] transition-colors">
+            Set up your organization →
+          </Link>
+        </p>
       </div>
     </div>
   );
