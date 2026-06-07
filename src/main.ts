@@ -23,15 +23,22 @@ async function bootstrap() {
     credentials: true,
   });
   app.setGlobalPrefix('api');
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
 
-  const config = new DocumentBuilder()
-    .setTitle('ClickUp Sync API')
-    .setDescription('NestJS service for ClickUp webhook ingestion, backfills, time entries, and cost sync.')
-    .setVersion('0.1.0')
-    .addApiKey({ type: 'apiKey', name: 'x-admin-key', in: 'header' }, 'x-admin-key')
-    .build();
-  SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config));
+  // Swagger exposes the full API surface (every admin/reports route + the
+  // x-admin-key scheme) unauthenticated. Keep it off in production unless an
+  // operator explicitly opts in via ENABLE_SWAGGER=true.
+  const swaggerEnabled =
+    process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV !== 'production';
+  if (swaggerEnabled) {
+    const config = new DocumentBuilder()
+      .setTitle('ClickUp Sync API')
+      .setDescription('NestJS service for ClickUp webhook ingestion, backfills, time entries, and cost sync.')
+      .setVersion('0.1.0')
+      .addApiKey({ type: 'apiKey', name: 'x-admin-key', in: 'header' }, 'x-admin-key')
+      .build();
+    SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config));
+  }
 
   const port = Number(process.env.PORT || 3000);
   await app.listen(port);
