@@ -23,7 +23,11 @@ async function bootstrap() {
     credentials: true,
   });
   app.setGlobalPrefix('api');
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+  // whitelist:true already strips unknown props (kills mass-assignment); we do
+  // NOT set forbidNonWhitelisted because turning unknown fields into hard 400s
+  // is a behavior change across every write endpoint the SPA hits and isn't
+  // needed for the security property.
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
   // Swagger exposes the full API surface (every admin/reports route + the
   // x-admin-key scheme) unauthenticated. Keep it off in production unless an
