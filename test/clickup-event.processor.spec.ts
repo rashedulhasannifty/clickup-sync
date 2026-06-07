@@ -10,7 +10,14 @@ function makeQueues() {
 }
 
 function makeEvents() {
-  return { markProcessed: jest.fn().mockResolvedValue(undefined) } as any;
+  return {
+    markProcessed: jest.fn().mockResolvedValue(undefined),
+    markFailed: jest.fn().mockResolvedValue(undefined),
+  } as any;
+}
+
+function makeDeadLetters(exhausted = false) {
+  return { recordIfExhausted: jest.fn().mockResolvedValue(exhausted) } as any;
 }
 
 function makePrisma() {
@@ -36,7 +43,7 @@ describe('ClickupEventProcessor — taskStatusUpdated', () => {
         raw: { id: 'hist_1' },
       },
     ]);
-    const proc = new ClickupEventProcessor(makeQueues(), makeEvents(), parser, prisma);
+    const proc = new ClickupEventProcessor(makeQueues(), makeEvents(), parser, prisma, makeDeadLetters());
     await proc.process({
       data: { eventType: 'taskStatusUpdated', taskId: '86abcdef0', fingerprint: 'id:hist_1', loggedUserId: null, payload: { history_items: [{ field: 'status' }] } },
     } as any);
@@ -59,7 +66,7 @@ describe('ClickupEventProcessor — taskStatusUpdated', () => {
       { occurredAt: new Date(1), changedByUserId: null, changedByUserName: null, before: {}, after: {}, raw: {} },
       { occurredAt: new Date(2), changedByUserId: null, changedByUserName: null, before: {}, after: {}, raw: {} },
     ]);
-    const proc = new ClickupEventProcessor(makeQueues(), makeEvents(), parser, prisma);
+    const proc = new ClickupEventProcessor(makeQueues(), makeEvents(), parser, prisma, makeDeadLetters());
     await proc.process({
       data: { eventType: 'taskStatusUpdated', taskId: 't1', fingerprint: 'fp', loggedUserId: null, payload: {} },
     } as any);
@@ -68,10 +75,36 @@ describe('ClickupEventProcessor — taskStatusUpdated', () => {
 
   it('does not enqueue a task sync for taskStatusUpdated (separate concern)', async () => {
     const queues = makeQueues();
-    const proc = new ClickupEventProcessor(queues, makeEvents(), makeParser([]), makePrisma());
+    const proc = new ClickupEventProcessor(queues, makeEvents(), makeParser([]), makePrisma(), makeDeadLetters());
     await proc.process({
       data: { eventType: 'taskStatusUpdated', taskId: 't1', fingerprint: 'fp', loggedUserId: null, payload: {} },
     } as any);
     expect(queues._queue.add).not.toHaveBeenCalled();
+  });
+});
+
+describe('ClickupEventProcessor — failure handling', () => {
+  it('marks the webhook event failed once retries are exhausted', async () => {
+    const events = makeEvents();
+    const deadLetters = makeDeadLetters(true); // exhausted
+    const proc = new ClickupEventProcessor(makeQueues(), events, makeParser([]), makePrisma(), deadLetters);
+
+    await proc.onFailed(
+      { data: { fingerprint: 'fp-1' } } as any,
+      new Error('downstream boom'),
+    );
+
+    expect(deadLetters.recordIfExhausted).toHaveBeenCalled();
+    expect(events.markFailed).toHaveBeenCalledWith('fp-1', 'downstream boom');
+  });
+
+  it('does NOT mark failed while retries remain', async () => {
+    const events = makeEvents();
+    const deadLetters = makeDeadLetters(false); // still retrying
+    const proc = new ClickupEventProcessor(makeQueues(), events, makeParser([]), makePrisma(), deadLetters);
+
+    await proc.onFailed({ data: { fingerprint: 'fp-1' } } as any, new Error('transient'));
+
+    expect(events.markFailed).not.toHaveBeenCalled();
   });
 });

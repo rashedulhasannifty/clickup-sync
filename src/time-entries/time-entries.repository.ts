@@ -20,6 +20,15 @@ export class TimeEntriesRepository {
     });
   }
 
+  /**
+   * Remove a local time-entry row by its ClickUp id. Uses deleteMany so it is
+   * idempotent (no throw when the row is absent — e.g. replacing a historical
+   * entry that was never synced locally).
+   */
+  deleteByTimeEntryId(timeEntryId: string) {
+    return this.prisma.clickupTimeEntry.deleteMany({ where: { timeEntryId } });
+  }
+
   async findUnreplacedAgencyEntries(agencyUserId: string, limit = 500) {
     const replaced = await this.prisma.timeEntryReplacement.findMany({
       select: { originalEntryId: true },

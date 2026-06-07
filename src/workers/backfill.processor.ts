@@ -1,14 +1,25 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { QUEUES } from '../queues/queue.constants';
 import { BackfillService } from '../sync/backfill.service';
 import { JobLogsRepository } from '../jobs/job-logs.repository';
+import { DeadLetterService } from '../jobs/dead-letter.service';
 
 @Injectable()
 @Processor(QUEUES.CLICKUP_BACKFILLS)
 export class BackfillProcessor extends WorkerHost {
-  constructor(private readonly backfills: BackfillService, private readonly jobLogs: JobLogsRepository) { super(); }
+  constructor(
+    private readonly backfills: BackfillService,
+    private readonly jobLogs: JobLogsRepository,
+    private readonly deadLetters: DeadLetterService,
+  ) { super(); }
+
+  @OnWorkerEvent('failed')
+  async onFailed(job: Job, err: Error) {
+    await this.deadLetters.recordIfExhausted(job, err);
+  }
+
   async process(job: Job<{ spaceId: string; lookbackDays?: number }>) {
     const log = await this.jobLogs.started({ jobId: job.id?.toString(), queueName: QUEUES.CLICKUP_BACKFILLS, jobName: job.name, entityType: 'space', entityId: job.data.spaceId });
     try {
