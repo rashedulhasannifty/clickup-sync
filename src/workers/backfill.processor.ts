@@ -1,13 +1,13 @@
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import type { Job } from 'bullmq';
-import { QUEUES } from '../queues/queue.constants';
+import { QUEUES, clickupWorkerOptions } from '../queues/queue.constants';
 import { BackfillService } from '../sync/backfill.service';
 import { JobLogsRepository } from '../jobs/job-logs.repository';
 import { DeadLetterService } from '../jobs/dead-letter.service';
 
 @Injectable()
-@Processor(QUEUES.CLICKUP_BACKFILLS)
+@Processor(QUEUES.CLICKUP_BACKFILLS, clickupWorkerOptions())
 export class BackfillProcessor extends WorkerHost {
   constructor(
     private readonly backfills: BackfillService,

@@ -1,13 +1,13 @@
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import type { Job } from 'bullmq';
-import { QUEUES } from '../queues/queue.constants';
+import { QUEUES, clickupWorkerOptions } from '../queues/queue.constants';
 import { TimeEntriesService } from '../time-entries/time-entries.service';
 import { JobLogsRepository } from '../jobs/job-logs.repository';
 import { DeadLetterService } from '../jobs/dead-letter.service';
 
 @Injectable()
-@Processor(QUEUES.CLICKUP_TIME_ENTRIES)
+@Processor(QUEUES.CLICKUP_TIME_ENTRIES, clickupWorkerOptions())
 export class TimeEntrySyncProcessor extends WorkerHost {
   constructor(
     private readonly timeEntries: TimeEntriesService,

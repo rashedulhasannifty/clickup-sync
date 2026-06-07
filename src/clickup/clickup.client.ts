@@ -5,6 +5,9 @@ import { ClickUpMember, ClickUpTask, ClickUpTaskPage, ClickUpTimeEntry, ClickUpW
 import { buildTimeEntriesQuery } from './time-entries.util';
 import { SettingsService } from '../settings/settings.service';
 
+const MAX_429_RETRIES = 3;
+const MAX_BACKOFF_MS = 60_000;
+
 @Injectable()
 export class ClickupClient {
   private readonly logger = new Logger(ClickupClient.name);
@@ -17,14 +20,36 @@ export class ClickupClient {
 
   private headers() { return { Authorization: this.settings.getApiToken() }; }
 
-  private async request<T>(method: 'GET'|'POST'|'DELETE', path: string, data?: unknown): Promise<T> {
+  private async request<T>(method: 'GET'|'POST'|'DELETE', path: string, data?: unknown, attempt = 0): Promise<T> {
     try {
       const response = await firstValueFrom(this.http.request<T>({ method, url: `${this.baseUrl}${path}`, data, headers: this.headers(), timeout: 30000 }));
       return response.data;
     } catch (error: any) {
-      this.logger.error(`ClickUp ${method} ${path} failed: ${error?.response?.status || ''} ${error?.message}`);
+      const status = error?.response?.status;
+      // Honor ClickUp's own rate-limit backoff instead of failing the job and
+      // leaning on BullMQ's generic retry — Retry-After tells us exactly how
+      // long to wait. Bounded so a sustained 429 still surfaces as an error.
+      if (status === 429 && attempt < MAX_429_RETRIES) {
+        const waitMs = this.retryAfterMs(error?.response?.headers, attempt);
+        this.logger.warn(`ClickUp ${method} ${path} rate-limited (429); retrying in ${waitMs}ms (attempt ${attempt + 1}/${MAX_429_RETRIES})`);
+        await this.sleep(waitMs);
+        return this.request<T>(method, path, data, attempt + 1);
+      }
+      this.logger.error(`ClickUp ${method} ${path} failed: ${status || ''} ${error?.message}`);
       throw error;
     }
+  }
+
+  private retryAfterMs(headers: Record<string, unknown> | undefined, attempt: number): number {
+    const raw = headers?.['retry-after'] ?? headers?.['Retry-After'];
+    const secs = Number(raw);
+    if (Number.isFinite(secs) && secs >= 0) return Math.min(secs * 1000, MAX_BACKOFF_MS);
+    // No/!invalid header → exponential fallback (1s, 2s, 4s…), capped.
+    return Math.min(1000 * 2 ** attempt, MAX_BACKOFF_MS);
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   getTask(taskId: string): Promise<ClickUpTask> { return this.request('GET', `/task/${taskId}?include_subtasks=true`); }

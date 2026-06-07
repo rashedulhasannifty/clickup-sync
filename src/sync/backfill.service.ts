@@ -35,6 +35,22 @@ export class BackfillService {
     const parentTasks = rawTasks.filter((t) => !t.parent);
     const subtasks = rawTasks.filter((t) => !!t.parent);
     await this.tasks.syncTasks(parentTasks);
+
+    // Subtasks may reference a parent that wasn't updated within the lookback
+    // window and so isn't in `rawTasks`. Fetch+insert those (if not already
+    // stored) before the subtasks, so parentTaskId never dangles.
+    const presentIds = new Set(
+      rawTasks.map((t) => (t as { id?: string }).id).filter((id): id is string => !!id),
+    );
+    const referencedParentIds = [
+      ...new Set(
+        subtasks
+          .map((t) => (t as { parent?: string | null }).parent)
+          .filter((p): p is string => !!p && !presentIds.has(p)),
+      ),
+    ];
+    await this.tasks.syncMissingParents(referencedParentIds);
+
     await this.tasks.syncTasks(subtasks);
 
     // The team-level tasks endpoint omits space.name — patch it from config

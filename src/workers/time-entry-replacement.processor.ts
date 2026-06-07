@@ -1,12 +1,12 @@
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import type { Job } from 'bullmq';
-import { QUEUES } from '../queues/queue.constants';
+import { QUEUES, clickupWorkerOptions } from '../queues/queue.constants';
 import { AssigneeReplacementService, ReplacementJobData } from '../time-entries/assignee-replacement.service';
 import { DeadLetterService } from '../jobs/dead-letter.service';
 
 @Injectable()
-@Processor(QUEUES.CLICKUP_ASSIGNEE_REPLACEMENT)
+@Processor(QUEUES.CLICKUP_ASSIGNEE_REPLACEMENT, clickupWorkerOptions())
 export class TimeEntryReplacementProcessor extends WorkerHost {
   constructor(
     private readonly replacement: AssigneeReplacementService,

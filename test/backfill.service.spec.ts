@@ -16,6 +16,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
     const tasks = {
       syncTasks: jest.fn().mockResolvedValue(undefined),
       patchSpaceNames: jest.fn().mockResolvedValue(undefined),
+      syncMissingParents: jest.fn().mockResolvedValue(0),
     } as any;
     const checkpoints = {
       markAttempt: jest.fn().mockResolvedValue(undefined),
@@ -66,6 +67,27 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
     const days20Ms = 20 * 24 * 60 * 60 * 1000;
     expect(startDateOf(calls[0])).toBeGreaterThanOrEqual(beforeMs - days20Ms);
     expect(startDateOf(calls[0])).toBeLessThanOrEqual(afterMs - days20Ms + 5);
+  });
+
+  // A subtask whose parent was updated outside the lookback window won't be in
+  // the fetched page; without fetching it, the subtask's parentTaskId points at
+  // a non-existent row and parent/subtask report joins break.
+  it('fetches parents referenced by subtasks but absent from the fetched page', async () => {
+    const { queues, tasks, checkpoints } = makeDeps();
+    const clickup = {
+      getAllTasksBySpace: jest.fn().mockResolvedValue([
+        { id: 'parent-A' },                      // present parent
+        { id: 'sub-1', parent: 'parent-A' },     // parent present → not missing
+        { id: 'sub-2', parent: 'parent-MISSING' }, // parent absent from page
+      ]),
+    } as any;
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636' } as any);
+
+    await svc.backfillSpace('99999999', 30);
+
+    expect(tasks.syncMissingParents).toHaveBeenCalledTimes(1);
+    const passedIds = tasks.syncMissingParents.mock.calls[0][0];
+    expect(passedIds).toEqual(['parent-MISSING']);
   });
 
   // Unknown space → no configured floor → use the override as-is.
