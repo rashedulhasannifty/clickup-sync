@@ -57,6 +57,32 @@ describe('CostCalculatorService', () => {
     expect(r.rateId).toBe(7n);
   });
 
+  it('reuses a supplied cache so a repeated (user, date) lookup hits the DB only once', async () => {
+    const { prisma, findFirst } = makePrisma({ rateId: 7n, currency: 'AUD', hourlyRateCents: 15000n });
+    const svc = new CostCalculatorService(prisma);
+    const cache = new Map();
+
+    // Same user, same calendar day, different durations.
+    const a = await svc.calculate('user-1', new Date('2024-06-15T09:00:00.000Z'), 2, cache);
+    const b = await svc.calculate('user-1', new Date('2024-06-15T17:00:00.000Z'), 3, cache);
+
+    expect(findFirst).toHaveBeenCalledTimes(1); // cached on the second call
+    expect(a.costCents).toBe(30000n); // 15000 * 2
+    expect(b.costCents).toBe(45000n); // 15000 * 3, still uses the cached rate
+  });
+
+  it('caches NO_RATE results too (negative caching)', async () => {
+    const { prisma, findFirst } = makePrisma(null);
+    const svc = new CostCalculatorService(prisma);
+    const cache = new Map();
+
+    await svc.calculate('user-1', new Date('2024-06-15T09:00:00.000Z'), 2, cache);
+    const r = await svc.calculate('user-1', new Date('2024-06-15T17:00:00.000Z'), 3, cache);
+
+    expect(findFirst).toHaveBeenCalledTimes(1);
+    expect(r.status).toBe('NO_RATE_FOUND');
+  });
+
   it('returns NO_RATE_FOUND when userId or startTime is null', async () => {
     const { prisma, findFirst } = makePrisma(null);
     const svc = new CostCalculatorService(prisma);

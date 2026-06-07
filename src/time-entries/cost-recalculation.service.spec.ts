@@ -30,7 +30,7 @@ describe('CostRecalculationService', () => {
     const { svc, update, calculate } = makeDeps([ENTRY]);
     const res = await svc.recalculate({ assigneeId: 'u1' });
 
-    expect(calculate).toHaveBeenCalledWith('u1', ENTRY.startTime, 2);
+    expect(calculate).toHaveBeenCalledWith('u1', ENTRY.startTime, 2, expect.any(Map));
     expect(update).toHaveBeenCalledWith({
       where: { timeEntryId: 'te-1' },
       data: { rateId: 9n, currency: 'AUD', hourlyRateCents: 10000n, costCents: 20000n, status: 'COST_CALCULATED' },
@@ -43,5 +43,24 @@ describe('CostRecalculationService', () => {
     await svc.recalculate({ assigneeId: 'u1' });
     await svc.recalculate({ assigneeId: 'u1' });
     expect(update.mock.calls[0]).toEqual(update.mock.calls[1]);
+  });
+
+  it('shares ONE rate cache across all entries in a run (so the DB is not hit per entry)', async () => {
+    const ENTRY2 = { timeEntryId: 'te-2', userId: 'u1', startTime: new Date('2024-06-15T08:00:00Z'), durationHours: { toNumber: () => 1 } };
+    const { svc, calculate } = makeDeps([ENTRY, ENTRY2]);
+
+    await svc.recalculate({});
+
+    const cacheArgs = calculate.mock.calls.map((c) => c[3]);
+    expect(cacheArgs[0]).toBeInstanceOf(Map);
+    expect(cacheArgs[1]).toBe(cacheArgs[0]); // same instance threaded through
+  });
+
+  it('selects entries with a stable cursor order for batching', async () => {
+    const { svc, findMany } = makeDeps([ENTRY]);
+    await svc.recalculate({});
+    const call = findMany.mock.calls[0][0];
+    expect(call.orderBy).toEqual({ timeEntryId: 'asc' });
+    expect(typeof call.take).toBe('number');
   });
 });

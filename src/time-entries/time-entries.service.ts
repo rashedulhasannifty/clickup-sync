@@ -68,11 +68,14 @@ export class TimeEntriesService {
     const entries = await this.clickup.getTimeEntries(teamId, taskId, { assigneeIds: ids, startDate, endDate });
     let count = 0;
     const upserted: { normalized: NormalizedTimeEntry; rawTags: string[] }[] = [];
+    // One rate cache for the whole task so multiple intervals logged by the
+    // same user on the same day resolve the effective rate once, not per entry.
+    const rateCache = new Map();
     for (const entry of entries) {
       const normalized = this.normalizer.normalizeTimeEntry(entry);
       const rawTags = extractEntryTagNames(entry);
       upserted.push({ normalized, rawTags });
-      const cost = await this.costs.calculate(normalized.userId, normalized.startTime, normalized.durationHours);
+      const cost = await this.costs.calculate(normalized.userId, normalized.startTime, normalized.durationHours, rateCache);
       await this.repo.upsert(normalized, cost);
       if (cost.status === 'NO_RATE_FOUND') this.logger.warn(`Missing rate for user ${normalized.userId} on time entry ${normalized.timeEntryId}`);
       count += 1;
