@@ -29,6 +29,5 @@ export const adminApi = {
     apiClient
       .post('/admin/webhooks/retry-failed')
       .then((r) => r.data as { requeued: number; scanned: number; limit: number }),
-  retryDeadLetter: (id: string) => apiClient.post(`/admin/dead-letters/${id}/retry`).then(r => r.data),
   workspaceMembers: (): Promise<WorkspaceMember[]> => apiClient.get('/admin/workspace-members').then(r => r.data),
 };

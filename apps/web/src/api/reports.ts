@@ -1,5 +1,4 @@
 import { apiClient } from './client';
-import { parseRatesListResponse } from './rates';
 import type { CostTrendBucket } from '../hooks/useReports';
 
 export const reportsApi = {
@@ -21,12 +20,8 @@ export const reportsApi = {
     apiClient.get('/reports/time-entries/by-client', { params }).then(r => r.data),
   costTrend: (params: { bucket: CostTrendBucket; from?: string; to?: string }) =>
     apiClient.get('/reports/time-entries/cost-trend', { params }).then(r => r.data),
-  costTrendByAssignee: (params: { bucket: CostTrendBucket; from?: string; to?: string }) =>
-    apiClient.get('/reports/time-entries/cost-trend-by-assignee', { params }).then(r => r.data),
   timeEntriesByDepartment: (params?: { from?: string; to?: string }) =>
     apiClient.get('/reports/time-entries/by-department', { params }).then(r => r.data),
-  timeEntriesBillableSummary: (params?: { from?: string; to?: string }) =>
-    apiClient.get('/reports/time-entries/billable-summary', { params }).then(r => r.data),
   timeEntriesList: (params: Record<string, string | number | undefined>) =>
     apiClient.get('/reports/time-entries', { params }).then(r => r.data),
   timeEntriesAggregates: (params: Record<string, string | number | undefined>) =>
@@ -38,16 +33,10 @@ export const reportsApi = {
     apiClient.get('/reports/ops/webhook-events', { params }).then(r => r.data),
   jobLogs: (params?: { queueName?: string; status?: string; limit?: number; offset?: number }) =>
     apiClient.get('/reports/ops/job-logs', { params }).then(r => r.data),
-  deadLetters: (params?: { limit?: number; offset?: number }) =>
-    apiClient.get('/reports/ops/dead-letters', { params }).then(r => r.data),
   stats: () => apiClient.get('/reports/ops/stats').then(r => r.data),
   missingRates: () => apiClient.get('/reports/ops/missing-rates').then(r => r.data),
   anomalies: () => apiClient.get('/reports/anomalies').then(r => r.data),
   spaces: () => apiClient.get('/reports/spaces').then(r => r.data),
-  assigneeRates: (params?: { page?: number; limit?: number }) =>
-    apiClient
-      .get('/admin/rates', { params: { page: 1, limit: 200, ...params } })
-      .then((r) => parseRatesListResponse(r.data)),
 };
 
 export interface CycleTimeItem { bucket: string; meanHours: number; medianHours: number; p90Hours: number; taskCount: number; }
