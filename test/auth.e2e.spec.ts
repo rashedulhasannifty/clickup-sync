@@ -31,6 +31,15 @@ describe('Auth + RBAC (e2e)', () => {
   let prisma: PrismaService;
 
   beforeAll(async () => {
+    // Safety fuse: this suite calls user.deleteMany() with no filter. If it ever runs
+    // against the dev database it wipes the developer's login. Run via `npm run test:e2e`,
+    // which provisions and targets an isolated `<db>_test` database (see test/run-e2e.js).
+    if (!process.env.DATABASE_URL?.includes('_test')) {
+      throw new Error(
+        'Refusing to run e2e against a non-test database. Use `npm run test:e2e`.',
+      );
+    }
+
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
