@@ -22,6 +22,12 @@ export function SignupPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // Match the backend policy (@MinLength(10)) client-side so the user gets a
+    // specific message instead of a generic "could not create account".
+    if (form.password.length < 10) {
+      setError('Password must be at least 10 characters.');
+      return;
+    }
     setLoading(true);
     setError('');
     try {
@@ -33,8 +39,9 @@ export function SignupPage() {
       });
       await refresh();
       navigate('/overview', { replace: true });
-    } catch (err: any) {
-      setError(err?.response?.status === 409
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      setError(status === 409
         ? 'Signup is closed — ask an admin for an invite.'
         : 'Could not create your account.');
       setLoading(false);

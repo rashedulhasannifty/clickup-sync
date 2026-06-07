@@ -37,6 +37,9 @@ export function AcceptInvitePage() {
     e.preventDefault();
     if (!token) return;
     if (!name.trim() || !password) { setError('Enter your name and a password'); return; }
+    // Match the backend policy (@MinLength(10)) so the placeholder's "At least
+    // 10 characters" hint is actually enforced before the API round-trip.
+    if (password.length < 10) { setError('Password must be at least 10 characters.'); return; }
     setLoading(true);
     setError('');
     try {
