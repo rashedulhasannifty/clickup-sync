@@ -1,5 +1,5 @@
 import * as crypto from 'crypto';
-import { InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException } from '@nestjs/common';
 import { WebhookSignatureGuard } from '../src/webhooks/webhook-signature.guard';
 
 describe('WebhookSignatureGuard', () => {

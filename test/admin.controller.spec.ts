@@ -154,7 +154,7 @@ describe('AdminController', () => {
 
   describe('backfillActive', () => {
     function makeQueuesWithJobs(jobsByQueue: Record<string, any[]>) {
-      const getJobs = jest.fn((states: string[]) => Promise.resolve([])); // default
+      const getJobs = jest.fn((_states: string[]) => Promise.resolve([])); // default
       const queueMocks = new Map<string, any>();
       for (const [name, jobs] of Object.entries(jobsByQueue)) {
         queueMocks.set(name, { getJobs: jest.fn().mockResolvedValue(jobs), add: jest.fn() });

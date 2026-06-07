@@ -1,5 +1,5 @@
 import { BackfillService } from '../src/sync/backfill.service';
-import { JOBS, QUEUES } from '../src/queues/queue.constants';
+import { JOBS } from '../src/queues/queue.constants';
 
 describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   const RD_APPS_ID = '3589129'; // configured backfillLookbackDays = 20

@@ -31,10 +31,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run prisma:generate
-      # NOTE: `npm run lint` is intentionally NOT a gate yet — the backend has no
-      # root ESLint flat config (eslint.config.js), so the script currently exits
-      # non-zero. Add a root config + clean up violations, then uncomment:
-      # - run: npm run lint
+      - run: npm run lint
       - run: npm run test
       - run: npm run build
       - run: npm run build:web
