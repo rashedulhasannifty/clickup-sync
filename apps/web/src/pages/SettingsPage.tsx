@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useSpaces, useSyncHealth } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
-import { useRegisterWebhook, useTestClickupConnection } from '../hooks/useAdmin';
+import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks } from '../hooks/useAdmin';
 import { useSettings, useUpdateSettings } from '../hooks/useSettings';
 import { useAuth } from '../hooks/useAuth';
 import { RequireRole } from '../components/RequireRole';
@@ -199,6 +199,7 @@ export function SettingsPage() {
   const deleteTagAssignee = useDeleteTagAssignee();
   const registerWebhook = useRegisterWebhook();
   const testConnection = useTestClickupConnection();
+  const reconcileTasks = useReconcileTasks();
   const settingsQuery = useSettings();
   const updateSettings = useUpdateSettings();
 
@@ -256,7 +257,7 @@ export function SettingsPage() {
   const [editingTagId, setEditingTagId] = useState<string | null>(null);
   const [tagForm, setTagForm] = useState<TagFormState>(emptyForm);
 
-  const [reconcileCadence, setReconcileCadence] = useState('hourly');
+  const [reconcileDays, setReconcileDays] = useState('365');
   const [defaultCurrency, setDefaultCurrency] = useState('USD');
   const [rateMatch, setRateMatch] = useState('start');
   const [webhookRetries, setWebhookRetries] = useState('5');
@@ -648,20 +649,41 @@ export function SettingsPage() {
               />
               <SettingRow
                 label="Full reconciliation"
-                desc="Not scheduled yet — only manual backfills via the Spaces page run today."
+                desc="Not scheduled — run on demand. Sweeps every stored task: soft-deletes ones removed in ClickUp (and their time entries) and re-syncs the rest's tracked time, so deletions made directly in ClickUp show up here."
                 control={
-                  <Select
-                    size="sm"
-                    value={reconcileCadence}
-                    onChange={setReconcileCadence}
-                    disabled
-                    options={[
-                      { value: 'never', label: 'Disabled' },
-                      { value: 'hourly', label: 'Every hour' },
-                      { value: 'daily', label: 'Daily at 03:00 UTC' },
-                      { value: 'weekly', label: 'Weekly' },
-                    ]}
-                  />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={reconcileDays}
+                      onChange={(e) => setReconcileDays(e.target.value)}
+                      style={{ width: 88 }}
+                      aria-label="Reconciliation lookback in days"
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>days back</span>
+                    <Button
+                      size="sm"
+                      variant="accent"
+                      loading={reconcileTasks.isPending}
+                      onClick={() => {
+                        const days = Number(reconcileDays);
+                        if (!Number.isFinite(days) || days < 1) {
+                          showBanner('Enter a lookback of at least 1 day.', 'red');
+                          return;
+                        }
+                        reconcileTasks.mutate(days, {
+                          onSuccess: (res) =>
+                            showBanner(
+                              `Reconciliation queued for ${res.queued} task${res.queued === 1 ? '' : 's'} (last ${days} days). Deletions will clear as the jobs run.`,
+                              'blue',
+                            ),
+                          onError: (err) => showBanner(`Reconciliation failed to start: ${(err as Error).message}`, 'red'),
+                        });
+                      }}
+                    >
+                      Run now
+                    </Button>
+                  </div>
                 }
               />
               <SettingRow

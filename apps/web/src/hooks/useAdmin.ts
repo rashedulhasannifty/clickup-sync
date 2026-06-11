@@ -34,6 +34,15 @@ export function useSyncAllTimeEntries() {
   return useMutation({ mutationFn: (lookbackDays?: number) => adminApi.syncAllTimeEntries(lookbackDays) });
 }
 
+/**
+ * Full reconciliation: sweeps every stored task, soft-deleting ones removed in
+ * ClickUp (and their time entries) and re-syncing the rest's time entries so
+ * deletions made directly in ClickUp are reflected locally.
+ */
+export function useReconcileTasks() {
+  return useMutation({ mutationFn: (lookbackDays?: number) => adminApi.reconcileTasks(lookbackDays) });
+}
+
 export function useRegisterWebhook() {
   return useMutation({ mutationFn: adminApi.registerWebhook });
 }

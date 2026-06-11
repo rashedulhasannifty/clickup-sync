@@ -24,6 +24,10 @@ export const adminApi = {
     apiClient.post('/admin/time-entries/sync-all', undefined, {
       params: lookbackDays ? { lookbackDays } : undefined,
     }).then(r => r.data as { queued: number }),
+  reconcileTasks: (lookbackDays?: number) =>
+    apiClient.post('/admin/tasks/reconcile', undefined, {
+      params: lookbackDays ? { lookbackDays } : undefined,
+    }).then(r => r.data as { queued: number }),
   registerWebhook: () => apiClient.post('/admin/webhooks/register').then(r => r.data),
   retryFailedWebhooks: () =>
     apiClient
