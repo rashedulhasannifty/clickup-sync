@@ -9,9 +9,13 @@ interface BarChartProps {
   direction?: 'vertical' | 'horizontal';
   height?: number;
   formatValue?: (v: number) => string;
+  /** Horizontal only: cap the row list at this pixel height and scroll the
+   *  overflow. Used by breakdown cards that render every row (all assignees,
+   *  all clients) so the card stays compact instead of growing unbounded. */
+  maxHeight?: number;
 }
 
-export function BarChart({ data, direction = 'horizontal', height = 200, formatValue }: BarChartProps) {
+export function BarChart({ data, direction = 'horizontal', height = 200, formatValue, maxHeight }: BarChartProps) {
   if (!data.length || data.every(d => d.value === 0)) return <ChartEmpty height={height} />;
   const fv = formatValue ?? String;
   const max = Math.max(...data.map(d => d.value));
@@ -19,7 +23,14 @@ export function BarChart({ data, direction = 'horizontal', height = 200, formatV
 
   if (direction === 'horizontal') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+          ...(maxHeight ? { maxHeight, overflowY: 'auto', marginRight: -4, paddingRight: 4 } : {}),
+        }}
+      >
         {data.map((d, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
             <span style={{ width: 110, color: 'var(--text-muted)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 }}>

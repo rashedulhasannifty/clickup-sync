@@ -6,13 +6,9 @@ import {
 import {
   useStats,
   useTasksSummary,
-  useTasksBySpaceStatus,
   useTimeEntriesByUser,
-  useTimeEntriesByClient,
-  useTimeEntriesByDepartment,
   useWebhookEvents,
   useSyncHealth,
-  useSprintPoints,
   useOverviewDeltas,
 } from '../hooks/useReports';
 import { MetricCard } from '../components/ui/MetricCard';
@@ -22,10 +18,6 @@ import { PageHeader } from '../components/ui/PageHeader';
 import { QueryError } from '../components/ui/QueryError';
 import { Pill } from '../components/ui/Pill';
 import { Button } from '../components/ui/Button';
-import { BarChart } from '../components/charts/BarChart';
-import { DonutChart } from '../components/charts/DonutChart';
-import { CostTrendCard } from '../components/charts/CostTrendCard';
-import { CycleTimeCard } from '../components/charts/CycleTimeCard';
 import { AnomaliesPanel } from '../components/AnomaliesPanel';
 import { fmt } from '../lib/formatters';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
@@ -35,18 +27,6 @@ import { useGlobalFilters } from '../hooks/useGlobalFilters';
 function moneyAud(dollars: number) {
   return fmt.money(Math.round(dollars * 100));
 }
-
-// Status → color mapping matching design
-const STATUS_COLORS: Record<string, string> = {
-  open: '#94a3b8',
-  'in progress': '#3b82f6',
-  'in review': '#a855f7',
-  blocked: '#ef4444',
-  closed: '#10b981',
-  archived: '#64748b',
-};
-
-const SPACE_COLORS = ['#7B68EE', '#FF02F0', '#49CCF9', '#10b981', '#f59e0b', '#ef4444'];
 
 // HealthIndicator matches the design's inline component
 function HealthIndicator({ status, label, value }: { status: 'healthy' | 'warning' | 'error'; label: string; value: string }) {
@@ -68,11 +48,7 @@ function HealthIndicator({ status, label, value }: { status: 'healthy' | 'warnin
   );
 }
 
-type TaskBySpaceRow = { spaceName: string; status: string; count: number };
 type UserTimeRow    = { userName: string; totalHours: number; totalCostAud: number };
-type ClientTimeRow  = { client: string; totalHours: number; totalCostAud: number };
-type DeptTimeRow    = { department: string; totalHours: number; totalCostAud: number };
-type SprintPointRow = { spaceName: string; status: string; totalPoints: number };
 type WebhookRow     = { id: string; eventType: string; taskId: string | null; status: string; receivedAt: string };
 type Stats          = {
   failedJobsLast24h: number;
@@ -81,8 +57,6 @@ type Stats          = {
   missingRateEntries: number;
 };
 type TasksSummary   = {
-  bySpace: { spaceId: string | null; spaceName: string | null; count: number }[];
-  byStatus: { status: string | null; count: number }[];
   byStatusType: { statusType: string | null; count: number }[];
   total: number;
 };
@@ -100,17 +74,12 @@ export function OverviewPage() {
 
   const stats          = useStats();
   const tasksSummary   = useTasksSummary();
-  const tasksBySpace   = useTasksBySpaceStatus();
   const timeByUser     = useTimeEntriesByUser();
-  const timeByClient   = useTimeEntriesByClient();
-  const timeByDept     = useTimeEntriesByDepartment();
   const webhookEvents  = useWebhookEvents({ limit: 7 });
   const syncHealth     = useSyncHealth();
-  const sprintPoints   = useSprintPoints();
 
   const sd      = stats.data as Stats | undefined;
   const summary = tasksSummary.data as TasksSummary | undefined;
-  const rows = (tasksBySpace.data as TaskBySpaceRow[] | undefined) ?? [];
 
   // ── KPI derivations ──────────────────────────────────────────────────────────
   // Open/closed use `status_type` (ClickUp's stable open/custom/done/closed
@@ -147,74 +116,6 @@ export function OverviewPage() {
   const failedJobs    = sd?.failedJobsLast24h ?? 0;
   const deadLetters   = sd?.deadLetterPending ?? 0;
   const webhooks24h   = sd?.webhooksLast24h ?? 0;
-
-  // ── Chart data ───────────────────────────────────────────────────────────────
-
-  // DonutChart: tasks by status (aggregate across spaces)
-  const statusMap = new Map<string, number>();
-  rows.forEach(r => statusMap.set(r.status, (statusMap.get(r.status) ?? 0) + r.count));
-  const tasksByStatusData = Array.from(statusMap.entries()).map(([status, count]) => ({
-    label: status,
-    value: count,
-    color: STATUS_COLORS[status.toLowerCase()] ?? '#94a3b8',
-  }));
-
-  // BarChart: tasks by space. Source is `tasksSummary.bySpace` (which carries
-  // both id + name) so unconfigured spaces with `space_name = NULL` still get
-  // a sensible label instead of a blank row — same "Space {id}" fallback the
-  // TopBar dropdown uses.
-  const tasksBySpaceData = (summary?.bySpace ?? [])
-    .map((r, i) => ({
-      label: (r.spaceName?.trim()) || (r.spaceId ? `Space ${r.spaceId}` : 'Unnamed space'),
-      value: r.count,
-      color: SPACE_COLORS[i % SPACE_COLORS.length],
-    }))
-    .sort((a, b) => b.value - a.value);
-
-  // BarChart: time by assignee (top 6). Full username — the old
-  // `.split(' ')[0]` collapsed people whose names start with "Md." or
-  // "Mohammad" into the same first token, making the chart unreadable.
-  const timeByUserData = [...userRows]
-    .sort((a, b) => b.totalHours - a.totalHours)
-    .slice(0, 6)
-    .map((r, i) => ({ label: r.userName, value: r.totalHours, color: SPACE_COLORS[i % SPACE_COLORS.length] }));
-
-  // BarChart: cost by assignee (top 6). Same source array as timeByUserData
-  // but sorted/mapped by totalCostAud. Raw dollars are passed straight to
-  // moneyAud() in the card body, matching the "Cost by department" tile.
-  const costByUserData = [...userRows]
-    .sort((a, b) => b.totalCostAud - a.totalCostAud)
-    .slice(0, 6)
-    .map((r, i) => ({ label: r.userName, value: r.totalCostAud, color: SPACE_COLORS[i % SPACE_COLORS.length] }));
-
-  // BarChart: cost by department
-  const deptRows = (timeByDept.data as DeptTimeRow[] | undefined) ?? [];
-  const costByDeptData = [...deptRows]
-    .sort((a, b) => b.totalCostAud - a.totalCostAud)
-    .slice(0, 6)
-    .map((r, i) => ({ label: r.department, value: r.totalCostAud, color: SPACE_COLORS[i % SPACE_COLORS.length] }));
-
-  // BarChart: cost by client. Title says "spend"; values must be cost in cents
-  // (formatted as money) — the old code mapped `totalHours` here, so the chart
-  // ranked by cost but rendered hours, which is meaningless.
-  const clientRows = (timeByClient.data as ClientTimeRow[] | undefined) ?? [];
-  const costByClientData = [...clientRows]
-    .sort((a, b) => b.totalCostAud - a.totalCostAud)
-    .slice(0, 5)
-    .map((r, i) => ({
-      label: r.client,
-      value: Math.round(r.totalCostAud * 100),
-      color: SPACE_COLORS[i % SPACE_COLORS.length],
-    }));
-
-  // BarChart: sprint points
-  const sprintMap = new Map<string, number>();
-  ((sprintPoints.data as SprintPointRow[] | undefined) ?? []).forEach(r => {
-    sprintMap.set(r.spaceName, (sprintMap.get(r.spaceName) ?? 0) + r.totalPoints);
-  });
-  const sprintData = Array.from(sprintMap.entries()).map(([label, value], i) => ({
-    label, value, color: SPACE_COLORS[i % SPACE_COLORS.length],
-  }));
 
   // Sync health. Defensively coerce: if the API returns an error envelope /
   // HTML / unexpected shape, `syncHealth.data` may be a non-array truthy value
@@ -275,7 +176,7 @@ export function OverviewPage() {
       {/* Surfaces the first failing dashboard query — otherwise the KPI cards
           all dash-render and look identical to "no data yet". */}
       <QueryError
-        queries={[stats, tasksSummary, tasksBySpace, timeByUser, timeByClient, timeByDept, webhookEvents, syncHealth, sprintPoints]}
+        queries={[stats, tasksSummary, timeByUser, webhookEvents, syncHealth]}
         what="dashboard data"
       />
 
@@ -362,38 +263,6 @@ export function OverviewPage() {
         </div>
       </Card>
 
-      {/* Cost trend */}
-      <CostTrendCard />
-
-      {/* Cycle time */}
-      <CycleTimeCard />
-
-      {/* Charts Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12 }}>
-        <Card title="Tasks by status" subtitle={`${fmt.number(totalTasks)} total tasks tracked`} padding={16}>
-          <DonutChart data={tasksByStatusData} size={140} thickness={14} centerLabel="Total" centerValue={totalTasks} />
-        </Card>
-
-        <Card title="Tasks by space" subtitle="Distribution across workspaces" padding={16}>
-          <BarChart data={tasksBySpaceData} direction="horizontal" formatValue={fmt.number} />
-        </Card>
-
-        <Card title="Time tracked by assignee" subtitle={`Hours logged in ${dateRangeLabel}`} padding={16}>
-          <BarChart data={timeByUserData} direction="horizontal" formatValue={fmt.hours} />
-        </Card>
-
-        <Card title="Cost by assignee" subtitle="Top 6 by calculated labor cost" padding={16}>
-          <BarChart data={costByUserData} direction="horizontal" formatValue={(v) => moneyAud(v)} />
-        </Card>
-
-        <Card title="Cost by department" subtitle="Calculated labor cost" padding={16}>
-          <BarChart data={costByDeptData} direction="horizontal" formatValue={v => moneyAud(v)} />
-        </Card>
-
-        <Card title="Cost by client" subtitle="Top 5 clients by spend" padding={16}>
-          <BarChart data={costByClientData} direction="horizontal" formatValue={(v) => moneyAud(v / 100)} />
-        </Card>
-      </div>
 
       {/* Activity + Alerts */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 1fr)', gap: 12 }}>
@@ -506,13 +375,6 @@ export function OverviewPage() {
           <AnomaliesPanel />
         </div>
       </div>
-
-      {/* Sprint points */}
-      {sprintData.length > 0 && (
-        <Card title="Sprint points by space" subtitle="Work delivered across active sprints" padding={16}>
-          <BarChart data={sprintData} direction="horizontal" formatValue={v => `${v} pts`} />
-        </Card>
-      )}
     </div>
   );
 }

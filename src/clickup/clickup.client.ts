@@ -17,7 +17,7 @@ export class ClickupClient {
 
   private headers() { return { Authorization: this.settings.getApiToken() }; }
 
-  private async request<T>(method: 'GET'|'POST'|'DELETE', path: string, data?: unknown): Promise<T> {
+  private async request<T>(method: 'GET'|'POST'|'PUT'|'DELETE', path: string, data?: unknown): Promise<T> {
     try {
       const response = await firstValueFrom(this.http.request<T>({ method, url: `${this.baseUrl}${path}`, data, headers: this.headers(), timeout: 30000 }));
       return response.data;
@@ -69,6 +69,19 @@ export class ClickupClient {
   async createWebhook(teamId: string, endpoint: string, events: string[]): Promise<{ id: string; secret: string }> {
     const res: any = await this.request('POST', `/team/${teamId}/webhook`, { endpoint, events });
     return { id: res.webhook?.id ?? res.id, secret: res.webhook?.secret ?? res.secret ?? '' };
+  }
+  async updateWebhook(
+    webhookId: string,
+    update: { endpoint: string; events: string[]; status?: 'active' },
+  ): Promise<void> {
+    // PUT /webhook/{id} updates the subscribed events / endpoint in place and
+    // leaves the signing secret unchanged (only POST returns a secret), so
+    // signature verification keeps working without re-storing anything.
+    await this.request('PUT', `/webhook/${webhookId}`, {
+      endpoint: update.endpoint,
+      events: update.events,
+      status: update.status ?? 'active',
+    });
   }
   async deleteWebhook(webhookId: string): Promise<void> { await this.request('DELETE', `/webhook/${webhookId}`); }
 

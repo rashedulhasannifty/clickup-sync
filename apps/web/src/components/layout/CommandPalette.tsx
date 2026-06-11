@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Home, CheckSquare, Clock, AlertTriangle, DollarSign,
+  Home, BarChart3, CheckSquare, Clock, AlertTriangle, DollarSign,
   Layers, Webhook, Settings, Search,
 } from 'lucide-react';
 import { Kbd } from '../ui/Kbd';
 
 const NAV_ITEMS: { label: string; to: string; sub: string; icon: typeof Home }[] = [
   { label: 'Overview', to: '/overview', sub: '/overview', icon: Home },
+  { label: 'Analytics', to: '/analytics', sub: '/analytics', icon: BarChart3 },
   { label: 'Tasks', to: '/tasks', sub: '/tasks', icon: CheckSquare },
   { label: 'Time Entries', to: '/time-entries', sub: '/time-entries', icon: Clock },
   { label: 'Missing Rates', to: '/missing-rates', sub: '/missing-rates', icon: AlertTriangle },

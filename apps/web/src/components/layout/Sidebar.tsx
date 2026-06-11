@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  Home, CheckSquare, Clock, AlertTriangle, DollarSign,
+  Home, BarChart3, CheckSquare, Clock, AlertTriangle, DollarSign,
   Layers, Webhook, ShieldCheck, Settings, PanelLeft, type LucideIcon,
 } from 'lucide-react';
 import { useStats } from '../../hooks/useReports';
@@ -23,6 +23,7 @@ export function Sidebar({ onCommandPalette: _onCommandPalette }: { onCommandPale
 
   const navItems: NavItem[] = [
     { to: '/overview',       label: 'Overview',       icon: Home },
+    { to: '/analytics',      label: 'Analytics',      icon: BarChart3 },
     { to: '/tasks',          label: 'Tasks',          icon: CheckSquare },
     { to: '/time-entries',   label: 'Time Entries',   icon: Clock },
     { to: '/missing-rates',  label: 'Missing Rates',  icon: AlertTriangle, badge: stats?.missingRateEntries },

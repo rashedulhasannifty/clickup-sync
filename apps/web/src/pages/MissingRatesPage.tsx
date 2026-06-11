@@ -202,18 +202,40 @@ function MissingRateGroupCard({ item, navigate }: { item: MissingRateItem; navig
               }}
             >
               {inlineTasks.map((t) => (
-                <li
-                  key={t.taskId}
-                  style={{
-                    fontSize: 12,
-                    color: 'var(--text)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  <span style={{ color: 'var(--text-faint)', marginRight: 6 }}>·</span>
-                  {t.taskName}
+                <li key={t.taskId} style={{ display: 'flex', minWidth: 0 }}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/tasks?taskIds=${encodeURIComponent(t.taskId)}`)}
+                    title={`Open “${t.taskName}” in Tasks`}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = 'var(--accent, var(--text))';
+                      e.currentTarget.style.textDecoration = 'underline';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = 'var(--text)';
+                      e.currentTarget.style.textDecoration = 'none';
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      width: '100%',
+                      minWidth: 0,
+                      textAlign: 'left',
+                      background: 'transparent',
+                      border: 0,
+                      padding: '1px 0',
+                      fontSize: 12,
+                      color: 'var(--text)',
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    <span style={{ color: 'var(--text-faint)', flexShrink: 0 }}>·</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {t.taskName}
+                    </span>
+                  </button>
                 </li>
               ))}
             </ul>

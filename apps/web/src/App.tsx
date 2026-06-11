@@ -17,6 +17,9 @@ import './index.css';
 const OverviewPage = React.lazy(() =>
 	import('./pages/OverviewPage').then((m) => ({ default: m.OverviewPage })),
 );
+const AnalyticsPage = React.lazy(() =>
+	import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })),
+);
 const TasksPage = React.lazy(() =>
 	import('./pages/TasksPage').then((m) => ({ default: m.TasksPage })),
 );
@@ -71,6 +74,14 @@ export default function App() {
 									element={
 										<React.Suspense fallback={Fallback}>
 											<OverviewPage />
+										</React.Suspense>
+									}
+								/>
+								<Route
+									path="/analytics"
+									element={
+										<React.Suspense fallback={Fallback}>
+											<AnalyticsPage />
 										</React.Suspense>
 									}
 								/>

@@ -13,6 +13,9 @@ describe('ClickupWebhooksService', () => {
     } as any;
   }
 
+  // The 4 events makeSettings() returns by default, as a sorted-agnostic array.
+  const DEFAULT_EVENTS = ['taskCreated', 'taskUpdated', 'taskDeleted', 'taskTimeTrackedUpdated'];
+
   function makeService(
     webhooks: any[],
     createResult = { id: 'new-id', secret: 'new-secret' },
@@ -21,14 +24,31 @@ describe('ClickupWebhooksService', () => {
     const client = {
       getWebhooks: jest.fn().mockResolvedValue(webhooks),
       createWebhook: jest.fn().mockResolvedValue(createResult),
+      updateWebhook: jest.fn().mockResolvedValue(undefined),
     } as any;
     return { svc: new ClickupWebhooksService(client, settings), client, settings };
   }
 
-  it('returns existing when active webhook found for same endpoint', async () => {
-    const webhooks = [{ id: 'existing-id', endpoint: ENDPOINT, health: { status: 'active', fail_count: 0 } }];
-    const result = await makeService(webhooks).svc.register();
+  it('returns existing (no-op) when an active webhook is already subscribed to the configured events', async () => {
+    const webhooks = [{ id: 'existing-id', endpoint: ENDPOINT, events: DEFAULT_EVENTS, health: { status: 'active', fail_count: 0 } }];
+    const { svc, client } = makeService(webhooks);
+    const result = await svc.register();
     expect(result).toEqual({ action: 'existing', webhookId: 'existing-id', endpoint: ENDPOINT });
+    expect(client.updateWebhook).not.toHaveBeenCalled();
+    expect(client.createWebhook).not.toHaveBeenCalled();
+  });
+
+  it('updates an active webhook in place when configured events changed, reporting added events', async () => {
+    const webhooks = [{ id: 'existing-id', endpoint: ENDPOINT, events: DEFAULT_EVENTS, health: { status: 'active', fail_count: 0 } }];
+    const settings = makeSettings('taskCreated,taskUpdated,taskDeleted,taskTimeTrackedUpdated,taskStatusUpdated');
+    const { svc, client } = makeService(webhooks, undefined, settings);
+    const result = await svc.register();
+    expect(result).toMatchObject({ action: 'updated', webhookId: 'existing-id', addedEvents: ['taskStatusUpdated'] });
+    expect(client.updateWebhook).toHaveBeenCalledWith(
+      'existing-id',
+      expect.objectContaining({ endpoint: ENDPOINT, status: 'active' }),
+    );
+    expect(client.createWebhook).not.toHaveBeenCalled();
   });
 
   it('creates new webhook and stores the returned secret', async () => {
@@ -51,10 +71,13 @@ describe('ClickupWebhooksService', () => {
     expect(result.action).toBe('created');
   });
 
-  it('ignores existing webhooks with non-active health status', async () => {
-    const webhooks = [{ id: 'bad', endpoint: ENDPOINT, health: { status: 'failing', fail_count: 10 } }];
-    const result = await makeService(webhooks).svc.register();
-    expect(result.action).toBe('created');
+  it('reactivates and updates an existing webhook with non-active health instead of creating a duplicate', async () => {
+    const webhooks = [{ id: 'bad', endpoint: ENDPOINT, events: DEFAULT_EVENTS, health: { status: 'failing', fail_count: 10 } }];
+    const { svc, client } = makeService(webhooks);
+    const result = await svc.register();
+    expect(result.action).toBe('updated');
+    expect(client.updateWebhook).toHaveBeenCalledWith('bad', { endpoint: ENDPOINT, events: DEFAULT_EVENTS, status: 'active' });
+    expect(client.createWebhook).not.toHaveBeenCalled();
   });
 
   it('passes correct events to createWebhook', async () => {

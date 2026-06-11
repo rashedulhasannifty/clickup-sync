@@ -22,6 +22,10 @@ export function Card({ children, title, subtitle, action, className = '', paddin
         border: '1px solid var(--border)',
         borderRadius: 10,
         cursor: onClick ? 'pointer' : undefined,
+        // Flex column so the body can grow to fill a parent-given height (e.g.
+        // a fixed-height grid row). When the card height is auto this is inert.
+        display: 'flex',
+        flexDirection: 'column',
         ...style,
       }}
     >
@@ -30,6 +34,7 @@ export function Card({ children, title, subtitle, action, className = '', paddin
           padding: '12px 16px',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           borderBottom: '1px solid var(--border)', gap: 8,
+          flexShrink: 0,
         }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
             {title && <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{title}</div>}
@@ -38,7 +43,7 @@ export function Card({ children, title, subtitle, action, className = '', paddin
           {action && <div style={{ flexShrink: 0 }}>{action}</div>}
         </div>
       )}
-      <div style={{ padding: pad }}>{children}</div>
+      <div style={{ padding: pad, flex: 1, minHeight: 0, overflowY: 'auto' }}>{children}</div>
     </div>
   );
 }

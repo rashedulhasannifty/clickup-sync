@@ -2,9 +2,12 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   CircleCheck,
+  Clock,
+  History,
   Info,
   Lock,
   RefreshCw,
+  Webhook,
 } from 'lucide-react';
 import { useSpaces, useSyncHealth } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
@@ -45,11 +48,32 @@ function spaceColor(spaceId: string | null | undefined): string {
 
 function SectionTitle({ title, subtitle }: { title: string; subtitle?: ReactNode }) {
   return (
-    <div>
-      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{title}</div>
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>{title}</div>
       {subtitle != null && subtitle !== '' && (
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{subtitle}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.5 }}>{subtitle}</div>
       )}
+    </div>
+  );
+}
+
+/** Card header with a hairline divider so the title reads as a real section
+ *  head instead of floating text. `action` sits flush-right (status pill, etc). */
+function CardHeader({ title, subtitle, action }: { title: string; subtitle?: ReactNode; action?: ReactNode }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+        gap: 12,
+        paddingBottom: 14,
+        marginBottom: 16,
+        borderBottom: '1px solid var(--border-soft)',
+      }}
+    >
+      <SectionTitle title={title} subtitle={subtitle} />
+      {action && <div style={{ flexShrink: 0 }}>{action}</div>}
     </div>
   );
 }
@@ -74,22 +98,76 @@ function SettingRow({ label, desc, control }: { label: string; desc?: string; co
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+const DOT: Record<'green' | 'amber' | 'gray', { color: string; ring: string }> = {
+  green: { color: 'var(--green)', ring: 'rgba(16, 185, 129, 0.18)' },
+  amber: { color: 'var(--amber)', ring: 'rgba(245, 158, 11, 0.18)' },
+  gray: { color: 'var(--text-faint)', ring: 'rgba(148, 163, 184, 0.18)' },
+};
+
+function Stat({
+  label,
+  value,
+  icon,
+  dotTone,
+}: {
+  label: string;
+  value: string;
+  icon?: ReactNode;
+  dotTone?: 'green' | 'amber' | 'gray';
+}) {
+  const dot = dotTone ? DOT[dotTone] : null;
   return (
-    <div style={{ padding: '10px 14px', background: 'var(--muted-bg)', borderRadius: 8 }}>
+    <div
+      style={{
+        padding: '11px 13px',
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 9,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        minWidth: 0,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+            color: 'var(--text-faint)',
+          }}
+        >
+          {label}
+        </span>
+        {icon && <span style={{ color: 'var(--text-faint)', display: 'flex', flexShrink: 0 }}>{icon}</span>}
+      </div>
       <div
         style={{
-          fontSize: 10,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 7,
+          fontSize: 14,
           fontWeight: 600,
-          textTransform: 'uppercase',
-          letterSpacing: '0.05em',
-          color: 'var(--text-muted)',
-          marginBottom: 4,
+          color: 'var(--text)',
+          minWidth: 0,
         }}
       >
-        {label}
+        {dot && (
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              background: dot.color,
+              boxShadow: `0 0 0 3px ${dot.ring}`,
+              flexShrink: 0,
+            }}
+          />
+        )}
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>
       </div>
-      <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{value}</div>
     </div>
   );
 }
@@ -265,7 +343,7 @@ export function SettingsPage() {
           )}
 
           <Card>
-            <SectionTitle
+            <CardHeader
               title="ClickUp connection"
               subtitle="API token and workspace used as the source of truth. Saved to the database — changes apply without a redeploy."
             />
@@ -275,27 +353,43 @@ export function SettingsPage() {
                 alignItems: 'center',
                 gap: 14,
                 padding: 14,
-                background: 'var(--muted-bg)',
+                background: 'linear-gradient(180deg, var(--accent-soft), transparent)',
+                border: '1px solid var(--border)',
                 borderRadius: 10,
-                marginTop: 12,
               }}
             >
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 10,
-                  background: 'linear-gradient(135deg, #FF02F0 0%, #7B68EE 50%, #49CCF9 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'white',
-                  fontWeight: 700,
-                  fontSize: 18,
-                  flexShrink: 0,
-                }}
-              >
-                C
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 10,
+                    background: 'linear-gradient(135deg, #FF02F0 0%, #7B68EE 50%, #49CCF9 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'white',
+                    fontWeight: 700,
+                    fontSize: 18,
+                    boxShadow: '0 2px 8px rgba(123, 104, 238, 0.25)',
+                  }}
+                >
+                  C
+                </div>
+                {settingsQuery.data?.apiTokenSet && (
+                  <span
+                    style={{
+                      position: 'absolute',
+                      right: -2,
+                      bottom: -2,
+                      width: 12,
+                      height: 12,
+                      borderRadius: '50%',
+                      background: 'var(--green)',
+                      border: '2px solid var(--surface)',
+                    }}
+                  />
+                )}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>ClickUp workspace</div>
@@ -347,24 +441,40 @@ export function SettingsPage() {
             </div>
 
             <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-              <Stat label="Last successful sync" value={lastSyncAt ? fmt.relative(lastSyncAt) : '—'} />
-              <Stat label="Webhook endpoint" value={webhookEndpointLabel} />
+              <Stat
+                label="Last successful sync"
+                value={lastSyncAt ? fmt.relative(lastSyncAt) : '—'}
+                icon={<Clock size={13} />}
+                dotTone={lastSyncAt ? 'green' : 'gray'}
+              />
+              <Stat
+                label="Webhook endpoint"
+                value={webhookEndpointLabel}
+                icon={<Webhook size={13} />}
+                dotTone={webhookStatus === 'Fresh' ? 'green' : webhookStatus === 'Stale' ? 'amber' : 'gray'}
+              />
               <Stat
                 label="Settings updated"
                 value={settingsQuery.data?.updatedAt ? fmt.relative(settingsQuery.data.updatedAt) : '—'}
+                icon={<History size={13} />}
               />
             </div>
 
             <div
               style={{
                 display: 'flex',
-                gap: 8,
-                marginTop: 14,
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
+                marginTop: 16,
                 paddingTop: 14,
                 borderTop: '1px solid var(--border-soft)',
                 flexWrap: 'wrap',
               }}
             >
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                Verifies the stored token and team ID against the ClickUp API.
+              </span>
               <Button
                 variant="default"
                 icon={<RefreshCw size={13} />}
@@ -390,28 +500,28 @@ export function SettingsPage() {
           </Card>
 
           <Card>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-              <SectionTitle
-                title="Webhook"
-                subtitle={
-                  <>
-                    Real-time event delivery from{' '}
-                    <a href="https://clickup.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
-                      ClickUp
-                    </a>
-                    .
-                  </>
-                }
-              />
-              {webhookStatus === 'Fresh' ? (
-                <Pill tone="green" icon={<CircleCheck size={11} />}>Active</Pill>
-              ) : webhookStatus === 'Stale' ? (
-                <Pill tone="amber">Stale</Pill>
-              ) : (
-                <Pill tone="gray">Not registered</Pill>
-              )}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+            <CardHeader
+              title="Webhook"
+              subtitle={
+                <>
+                  Real-time event delivery from{' '}
+                  <a href="https://clickup.com" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+                    ClickUp
+                  </a>
+                  .
+                </>
+              }
+              action={
+                webhookStatus === 'Fresh' ? (
+                  <Pill tone="green" icon={<CircleCheck size={11} />}>Active</Pill>
+                ) : webhookStatus === 'Stale' ? (
+                  <Pill tone="amber">Stale</Pill>
+                ) : (
+                  <Pill tone="gray">Not registered</Pill>
+                )
+              }
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <Field label="Endpoint URL" hint="Public HTTPS URL ClickUp posts events to. Ends with /api/webhooks/clickup.">
                 <Input
                   value={connForm.webhookEndpoint}
@@ -449,14 +559,29 @@ export function SettingsPage() {
                   onClick={() =>
                     registerWebhook.mutate(undefined, {
                       onSuccess: (res) => {
-                        const data = res as { webhookId?: string; action?: string; secretStored?: boolean };
-                        const existing = data.action === 'existing';
-                        showBanner(
-                          existing
-                            ? `Webhook already active (id ${data.webhookId ?? '—'}).`
-                            : `Webhook registered (id ${data.webhookId ?? '—'}). ${data.secretStored ? 'Signing secret stored automatically.' : 'Secret could NOT be stored — set APP_ENCRYPTION_KEY.'}`,
-                          data.secretStored === false ? 'red' : 'blue',
-                        );
+                        const data = res as {
+                          webhookId?: string;
+                          action?: string;
+                          secretStored?: boolean;
+                          addedEvents?: string[];
+                        };
+                        const id = data.webhookId ?? '—';
+                        if (data.action === 'existing') {
+                          showBanner(`Webhook already active and subscribed to all configured events (id ${id}).`, 'blue');
+                        } else if (data.action === 'updated') {
+                          const added = data.addedEvents?.length
+                            ? ` Added: ${data.addedEvents.join(', ')}.`
+                            : '';
+                          showBanner(
+                            `Webhook re-subscribed (id ${id}).${added} Status-change history will start flowing in as tasks change status.`,
+                            'blue',
+                          );
+                        } else {
+                          showBanner(
+                            `Webhook registered (id ${id}). ${data.secretStored ? 'Signing secret stored automatically.' : 'Secret could NOT be stored — set APP_ENCRYPTION_KEY.'}`,
+                            data.secretStored === false ? 'red' : 'blue',
+                          );
+                        }
                         settingsQuery.refetch();
                       },
                       onError: (err) => showBanner(`Webhook registration failed: ${(err as Error).message}`, 'red'),
@@ -469,11 +594,25 @@ export function SettingsPage() {
             </div>
           </Card>
 
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              padding: '12px 16px',
+              background: 'var(--surface-alt)',
+              border: '1px solid var(--border)',
+              borderRadius: 10,
+              flexWrap: 'wrap',
+            }}
+          >
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              Changes save to the database and apply immediately — no restart required.
+            </span>
             <Button variant="accent" loading={updateSettings.isPending} onClick={saveConnection}>
               Save changes
             </Button>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Applies immediately — no restart required.</span>
           </div>
         </div>
       )}
@@ -492,8 +631,8 @@ export function SettingsPage() {
           </Callout>
 
           <Card>
-            <SectionTitle title="Sync schedule" subtitle="When to perform full reconciliation runs." />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 12 }}>
+            <CardHeader title="Sync schedule" subtitle="When to perform full reconciliation runs." />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
               <SettingRow
                 label="Real-time webhooks"
                 desc="Active — changes apply as ClickUp events arrive."
@@ -526,8 +665,8 @@ export function SettingsPage() {
           </Card>
 
           <Card>
-            <SectionTitle title="Cost calculation" subtitle="How labor cost is computed from time entries." />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 12 }}>
+            <CardHeader title="Cost calculation" subtitle="How labor cost is computed from time entries." />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
               <SettingRow
                 label="Default currency"
                 desc="Per-row currency comes from ClickUp — workspace-wide override isn't implemented yet."
@@ -575,8 +714,8 @@ export function SettingsPage() {
           </Card>
 
           <Card>
-            <SectionTitle title="Failure handling" />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 12 }}>
+            <CardHeader title="Failure handling" subtitle="What happens when sync jobs error." />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
               <SettingRow
                 label="Webhook retry"
                 desc="Currently uses BullMQ defaults (5 attempts, exponential backoff). Configurable retry count isn't wired yet."
@@ -603,12 +742,15 @@ export function SettingsPage() {
           </Card>
 
           <Card>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-              <SectionTitle title="Tag–assignee map" subtitle="Map ClickUp tags to assignees for tracked-time replacement." />
-              <Button variant="ghost" size="sm" onClick={startAddTag}>
-                Add mapping
-              </Button>
-            </div>
+            <CardHeader
+              title="Tag–assignee map"
+              subtitle="Map ClickUp tags to assignees for tracked-time replacement."
+              action={
+                <Button variant="ghost" size="sm" onClick={startAddTag}>
+                  Add mapping
+                </Button>
+              }
+            />
 
             {showTagForm && (
               <div
@@ -752,13 +894,13 @@ export function SettingsPage() {
             and applied at startup. Adding or removing a space here isn't supported yet — edit the config and restart the backend to change the set.
           </Callout>
           <Card>
-            <SectionTitle
+            <CardHeader
               title="Synced spaces"
               subtitle={
                 spaceRows.length > 0 ? `${spaceRows.length} space${spaceRows.length === 1 ? '' : 's'} active` : 'No spaces synced yet'
               }
             />
-            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               {spaceRows.length === 0 ? (
                 <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No spaces loaded yet. Sync data to see spaces here.</p>
               ) : (
@@ -896,8 +1038,8 @@ export function SettingsPage() {
             <strong> Overview → Alerts</strong> card today; outbound delivery (email, Slack, PagerDuty) is on the roadmap.
           </Callout>
           <Card>
-            <SectionTitle title="Alerts" subtitle="Get notified when sync issues need attention." />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 12 }}>
+            <CardHeader title="Alerts" subtitle="Get notified when sync issues need attention." />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
               <SettingRow
                 label="Sync run failed"
                 desc="Notify on any failed sync run."
@@ -922,8 +1064,8 @@ export function SettingsPage() {
           </Card>
 
           <Card>
-            <SectionTitle title="Channels" />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginTop: 12 }}>
+            <CardHeader title="Channels" subtitle="Where alerts are delivered." />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
               <SettingRow label="Email" desc="ops-alerts@acme.co" control={<Switch checked={chEmail} onChange={setChEmail} />} />
               <SettingRow label="Slack" desc="#data-platform-alerts" control={<Switch checked={chSlack} onChange={setChSlack} />} />
               <SettingRow

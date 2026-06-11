@@ -4,6 +4,7 @@ import { SettingsService } from '../settings/settings.service';
 
 export type RegisterWebhookResult =
   | { action: 'existing'; webhookId: string; endpoint: string }
+  | { action: 'updated'; webhookId: string; endpoint: string; events: string[]; addedEvents: string[] }
   | { action: 'created'; webhookId: string; endpoint: string; secretStored: boolean };
 
 @Injectable()
@@ -25,11 +26,28 @@ export class ClickupWebhooksService {
       .filter(Boolean);
 
     const existing = await this.client.getWebhooks(teamId);
-    const active = existing.find((w) => w.endpoint === endpoint && w.health?.status === 'active');
+    // Match by endpoint regardless of health: a stale/failing webhook still
+    // needs its events corrected and reactivating, not a duplicate alongside it.
+    const match = existing.find((w) => w.endpoint === endpoint);
 
-    if (active) {
-      this.logger.log(`Webhook already registered: ${active.id}`);
-      return { action: 'existing', webhookId: active.id, endpoint: active.endpoint ?? endpoint };
+    if (match) {
+      const current = [...(match.events ?? [])].sort();
+      const desired = [...events].sort();
+      const sameEvents = current.length === desired.length && current.every((e, i) => e === desired[i]);
+      const healthy = match.health?.status === 'active';
+      if (sameEvents && healthy) {
+        this.logger.log(`Webhook already registered and up to date: ${match.id}`);
+        return { action: 'existing', webhookId: match.id, endpoint: match.endpoint ?? endpoint };
+      }
+      // Re-subscribe in place. ClickUp's PUT keeps the existing signing secret,
+      // so verification is unaffected and there's no delivery gap.
+      await this.client.updateWebhook(match.id, { endpoint, events, status: 'active' });
+      const addedEvents = desired.filter((e) => !current.includes(e));
+      this.logger.log(
+        `Webhook ${match.id} updated. Events: [${events.join(', ')}]` +
+          (addedEvents.length ? ` (added: ${addedEvents.join(', ')})` : ''),
+      );
+      return { action: 'updated', webhookId: match.id, endpoint, events, addedEvents };
     }
 
     const created = await this.client.createWebhook(teamId, endpoint, events);
