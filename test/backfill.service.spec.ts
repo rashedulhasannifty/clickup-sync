@@ -69,6 +69,25 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
     expect(startDateOf(calls[0])).toBeLessThanOrEqual(afterMs - days20Ms + 5);
   });
 
+  // The recurring reconciliation sweep passes an explicit time-entry window so
+  // it can scan a bounded 7 days instead of re-draining the full configured
+  // floor every run. An explicit window wins even when it is *shorter* than the
+  // space floor (here 7 < the R&D Apps 20-day floor).
+  it('uses an explicit timeEntryLookbackDays even when shorter than the space floor', async () => {
+    const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636' } as any);
+
+    const beforeMs = Date.now();
+    await svc.backfillSpace(RD_APPS_ID, 1, 7);
+    const afterMs = Date.now();
+
+    const calls = timeEntryJobs(queueAdd);
+    expect(calls).toHaveLength(1);
+    const days7Ms = 7 * 24 * 60 * 60 * 1000;
+    expect(startDateOf(calls[0])).toBeGreaterThanOrEqual(beforeMs - days7Ms);
+    expect(startDateOf(calls[0])).toBeLessThanOrEqual(afterMs - days7Ms + 5);
+  });
+
   // A subtask whose parent was updated outside the lookback window won't be in
   // the fetched page; without fetching it, the subtask's parentTaskId points at
   // a non-existent row and parent/subtask report joins break.

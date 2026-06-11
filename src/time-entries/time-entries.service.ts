@@ -51,22 +51,13 @@ export class TimeEntriesService {
     //   • The task lives in a ClickUp space not in `CLICKUP_SPACES`, so no
     //     scheduled backfill ever fetches it.
     //   • The task has been deleted from ClickUp (returns 404 on syncTask).
-    if (!(await this.tasksRepo.exists(taskId))) {
-      this.logger.log(`Task ${taskId} missing locally — fetching from ClickUp before time-entry sync`);
-      try {
-        await this.tasksService.syncTask(taskId);
-      } catch (err: any) {
-        this.logger.warn(`Could not pre-sync task ${taskId}: ${err?.message ?? err}`);
-      }
-      // Re-check after the self-heal attempt. If the task still isn't here
-      // (ClickUp 404 / unreachable / unconfigured space), do NOT attempt the
-      // time-entry upserts — they'll all fail with `clickup_time_entries_
-      // task_id_fkey` and bleed a new `failed` row per webhook event. Skip
-      // and report 0; the job log row will be `completed`.
-      if (!(await this.tasksRepo.exists(taskId))) {
-        this.logger.warn(`Task ${taskId} unresolved after pre-sync — skipping time-entry sync to avoid FK violation`);
-        return 0;
-      }
+    // If it can't be resolved, do NOT attempt the time-entry upserts — they'd
+    // all fail with `clickup_time_entries_task_id_fkey` and bleed a new
+    // `failed` row per event. Skip and report 0; the job log row stays
+    // `completed`.
+    if (!(await this.ensureTaskExists(taskId))) {
+      this.logger.warn(`Task ${taskId} unresolved after pre-sync — skipping time-entry sync to avoid FK violation`);
+      return 0;
     }
 
     // ClickUp's /team/{team}/time_entries returns only the token owner's entries
@@ -80,6 +71,28 @@ export class TimeEntriesService {
     // ClickUp was asked about — see pruneTaskEntriesOutsideSet below).
     const { startMs, endMs } = resolveTimeEntriesWindow({ startDate, endDate });
     const entries = await this.clickup.getTimeEntries(teamId, taskId, { assigneeIds: ids, startDate: startMs, endDate: endMs });
+
+    // ClickUp's team `time_entries?task_id=X` rolls up subtask time: an entry's
+    // own `task.id` can be a SUBTASK of the queried task, not the queried task
+    // itself. We write each entry under its own task_id (NormalizedTimeEntry
+    // .taskId = entry.task.id), so every distinct referenced task must exist or
+    // the upsert hits `clickup_time_entries_task_id_fkey`. Self-heal each
+    // foreign task once (a recently-untouched subtask won't be in any backfill
+    // page); entries whose task can't be resolved are skipped below rather than
+    // failing the whole job. The queried `taskId` is already ensured above.
+    const resolvableTaskIds = new Set<string>([taskId]);
+    const foreignTaskIds = [
+      ...new Set(
+        entries
+          .map((e) => e.task?.id)
+          .filter((id): id is string => !!id && id !== taskId),
+      ),
+    ];
+    for (const fid of foreignTaskIds) {
+      if (await this.ensureTaskExists(fid)) resolvableTaskIds.add(fid);
+      else this.logger.warn(`Time entry references task ${fid} (likely a subtask of ${taskId}) not resolvable in ClickUp — its entries will be skipped`);
+    }
+
     let count = 0;
     const upserted: { normalized: NormalizedTimeEntry; rawTags: string[] }[] = [];
     // One rate cache for the whole task so multiple intervals logged by the
@@ -87,6 +100,13 @@ export class TimeEntriesService {
     const rateCache = new Map();
     for (const entry of entries) {
       const normalized = this.normalizer.normalizeTimeEntry(entry);
+      // A non-null task_id that we couldn't resolve would violate the FK. Skip
+      // just that entry (the rest still sync). A null task_id is allowed by the
+      // nullable `ON DELETE SET NULL` FK, so it never violates.
+      if (normalized.taskId != null && !resolvableTaskIds.has(normalized.taskId)) {
+        this.logger.warn(`Skipping time entry ${normalized.timeEntryId}: task ${normalized.taskId} unresolved (FK guard)`);
+        continue;
+      }
       const rawTags = extractEntryTagNames(entry);
       upserted.push({ normalized, rawTags });
       const cost = await this.costs.calculate(normalized.userId, normalized.startTime, normalized.durationHours, rateCache);
@@ -149,6 +169,24 @@ export class TimeEntriesService {
     }
 
     return count;
+  }
+
+  /**
+   * Make sure a task row exists locally, self-healing from ClickUp if it
+   * doesn't. Returns whether the task is present after the attempt. Tolerant of
+   * a 404/unreachable task (logs and returns false) so callers can skip rather
+   * than throw. Used both for the queried task and for any *other* task ids a
+   * fetched entry references (subtask roll-ups).
+   */
+  private async ensureTaskExists(taskId: string): Promise<boolean> {
+    if (await this.tasksRepo.exists(taskId)) return true;
+    this.logger.log(`Task ${taskId} missing locally — fetching from ClickUp before time-entry sync`);
+    try {
+      await this.tasksService.syncTask(taskId);
+    } catch (err: any) {
+      this.logger.warn(`Could not pre-sync task ${taskId}: ${err?.message ?? err}`);
+    }
+    return this.tasksRepo.exists(taskId);
   }
 }
 

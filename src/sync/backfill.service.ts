@@ -19,7 +19,7 @@ export class BackfillService {
     private readonly settings: SettingsService,
   ) {}
 
-  async backfillSpace(spaceId: string, lookbackDays?: number) {
+  async backfillSpace(spaceId: string, lookbackDays?: number, timeEntryLookbackDays?: number) {
     const space = CLICKUP_SPACES.find((s) => s.id === spaceId);
     const days = lookbackDays ?? space?.backfillLookbackDays ?? 7;
     const teamId = this.settings.getTeamId();
@@ -59,16 +59,22 @@ export class BackfillService {
     }
 
     // Enqueue time entry sync for every task that was backfilled.
-    // The configured per-space lookback is a *floor*: a short task-sync window
-    // (e.g. 1-day reconciliation) must not shrink the time-entry window, or
-    // entries logged earlier in the week would never be picked up. But when
-    // the caller explicitly asks for a *longer* window (e.g. a manual 140-day
-    // backfill), respect it — otherwise old time entries on recently-updated
-    // tasks (think: an expense task touched in April with hours logged back
-    // in January) are permanently invisible. The upsert is idempotent so
-    // re-scanning is safe.
+    //
+    // When the caller passes an explicit `timeEntryLookbackDays` (the recurring
+    // reconciliation sweep does — see SyncScheduler), use it verbatim. This lets
+    // the hourly sweep scan a *bounded* time-entry window (e.g. 7 days) instead
+    // of re-draining the full configured per-space window every run, while still
+    // recovering time entries whose webhook was missed within that window.
+    //
+    // Otherwise (manual backfills), the configured per-space lookback is a
+    // *floor*: a short task-sync window must not shrink the time-entry window,
+    // or entries logged earlier would never be picked up. But when the caller
+    // explicitly asks for a *longer* window (e.g. a manual 140-day backfill),
+    // respect it — otherwise old time entries on recently-updated tasks (think:
+    // an expense task touched in April with hours logged back in January) are
+    // permanently invisible. The upsert is idempotent so re-scanning is safe.
     const endDate = Date.now();
-    const teLookbackDays = Math.max(days, space?.backfillLookbackDays ?? days);
+    const teLookbackDays = timeEntryLookbackDays ?? Math.max(days, space?.backfillLookbackDays ?? days);
     const teStartDate = subtractDays(teLookbackDays).getTime();
     const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
     const jobOpts = this.queues.defaultJobOptions();

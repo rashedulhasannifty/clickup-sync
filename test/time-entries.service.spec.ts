@@ -125,6 +125,69 @@ describe('TimeEntriesService.syncTaskTimeEntries — task self-heal', () => {
   });
 });
 
+describe('TimeEntriesService.syncTaskTimeEntries — subtask roll-up FK self-heal', () => {
+  // ClickUp's team `time_entries?task_id=PARENT` rolls up subtask entries, each
+  // carrying its OWN task.id (the subtask). We write entries under that own
+  // task_id, so a subtask absent from clickup_tasks violates
+  // clickup_time_entries_task_id_fkey — the production failure on 86exwj36d,
+  // whose subtask 86exwj4e7 ("INT") was never synced. The queried-task guard
+  // does NOT cover this because the queried parent DOES exist.
+  function statefulDb(seed: string[]) {
+    const present = new Set<string>(seed);
+    return {
+      present,
+      exists: jest.fn(async (id: string) => present.has(id)),
+    };
+  }
+
+  it('self-heals a foreign task referenced by a rolled-up subtask entry, then upserts both', async () => {
+    const { present, exists } = statefulDb(['PARENT']);
+    const syncTask = jest.fn(async (id: string) => { present.add(id); return {}; });
+    const getTimeEntries = jest.fn().mockResolvedValue([
+      { id: 'te-parent', user: { id: 'u1' }, task: { id: 'PARENT' } },
+      { id: 'te-sub', user: { id: 'u1' }, task: { id: 'SUB' } }, // rolled-up subtask
+    ]);
+    const { service, upsert } = makeService({ exists, syncTask, getTimeEntries });
+
+    const count = await service.syncTaskTimeEntries('PARENT');
+
+    expect(syncTask).toHaveBeenCalledWith('SUB'); // healed the subtask, not the parent
+    expect(upsert).toHaveBeenCalledTimes(2);      // both entries written, no FK skip
+    expect(count).toBe(2);
+  });
+
+  it('skips only the unresolvable foreign entry and still writes the rest (no FK violation)', async () => {
+    const { exists } = statefulDb(['PARENT']); // SUB never becomes present (404)
+    const syncTask = jest.fn(async () => { throw new Error('ClickUp 404'); });
+    const getTimeEntries = jest.fn().mockResolvedValue([
+      { id: 'te-parent', user: { id: 'u1' }, task: { id: 'PARENT' } },
+      { id: 'te-sub', user: { id: 'u1' }, task: { id: 'SUB' } },
+    ]);
+    const { service, upsert } = makeService({ exists, syncTask, getTimeEntries });
+
+    const count = await service.syncTaskTimeEntries('PARENT');
+
+    expect(syncTask).toHaveBeenCalledWith('SUB');
+    expect(upsert).toHaveBeenCalledTimes(1); // only the resolvable PARENT entry
+    expect(count).toBe(1);
+  });
+
+  it('self-heals each distinct foreign task only once even across multiple entries', async () => {
+    const { present, exists } = statefulDb(['PARENT']);
+    const syncTask = jest.fn(async (id: string) => { present.add(id); return {}; });
+    const getTimeEntries = jest.fn().mockResolvedValue([
+      { id: 'te-1', user: { id: 'u1' }, task: { id: 'SUB' } },
+      { id: 'te-2', user: { id: 'u1' }, task: { id: 'SUB' } }, // same subtask again
+    ]);
+    const { service } = makeService({ exists, syncTask, getTimeEntries });
+
+    await service.syncTaskTimeEntries('PARENT');
+
+    expect(syncTask).toHaveBeenCalledTimes(1);
+    expect(syncTask).toHaveBeenCalledWith('SUB');
+  });
+});
+
 describe('TimeEntriesService.syncTaskTimeEntries — delete reconciliation', () => {
   it('prunes local rows scoped to exactly the assignees and window fetched, keeping the ids ClickUp returned', async () => {
     const getTimeEntries = jest.fn().mockResolvedValue([

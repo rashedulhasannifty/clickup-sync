@@ -26,7 +26,12 @@ import { HealthModule } from './health/health.module';
   imports: [
     ServeStaticModule.forRoot({
       rootPath: join(__dirname, '..', 'apps', 'web', 'dist'),
-      exclude: ['/api/(.*)', '/docs(.*)', '/webhooks/(.*)', '/admin/(.*)', '/reports/(.*)'],
+      // path-to-regexp v8 (pulled in via Express 5 / serve-static 5) rejects the
+      // old `(.*)` capture-group syntax — it threw on every request, 500-ing all
+      // API routes. The v8 equivalent is a named wildcard. is-route-excluded
+      // appends a trailing `/`, so `/<prefix>/*splat` matches both the bare
+      // prefix and any sub-path.
+      exclude: ['/api/*splat', '/docs/*splat', '/webhooks/*splat', '/admin/*splat', '/reports/*splat'],
     }),
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     ScheduleModule.forRoot(),
