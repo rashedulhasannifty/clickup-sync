@@ -330,6 +330,24 @@ export class AdminController {
     return { queued: tasks.length };
   }
 
+  @Post('tasks/reconcile')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Reconcile every stored task against ClickUp: detect whole-task deletes (soft-delete ghosts) and re-sync each task’s time entries' })
+  async reconcileTasks(@Query('lookbackDays') lookbackDaysParam?: string) {
+    const tasks = await this.tasksRepo.findAllIds();
+    const endDate = Date.now();
+    const days = lookbackDaysParam ? Number(lookbackDaysParam) : 365;
+    const startDate = subtractDays(days).getTime();
+    const queue = this.queues.get(QUEUES.CLICKUP_TASKS);
+    const jobOpts = this.queues.defaultJobOptions();
+
+    for (const { taskId } of tasks) {
+      await queue.add(JOBS.RECONCILE_CLICKUP_TASK, { taskId, startDate, endDate }, jobOpts);
+    }
+
+    return { queued: tasks.length };
+  }
+
   // ── Rates CRUD ─────────────────────────────────────────────────────────────
 
   @Post('rates/recalculate')

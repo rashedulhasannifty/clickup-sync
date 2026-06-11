@@ -6,6 +6,7 @@ import { TasksService } from '../tasks/tasks.service';
 import { JobLogsRepository } from '../jobs/job-logs.repository';
 import { DeadLetterService } from '../jobs/dead-letter.service';
 import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
+import { TaskReconciliationService } from '../time-entries/task-reconciliation.service';
 
 @Injectable()
 @Processor(QUEUES.CLICKUP_TASKS, clickupWorkerOptions())
@@ -15,6 +16,7 @@ export class TaskSyncProcessor extends WorkerHost {
     private readonly jobLogs: JobLogsRepository,
     private readonly deadLetters: DeadLetterService,
     private readonly timeEntries: TimeEntriesRepository,
+    private readonly reconciliation: TaskReconciliationService,
   ) { super(); }
 
   @OnWorkerEvent('failed')
@@ -32,6 +34,9 @@ export class TaskSyncProcessor extends WorkerHost {
         // them first; the task row survives (soft delete) so the FK holds.
         await this.timeEntries.deleteByTaskId(job.data.taskId);
         result = await this.tasks.softDeleteTask(job.data.taskId);
+      } else if (job.name === JOBS.RECONCILE_CLICKUP_TASK) {
+        const { startDate, endDate } = job.data as { taskId: string; startDate: number; endDate: number };
+        result = await this.reconciliation.reconcileTask(job.data.taskId, startDate, endDate);
       } else {
         result = await this.tasks.syncTask(job.data.taskId);
       }

@@ -364,17 +364,17 @@ describe('AdminController', () => {
   // double, all others are stock fakes. Keeps the call sites short and
   // resilient to constructor signature changes (e.g. adding webhookEvents).
   function makeCtrlWithOverride(overrides: Partial<{
-    ratesRepo: any; ratesService: any; tagAssigneeRepo: any;
+    ratesRepo: any; ratesService: any; tagAssigneeRepo: any; tasksRepo: any; queues: any;
   }>) {
     return new AdminController(
-      makeQueues(),
+      overrides.queues ?? makeQueues(),
       makeDeadLetters(),
       makeClickup(),
       makeWebhooks(),
       makeTimeEntriesRepo(),
       overrides.ratesRepo ?? makeRatesRepo(),
       overrides.tagAssigneeRepo ?? makeTagAssigneeRepo(),
-      makeTasksRepo(),
+      overrides.tasksRepo ?? makeTasksRepo(),
       overrides.ratesService ?? makeRatesService(),
       makeWebhookEvents(),
       makeWebhookParser(),
@@ -383,6 +383,39 @@ describe('AdminController', () => {
       makeSettings(),
     );
   }
+
+  describe('reconcileTasks', () => {
+    it('enqueues a reconcile job per stored task on clickup-tasks with a 365-day window by default', async () => {
+      const tasksRepo = { findAllIds: jest.fn().mockResolvedValue([
+        { taskId: 't1', spaceId: 's1' },
+        { taskId: 't2', spaceId: 's1' },
+      ]) } as any;
+      const queues = makeQueues();
+      const result = await makeCtrlWithOverride({ tasksRepo, queues }).reconcileTasks();
+
+      expect(result).toEqual({ queued: 2 });
+      expect(queues.get).toHaveBeenCalledWith('clickup-tasks');
+      const add = (queues.get as jest.Mock).mock.results[0].value.add as jest.Mock;
+      expect(add).toHaveBeenCalledTimes(2);
+      const [jobName, payload] = add.mock.calls[0];
+      expect(jobName).toBe('reconcile-clickup-task');
+      expect(payload.taskId).toBe('t1');
+      expect(typeof payload.startDate).toBe('number');
+      expect(typeof payload.endDate).toBe('number');
+      // default lookback 365 days → ~ a year of window
+      expect(payload.endDate - payload.startDate).toBeGreaterThan(360 * 24 * 60 * 60 * 1000);
+    });
+
+    it('respects an explicit lookbackDays override', async () => {
+      const tasksRepo = { findAllIds: jest.fn().mockResolvedValue([{ taskId: 't1', spaceId: 's1' }]) } as any;
+      const queues = makeQueues();
+      await makeCtrlWithOverride({ tasksRepo, queues }).reconcileTasks('10');
+      const add = (queues.get as jest.Mock).mock.results[0].value.add as jest.Mock;
+      const [, payload] = add.mock.calls[0];
+      const days = (payload.endDate - payload.startDate) / (24 * 60 * 60 * 1000);
+      expect(Math.round(days)).toBe(10);
+    });
+  });
 
   function ctrlWithSettings(settings: any) {
     return new AdminController(

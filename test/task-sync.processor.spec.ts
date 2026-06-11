@@ -13,7 +13,9 @@ function makeDeps() {
   const deadLetters = { recordIfExhausted } as any;
   const deleteByTaskId = jest.fn().mockResolvedValue(0);
   const timeEntries = { deleteByTaskId } as any;
-  return { proc: new TaskSyncProcessor(tasks, jobLogs, deadLetters, timeEntries), syncTask, softDeleteTask, finished, failed, recordIfExhausted, deleteByTaskId };
+  const reconcileTask = jest.fn().mockResolvedValue({ taskId: 't1', deleted: false, timeEntriesSynced: 2 });
+  const reconciliation = { reconcileTask } as any;
+  return { proc: new TaskSyncProcessor(tasks, jobLogs, deadLetters, timeEntries, reconciliation), syncTask, softDeleteTask, finished, failed, recordIfExhausted, deleteByTaskId, reconcileTask };
 }
 
 describe('TaskSyncProcessor', () => {
@@ -36,6 +38,14 @@ describe('TaskSyncProcessor', () => {
     const { proc, deleteByTaskId } = makeDeps();
     await proc.process({ id: '1', name: JOBS.SYNC_CLICKUP_TASK, data: { taskId: 't1' } } as any);
     expect(deleteByTaskId).not.toHaveBeenCalled();
+  });
+
+  it('routes the reconcile job to the reconciliation service with its window', async () => {
+    const { proc, reconcileTask, syncTask, softDeleteTask } = makeDeps();
+    await proc.process({ id: '1', name: JOBS.RECONCILE_CLICKUP_TASK, data: { taskId: 't1', startDate: 1000, endDate: 2000 } } as any);
+    expect(reconcileTask).toHaveBeenCalledWith('t1', 1000, 2000);
+    expect(syncTask).not.toHaveBeenCalled();
+    expect(softDeleteTask).not.toHaveBeenCalled();
   });
 
   it('logs failure and rethrows', async () => {

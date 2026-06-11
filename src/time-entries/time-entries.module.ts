@@ -9,10 +9,11 @@ import { CostCalculatorService } from './cost-calculator.service';
 import { CostRecalculationService } from './cost-recalculation.service';
 import { TimeEntriesService } from './time-entries.service';
 import { AssigneeReplacementService } from './assignee-replacement.service';
+import { TaskReconciliationService } from './task-reconciliation.service';
 
 @Module({
   imports: [ClickupModule, QueuesModule, TasksModule],
-  providers: [TimeEntriesRepository, TimeEntryReplacementsRepository, TagAssigneeMapRepository, CostCalculatorService, CostRecalculationService, TimeEntriesService, AssigneeReplacementService],
-  exports: [TimeEntriesService, TimeEntriesRepository, TimeEntryReplacementsRepository, TagAssigneeMapRepository, CostCalculatorService, CostRecalculationService, AssigneeReplacementService],
+  providers: [TimeEntriesRepository, TimeEntryReplacementsRepository, TagAssigneeMapRepository, CostCalculatorService, CostRecalculationService, TimeEntriesService, AssigneeReplacementService, TaskReconciliationService],
+  exports: [TimeEntriesService, TimeEntriesRepository, TimeEntryReplacementsRepository, TagAssigneeMapRepository, CostCalculatorService, CostRecalculationService, AssigneeReplacementService, TaskReconciliationService],
 })
 export class TimeEntriesModule {}
