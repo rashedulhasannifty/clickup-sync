@@ -418,6 +418,19 @@ describe('AdminController', () => {
       const days = (payload.endDate - payload.startDate) / (24 * 60 * 60 * 1000);
       expect(Math.round(days)).toBe(10);
     });
+
+    it('refuses to start a second sweep while a reconcile is in flight (no enqueue)', async () => {
+      const add = jest.fn();
+      const getJobs = jest.fn().mockResolvedValue([{ name: 'reconcile-clickup-task' }]);
+      const queues = { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
+      const tasksRepo = { findAllIds: jest.fn() } as any;
+
+      const result = await makeCtrlWithOverride({ tasksRepo, queues }).reconcileTasks();
+
+      expect(result).toEqual({ queued: 0, alreadyRunning: true });
+      expect(add).not.toHaveBeenCalled();
+      expect(tasksRepo.findAllIds).not.toHaveBeenCalled(); // short-circuits before scanning tasks
+    });
   });
 
   describe('reconcileActive', () => {
