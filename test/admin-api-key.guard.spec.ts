@@ -1,4 +1,4 @@
-import { InternalServerErrorException, UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException } from '@nestjs/common';
 import { AdminApiKeyGuard } from '../src/admin/admin-api-key.guard';
 
 describe('AdminApiKeyGuard', () => {

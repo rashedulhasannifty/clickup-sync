@@ -15,6 +15,7 @@ import { parseRatesListResponse, type Rate } from '../api/rates';
 import type { RatePresetAssignee } from '../components/RateModal';
 import { useRates, useRecalcCosts } from '../hooks/useRates';
 import { useMissingRates, useStats } from '../hooks/useReports';
+import { useAuth } from '../hooks/useAuth';
 import { csvFilename, downloadCsv, toCsv, type CsvColumn } from '../lib/csv';
 import { PageHeader } from '../components/ui/PageHeader';
 import { QueryError } from '../components/ui/QueryError';
@@ -47,6 +48,8 @@ export function AssigneeRatesPage() {
   const ratesQuery = useRates();
   const { data: rates, isLoading } = ratesQuery;
   const recalc = useRecalcCosts();
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole('ADMIN');
   const [recalcMsg, setRecalcMsg] = useState<string | null>(null);
   const recalcMsgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -164,15 +167,17 @@ export function AssigneeRatesPage() {
         description="Hourly cost rates by assignee. Used to compute labor cost for tracked time."
         actions={
           <>
-            <Button
-              size="md"
-              variant="default"
-              icon={<RefreshCw size={13} />}
-              loading={recalc.isPending}
-              onClick={() => runRecalc()}
-            >
-              Recalculate costs
-            </Button>
+            {isAdmin && (
+              <Button
+                size="md"
+                variant="default"
+                icon={<RefreshCw size={13} />}
+                loading={recalc.isPending}
+                onClick={() => runRecalc()}
+              >
+                Recalculate costs
+              </Button>
+            )}
             <Button
               size="md"
               variant="default"
@@ -196,9 +201,11 @@ export function AssigneeRatesPage() {
             >
               Export
             </Button>
-            <Button size="md" variant="accent" icon={<Plus size={13} />} onClick={openNewGlobal}>
-              New rate
-            </Button>
+            {isAdmin && (
+              <Button size="md" variant="accent" icon={<Plus size={13} />} onClick={openNewGlobal}>
+                New rate
+              </Button>
+            )}
           </>
         }
       />
@@ -293,9 +300,11 @@ export function AssigneeRatesPage() {
             title="No rates yet"
             body="Create a rate for an assignee so time entries can be costed."
             action={
-              <Button onClick={openNewGlobal} icon={<Plus size={12} />}>
-                New rate
-              </Button>
+              isAdmin ? (
+                <Button onClick={openNewGlobal} icon={<Plus size={12} />}>
+                  New rate
+                </Button>
+              ) : undefined
             }
           />
         </Card>
@@ -339,18 +348,22 @@ export function AssigneeRatesPage() {
                   ) : (
                     <Pill tone="amber">No active rate</Pill>
                   )}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    icon={<RefreshCw size={12} />}
-                    loading={recalc.isPending}
-                    onClick={() => runRecalc(g.assigneeId)}
-                  >
-                    Recalc
-                  </Button>
-                  <Button size="sm" variant="default" icon={<Plus size={12} />} onClick={() => openNewForAssignee(g)}>
-                    New rate
-                  </Button>
+                  {isAdmin && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={<RefreshCw size={12} />}
+                        loading={recalc.isPending}
+                        onClick={() => runRecalc(g.assigneeId)}
+                      >
+                        Recalc
+                      </Button>
+                      <Button size="sm" variant="default" icon={<Plus size={12} />} onClick={() => openNewForAssignee(g)}>
+                        New rate
+                      </Button>
+                    </>
+                  )}
                 </div>
 
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -429,7 +442,9 @@ export function AssigneeRatesPage() {
                             {fmt.relative(updatedAt)}
                           </td>
                           <td style={{ padding: '10px 16px', textAlign: 'right' }}>
-                            <Button size="sm" variant="ghost" icon={<Pencil size={12} />} onClick={() => openEdit(r)} />
+                            {isAdmin && (
+                              <Button size="sm" variant="ghost" icon={<Pencil size={12} />} onClick={() => openEdit(r)} />
+                            )}
                           </td>
                         </tr>
                       );
@@ -447,9 +462,11 @@ export function AssigneeRatesPage() {
                 title="No rates match your filters"
                 body="Adjust filters or create a new rate to get started."
                 action={
-                  <Button onClick={openNewGlobal} icon={<Plus size={12} />}>
-                    New rate
-                  </Button>
+                  isAdmin ? (
+                    <Button onClick={openNewGlobal} icon={<Plus size={12} />}>
+                      New rate
+                    </Button>
+                  ) : undefined
                 }
               />
             </Card>

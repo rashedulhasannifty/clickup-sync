@@ -7,10 +7,13 @@ import { adminApi } from '../api/admin';
  * we still pick up an admin starting a sync from another tab without
  * hammering the API in the steady state.
  */
-export function useActiveBackfills() {
+export function useActiveBackfills(enabled = true) {
   return useQuery({
     queryKey: ['backfill-active'],
     queryFn: adminApi.backfillActive,
+    // GET /admin/backfill/active is OWNER/ADMIN-only. Members must not poll it,
+    // or every interval tick 403s forever. Callers pass enabled=hasRole('ADMIN').
+    enabled,
     refetchInterval: (query) => ((query.state.data?.length ?? 0) > 0 ? 3000 : 30_000),
     refetchIntervalInBackground: false,
   });
@@ -33,14 +36,6 @@ export function useSyncAllTimeEntries() {
 
 export function useRegisterWebhook() {
   return useMutation({ mutationFn: adminApi.registerWebhook });
-}
-
-export function useRetryDeadLetter() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => adminApi.retryDeadLetter(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['dead-letters'] }),
-  });
 }
 
 export function useRetryFailedWebhooks() {

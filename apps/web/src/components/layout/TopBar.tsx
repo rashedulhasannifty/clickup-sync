@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Search, Moon, Sun, Bell, Calendar, Layers } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Kbd } from '../ui/Kbd';
+import { UserMenu } from './UserMenu';
 import { useGlobalFilters, type DateRange } from '../../hooks/useGlobalFilters';
 import { useSpaces, useSyncHealth } from '../../hooks/useReports';
 import { fmt } from '../../lib/formatters';
@@ -230,6 +231,12 @@ export function TopBar({ onSearchClick }: { onSearchClick?: () => void }) {
         <Bell size={14} strokeWidth={1.75} />
         <span style={{ position: 'absolute', top: 4, right: 5, width: 6, height: 6, borderRadius: 999, background: 'var(--amber)' }} />
       </button>
+
+      {/* Divider */}
+      <div style={{ height: 20, width: 1, background: 'var(--border)', flexShrink: 0 }} />
+
+      {/* Account menu (avatar → dropdown with identity + sign out) */}
+      <UserMenu />
     </header>
   );
 }

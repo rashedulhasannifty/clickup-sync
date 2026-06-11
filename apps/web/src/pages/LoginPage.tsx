@@ -1,80 +1,74 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { validateAdminKey } from '../api/admin';
+import { Mail, Lock } from 'lucide-react';
+import { authApi } from '../api/auth';
+import { useAuth } from '../hooks/useAuth';
+import {
+  AuthShell, AuthCard, AuthHeading, AuthField, AuthSubmit, SSOButton, Divider, BrandMark,
+} from '../components/auth/AuthShell';
+import { Switch } from '../components/ui/Switch';
 
 export function LoginPage() {
-  const [key, setKey] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [keep, setKeep] = useState(true);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { refresh, user } = useAuth();
 
   useEffect(() => {
-    if (localStorage.getItem('adminApiKey')) navigate('/overview', { replace: true });
-  }, [navigate]);
+    if (user) navigate('/overview', { replace: true });
+  }, [user, navigate]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!key.trim()) { setError('Please enter your admin API key'); return; }
+    if (!email.trim() || !password) {
+      setError('Enter your email and password');
+      return;
+    }
     setLoading(true);
     setError('');
-    const valid = await validateAdminKey(key.trim());
-    setLoading(false);
-    if (!valid) { setError('Invalid admin API key'); return; }
-    localStorage.setItem('adminApiKey', key.trim());
-    navigate('/overview', { replace: true });
+    try {
+      await authApi.login(email.trim(), password);
+      await refresh();
+      navigate('/overview', { replace: true });
+    } catch {
+      setError('Invalid email or password');
+      setLoading(false);
+    }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--page-bg)' }}>
-      <div className="w-full max-w-sm bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius-lg)] p-8 shadow-lg">
-        {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 rounded-xl mb-4" style={{ background: 'var(--accent-grad)' }} />
-          <h1 className="text-xl font-bold text-[var(--text)]">ClickUp Sync</h1>
-          <p className="text-sm text-[var(--text-muted)] mt-1">Internal dashboard</p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div>
-            <label className="text-xs font-medium text-[var(--text-muted)] block mb-1.5">
-              Your name (for audit log) <span className="text-[var(--text-faint)]">— optional</span>
-            </label>
-            <input
-              type="text"
-              defaultValue={localStorage.getItem('adminUserName') ?? ''}
-              onChange={e => {
-                const v = e.target.value.trim();
-                if (v) localStorage.setItem('adminUserName', v);
-                else localStorage.removeItem('adminUserName');
-              }}
-              placeholder="e.g. rashedul"
-              autoComplete="name"
-              className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] transition-colors"
-            />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-[var(--text-muted)] block mb-1.5">Admin API Key</label>
-            <input
-              type="password"
-              value={key}
-              onChange={e => { setKey(e.target.value); setError(''); }}
-              placeholder="Enter your admin key"
-              autoComplete="current-password"
-              className="w-full bg-[var(--surface)] border border-[var(--border)] rounded-[var(--radius)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] transition-colors"
-            />
-            {error && <p className="text-xs text-[var(--red)] mt-1">{error}</p>}
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2 text-sm font-medium text-white rounded-[var(--radius)] transition-colors disabled:opacity-60"
-            style={{ background: 'var(--accent)' }}
-          >
-            {loading ? 'Verifying…' : 'Sign in'}
-          </button>
+    <AuthShell>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 22 }}><BrandMark /></div>
+      <AuthCard>
+        <AuthHeading title="Sign in" subtitle="Welcome back. Sign in to your workspace." />
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <SSOButton>Continue with Google</SSOButton>
+          <Divider label="or" />
+          <AuthField
+            label="Work email" type="email" name="email" icon={Mail} autoComplete="email" autoFocus
+            value={email} onChange={(e) => { setEmail(e.target.value); setError(''); }}
+            placeholder="you@company.com"
+            error={error || undefined}
+          />
+          <AuthField
+            label="Password" type="password" name="password" icon={Lock} autoComplete="current-password"
+            value={password} onChange={(e) => { setPassword(e.target.value); setError(''); }}
+            placeholder="••••••••"
+            right={<span title="Password reset is coming soon" style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-faint)', cursor: 'default' }}>Forgot?</span>}
+          />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
+            <Switch checked={keep} onChange={setKeep} /> Keep me signed in
+          </label>
+          <AuthSubmit loading={loading}>Sign in</AuthSubmit>
         </form>
-      </div>
-    </div>
+      </AuthCard>
+      <p style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-muted)', marginTop: 18 }}>
+        New to ClickUp Sync?{' '}
+        <button onClick={() => navigate('/signup')} style={{ background: 'none', border: 0, padding: 0, fontSize: 13, fontWeight: 600, color: 'var(--accent-strong)', cursor: 'pointer' }}>Create an account</button>
+      </p>
+    </AuthShell>
   );
 }

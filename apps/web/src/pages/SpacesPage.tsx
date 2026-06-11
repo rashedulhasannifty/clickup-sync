@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, CircleCheck, CircleDashed, Loader2, RefreshCw, Settings } from 'lucide-react';
 import { useSpaces } from '../hooks/useReports';
 import { useActiveBackfills, useBackfill } from '../hooks/useAdmin';
+import { useAuth } from '../hooks/useAuth';
 import type { ActiveBackfill } from '../api/admin';
 import { PageHeader } from '../components/ui/PageHeader';
 import { QueryError } from '../components/ui/QueryError';
@@ -113,6 +114,8 @@ type SyncControls = {
   /** Current text shown in a space's lookback-days input. */
   lookbackText: (id: string) => string;
   onLookbackChange: (id: string, value: string) => void;
+  /** Whether the current user may trigger syncs (OWNER/ADMIN). */
+  canSync: boolean;
 };
 
 function SyncProgress({ progress }: { progress: ActiveBackfill }) {
@@ -197,7 +200,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function SpaceGrid({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncControls }) {
   const navigate = useNavigate();
-  const { syncingId, queuedIds, progressFor, onSync } = controls;
+  const { syncingId, queuedIds, progressFor, onSync, canSync } = controls;
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
       {spaces.map((space, index) => {
@@ -293,7 +296,7 @@ function SpaceGrid({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncCon
             )}
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingTop: 8, borderTop: '1px solid var(--border-soft)', flexWrap: 'wrap' }}>
-              <LookbackInput sid={sid} controls={controls} />
+              {canSync ? <LookbackInput sid={sid} controls={controls} /> : <span />}
               <div style={{ display: 'flex', gap: 6 }}>
                 <Button
                   size="sm"
@@ -303,16 +306,18 @@ function SpaceGrid({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncCon
                 >
                   View tasks
                 </Button>
-                <Button
-                  size="sm"
-                  variant="default"
-                  icon={<RefreshCw size={12} />}
-                  loading={isSyncing}
-                  disabled={!sid || syncingId !== null || isQueued}
-                  onClick={() => sid && onSync(sid)}
-                >
-                  {isQueued ? 'Queued' : 'Sync'}
-                </Button>
+                {canSync && (
+                  <Button
+                    size="sm"
+                    variant="default"
+                    icon={<RefreshCw size={12} />}
+                    loading={isSyncing}
+                    disabled={!sid || syncingId !== null || isQueued}
+                    onClick={() => sid && onSync(sid)}
+                  >
+                    {isQueued ? 'Queued' : 'Sync'}
+                  </Button>
+                )}
                 <Button size="sm" variant="ghost" icon={<Settings size={12} />} onClick={() => navigate('/settings')} />
               </div>
             </div>
@@ -325,7 +330,7 @@ function SpaceGrid({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncCon
 
 function WorkloadView({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncControls }) {
   const navigate = useNavigate();
-  const { syncingId, queuedIds, progressFor, onSync } = controls;
+  const { syncingId, queuedIds, progressFor, onSync, canSync } = controls;
   const sorted = useMemo(() => [...spaces].sort((a, b) => b.hoursLogged - a.hoursLogged), [spaces]);
   const total = sorted.reduce((s, sp) => s + sp.hoursLogged, 0);
 
@@ -455,17 +460,19 @@ function WorkloadView({ spaces, controls }: { spaces: SpaceRow[]; controls: Sync
               </td>
               <td style={{ padding: '10px 16px', textAlign: 'right' }}>
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
-                  <LookbackInput sid={rowId} controls={controls} />
-                  <Button
-                    size="sm"
-                    variant="default"
-                    icon={isQueued ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={12} />}
-                    loading={isSyncing}
-                    disabled={!rowId || syncingId !== null || isQueued}
-                    onClick={() => rowId && onSync(rowId)}
-                  >
-                    {isQueued ? 'Queued' : 'Sync'}
-                  </Button>
+                  {canSync && <LookbackInput sid={rowId} controls={controls} />}
+                  {canSync && (
+                    <Button
+                      size="sm"
+                      variant="default"
+                      icon={isQueued ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={12} />}
+                      loading={isSyncing}
+                      disabled={!rowId || syncingId !== null || isQueued}
+                      onClick={() => rowId && onSync(rowId)}
+                    >
+                      {isQueued ? 'Queued' : 'Sync'}
+                    </Button>
+                  )}
                   <Button
                     size="sm"
                     variant="ghost"
@@ -493,10 +500,12 @@ export function SpacesPage() {
   // empty AND no completed-within-1h drains pending).
   const [optimisticQueued, setOptimisticQueued] = useState<Set<string>>(new Set());
   const [lookbackInput, setLookbackInput] = useState<Record<string, string>>({});
+  const { hasRole } = useAuth();
+  const canSync = hasRole('ADMIN');
   const spacesQuery = useSpaces();
   const backfill = useBackfill();
   const queryClient = useQueryClient();
-  const activeBackfills = useActiveBackfills();
+  const activeBackfills = useActiveBackfills(canSync);
 
   const apiRows: Omit<SpaceRow, 'synced'>[] = Array.isArray(spacesQuery.data) ? spacesQuery.data : [];
   const mergedSpaces = useMemo(() => buildMergedSpaces(apiRows), [apiRows]);
@@ -602,7 +611,7 @@ export function SpacesPage() {
     }
   }
 
-  const controls: SyncControls = { syncingId, queuedIds, progressFor, onSync: handleSync, lookbackText, onLookbackChange };
+  const controls: SyncControls = { syncingId, queuedIds, progressFor, onSync: handleSync, lookbackText, onLookbackChange, canSync };
   const isBusy = syncingId !== null || queuedIds.size > 0;
   const anySynced = mergedSpaces.some((s) => s.synced);
 
@@ -613,16 +622,18 @@ export function SpacesPage() {
         description="ClickUp space allocation — tasks, time, and cost by space. Set how many days back each space syncs."
         actions={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <Button
-              variant="accent"
-              size="md"
-              icon={<RefreshCw size={13} />}
-              loading={syncingId !== null}
-              disabled={isBusy}
-              onClick={handleSyncAll}
-            >
-              Sync all
-            </Button>
+            {canSync && (
+              <Button
+                variant="accent"
+                size="md"
+                icon={<RefreshCw size={13} />}
+                loading={syncingId !== null}
+                disabled={isBusy}
+                onClick={handleSyncAll}
+              >
+                Sync all
+              </Button>
+            )}
             <Tabs value={view} onChange={(k) => setView(k as TabKey)} variant="segmented" items={TAB_ITEMS} />
           </div>
         }

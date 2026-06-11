@@ -1,9 +1,10 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import { QUEUES } from '../queues/queue.constants';
 import { CostRecalculationService } from '../time-entries/cost-recalculation.service';
 import { JobLogsRepository } from '../jobs/job-logs.repository';
+import { DeadLetterService } from '../jobs/dead-letter.service';
 
 @Injectable()
 @Processor(QUEUES.MAINTENANCE)
@@ -11,8 +12,14 @@ export class CostRecalcProcessor extends WorkerHost {
   constructor(
     private readonly recalc: CostRecalculationService,
     private readonly jobLogs: JobLogsRepository,
+    private readonly deadLetters: DeadLetterService,
   ) {
     super();
+  }
+
+  @OnWorkerEvent('failed')
+  async onFailed(job: Job, err: Error) {
+    await this.deadLetters.recordIfExhausted(job, err);
   }
 
   async process(job: Job<{ assigneeId?: string }>) {

@@ -1,4 +1,4 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import type { Job } from 'bullmq';
 import * as crypto from 'crypto';
@@ -7,6 +7,7 @@ import { JOBS, QUEUES } from '../queues/queue.constants';
 import { WebhookEventsRepository } from '../webhooks/webhook-events.repository';
 import { WebhookParserService } from '../webhooks/webhook-parser.service';
 import { PrismaService } from '../database/prisma.service';
+import { DeadLetterService } from '../jobs/dead-letter.service';
 
 @Injectable()
 @Processor(QUEUES.CLICKUP_WEBHOOKS)
@@ -17,7 +18,26 @@ export class ClickupEventProcessor extends WorkerHost {
     private readonly events: WebhookEventsRepository,
     private readonly parser: WebhookParserService,
     private readonly prisma: PrismaService,
+    private readonly deadLetters: DeadLetterService,
   ) { super(); }
+
+  /**
+   * Fires after every failed attempt. Once BullMQ has exhausted retries we
+   * (a) dead-letter the job and (b) flip the webhook event to `failed` so the
+   * admin "retry failed webhooks" tool — which queries `status:'failed'` — can
+   * actually find and re-enqueue it. Without this the event stays `received`
+   * forever and the retry tool is a no-op.
+   */
+  @OnWorkerEvent('failed')
+  async onFailed(job: Job<any>, err: Error) {
+    const exhausted = await this.deadLetters.recordIfExhausted(job, err);
+    const fingerprint = job?.data?.fingerprint as string | undefined;
+    if (exhausted && fingerprint) {
+      await this.events
+        .markFailed(fingerprint, err?.message ?? String(err))
+        .catch((e) => this.logger.warn(`markFailed(${fingerprint}) failed: ${e.message}`));
+    }
+  }
 
   async process(job: Job<any>) {
     const { eventType, taskId, fingerprint, loggedUserId, payload } = job.data;

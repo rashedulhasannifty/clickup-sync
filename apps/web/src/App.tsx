@@ -11,6 +11,8 @@ import { queryClient } from './lib/queryClient';
 import { FilterProvider } from './hooks/useGlobalFilters';
 import { AppLayout } from './components/layout/AppLayout';
 import { LoginPage } from './pages/LoginPage';
+import { useAuth } from './hooks/useAuth';
+import { RequireRole } from './components/RequireRole';
 import './index.css';
 
 // Lazy page imports (real pages will replace stubs in later tasks)
@@ -50,10 +52,22 @@ const SettingsPage = React.lazy(() =>
 const AuditLogPage = React.lazy(() =>
 	import('./pages/AuditLogPage').then((m) => ({ default: m.AuditLogPage })),
 );
+const TeamPage = React.lazy(() =>
+	import('./pages/TeamPage').then((m) => ({ default: m.TeamPage })),
+);
+const SignupPage = React.lazy(() =>
+	import('./pages/SignupPage').then((m) => ({ default: m.SignupPage })),
+);
+const AcceptInvitePage = React.lazy(() =>
+	import('./pages/AcceptInvitePage').then((m) => ({
+		default: m.AcceptInvitePage,
+	})),
+);
 
 function ProtectedRoute() {
-	const key = localStorage.getItem('adminApiKey');
-	if (!key) return <Navigate to="/login" replace />;
+	const { loading, user } = useAuth();
+	if (loading) return <div className="p-6 text-(--text-muted)">Loading…</div>;
+	if (!user) return <Navigate to="/login" replace />;
 	return <Outlet />;
 }
 
@@ -66,6 +80,22 @@ export default function App() {
 				<BrowserRouter>
 					<Routes>
 						<Route path="/login" element={<LoginPage />} />
+						<Route
+							path="/signup"
+							element={
+								<React.Suspense fallback={Fallback}>
+									<SignupPage />
+								</React.Suspense>
+							}
+						/>
+						<Route
+							path="/invite/:token"
+							element={
+								<React.Suspense fallback={Fallback}>
+									<AcceptInvitePage />
+								</React.Suspense>
+							}
+						/>
 						<Route element={<ProtectedRoute />}>
 							<Route element={<AppLayout />}>
 								<Route index element={<Navigate to="/overview" replace />} />
@@ -142,19 +172,33 @@ export default function App() {
 									}
 								/>
 								<Route
+									path="/team"
+									element={
+										<RequireRole min="ADMIN" redirect="/overview">
+											<React.Suspense fallback={Fallback}>
+												<TeamPage />
+											</React.Suspense>
+										</RequireRole>
+									}
+								/>
+								<Route
 									path="/audit-log"
 									element={
-										<React.Suspense fallback={Fallback}>
-											<AuditLogPage />
-										</React.Suspense>
+										<RequireRole min="ADMIN" redirect="/overview">
+											<React.Suspense fallback={Fallback}>
+												<AuditLogPage />
+											</React.Suspense>
+										</RequireRole>
 									}
 								/>
 								<Route
 									path="/settings"
 									element={
-										<React.Suspense fallback={Fallback}>
-											<SettingsPage />
-										</React.Suspense>
+										<RequireRole min="ADMIN" redirect="/overview">
+											<React.Suspense fallback={Fallback}>
+												<SettingsPage />
+											</React.Suspense>
+										</RequireRole>
 									}
 								/>
 							</Route>

@@ -20,29 +20,39 @@ export class TimeEntriesRepository {
     });
   }
 
-  async findUnreplacedAgencyEntries(agencyUserId: string, limit = 500) {
-    const replaced = await this.prisma.timeEntryReplacement.findMany({
-      select: { originalEntryId: true },
-    });
-    const replacedIds = new Set(replaced.map((r) => r.originalEntryId));
+  /**
+   * Remove a local time-entry row by its ClickUp id. Uses deleteMany so it is
+   * idempotent (no throw when the row is absent — e.g. replacing a historical
+   * entry that was never synced locally).
+   */
+  deleteByTimeEntryId(timeEntryId: string) {
+    return this.prisma.clickupTimeEntry.deleteMany({ where: { timeEntryId } });
+  }
 
-    return this.prisma.clickupTimeEntry.findMany({
-      where: {
-        userId: agencyUserId,
-        timeEntryId: { notIn: replacedIds.size > 0 ? [...replacedIds] : ['__never__'] },
-      },
-      take: limit,
-      orderBy: { startTime: 'asc' },
-      select: {
-        timeEntryId: true,
-        taskId: true,
-        startTime: true,
-        endTime: true,
-        durationHours: true,
-        billable: true,
-        description: true,
-      },
-    });
+  async findUnreplacedAgencyEntries(agencyUserId: string, limit = 500) {
+    // NOT EXISTS anti-join rather than loading every replaced id into a JS Set
+    // and building an unbounded `NOT IN (...)` list (which grows without limit
+    // as replacements accumulate). Mirrors findUnreplacedTaggedEntries below.
+    type Row = {
+      time_entry_id: string;
+      task_id: string | null;
+      start_time: Date | null;
+      end_time: Date | null;
+      duration_hours: Prisma.Decimal;
+      billable: boolean;
+      description: string | null;
+    };
+    return this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      SELECT te.time_entry_id, te.task_id, te.start_time, te.end_time,
+             te.duration_hours, te.billable, te.description
+      FROM clickup_time_entries te
+      WHERE te.user_id = ${agencyUserId}
+        AND NOT EXISTS (
+          SELECT 1 FROM time_entry_replacements r WHERE r.original_entry_id = te.time_entry_id
+        )
+      ORDER BY te.start_time ASC NULLS LAST
+      LIMIT ${limit}
+    `);
   }
 
   /**

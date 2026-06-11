@@ -63,7 +63,9 @@ export class ClickupNormalizer {
       userEmail: toStringOrNull(entry.user?.email),
       startTime: fromClickupMillis(entry.start),
       endTime: fromClickupMillis(entry.end),
-      durationHours: entry.duration ? toNumberOrZero(entry.duration) / 3600000 : 0,
+      // Clamp to 0: ClickUp running timers can report a negative duration, which
+      // would otherwise yield a negative costCents and corrupt report sums.
+      durationHours: entry.duration ? Math.max(0, toNumberOrZero(entry.duration) / 3600000) : 0,
       billable: !!entry.billable,
       description: toStringOrNull(entry.description),
       raw: entry,

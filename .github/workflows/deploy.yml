@@ -31,17 +31,58 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run prisma:generate
-      # NOTE: `npm run lint` is intentionally NOT a gate yet — the backend has no
-      # root ESLint flat config (eslint.config.js), so the script currently exits
-      # non-zero. Add a root config + clean up violations, then uncomment:
-      # - run: npm run lint
+      - run: npm run lint
       - run: npm run test
       - run: npm run build
       - run: npm run build:web
 
+  # ── 1b. E2E gate (needs real Postgres + Redis) ──────────────────────────────
+  # Kept separate from `quality` so the unit gate stays infra-free and fast, and
+  # so the e2e suite (which boots the full AppModule + BullMQ and writes to the
+  # DB) actually RUNS against services rather than being silently skipped.
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: clickup
+          POSTGRES_PASSWORD: clickup
+          POSTGRES_DB: clickup_sync
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clickup"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://clickup:clickup@localhost:5432/clickup_sync?schema=public
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npm run prisma:deploy
+      - run: npm run test:e2e
+
   # ── 2. Build the image and push to GHCR ─────────────────────────────────────
   build-and-push:
-    needs: quality
+    needs: [quality, e2e]
     runs-on: ubuntu-latest
     permissions:
       contents: read

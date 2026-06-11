@@ -266,3 +266,91 @@ model ClickupTaskEvent {
   @@index([eventType, occurredAt])
   @@map("clickup_task_events")
 }
+
+// ---------------------------------------------------------------------------
+// Auth: Organizations, Users, Invitations, Sessions
+// ---------------------------------------------------------------------------
+
+enum Role {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  users       User[]
+  invitations Invitation[]
+
+  @@map("organizations")
+}
+
+model User {
+  id           String     @id @default(cuid())
+  orgId        String     @map("org_id")
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  name         String?
+  role         Role       @default(MEMBER)
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?  @map("last_login_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @default(now()) @updatedAt @map("updated_at")
+
+  org      Organization @relation(fields: [orgId], references: [id])
+  sessions Session[]
+
+  @@index([orgId])
+  @@map("users")
+}
+
+model Invitation {
+  id              String           @id @default(cuid())
+  orgId           String           @map("org_id")
+  email           String
+  role            Role
+  tokenHash       String           @unique @map("token_hash")
+  invitedByUserId String?          @map("invited_by_user_id")
+  status          InvitationStatus @default(PENDING)
+  expiresAt       DateTime         @map("expires_at")
+  acceptedAt      DateTime?        @map("accepted_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@index([email])
+  @@index([orgId, status])
+  @@map("invitations")
+}
+
+model Session {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id")
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  lastSeenAt DateTime? @map("last_seen_at")
+  ip         String?
+  userAgent  String?   @map("user_agent")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}

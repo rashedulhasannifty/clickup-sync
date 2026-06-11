@@ -154,7 +154,7 @@ describe('AdminController', () => {
 
   describe('backfillActive', () => {
     function makeQueuesWithJobs(jobsByQueue: Record<string, any[]>) {
-      const getJobs = jest.fn((states: string[]) => Promise.resolve([])); // default
+      const getJobs = jest.fn((_states: string[]) => Promise.resolve([])); // default
       const queueMocks = new Map<string, any>();
       for (const [name, jobs] of Object.entries(jobsByQueue)) {
         queueMocks.set(name, { getJobs: jest.fn().mockResolvedValue(jobs), add: jest.fn() });
@@ -240,7 +240,7 @@ describe('AdminController', () => {
     it('delegates to ClickupWebhooksService.register', async () => {
       const webhooks = makeWebhooks({ action: 'existing', webhookId: 'w1', endpoint: 'https://x.com' });
       const ctrl = makeCtrl(undefined, undefined, webhooks);
-      const result = await ctrl.registerWebhook();
+      const result = await ctrl.registerWebhook({ email: 'owner@test.com', isMachine: false } as any);
       expect(result).toEqual({ action: 'existing', webhookId: 'w1', endpoint: 'https://x.com' });
     });
   });
@@ -412,17 +412,17 @@ describe('AdminController', () => {
 
     it('updateSettings rejects secret writes when encryption is disabled', () => {
       const settings = { getMasked: jest.fn().mockReturnValue({ encryptionEnabled: false }), update: jest.fn() } as any;
-      expect(() => ctrlWithSettings(settings).updateSettings({ apiToken: 'pk_x' }, 'me')).toThrow(/APP_ENCRYPTION_KEY/);
+      expect(() => ctrlWithSettings(settings).updateSettings({ apiToken: 'pk_x' }, { email: 'me@test.com', isMachine: false } as any)).toThrow(/APP_ENCRYPTION_KEY/);
       expect(settings.update).not.toHaveBeenCalled();
     });
 
-    it('updateSettings delegates non-secret fields with the actor', async () => {
+    it('updateSettings delegates non-secret fields with the session actor (not a spoofable header)', async () => {
       const settings = {
         getMasked: jest.fn().mockReturnValue({ encryptionEnabled: true }),
         update: jest.fn().mockResolvedValue({ teamId: '9' }),
       } as any;
-      await ctrlWithSettings(settings).updateSettings({ teamId: '9' }, 'me');
-      expect(settings.update).toHaveBeenCalledWith({ teamId: '9' }, 'me');
+      await ctrlWithSettings(settings).updateSettings({ teamId: '9' }, { email: 'me@test.com', isMachine: false } as any);
+      expect(settings.update).toHaveBeenCalledWith({ teamId: '9' }, 'me@test.com');
     });
   });
 

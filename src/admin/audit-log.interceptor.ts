@@ -56,7 +56,11 @@ export class AuditLogInterceptor implements NestInterceptor {
       method: req.method as string,
       path: req.path as string,
       routePattern: (req.route?.path as string | undefined) ?? null,
-      actor: ((req.headers['x-admin-user'] as string | undefined) ?? null) || null,
+      actor:
+        ((req.user?.email as string | undefined) ??
+          (req.user?.isMachine ? 'machine-key' : undefined) ??
+          (req.headers['x-admin-user'] as string | undefined)) ||
+        null,
       ip:
         ((req.ip as string | undefined) ??
           (req.socket?.remoteAddress as string | undefined) ??

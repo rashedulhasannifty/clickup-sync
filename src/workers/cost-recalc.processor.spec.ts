@@ -5,8 +5,13 @@ function makeDeps() {
   const started = jest.fn().mockResolvedValue({ id: 1n });
   const finished = jest.fn().mockResolvedValue({});
   const failed = jest.fn().mockResolvedValue({});
-  const proc = new CostRecalcProcessor({ recalculate } as any, { started, finished, failed } as any);
-  return { proc, recalculate, started, finished, failed };
+  const recordIfExhausted = jest.fn().mockResolvedValue(false);
+  const proc = new CostRecalcProcessor(
+    { recalculate } as any,
+    { started, finished, failed } as any,
+    { recordIfExhausted } as any,
+  );
+  return { proc, recalculate, started, finished, failed, recordIfExhausted };
 }
 
 describe('CostRecalcProcessor', () => {

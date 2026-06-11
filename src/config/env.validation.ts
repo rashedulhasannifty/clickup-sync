@@ -23,6 +23,16 @@ const schema = z.object({
   JOB_BACKOFF_DELAY_MS: z.coerce.number().default(30000),
   RECONCILE_EVERY_MINUTES: z.coerce.number().default(15),
   RECONCILE_LOOKBACK_HOURS: z.coerce.number().default(2),
+  DEFAULT_ORG_NAME: z.string().default('Default Org'),
+  SESSION_MAX_AGE_DAYS: z.coerce.number().default(30),
+  SESSION_IDLE_TIMEOUT_DAYS: z.coerce.number().default(7),
+  APP_BASE_URL: z.string().default('http://localhost:5173'),
+  ALLOWED_ORIGINS: z.string().default('http://localhost:5173'),
+  SMTP_HOST: z.string().optional().default(''),
+  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_USER: z.string().optional().default(''),
+  SMTP_PASS: z.string().optional().default(''),
+  MAIL_FROM: z.string().default('ClickUp Sync <no-reply@example.com>'),
 // Production requires non-empty secrets; dev/test allows empty values for convenience
 }).superRefine((env, ctx) => {
   if (env.NODE_ENV !== 'production') return;

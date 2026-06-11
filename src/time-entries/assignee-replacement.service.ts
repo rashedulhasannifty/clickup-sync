@@ -109,6 +109,12 @@ export class AssigneeReplacementService {
     };
     await this.timeEntries.upsert(normalized, cost);
 
+    // 8. Remove the local original row. The original was already deleted in
+    //    ClickUp (step 6) and re-inserted under the replacement's new id (step
+    //    7); leaving the old row would make reports SUM both the original and
+    //    the replacement → double-counted hours and cost. Idempotent.
+    await this.timeEntries.deleteByTimeEntryId(data.timeEntryId);
+
     if (cost.status === 'NO_RATE_FOUND') {
       this.logger.warn(`No rate found for replaced user ${realUserId} on entry ${created.id}`);
     }

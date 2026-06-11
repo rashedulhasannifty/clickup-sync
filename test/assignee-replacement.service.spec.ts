@@ -37,6 +37,7 @@ function buildMocks(
     deleteTimeEntry: jest.Mock;
     costs: jest.Mock;
     upsert: jest.Mock;
+    deleteLocal: jest.Mock;
   }> = {},
 ) {
   const findByOriginalEntryId =
@@ -60,6 +61,8 @@ function buildMocks(
       status: 'NO_RATE_FOUND',
     });
   const upsert = overrides.upsert ?? jest.fn().mockResolvedValue({});
+  const deleteByTimeEntryId =
+    overrides.deleteLocal ?? jest.fn().mockResolvedValue({ count: 1 });
 
   // getTask is no longer called by the service — kept here only so a stray
   // reference would surface as `not toHaveBeenCalled` in the tests below.
@@ -69,7 +72,7 @@ function buildMocks(
   const tagAssigneeMap = { findAllActive, findByTagName: jest.fn() } as any;
   const replacements = { findByOriginalEntryId, create: createReplacement } as any;
   const costsService = { calculate: costs } as any;
-  const timeEntriesRepo = { upsert } as any;
+  const timeEntriesRepo = { upsert, deleteByTimeEntryId } as any;
 
   const service = new AssigneeReplacementService(
     clickup,
@@ -95,6 +98,7 @@ function buildMocks(
     deleteTimeEntry,
     costs,
     upsert,
+    deleteByTimeEntryId,
   };
 }
 
@@ -230,6 +234,29 @@ describe('AssigneeReplacementService.replaceEntry', () => {
       }),
       expect.objectContaining({ status: 'NO_RATE_FOUND' }),
     );
+  });
+
+  it('deletes the local original row so reports do not double-count original + replacement', async () => {
+    const { service, deleteByTimeEntryId, upsert } = buildMocks();
+
+    await service.replaceEntry(SAMPLE_JOB);
+
+    // The replacement entry is upserted under its NEW id...
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ timeEntryId: 'new-entry-789' }),
+      expect.anything(),
+    );
+    // ...and the ORIGINAL local row must be removed, otherwise SUM(hours)/SUM(cost)
+    // in reports counts both the original and the replacement.
+    expect(deleteByTimeEntryId).toHaveBeenCalledWith(SAMPLE_JOB.timeEntryId);
+  });
+
+  it('does not delete any local row when the entry has no mapping', async () => {
+    const { service, deleteByTimeEntryId } = buildMocks();
+
+    await service.replaceEntry({ ...SAMPLE_JOB, tags: ['design'] });
+
+    expect(deleteByTimeEntryId).not.toHaveBeenCalled();
   });
 
   it('matches case-insensitively (e.g. "Chisty" -> "chisty" mapping)', async () => {

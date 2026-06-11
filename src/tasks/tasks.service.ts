@@ -26,6 +26,29 @@ export class TasksService {
     return count;
   }
 
+  /**
+   * Fetch and upsert parent tasks that are referenced by subtasks but not yet
+   * stored locally — e.g. a parent updated outside a backfill's lookback window
+   * so it never appears in the fetched page. Without this, the subtask's
+   * parentTaskId points at a non-existent row and parent/subtask report joins
+   * silently drop. Tolerant of per-id failures (a deleted/404 parent is logged
+   * and skipped, not fatal to the batch). Returns the number actually synced.
+   */
+  async syncMissingParents(parentIds: string[]): Promise<number> {
+    const missing = await this.repo.findMissingParentIds(parentIds);
+    let synced = 0;
+    for (const id of missing) {
+      try {
+        await this.syncTask(id);
+        synced += 1;
+      } catch (err: any) {
+        this.logger.warn(`Could not fetch missing parent ${id}: ${err?.message ?? err}`);
+      }
+    }
+    if (synced > 0) this.logger.log(`Fetched ${synced}/${missing.length} missing parent task(s)`);
+    return synced;
+  }
+
   async softDeleteTask(taskId: string) { return this.repo.softDelete(taskId); }
 
   patchSpaceNames(spaceId: string, spaceName: string) { return this.repo.patchSpaceNames(spaceId, spaceName); }

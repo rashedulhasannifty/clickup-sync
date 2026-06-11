@@ -1,6 +1,8 @@
-import { BadRequestException, Body, Controller, Delete, Get, Headers, HttpCode, NotFoundException, Param, Patch, Post, Query, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
-import { AdminApiKeyGuard } from './admin-api-key.guard';
+import { Role } from '@prisma/client';
+import { Roles, CurrentUser } from '../auth/decorators';
+import { AuthPrincipal } from '../auth/auth.types';
 import { AuditLogInterceptor } from './audit-log.interceptor';
 import { AuditLogRepository } from './audit-log.repository';
 import { SyncTaskDto } from './dto/sync-task.dto';
@@ -33,9 +35,18 @@ function parseId(id: string): bigint {
   return n;
 }
 
+/**
+ * Attribution label for `updatedBy` derived from the authenticated session —
+ * not the previously-spoofable `x-admin-user` header. Machine (admin-key)
+ * principals have no email, so fall back to a stable machine label.
+ */
+function actorLabel(user: AuthPrincipal): string {
+  return user?.email ?? (user?.isMachine ? 'machine-key' : user?.userId) ?? 'unknown';
+}
+
 @ApiTags('admin')
 @ApiSecurity('x-admin-key')
-@UseGuards(AdminApiKeyGuard)
+@Roles(Role.OWNER, Role.ADMIN)
 @UseInterceptors(AuditLogInterceptor)
 @Controller('admin')
 export class AdminController {
@@ -199,10 +210,11 @@ export class AdminController {
   }
 
   @Post('webhooks/register')
+  @Roles(Role.OWNER)
   @HttpCode(200)
   @ApiOperation({ summary: 'Register NestJS webhook with ClickUp — idempotent; stores the signing secret encrypted on first creation' })
-  registerWebhook(@Headers('x-admin-user') adminUser?: string) {
-    return this.webhooks.register(adminUser?.trim() || undefined);
+  registerWebhook(@CurrentUser() user: AuthPrincipal) {
+    return this.webhooks.register(actorLabel(user));
   }
 
   // ── ClickUp connection settings ─────────────────────────────────────────────
@@ -214,15 +226,16 @@ export class AdminController {
   }
 
   @Patch('settings')
+  @Roles(Role.OWNER)
   @HttpCode(200)
   @ApiOperation({ summary: 'Update ClickUp connection settings. Secrets are written only when supplied.' })
-  updateSettings(@Body() dto: UpdateSettingsDto, @Headers('x-admin-user') adminUser?: string) {
+  updateSettings(@Body() dto: UpdateSettingsDto, @CurrentUser() user: AuthPrincipal) {
     if ((dto.apiToken || dto.webhookSecret) && !this.settings.getMasked().encryptionEnabled) {
       throw new BadRequestException(
         'Cannot store secrets: APP_ENCRYPTION_KEY is not configured on the server. Set it (64 hex chars) and restart.',
       );
     }
-    return this.settings.update(dto, adminUser?.trim() || undefined);
+    return this.settings.update(dto, actorLabel(user));
   }
 
   @Post('webhooks/retry-failed')

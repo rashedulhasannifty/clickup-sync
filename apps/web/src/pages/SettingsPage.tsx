@@ -13,6 +13,8 @@ import { useSpaces, useSyncHealth } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
 import { useRegisterWebhook, useTestClickupConnection } from '../hooks/useAdmin';
 import { useSettings, useUpdateSettings } from '../hooks/useSettings';
+import { useAuth } from '../hooks/useAuth';
+import { RequireRole } from '../components/RequireRole';
 import type { SettingsPatch } from '../api/settings';
 import type { TagAssignee } from '../api/tag-assignee';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -22,19 +24,17 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Switch } from '../components/ui/Switch';
 import { Pill } from '../components/ui/Pill';
-import { Avatar } from '../components/ui/Avatar';
 import { Callout } from '../components/ui/Callout';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Field } from '../components/ui/Field';
 import { Select } from '../components/ui/Select';
 import { fmt } from '../lib/formatters';
 
-const TAB_ITEMS = [
-  { value: 'connection', label: 'Connection' },
-  { value: 'sync', label: 'Sync rules' },
-  { value: 'scopes', label: 'Scope filters' },
-  { value: 'members', label: 'Members & access' },
-  { value: 'notifications', label: 'Notifications' },
+const ALL_TAB_ITEMS = [
+  { value: 'connection', label: 'Connection', ownerOnly: true },
+  { value: 'sync', label: 'Sync rules', ownerOnly: false },
+  { value: 'scopes', label: 'Scope filters', ownerOnly: false },
+  { value: 'notifications', label: 'Notifications', ownerOnly: false },
 ];
 
 const PALETTE = ['#7B68EE', '#FF02F0', '#49CCF9', '#10b981', '#f59e0b', '#ef4444'];
@@ -189,7 +189,8 @@ const emptyForm: TagFormState = {
 };
 
 export function SettingsPage() {
-  const [activeTab, setActiveTab] = useState('connection');
+  const { hasRole } = useAuth();
+  const [activeTab, setActiveTab] = useState(() => (hasRole('OWNER') ? 'connection' : 'sync'));
   const syncHealth = useSyncHealth();
   const spacesQuery = useSpaces();
   const tagAssignee = useTagAssignee();
@@ -328,11 +329,17 @@ export function SettingsPage() {
         title="Settings"
         description="ClickUp connection, sync configuration, and access controls."
       />
-      <Tabs items={TAB_ITEMS} value={activeTab} onChange={setActiveTab} variant="underline" />
+      <Tabs
+        items={ALL_TAB_ITEMS.filter((t) => !t.ownerOnly || hasRole('OWNER')).map((t) => ({ value: t.value, label: t.label }))}
+        value={activeTab}
+        onChange={setActiveTab}
+        variant="underline"
+      />
 
       {banner && <Callout tone={banner.tone}>{banner.text}</Callout>}
 
       {activeTab === 'connection' && (
+        <RequireRole min="OWNER">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
           {settingsQuery.data && !settingsQuery.data.encryptionEnabled && (
             <Callout tone="amber" icon={<AlertTriangle size={13} />}>
@@ -615,6 +622,7 @@ export function SettingsPage() {
             </Button>
           </div>
         </div>
+        </RequireRole>
       )}
 
       {activeTab === 'sync' && (
@@ -950,83 +958,6 @@ export function SettingsPage() {
               decorative chips that didn't filter anything. Bring them back
               once a `scope_filters` table (or env-config) exists to persist
               the exclusion list, and the workers honor it. */}
-        </div>
-      )}
-
-      {activeTab === 'members' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 860 }}>
-          <Callout tone="amber" icon={<Info size={13} />}>
-            Access is currently single-tenant: anyone with the
-            <code style={{ fontFamily: 'ui-monospace, monospace', margin: '0 4px' }}>ADMIN_API_KEY</code>
-            (or no key, in dev mode) can use the dashboard. Multi-user invites
-            and roles aren't supported yet.
-          </Callout>
-          <Card padding={0}>
-            <div
-              style={{
-                padding: '14px 16px',
-                borderBottom: '1px solid var(--border-soft)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 12,
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Members & access</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                  Holders of the admin API key.
-                </div>
-              </div>
-            </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr
-                  style={{
-                    background: 'var(--muted-bg)',
-                    textTransform: 'uppercase',
-                    fontSize: 10,
-                    color: 'var(--text-muted)',
-                    letterSpacing: '0.05em',
-                    fontWeight: 600,
-                  }}
-                >
-                  <th style={{ textAlign: 'left', padding: '8px 16px' }}>Member</th>
-                  <th style={{ textAlign: 'left', padding: '8px 12px' }}>Role</th>
-                  <th style={{ textAlign: 'left', padding: '8px 12px' }}>Last active</th>
-                  <th style={{ textAlign: 'left', padding: '8px 12px' }}>2FA</th>
-                  <th style={{ width: 60, padding: '8px 16px' }} />
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td style={{ padding: '12px 16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <Avatar name="Admin" size={28} />
-                      <div>
-                        <div style={{ fontWeight: 600, color: 'var(--text)' }}>Admin</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>API key holder</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ padding: '12px' }}>
-                    <Pill tone="purple" size="sm">
-                      Owner
-                    </Pill>
-                  </td>
-                  <td style={{ padding: '12px', color: 'var(--text-muted)' }}>just now</td>
-                  <td style={{ padding: '12px' }}>
-                    <Pill tone="green" size="xs" icon={<CircleCheck size={10} />}>
-                      enabled
-                    </Pill>
-                  </td>
-                  <td style={{ padding: '12px 16px', textAlign: 'right', color: 'var(--text-faint)', fontSize: 11 }}>
-                    you
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </Card>
         </div>
       )}
 

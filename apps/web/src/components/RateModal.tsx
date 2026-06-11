@@ -124,6 +124,7 @@ export function RateModal({
 	const [validTo, setValidTo] = useState('');
 	const [assigneePicker, setAssigneePicker] = useState('');
 	const [manualAssignee, setManualAssignee] = useState(false);
+	const [formError, setFormError] = useState('');
 	/** True only when "new rate" opened with zero assignee options (map still loading). */
 	const newRateStartedWithEmptyAssigneeList = useRef(false);
 
@@ -276,8 +277,12 @@ export function RateModal({
 	const isNew = !rate;
 
 	function handleSave() {
+		// Surface validation instead of silently no-op'ing the Save button.
+		if (!assigneeId) { setFormError('Select an assignee.'); return; }
+		if (!validFrom) { setFormError('Set a "valid from" date.'); return; }
 		const parsed = parseFloat(hourlyRateDollars);
-		if (isNaN(parsed)) return;
+		if (isNaN(parsed) || parsed < 0) { setFormError('Enter a valid hourly rate.'); return; }
+		setFormError('');
 		const hourlyRateCents = Math.round(parsed * 100);
 		const payload = {
 			assigneeId,
@@ -325,6 +330,11 @@ export function RateModal({
 				>
 					Delete
 				</Button>
+			)}
+			{formError && (
+				<span style={{ marginRight: 'auto', color: 'var(--red)', fontSize: 12 }} role="alert">
+					{formError}
+				</span>
 			)}
 			<Button variant="default" onClick={onClose}>
 				Cancel

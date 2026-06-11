@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 
 interface ModalProps {
@@ -11,12 +11,70 @@ interface ModalProps {
   width?: number;
 }
 
+// Same focusable-element contract the Drawer uses for its trap.
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+function getFocusable(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+    .filter((el) => !el.hasAttribute('inert') && el.offsetParent !== null);
+}
+
 export function Modal({ open = true, onClose, title, subtitle, children, footer, width = 480 }: ModalProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+
+  // a11y: focus-on-open, trap Tab within the dialog, restore focus on close —
+  // the standard modal-dialog contract (mirrors Drawer). Without this, keyboard
+  // and screen-reader users can Tab out of the modal into the page behind it.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    if (panel) {
+      const focusables = getFocusable(panel);
+      (focusables[0] ?? panel).focus();
+    }
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab' || !panel) return;
+      const focusables = getFocusable(panel);
+      if (focusables.length === 0) {
+        e.preventDefault();
+        panel.focus();
+        return;
+      }
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (previouslyFocused && document.contains(previouslyFocused)) {
+        previouslyFocused.focus();
+      }
+    };
   }, [open, onClose]);
 
   if (!open) return null;
@@ -33,6 +91,11 @@ export function Modal({ open = true, onClose, title, subtitle, children, footer,
         }}
       />
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        tabIndex={-1}
         style={{
           position: 'relative', width, maxWidth: '100%', maxHeight: '90vh',
           background: 'var(--surface)', border: '1px solid var(--border)',
@@ -40,6 +103,7 @@ export function Modal({ open = true, onClose, title, subtitle, children, footer,
           boxShadow: '0 24px 64px rgba(15, 23, 42, 0.18)',
           display: 'flex', flexDirection: 'column',
           animation: 'modalIn 180ms ease-out',
+          outline: 'none',
         }}
       >
         <div
@@ -52,7 +116,7 @@ export function Modal({ open = true, onClose, title, subtitle, children, footer,
           }}
         >
             <div style={{ flex: 1, minWidth: 0 }}>
-              {title && <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{title}</div>}
+              {title && <div id={titleId} style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>{title}</div>}
               {subtitle && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{subtitle}</div>}
             </div>
             <button

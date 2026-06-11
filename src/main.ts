@@ -6,6 +6,7 @@ import 'reflect-metadata';
   return this.toString();
 };
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
@@ -16,17 +17,32 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   app.use(helmet());
   app.use(compression());
-  app.enableCors();
+  app.use(cookieParser());
+  app.enableCors({
+    origin: (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173').split(',').map((s) => s.trim()),
+    credentials: true,
+  });
   app.setGlobalPrefix('api');
+  // whitelist:true already strips unknown props (kills mass-assignment); we do
+  // NOT set forbidNonWhitelisted because turning unknown fields into hard 400s
+  // is a behavior change across every write endpoint the SPA hits and isn't
+  // needed for the security property.
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
-  const config = new DocumentBuilder()
-    .setTitle('ClickUp Sync API')
-    .setDescription('NestJS service for ClickUp webhook ingestion, backfills, time entries, and cost sync.')
-    .setVersion('0.1.0')
-    .addApiKey({ type: 'apiKey', name: 'x-admin-key', in: 'header' }, 'x-admin-key')
-    .build();
-  SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config));
+  // Swagger exposes the full API surface (every admin/reports route + the
+  // x-admin-key scheme) unauthenticated. Keep it off in production unless an
+  // operator explicitly opts in via ENABLE_SWAGGER=true.
+  const swaggerEnabled =
+    process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV !== 'production';
+  if (swaggerEnabled) {
+    const config = new DocumentBuilder()
+      .setTitle('ClickUp Sync API')
+      .setDescription('NestJS service for ClickUp webhook ingestion, backfills, time entries, and cost sync.')
+      .setVersion('0.1.0')
+      .addApiKey({ type: 'apiKey', name: 'x-admin-key', in: 'header' }, 'x-admin-key')
+      .build();
+    SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config));
+  }
 
   const port = Number(process.env.PORT || 3000);
   await app.listen(port);

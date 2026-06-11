@@ -1,14 +1,25 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
+import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import type { Job } from 'bullmq';
-import { JOBS, QUEUES } from '../queues/queue.constants';
+import { JOBS, QUEUES, clickupWorkerOptions } from '../queues/queue.constants';
 import { TasksService } from '../tasks/tasks.service';
 import { JobLogsRepository } from '../jobs/job-logs.repository';
+import { DeadLetterService } from '../jobs/dead-letter.service';
 
 @Injectable()
-@Processor(QUEUES.CLICKUP_TASKS)
+@Processor(QUEUES.CLICKUP_TASKS, clickupWorkerOptions())
 export class TaskSyncProcessor extends WorkerHost {
-  constructor(private readonly tasks: TasksService, private readonly jobLogs: JobLogsRepository) { super(); }
+  constructor(
+    private readonly tasks: TasksService,
+    private readonly jobLogs: JobLogsRepository,
+    private readonly deadLetters: DeadLetterService,
+  ) { super(); }
+
+  @OnWorkerEvent('failed')
+  async onFailed(job: Job, err: Error) {
+    await this.deadLetters.recordIfExhausted(job, err);
+  }
+
   async process(job: Job<{ taskId: string }>) {
     const log = await this.jobLogs.started({ jobId: job.id?.toString(), queueName: QUEUES.CLICKUP_TASKS, jobName: job.name, entityType: 'task', entityId: job.data.taskId });
     try {
