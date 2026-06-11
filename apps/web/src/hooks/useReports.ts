@@ -76,6 +76,29 @@ export function useCostTrend(
   });
 }
 
+export interface AssigneeCostTrendPoint {
+  bucket: string;
+  values: Record<string, number>;
+}
+
+export interface AssigneeCostTrendData {
+  buckets: string[];
+  assignees: string[];
+  points: AssigneeCostTrendPoint[];
+}
+
+export function useAssigneeCostTrend(
+  bucket: CostTrendBucket,
+  from?: string,
+  to?: string,
+) {
+  return useQuery<AssigneeCostTrendData>({
+    queryKey: ['cost-trend-by-assignee', bucket, from || null, to || null],
+    queryFn: () => reportsApi.costTrendByAssignee({ bucket, from, to }),
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useTimeEntriesByClient() {
   const { fromDate, toDate } = useGlobalFilters();
   return useQuery({
