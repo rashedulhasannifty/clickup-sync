@@ -120,8 +120,10 @@ export class ClickupClient {
       subtasks?: boolean;
     },
   ): Promise<ClickUpTask[]> {
+    const MAX_PAGES = 1000;
     const all: ClickUpTask[] = [];
-    for (let page = 0; page < 1000; page++) {
+    let page = 0;
+    for (; page < MAX_PAGES; page++) {
       const res = await this.getTasksBySpace(spaceId, {
         ...options,
         page,
@@ -130,6 +132,15 @@ export class ClickupClient {
       const tasks = res.tasks || [];
       all.push(...tasks);
       if (tasks.length < 100) break;
+    }
+    if (page === MAX_PAGES) {
+      // Ran the full cap without a short page — there are very likely more tasks
+      // we did not fetch. Surface it instead of silently treating the truncated
+      // list as complete (which would make downstream reconciliation soft-delete
+      // the missing tail as "no longer in ClickUp").
+      this.logger.warn(
+        `getAllTasksBySpace(${spaceId}) hit the ${MAX_PAGES}-page cap (~${all.length} tasks); results may be truncated and tasks beyond this window were not fetched`,
+      );
     }
     return all;
   }

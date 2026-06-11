@@ -54,14 +54,18 @@ export class InvitationService {
 
   async resend(actor: AuthPrincipal, id: string) {
     const inv = await this.invites.findById(id);
-    if (!inv || inv.status !== InvitationStatus.PENDING) throw new BadRequestException('No pending invite.');
+    // Org-scope: an invite belonging to another org must be unaddressable.
+    if (!inv || inv.orgId !== actor.orgId || inv.status !== InvitationStatus.PENDING) throw new BadRequestException('No pending invite.');
     const { token, tokenHash } = this.tokens.generate();
     await this.invites.update(id, { tokenHash, expiresAt: this.tokens.expiryFromDays(INVITE_TTL_DAYS) });
     await this.mailer.sendInvite(inv.email, token, this.config.get<string>('DEFAULT_ORG_NAME', 'your team'), inv.role);
     return { ok: true };
   }
 
-  async revoke(id: string) {
+  async revoke(actor: AuthPrincipal, id: string) {
+    const inv = await this.invites.findById(id);
+    // Org-scope: don't let an admin revoke another org's invitation by id.
+    if (!inv || inv.orgId !== actor.orgId) throw new BadRequestException('Invitation not found.');
     await this.invites.update(id, { status: InvitationStatus.REVOKED });
     return { ok: true };
   }

@@ -21,8 +21,11 @@ const schema = z.object({
   ADMIN_API_KEY: z.string().optional().default(''),
   JOB_ATTEMPTS: z.coerce.number().default(5),
   JOB_BACKOFF_DELAY_MS: z.coerce.number().default(30000),
-  RECONCILE_EVERY_MINUTES: z.coerce.number().default(15),
-  RECONCILE_LOOKBACK_HOURS: z.coerce.number().default(2),
+  // NOTE: the reconciliation cadence + lookback are intentionally hardcoded in
+  // src/sync/sync.scheduler.ts (hourly; 1-day task / 7-day time-entry window).
+  // The former RECONCILE_EVERY_MINUTES / RECONCILE_LOOKBACK_HOURS env vars were
+  // never read by any code — they were removed so they can't mislead operators
+  // into thinking the schedule is env-tunable.
   DEFAULT_ORG_NAME: z.string().default('Default Org'),
   SESSION_MAX_AGE_DAYS: z.coerce.number().default(30),
   SESSION_IDLE_TIMEOUT_DAYS: z.coerce.number().default(7),

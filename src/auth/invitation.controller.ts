@@ -35,8 +35,8 @@ export class InvitationController {
   @Roles(Role.OWNER, Role.ADMIN)
   @HttpCode(200)
   @Post('invitations/:id/revoke')
-  revoke(@Param('id') id: string) {
-    return this.invites.revoke(id);
+  revoke(@CurrentUser() user: AuthPrincipal, @Param('id') id: string) {
+    return this.invites.revoke(user, id);
   }
 
   @Public()

@@ -66,3 +66,31 @@ describe('InvitationService.accept', () => {
     await expect(svc.accept(token, { name: 'New', password: 'longenough10' })).rejects.toBeInstanceOf(BadRequestException);
   });
 });
+
+describe('InvitationService.revoke / resend — cross-org scope', () => {
+  const actor = { userId: 'a', orgId: 'org_seed', role: Role.OWNER, email: null, isMachine: false } as any;
+  function svcWith(d: ReturnType<typeof deps>) {
+    return new InvitationService(d.inviteRepo as any, d.userRepo as any, new PermissionsService(), new TokenService(), new PasswordService(), d.mailer as any, { get: () => 'org_seed' } as any);
+  }
+
+  it('revoke refuses an invite belonging to another org', async () => {
+    const d = deps();
+    d.invites.push({ id: 'i0', orgId: 'org_other', status: InvitationStatus.PENDING });
+    await expect(svcWith(d).revoke(actor, 'i0')).rejects.toBeInstanceOf(BadRequestException);
+    expect(d.inviteRepo.update).not.toHaveBeenCalled();
+  });
+
+  it('revoke marks an invite in the actor’s org REVOKED', async () => {
+    const d = deps();
+    d.invites.push({ id: 'i0', orgId: 'org_seed', status: InvitationStatus.PENDING });
+    await svcWith(d).revoke(actor, 'i0');
+    expect(d.inviteRepo.update).toHaveBeenCalledWith('i0', { status: InvitationStatus.REVOKED });
+  });
+
+  it('resend refuses an invite belonging to another org', async () => {
+    const d = deps();
+    d.invites.push({ id: 'i0', orgId: 'org_other', role: Role.MEMBER, email: 'x@y.com', status: InvitationStatus.PENDING });
+    await expect(svcWith(d).resend(actor, 'i0')).rejects.toBeInstanceOf(BadRequestException);
+    expect(d.mailer.sendInvite).not.toHaveBeenCalled();
+  });
+});

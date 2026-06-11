@@ -33,7 +33,13 @@ export class QueueService {
       attempts: Number(process.env.JOB_ATTEMPTS || 5),
       backoff: { type: 'exponential' as const, delay: Number(process.env.JOB_BACKOFF_DELAY_MS || 30000) },
       removeOnComplete: 1000,
-      removeOnFail: false,
+      // Bound Redis growth: the durable failure record lives in DeadLetterJob, so
+      // keeping failed jobs in Redis forever (the old `false`) was pure leak. Age
+      // is in SECONDS; 14 days is well past the retry window (≈8 min for 5
+      // attempts), so a transiently-failing job is never evicted mid-retry, while
+      // a permanently-failed `replace:<id>` job stops dedup-blocking re-enqueues
+      // after the window.
+      removeOnFail: { age: 14 * 24 * 60 * 60 },
     };
   }
 }

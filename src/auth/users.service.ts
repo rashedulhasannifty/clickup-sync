@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, UserStatus } from '@prisma/client';
 import { UserRepository } from './user.repository';
 import { PermissionsService } from './permissions.service';
 import { SessionService } from './session.service';
@@ -17,14 +17,17 @@ export class UsersService {
     return this.users.listByOrg(orgId);
   }
 
-  private async require(id: string) {
+  private async require(actor: AuthPrincipal, id: string) {
     const u = await this.users.findById(id);
-    if (!u) throw new NotFoundException('User not found');
+    // Scope by the actor's org: a user in a different org must be unaddressable
+    // (looks "not found"), never manageable. Latent today under the single seed
+    // org, but a hard horizontal-privilege boundary the moment multi-org lands.
+    if (!u || u.orgId !== actor.orgId) throw new NotFoundException('User not found');
     return u;
   }
 
   async changeRole(actor: AuthPrincipal, targetId: string, desired: Role) {
-    const target = await this.require(targetId);
+    const target = await this.require(actor, targetId);
     if (!this.perms.canAssignRole(actor.role, target.role, desired)) {
       throw new ForbiddenException('You cannot assign that role.');
     }
@@ -38,7 +41,7 @@ export class UsersService {
   }
 
   async setStatus(actor: AuthPrincipal, targetId: string, status: 'ACTIVE' | 'DISABLED') {
-    const target = await this.require(targetId);
+    const target = await this.require(actor, targetId);
     if (!this.perms.canManageUser(actor.role, target.role)) {
       throw new ForbiddenException('You cannot manage this user.');
     }
@@ -53,7 +56,7 @@ export class UsersService {
   }
 
   async remove(actor: AuthPrincipal, targetId: string) {
-    const target = await this.require(targetId);
+    const target = await this.require(actor, targetId);
     if (!this.perms.canManageUser(actor.role, target.role)) {
       throw new ForbiddenException('You cannot remove this user.');
     }
@@ -70,7 +73,15 @@ export class UsersService {
 
   async transferOwnership(actor: AuthPrincipal, targetId: string) {
     if (actor.role !== Role.OWNER) throw new ForbiddenException('Only an owner can transfer ownership.');
-    const target = await this.require(targetId);
+    // Self-transfer would run update(self, OWNER) then update(self, ADMIN) and
+    // net-demote the sole owner to ADMIN — leaving the org with ZERO owners.
+    if (targetId === actor.userId) throw new BadRequestException('You already own this org.');
+    const target = await this.require(actor, targetId); // org-scoped + existence
+    // Don't hand ownership to a disabled account, or the org's only owner becomes
+    // one that can't log in.
+    if (target.status !== UserStatus.ACTIVE) {
+      throw new BadRequestException('Cannot transfer ownership to a disabled user.');
+    }
     await this.users.update(targetId, { role: Role.OWNER });
     await this.users.update(actor.userId, { role: Role.ADMIN });
     return { ok: true, newOwnerId: target.id };

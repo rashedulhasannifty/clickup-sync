@@ -19,6 +19,12 @@ async function bootstrap() {
   // BullMQ workers close (finishing active jobs) and the Prisma/Redis pools
   // disconnect cleanly instead of being hard-killed mid-job on every deploy.
   app.enableShutdownHooks();
+  // Behind the prod reverse proxy, trust the first hop so `req.ip` is the real
+  // client address (not the proxy's). Without this the per-IP login throttler
+  // keys every request to the proxy IP and collapses into one shared bucket —
+  // brute-force protection gone, and one client can lock everyone out. Match the
+  // hop count to the actual deployment topology if more than one proxy is added.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(helmet());
   app.use(compression());
   app.use(cookieParser());

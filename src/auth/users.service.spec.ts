@@ -64,10 +64,43 @@ describe('UsersService.remove', () => {
 
 describe('UsersService.transferOwnership', () => {
   it('promotes the target to owner and demotes the actor to admin', async () => {
-    const d = deps([{ id: 'o1', role: Role.OWNER, status: UserStatus.ACTIVE }, { id: 'a1', role: Role.ADMIN, status: UserStatus.ACTIVE }]);
+    const d = deps([
+      { id: 'o1', role: Role.OWNER, orgId: 'org_seed', status: UserStatus.ACTIVE },
+      { id: 'a1', role: Role.ADMIN, orgId: 'org_seed', status: UserStatus.ACTIVE },
+    ]);
     const svc = new UsersService(d.userRepo as any, new PermissionsService(), sessions);
     await svc.transferOwnership(owner, 'a1');
     expect(d.users.find((u) => u.id === 'a1').role).toBe(Role.OWNER);
     expect(d.users.find((u) => u.id === 'o1').role).toBe(Role.ADMIN);
+  });
+
+  it('rejects self-transfer (would demote the sole owner → zero owners)', async () => {
+    const d = deps([{ id: 'o1', role: Role.OWNER, orgId: 'org_seed', status: UserStatus.ACTIVE }]);
+    const svc = new UsersService(d.userRepo as any, new PermissionsService(), sessions);
+    await expect(svc.transferOwnership(owner, 'o1')).rejects.toBeInstanceOf(BadRequestException);
+    expect(d.users.find((u) => u.id === 'o1').role).toBe(Role.OWNER); // unchanged
+  });
+
+  it('rejects transferring ownership to a disabled user', async () => {
+    const d = deps([
+      { id: 'o1', role: Role.OWNER, orgId: 'org_seed', status: UserStatus.ACTIVE },
+      { id: 'a1', role: Role.ADMIN, orgId: 'org_seed', status: UserStatus.DISABLED },
+    ]);
+    const svc = new UsersService(d.userRepo as any, new PermissionsService(), sessions);
+    await expect(svc.transferOwnership(owner, 'a1')).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects a target in a different org (cross-org IDOR → looks not-found)', async () => {
+    const d = deps([{ id: 'x1', role: Role.ADMIN, orgId: 'org_other', status: UserStatus.ACTIVE }]);
+    const svc = new UsersService(d.userRepo as any, new PermissionsService(), sessions);
+    await expect(svc.transferOwnership(owner, 'x1')).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('UsersService — cross-org IDOR scoping', () => {
+  it('changeRole on a user in another org looks "not found"', async () => {
+    const d = deps([{ id: 'x1', role: Role.MEMBER, orgId: 'org_other', status: UserStatus.ACTIVE }]);
+    const svc = new UsersService(d.userRepo as any, new PermissionsService(), sessions);
+    await expect(svc.changeRole(owner, 'x1', Role.ADMIN)).rejects.toBeInstanceOf(NotFoundException);
   });
 });

@@ -48,7 +48,17 @@ export class ClickupEventProcessor extends WorkerHost {
       return;
     }
 
-    if (!taskId && eventType !== 'taskDeleted') return;
+    // No resolvable taskId → nothing actionable. Acknowledge it (markProcessed)
+    // so it doesn't sit in `received` limbo forever, invisible to the "retry
+    // failed" tool (which only queries `failed`). This also covers a taskDeleted
+    // that arrives with no taskId: enqueuing a delete for a null id just throws
+    // in the worker (softDeleteTask(null)) and dead-letters a job that could
+    // never succeed.
+    if (!taskId) {
+      this.logger.warn(`Webhook event ${fingerprint} (${eventType ?? 'unknown'}) has no taskId — nothing to do, marking processed`);
+      await this.events.markProcessed(fingerprint).catch((e) => this.logger.warn(e.message));
+      return;
+    }
     if (eventType === 'taskDeleted') {
       await this.queues.get(QUEUES.CLICKUP_TASKS).add(JOBS.DELETE_CLICKUP_TASK, { taskId }, this.queues.defaultJobOptions());
     } else if (eventType === 'taskTimeTrackedUpdated') {

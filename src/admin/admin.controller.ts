@@ -346,6 +346,13 @@ export class AdminController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Reconcile every stored task against ClickUp: detect whole-task deletes (soft-delete ghosts) and re-sync each task’s time entries' })
   async reconcileTasks(@Query('lookbackDays') lookbackDaysParam?: string) {
+    // Refuse to start a second sweep while one is still draining: re-triggering
+    // would enqueue another RECONCILE job per task (no dedup) and double the
+    // queue depth. The caller can poll /admin/tasks/reconcile/active for status.
+    const inFlight = await this.queues.get(QUEUES.CLICKUP_TASKS).getJobs(['active', 'waiting', 'delayed', 'prioritized']);
+    if (inFlight.some((j) => j.name === JOBS.RECONCILE_CLICKUP_TASK)) {
+      return { queued: 0, alreadyRunning: true };
+    }
     const tasks = await this.tasksRepo.findAllIds();
     const endDate = Date.now();
     const days = lookbackDaysParam ? Number(lookbackDaysParam) : 365;

@@ -4,7 +4,10 @@ import { AdminController } from '../src/admin/admin.controller';
 describe('AdminController', () => {
   function makeQueues() {
     const add = jest.fn().mockResolvedValue({});
-    return { get: jest.fn().mockReturnValue({ add }), defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
+    // getJobs defaults to empty so the reconcile in-flight guard finds no
+    // running sweep and proceeds to enqueue.
+    const getJobs = jest.fn().mockResolvedValue([]);
+    return { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
   }
 
   function makeDeadLetters(record: any = null) {

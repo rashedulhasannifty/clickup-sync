@@ -32,8 +32,8 @@ npm run start:dev
 Open:
 
 ```text
-http://localhost:3000/health
-http://localhost:3000/docs
+http://localhost:3002/api/health
+http://localhost:3002/docs
 ```
 
 ## Main webhook endpoint

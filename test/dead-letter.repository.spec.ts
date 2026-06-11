@@ -48,3 +48,18 @@ describe('DeadLetterRepository.markRetried', () => {
     });
   });
 });
+
+describe('DeadLetterRepository.markResolved', () => {
+  it('sets resolvedAt so the job leaves the pending list without re-queueing', async () => {
+    const update = jest.fn().mockResolvedValue({});
+    const prisma = { deadLetterJob: { update } } as any;
+    const repo = new DeadLetterRepository(prisma);
+
+    await repo.markResolved(BigInt(9));
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: BigInt(9) },
+      data: { resolvedAt: expect.any(Date) },
+    });
+  });
+});

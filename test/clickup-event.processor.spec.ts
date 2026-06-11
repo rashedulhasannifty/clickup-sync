@@ -121,11 +121,18 @@ describe('ClickupEventProcessor — event dispatch', () => {
     expect(events.markProcessed).toHaveBeenCalledWith('fp');
   });
 
-  it('non-delete event with no taskId → dropped (no enqueue, not marked processed)', async () => {
+  it('event with no taskId → no enqueue, but IS marked processed (so it cannot sit in `received` limbo)', async () => {
     const { queues, events, done } = run({ eventType: 'taskUpdated', taskId: null, fingerprint: 'fp', loggedUserId: null });
     await done;
     expect(queues._queue.add).not.toHaveBeenCalled();
-    expect(events.markProcessed).not.toHaveBeenCalled();
+    expect(events.markProcessed).toHaveBeenCalledWith('fp');
+  });
+
+  it('taskDeleted with no taskId → does NOT enqueue a null-id delete (which would dead-letter), marks processed', async () => {
+    const { queues, events, done } = run({ eventType: 'taskDeleted', taskId: null, fingerprint: 'fp', loggedUserId: null });
+    await done;
+    expect(queues._queue.add).not.toHaveBeenCalled();
+    expect(events.markProcessed).toHaveBeenCalledWith('fp');
   });
 });
 

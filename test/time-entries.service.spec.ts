@@ -238,3 +238,26 @@ describe('TimeEntriesService.syncTaskTimeEntries — delete reconciliation', () 
     expect(pruneTaskEntriesOutsideSet).not.toHaveBeenCalled();
   });
 });
+
+describe('TimeEntriesService.syncTaskTimeEntries — prune safety valve', () => {
+  it('SKIPS the prune when a fetch returns >= 1000 entries (truncation-suspect → never delete live rows on a partial read)', async () => {
+    const entries = Array.from({ length: 1000 }, (_, i) => ({ id: `te-${i}`, user: { id: 'u1' }, task: { id: 'PARENT' } }));
+    const { service, pruneTaskEntriesOutsideSet } = makeService({
+      getTimeEntries: jest.fn().mockResolvedValue(entries),
+    });
+
+    await service.syncTaskTimeEntries('PARENT');
+
+    expect(pruneTaskEntriesOutsideSet).not.toHaveBeenCalled();
+  });
+
+  it('still prunes for a normal-sized fetch (below the threshold)', async () => {
+    const { service, pruneTaskEntriesOutsideSet } = makeService({
+      getTimeEntries: jest.fn().mockResolvedValue([{ id: 'te-1', user: { id: 'u1' }, task: { id: 'PARENT' } }]),
+    });
+
+    await service.syncTaskTimeEntries('PARENT');
+
+    expect(pruneTaskEntriesOutsideSet).toHaveBeenCalled();
+  });
+});

@@ -320,14 +320,13 @@ This service is internal-only and intentionally narrow in scope. Items still exp
 - Per-ORG data isolation (`org_id` on ClickUp data tables, per-org sync/queries, true multi-org self-serve signup). Per-user auth + a single tenant org exist now (see below), but all ClickUp data still belongs to one implicit seed org — this is Spec 2.
 - v2 status-change event types: `taskMoved`, `taskAssigneeUpdated`, `taskPriorityUpdated`. v1 captures only `taskStatusUpdated` into `clickup_task_events`.
 - Cycle-time drill-downs by client and department (backend accepts `groupBy=client|department`; UI surface is single bucket).
-- "Resolve / won't-fix" path for dead-letter jobs (today you can only retry).
 - Currency rename (the `*Aud` field names and the `currency` columns hold USD in practice — see the `currency-aud-usd-debt` memory).
 
 Already in place (do not re-implement):
 
 - Webhook signature verification (`src/webhooks/webhook-signature.guard.ts`, HMAC-SHA256, hard-required in prod)
-- Admin API key gate (`src/admin/admin-api-key.guard.ts`, hard-required in prod)
-- Manual admin endpoints (sync task, backfill, replacement backfill, retry-failed-webhooks, dead-letter list/retry, rates CRUD, tag-mapping CRUD, recalc, register webhook, live backfill progress — all in `src/admin/admin.controller.ts`)
+- Admin API key gate (machine-credential branch in `src/auth/auth.guard.ts` — length-checked, timing-safe compare, mints a synthetic Owner principal; hard-required in prod via env validation. The old standalone `AdminApiKeyGuard` was dead code and has been removed.)
+- Manual admin endpoints (sync task, backfill, replacement backfill, retry-failed-webhooks, dead-letter list/retry/resolve, full task reconcile + live progress, rates CRUD, tag-mapping CRUD, recalc, register webhook, live backfill progress — all in `src/admin/admin.controller.ts`)
 - Dead-letter storage + inspector (`DeadLetterJob` + `DeadLetterRepository` + admin endpoints)
 - Time-entry replacement with audit (`TimeEntryReplacement` model + `AssigneeReplacementService`; audit row written before original delete; `originalEntryId @unique` for idempotency)
 - Admin audit log (`AdminAuditLog` model + `AuditLogInterceptor` on `AdminController`, write actions only, viewable at `/audit-log`)
