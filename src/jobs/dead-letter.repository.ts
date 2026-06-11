@@ -52,4 +52,13 @@ export class DeadLetterRepository {
   markRetried(id: bigint) {
     return this.prisma.deadLetterJob.update({ where: { id }, data: { retriedAt: new Date() } });
   }
+
+  /**
+   * Mark a dead-letter job "won't-fix": it leaves the pending list (findPending
+   * filters `resolvedAt: null`) without being re-queued. For poison payloads that
+   * can never succeed, so retry isn't the only available action.
+   */
+  markResolved(id: bigint) {
+    return this.prisma.deadLetterJob.update({ where: { id }, data: { resolvedAt: new Date() } });
+  }
 }

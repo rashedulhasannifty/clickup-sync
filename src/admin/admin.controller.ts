@@ -278,6 +278,16 @@ export class AdminController {
     return { requeued: true, id, queueName: record.queueName, jobName: record.jobName };
   }
 
+  @Post('dead-letters/:id/resolve')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Mark a dead-letter job resolved/won’t-fix (removes it from the pending list without re-queueing). For poison payloads that can never succeed.' })
+  async resolveDeadLetter(@Param('id') id: string) {
+    const record = await this.deadLetters.findById(BigInt(id));
+    if (!record) throw new NotFoundException(`Dead-letter job ${id} not found`);
+    await this.deadLetters.markResolved(BigInt(id));
+    return { resolved: true, id };
+  }
+
   @Post('time-entries/backfill-replacement')
   @HttpCode(200)
   @ApiOperation({ summary: 'Queue replacement jobs for all historical time entries that carry a mapped tag and have not been replaced yet.' })
@@ -303,7 +313,9 @@ export class AdminController {
           originalUserId: entry.user_id ?? '',
           tags: entry.tag_names,
         },
-        this.queues.defaultJobOptions(),
+        // Same deterministic jobId as the webhook-driven enqueue so a backfill
+        // and a live sync can't both spawn a replacement for the same entry.
+        { ...this.queues.defaultJobOptions(), jobId: `replace:${entry.time_entry_id}` },
       );
       queued += 1;
     }

@@ -15,6 +15,10 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+  // Drain in-flight work on SIGTERM/SIGINT: triggers Nest lifecycle hooks so
+  // BullMQ workers close (finishing active jobs) and the Prisma/Redis pools
+  // disconnect cleanly instead of being hard-killed mid-job on every deploy.
+  app.enableShutdownHooks();
   app.use(helmet());
   app.use(compression());
   app.use(cookieParser());

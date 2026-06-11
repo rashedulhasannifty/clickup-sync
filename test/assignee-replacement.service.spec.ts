@@ -103,17 +103,43 @@ function buildMocks(
 }
 
 describe('AssigneeReplacementService.replaceEntry', () => {
-  it('returns skipped when entry was already replaced', async () => {
-    const { service, getTask, createTimeEntry, deleteTimeEntry } = buildMocks({
-      findByOriginalEntryId: jest.fn().mockResolvedValue({ id: BigInt(99) }),
+  it('resume: when an audit row already exists, does NOT create again but RE-RUNS the delete + local cleanup', async () => {
+    // The audit row proves the replacement was created on a prior run. The prior
+    // run's delete may have failed (a ClickUp 5xx/timeout is routine), so resume
+    // must retry the delete instead of skipping — otherwise the original lingers
+    // alongside the replacement and reports double-count forever.
+    const { service, getTask, createTimeEntry, createReplacement, deleteTimeEntry, deleteByTimeEntryId } = buildMocks({
+      findByOriginalEntryId: jest.fn().mockResolvedValue({ id: BigInt(99), replacementEntryId: 'new-entry-789' }),
     });
 
     const result = await service.replaceEntry(SAMPLE_JOB);
 
     expect(result).toEqual({ status: 'skipped' });
     expect(getTask).not.toHaveBeenCalled();
-    expect(createTimeEntry).not.toHaveBeenCalled();
-    expect(deleteTimeEntry).not.toHaveBeenCalled();
+    expect(createTimeEntry).not.toHaveBeenCalled(); // no second ClickUp entry
+    expect(createReplacement).not.toHaveBeenCalled(); // no second audit row
+    expect(deleteTimeEntry).toHaveBeenCalledWith('3450636', SAMPLE_JOB.timeEntryId); // delete retried
+    expect(deleteByTimeEntryId).toHaveBeenCalledWith(SAMPLE_JOB.timeEntryId); // local original removed
+  });
+
+  it('resume: a 404 from the retried delete is tolerated (already gone = done)', async () => {
+    const { service } = buildMocks({
+      findByOriginalEntryId: jest.fn().mockResolvedValue({ id: BigInt(99), replacementEntryId: 'new-entry-789' }),
+      deleteTimeEntry: jest.fn().mockRejectedValue({ response: { status: 404 } }),
+    });
+
+    await expect(service.replaceEntry(SAMPLE_JOB)).resolves.toEqual({ status: 'skipped' });
+  });
+
+  it('resume: a non-404 delete failure propagates so BullMQ retries (does not silently skip)', async () => {
+    const { service, deleteByTimeEntryId } = buildMocks({
+      findByOriginalEntryId: jest.fn().mockResolvedValue({ id: BigInt(99), replacementEntryId: 'new-entry-789' }),
+      deleteTimeEntry: jest.fn().mockRejectedValue({ response: { status: 503 } }),
+    });
+
+    await expect(service.replaceEntry(SAMPLE_JOB)).rejects.toMatchObject({ response: { status: 503 } });
+    // Local cleanup must NOT run when the ClickUp delete didn't succeed.
+    expect(deleteByTimeEntryId).not.toHaveBeenCalled();
   });
 
   it('returns no_mapping when entry tags do not match any active mapping', async () => {

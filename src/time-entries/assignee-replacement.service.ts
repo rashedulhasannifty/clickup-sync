@@ -37,10 +37,23 @@ export class AssigneeReplacementService {
   async replaceEntry(data: ReplacementJobData): Promise<{ status: 'replaced' | 'skipped' | 'no_mapping' }> {
     const teamId = this.settings.getTeamId();
 
-    // 1. Idempotency check
+    // 1. Idempotency / resume. An audit row is written ONLY after the ClickUp
+    //    replacement entry is created (step 5), so its existence proves the
+    //    replacement already happened. But the original-delete (step 6) and
+    //    local cleanup (steps 7-8) may NOT have completed if the first run was
+    //    interrupted (a ClickUp 5xx/timeout on delete is routine). So instead
+    //    of blindly skipping, RESUME: re-run the delete + local cleanup
+    //    idempotently. The delete tolerates 404 (already gone = success) and
+    //    rethrows anything else so BullMQ retries until the original is really
+    //    deleted — otherwise the original + replacement both survive and report
+    //    double-counted hours forever.
     const existing = await this.replacements.findByOriginalEntryId(data.timeEntryId);
     if (existing) {
-      this.logger.log(`Time entry ${data.timeEntryId} already replaced — skipping`);
+      await this.deleteOriginal(teamId, data.timeEntryId);
+      await this.timeEntries.deleteByTimeEntryId(data.timeEntryId);
+      this.logger.log(
+        `Time entry ${data.timeEntryId} already replaced → ${existing.replacementEntryId ?? '(unknown)'} — ensured original removed`,
+      );
       return { status: 'skipped' };
     }
 
@@ -87,8 +100,10 @@ export class AssigneeReplacementService {
       status: 'replaced',
     });
 
-    // 6. Delete original entry only after audit row committed
-    await this.clickup.deleteTimeEntry(teamId, data.timeEntryId);
+    // 6. Delete original entry only after audit row committed (404-tolerant;
+    //    any other failure throws so the job retries — the resume branch above
+    //    will then re-attempt the delete on the next run).
+    await this.deleteOriginal(teamId, data.timeEntryId);
 
     // 7. Upsert replacement entry into local DB with recalculated cost
     const startTime = new Date(data.startMs);
@@ -121,5 +136,24 @@ export class AssigneeReplacementService {
 
     this.logger.log(`Replaced time entry ${data.timeEntryId} → ${created.id} for user ${realUserId} (tag: ${tagName})`);
     return { status: 'replaced' };
+  }
+
+  /**
+   * Delete the original ClickUp time entry, tolerating a 404 (already deleted =
+   * the desired end state, e.g. on a retry where the prior run's delete already
+   * landed). Every other error is rethrown so the job fails and BullMQ retries —
+   * we must NOT treat a transient delete failure as success, or the original
+   * lingers alongside the replacement and reports double-count.
+   */
+  private async deleteOriginal(teamId: string, entryId: string): Promise<void> {
+    try {
+      await this.clickup.deleteTimeEntry(teamId, entryId);
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        this.logger.log(`Original time entry ${entryId} already gone in ClickUp (404) — treating delete as done`);
+        return;
+      }
+      throw err;
+    }
   }
 }

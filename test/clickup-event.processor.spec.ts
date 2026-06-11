@@ -1,4 +1,5 @@
 import { ClickupEventProcessor } from '../src/workers/clickup-event.processor';
+import { JOBS, QUEUES } from '../src/queues/queue.constants';
 
 function makeQueues() {
   const queue = { add: jest.fn().mockResolvedValue(undefined) };
@@ -80,6 +81,51 @@ describe('ClickupEventProcessor — taskStatusUpdated', () => {
       data: { eventType: 'taskStatusUpdated', taskId: 't1', fingerprint: 'fp', loggedUserId: null, payload: {} },
     } as any);
     expect(queues._queue.add).not.toHaveBeenCalled();
+  });
+});
+
+describe('ClickupEventProcessor — event dispatch', () => {
+  function run(data: any) {
+    const queues = makeQueues();
+    const events = makeEvents();
+    const proc = new ClickupEventProcessor(queues, events, makeParser([]), makePrisma(), makeDeadLetters());
+    return { queues, events, proc, done: proc.process({ data } as any) };
+  }
+
+  it('taskDeleted → enqueues a soft-delete job and marks processed', async () => {
+    const { queues, events, done } = run({ eventType: 'taskDeleted', taskId: 't1', fingerprint: 'fp', loggedUserId: null });
+    await done;
+    expect(queues.get).toHaveBeenCalledWith(QUEUES.CLICKUP_TASKS);
+    expect(queues._queue.add).toHaveBeenCalledWith(JOBS.DELETE_CLICKUP_TASK, { taskId: 't1' }, {});
+    expect(events.markProcessed).toHaveBeenCalledWith('fp');
+  });
+
+  it('taskTimeTrackedUpdated → enqueues BOTH a task sync and a time-entry sync carrying the logger as assignee', async () => {
+    const { queues, done } = run({ eventType: 'taskTimeTrackedUpdated', taskId: 't9', fingerprint: 'fp', loggedUserId: '4242' });
+    await done;
+    const calls = queues._queue.add.mock.calls;
+    expect(calls).toContainEqual([JOBS.SYNC_CLICKUP_TASK, { taskId: 't9' }, {}]);
+    expect(calls).toContainEqual([JOBS.SYNC_TASK_TIME_ENTRIES, { taskId: 't9', assigneeIds: ['4242'] }, {}]);
+  });
+
+  it('taskTimeTrackedUpdated with no logger → assigneeIds undefined (falls back to all members downstream)', async () => {
+    const { queues, done } = run({ eventType: 'taskTimeTrackedUpdated', taskId: 't9', fingerprint: 'fp', loggedUserId: null });
+    await done;
+    expect(queues._queue.add).toHaveBeenCalledWith(JOBS.SYNC_TASK_TIME_ENTRIES, { taskId: 't9', assigneeIds: undefined }, {});
+  });
+
+  it('unknown event with a taskId → default task sync', async () => {
+    const { queues, events, done } = run({ eventType: 'taskUpdated', taskId: 't5', fingerprint: 'fp', loggedUserId: null });
+    await done;
+    expect(queues._queue.add).toHaveBeenCalledWith(JOBS.SYNC_CLICKUP_TASK, { taskId: 't5' }, {});
+    expect(events.markProcessed).toHaveBeenCalledWith('fp');
+  });
+
+  it('non-delete event with no taskId → dropped (no enqueue, not marked processed)', async () => {
+    const { queues, events, done } = run({ eventType: 'taskUpdated', taskId: null, fingerprint: 'fp', loggedUserId: null });
+    await done;
+    expect(queues._queue.add).not.toHaveBeenCalled();
+    expect(events.markProcessed).not.toHaveBeenCalled();
   });
 });
 

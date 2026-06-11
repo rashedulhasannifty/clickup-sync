@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { TerminusModule } from '@nestjs/terminus';
 import { BullModule } from '@nestjs/bullmq';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -21,7 +20,7 @@ import { WorkersModule } from './workers/workers.module';
 import { AdminModule } from './admin/admin.module';
 import { ReportsModule } from './reports/reports.module';
 import { AuthModule } from './auth/auth.module';
-import { HealthController } from './health/health.controller';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -31,7 +30,6 @@ import { HealthController } from './health/health.controller';
     }),
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     ScheduleModule.forRoot(),
-    TerminusModule,
     BullModule.forRootAsync({
       useFactory: () => ({ connection: buildBullConnection(process.env.REDIS_URL ?? '') }),
     }),
@@ -49,7 +47,7 @@ import { HealthController } from './health/health.controller';
     ReportsModule,
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 5 }]),
     AuthModule,
+    HealthModule,
   ],
-  controllers: [HealthController],
 })
 export class AppModule {}

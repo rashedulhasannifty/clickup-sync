@@ -14,6 +14,15 @@ import { ClickUpTimeEntry } from '../clickup/clickup.types';
 import { resolveTimeEntriesWindow } from '../clickup/time-entries.util';
 import { SettingsService } from '../settings/settings.service';
 
+// ClickUp's GET /team/{team}/time_entries has NO pagination (no page/limit
+// params — it returns the whole window in one response). The prune below treats
+// the fetched set as the authoritative "what still exists" list, so if ClickUp
+// ever truncates a response the missing ids would look deleted and get pruned —
+// real data loss. A single task's window normally has a handful of entries, so a
+// count at/above this bound is truncation-suspect: we skip the prune (keep local
+// rows) and warn, trading a stale row for never deleting live data on a bad read.
+const PRUNE_SAFETY_MAX_ENTRIES = 1000;
+
 @Injectable()
 export class TimeEntriesService {
   private readonly logger = new Logger(TimeEntriesService.name);
@@ -94,9 +103,17 @@ export class TimeEntriesService {
     // Rows for other users, or outside the window, are out of scope and kept.
     // An empty fetch is a legitimate "all deleted" signal, not an error: a
     // failed fetch throws above and never reaches here.
-    const keepIds = upserted.map((u) => u.normalized.timeEntryId);
-    const pruned = await this.repo.pruneTaskEntriesOutsideSet({ taskId, userIds: ids, startMs, endMs, keepIds });
-    if (pruned > 0) this.logger.log(`Pruned ${pruned} time entr${pruned === 1 ? 'y' : 'ies'} deleted in ClickUp for task ${taskId}`);
+    if (entries.length >= PRUNE_SAFETY_MAX_ENTRIES) {
+      // Truncation-suspect read — do NOT prune, or we risk deleting live local
+      // rows whose ids simply weren't in this (possibly partial) response.
+      this.logger.warn(
+        `Fetched ${entries.length} time entries for task ${taskId} (>= ${PRUNE_SAFETY_MAX_ENTRIES}); skipping delete-reconciliation to avoid pruning live rows on a possibly-truncated response`,
+      );
+    } else {
+      const keepIds = upserted.map((u) => u.normalized.timeEntryId);
+      const pruned = await this.repo.pruneTaskEntriesOutsideSet({ taskId, userIds: ids, startMs, endMs, keepIds });
+      if (pruned > 0) this.logger.log(`Pruned ${pruned} time entr${pruned === 1 ? 'y' : 'ies'} deleted in ClickUp for task ${taskId}`);
+    }
 
     // Tag-based assignee replacement. Triggered by the *time entry's own tags*
     // (e.g. an interval tagged "ahmad"), regardless of who logged it — that's
@@ -122,7 +139,11 @@ export class TimeEntriesService {
             originalUserId: normalized.userId ?? '',
             tags: rawTags,
           } satisfies ReplacementJobData,
-          this.queues.defaultJobOptions(),
+          // Deterministic jobId so the same time entry can't be processed by two
+          // concurrent replacement jobs (which would each create a ClickUp entry
+          // = duplicate). BullMQ keeps one job per id; the worker's own audit-row
+          // check handles idempotency across time.
+          { ...this.queues.defaultJobOptions(), jobId: `replace:${normalized.timeEntryId}` },
         );
       }
     }
