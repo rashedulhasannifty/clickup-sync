@@ -14,6 +14,13 @@ export type ActiveBackfill = {
   remaining: number;
 };
 
+export type ReconcileProgress = {
+  active: boolean;
+  total: number;
+  done: number;
+  remaining: number;
+};
+
 export const adminApi = {
   syncTask: (taskId: string) => apiClient.post('/admin/tasks/sync', { taskId }).then(r => r.data),
   backfill: (spaceId: string, lookbackDays?: number) =>
@@ -28,6 +35,8 @@ export const adminApi = {
     apiClient.post('/admin/tasks/reconcile', undefined, {
       params: lookbackDays ? { lookbackDays } : undefined,
     }).then(r => r.data as { queued: number }),
+  reconcileActive: (): Promise<ReconcileProgress> =>
+    apiClient.get('/admin/tasks/reconcile/active').then(r => r.data as ReconcileProgress),
   registerWebhook: () => apiClient.post('/admin/webhooks/register').then(r => r.data),
   retryFailedWebhooks: () =>
     apiClient

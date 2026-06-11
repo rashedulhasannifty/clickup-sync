@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useSpaces, useSyncHealth } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
-import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks } from '../hooks/useAdmin';
+import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks, useReconcileActive } from '../hooks/useAdmin';
 import { useSettings, useUpdateSettings } from '../hooks/useSettings';
 import { useAuth } from '../hooks/useAuth';
 import { RequireRole } from '../components/RequireRole';
@@ -200,6 +200,7 @@ export function SettingsPage() {
   const registerWebhook = useRegisterWebhook();
   const testConnection = useTestClickupConnection();
   const reconcileTasks = useReconcileTasks();
+  const reconcileProgress = useReconcileActive(hasRole('ADMIN'));
   const settingsQuery = useSettings();
   const updateSettings = useUpdateSettings();
 
@@ -672,11 +673,13 @@ export function SettingsPage() {
                           return;
                         }
                         reconcileTasks.mutate(days, {
-                          onSuccess: (res) =>
+                          onSuccess: (res) => {
                             showBanner(
                               `Reconciliation queued for ${res.queued} task${res.queued === 1 ? '' : 's'} (last ${days} days). Deletions will clear as the jobs run.`,
                               'blue',
-                            ),
+                            );
+                            reconcileProgress.refetch();
+                          },
                           onError: (err) => showBanner(`Reconciliation failed to start: ${(err as Error).message}`, 'red'),
                         });
                       }}
@@ -686,6 +689,25 @@ export function SettingsPage() {
                   </div>
                 }
               />
+              {reconcileProgress.data?.active && (
+                <div style={{ padding: '4px 0 10px' }}>
+                  {(() => {
+                    const { done, total } = reconcileProgress.data;
+                    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)' }}>
+                          <span>Reconciling tasks · {fmt.number(done)} / {fmt.number(total)}</span>
+                          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
+                        </div>
+                        <div style={{ width: '100%', height: 6, background: 'var(--muted-bg)', borderRadius: 3, overflow: 'hidden' }}>
+                          <div style={{ width: `${pct}%`, height: '100%', background: 'var(--accent)', transition: 'width 200ms ease-out' }} />
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
               <SettingRow
                 label="Backfill on connect"
                 desc="Active — configured spaces backfill on first sync."

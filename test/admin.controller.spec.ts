@@ -50,7 +50,7 @@ describe('AdminController', () => {
   }
 
   function makeTasksRepo() {
-    return { findAllIds: jest.fn().mockResolvedValue([]) } as any;
+    return { findAllIds: jest.fn().mockResolvedValue([]), countActive: jest.fn().mockResolvedValue(0) } as any;
   }
 
   function makeRatesService() {
@@ -407,13 +407,52 @@ describe('AdminController', () => {
     });
 
     it('respects an explicit lookbackDays override', async () => {
-      const tasksRepo = { findAllIds: jest.fn().mockResolvedValue([{ taskId: 't1', spaceId: 's1' }]) } as any;
+      const tasksRepo = { findAllIds: jest.fn().mockResolvedValue([{ taskId: 't1', spaceId: 's1' }]), countActive: jest.fn() } as any;
       const queues = makeQueues();
       await makeCtrlWithOverride({ tasksRepo, queues }).reconcileTasks('10');
       const add = (queues.get as jest.Mock).mock.results[0].value.add as jest.Mock;
       const [, payload] = add.mock.calls[0];
       const days = (payload.endDate - payload.startDate) / (24 * 60 * 60 * 1000);
       expect(Math.round(days)).toBe(10);
+    });
+  });
+
+  describe('reconcileActive', () => {
+    // clickup-tasks queue carrying a mix of job names; only reconcile jobs count.
+    function makeQueuesWithTaskJobs(jobs: Array<{ name: string }>) {
+      const getJobs = jest.fn().mockResolvedValue(jobs);
+      const get = jest.fn((name: string) => (name === 'clickup-tasks' ? { getJobs, add: jest.fn() } : { getJobs: jest.fn().mockResolvedValue([]), add: jest.fn() }));
+      return { get, defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
+    }
+
+    it('reports remaining reconcile jobs (ignoring other clickup-tasks jobs) with total from stored task count', async () => {
+      const queues = makeQueuesWithTaskJobs([
+        { name: 'reconcile-clickup-task' },
+        { name: 'reconcile-clickup-task' },
+        { name: 'sync-clickup-task' }, // must be ignored
+        { name: 'reconcile-clickup-task' },
+      ]);
+      const tasksRepo = { findAllIds: jest.fn(), countActive: jest.fn().mockResolvedValue(10) } as any;
+      const result = await makeCtrlWithOverride({ queues, tasksRepo }).reconcileActive();
+      expect(result).toEqual({ active: true, total: 10, done: 7, remaining: 3 });
+    });
+
+    it('is idle (no count query) when no reconcile jobs are queued', async () => {
+      const queues = makeQueuesWithTaskJobs([{ name: 'sync-clickup-task' }]);
+      const tasksRepo = { findAllIds: jest.fn(), countActive: jest.fn() } as any;
+      const result = await makeCtrlWithOverride({ queues, tasksRepo }).reconcileActive();
+      expect(result).toEqual({ active: false, total: 0, done: 0, remaining: 0 });
+      expect(tasksRepo.countActive).not.toHaveBeenCalled();
+    });
+
+    it('clamps done to >= 0 when tasks were deleted mid-run (remaining > current total)', async () => {
+      const queues = makeQueuesWithTaskJobs([
+        { name: 'reconcile-clickup-task' },
+        { name: 'reconcile-clickup-task' },
+      ]);
+      const tasksRepo = { findAllIds: jest.fn(), countActive: jest.fn().mockResolvedValue(1) } as any;
+      const result = await makeCtrlWithOverride({ queues, tasksRepo }).reconcileActive();
+      expect(result).toEqual({ active: true, total: 1, done: 0, remaining: 2 });
     });
   });
 

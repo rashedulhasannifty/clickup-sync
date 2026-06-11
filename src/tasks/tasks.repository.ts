@@ -42,6 +42,11 @@ export class TasksRepository {
     });
   }
 
+  /** Count of non-deleted tasks — the reconciliation-progress denominator. */
+  countActive(): Promise<number> {
+    return this.prisma.clickupTask.count({ where: { isDeleted: false } });
+  }
+
   async findMissingParentIds(parentIds: string[]): Promise<string[]> {
     if (!parentIds.length) return [];
     const rows = await this.prisma.clickupTask.findMany({ where: { taskId: { in: parentIds } }, select: { taskId: true } });

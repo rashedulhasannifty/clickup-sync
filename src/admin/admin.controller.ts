@@ -348,6 +348,21 @@ export class AdminController {
     return { queued: tasks.length };
   }
 
+  @Get('tasks/reconcile/active')
+  @ApiOperation({ summary: 'Live progress for a running full-reconciliation sweep' })
+  async reconcileActive() {
+    const jobs = await this.queues.get(QUEUES.CLICKUP_TASKS).getJobs(['active', 'waiting', 'delayed', 'prioritized']);
+    // The clickup-tasks queue is shared with sync/delete jobs, so count only
+    // reconcile jobs by name.
+    const remaining = jobs.filter((j) => j.name === JOBS.RECONCILE_CLICKUP_TASK).length;
+    if (remaining === 0) return { active: false, total: 0, done: 0, remaining: 0 };
+    // Denominator ≈ jobs enqueued (one per non-deleted task). It drifts down as
+    // the sweep soft-deletes 404'd tasks, so clamp done at 0.
+    const total = await this.tasksRepo.countActive();
+    const done = Math.max(0, total - remaining);
+    return { active: true, total, done, remaining };
+  }
+
   // ── Rates CRUD ─────────────────────────────────────────────────────────────
 
   @Post('rates/recalculate')

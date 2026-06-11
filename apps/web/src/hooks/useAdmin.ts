@@ -19,6 +19,21 @@ export function useActiveBackfills(enabled = true) {
   });
 }
 
+/**
+ * Live progress for a running full-reconciliation sweep, from
+ * `GET /admin/tasks/reconcile/active`. Polls every 3s while a sweep is in
+ * flight, 30s when idle. OWNER/ADMIN only — callers pass enabled accordingly.
+ */
+export function useReconcileActive(enabled = true) {
+  return useQuery({
+    queryKey: ['reconcile-active'],
+    queryFn: adminApi.reconcileActive,
+    enabled,
+    refetchInterval: (query) => (query.state.data?.active ? 3000 : 30_000),
+    refetchIntervalInBackground: false,
+  });
+}
+
 export function useSyncTask() {
   return useMutation({ mutationFn: (taskId: string) => adminApi.syncTask(taskId) });
 }
