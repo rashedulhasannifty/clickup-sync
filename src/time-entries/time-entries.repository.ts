@@ -29,6 +29,43 @@ export class TimeEntriesRepository {
     return this.prisma.clickupTimeEntry.deleteMany({ where: { timeEntryId } });
   }
 
+  /**
+   * Remove every time entry belonging to a task. Used when the task itself is
+   * deleted in ClickUp — its tracked time must not linger in reports. Idempotent.
+   */
+  async deleteByTaskId(taskId: string): Promise<number> {
+    const { count } = await this.prisma.clickupTimeEntry.deleteMany({ where: { taskId } });
+    return count;
+  }
+
+  /**
+   * Delete-reconciliation. After re-fetching a task's time entries from ClickUp,
+   * remove the local rows that ClickUp no longer returns — but ONLY within the
+   * exact slice that was fetched: this task, the assignees we queried
+   * (`userIds`), and the [startMs, endMs] window. `keepIds` are the ids ClickUp
+   * just returned and must survive. Scoping to `userIds` + the window is what
+   * keeps this from deleting other users' entries or rows outside the queried
+   * window (and, incidentally, replacement entries — which live under a
+   * different, mapped user than the webhook's logged user). Returns rows deleted.
+   */
+  async pruneTaskEntriesOutsideSet(args: {
+    taskId: string;
+    userIds: string[];
+    startMs: number;
+    endMs: number;
+    keepIds: string[];
+  }): Promise<number> {
+    const { count } = await this.prisma.clickupTimeEntry.deleteMany({
+      where: {
+        taskId: args.taskId,
+        userId: { in: args.userIds },
+        startTime: { gte: new Date(args.startMs), lte: new Date(args.endMs) },
+        timeEntryId: { notIn: args.keepIds },
+      },
+    });
+    return count;
+  }
+
   async findUnreplacedAgencyEntries(agencyUserId: string, limit = 500) {
     // NOT EXISTS anti-join rather than loading every replaced id into a JS Set
     // and building an unbounded `NOT IN (...)` list (which grows without limit

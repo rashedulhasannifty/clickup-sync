@@ -33,7 +33,8 @@ function makeService(overrides: Partial<{
       billable: false, description: null, raw: e,
     }),
   } as any;
-  const repo = { upsert } as any;
+  const pruneTaskEntriesOutsideSet = jest.fn().mockResolvedValue(0);
+  const repo = { upsert, pruneTaskEntriesOutsideSet } as any;
   const costsService = { calculate: costs } as any;
   const queues = { get: jest.fn().mockReturnValue({ add: jest.fn() }), defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
   const members = { getMemberIds } as any;
@@ -46,7 +47,7 @@ function makeService(overrides: Partial<{
     { getTeamId: () => '3450636' } as any,
   );
 
-  return { service, exists, syncTask, getMemberIds, getTimeEntries, upsert, costs, findAllActive };
+  return { service, exists, syncTask, getMemberIds, getTimeEntries, upsert, costs, findAllActive, pruneTaskEntriesOutsideSet };
 }
 
 describe('TimeEntriesService.syncTaskTimeEntries — task self-heal', () => {
@@ -121,5 +122,56 @@ describe('TimeEntriesService.syncTaskTimeEntries — task self-heal', () => {
     await service.syncTaskTimeEntries('86exjakgc');
     expect(syncTask).toHaveBeenCalled();
     expect(getTimeEntries).toHaveBeenCalled();
+  });
+});
+
+describe('TimeEntriesService.syncTaskTimeEntries — delete reconciliation', () => {
+  it('prunes local rows scoped to exactly the assignees and window fetched, keeping the ids ClickUp returned', async () => {
+    const getTimeEntries = jest.fn().mockResolvedValue([
+      { id: 'te-A', user: { id: 'u9' }, task: { id: 't1' } },
+    ]);
+    const { service, pruneTaskEntriesOutsideSet } = makeService({ getTimeEntries });
+
+    await service.syncTaskTimeEntries('t1', ['u9'], 1000, 2000);
+
+    expect(pruneTaskEntriesOutsideSet).toHaveBeenCalledWith({
+      taskId: 't1', userIds: ['u9'], startMs: 1000, endMs: 2000, keepIds: ['te-A'],
+    });
+  });
+
+  it('prunes with an empty keep-set when ClickUp returns nothing (the real all-deleted case)', async () => {
+    const { service, pruneTaskEntriesOutsideSet, upsert } = makeService({
+      getTimeEntries: jest.fn().mockResolvedValue([]),
+    });
+
+    await service.syncTaskTimeEntries('t1', ['u9'], 1000, 2000);
+
+    expect(upsert).not.toHaveBeenCalled();
+    expect(pruneTaskEntriesOutsideSet).toHaveBeenCalledWith({
+      taskId: 't1', userIds: ['u9'], startMs: 1000, endMs: 2000, keepIds: [],
+    });
+  });
+
+  it('scopes the prune to all workspace members when no assignee ids are supplied', async () => {
+    const { service, pruneTaskEntriesOutsideSet } = makeService({
+      getMemberIds: jest.fn().mockResolvedValue(['m1', 'm2', 'm3']),
+    });
+
+    await service.syncTaskTimeEntries('t1');
+
+    expect(pruneTaskEntriesOutsideSet).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 't1', userIds: ['m1', 'm2', 'm3'] }),
+    );
+  });
+
+  it('does NOT prune when the task is unresolved (FK-skip path)', async () => {
+    const exists = jest.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(false);
+    const { service, pruneTaskEntriesOutsideSet } = makeService({
+      exists,
+      syncTask: jest.fn().mockRejectedValue(new Error('ClickUp 404')),
+    });
+
+    await expect(service.syncTaskTimeEntries('ghost')).resolves.toBe(0);
+    expect(pruneTaskEntriesOutsideSet).not.toHaveBeenCalled();
   });
 });

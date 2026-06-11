@@ -5,6 +5,7 @@ import { JOBS, QUEUES, clickupWorkerOptions } from '../queues/queue.constants';
 import { TasksService } from '../tasks/tasks.service';
 import { JobLogsRepository } from '../jobs/job-logs.repository';
 import { DeadLetterService } from '../jobs/dead-letter.service';
+import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
 
 @Injectable()
 @Processor(QUEUES.CLICKUP_TASKS, clickupWorkerOptions())
@@ -13,6 +14,7 @@ export class TaskSyncProcessor extends WorkerHost {
     private readonly tasks: TasksService,
     private readonly jobLogs: JobLogsRepository,
     private readonly deadLetters: DeadLetterService,
+    private readonly timeEntries: TimeEntriesRepository,
   ) { super(); }
 
   @OnWorkerEvent('failed')
@@ -23,9 +25,16 @@ export class TaskSyncProcessor extends WorkerHost {
   async process(job: Job<{ taskId: string }>) {
     const log = await this.jobLogs.started({ jobId: job.id?.toString(), queueName: QUEUES.CLICKUP_TASKS, jobName: job.name, entityType: 'task', entityId: job.data.taskId });
     try {
-      const result = job.name === JOBS.DELETE_CLICKUP_TASK
-        ? await this.tasks.softDeleteTask(job.data.taskId)
-        : await this.tasks.syncTask(job.data.taskId);
+      let result;
+      if (job.name === JOBS.DELETE_CLICKUP_TASK) {
+        // A deleted task's tracked time must go too — ClickUp removes the
+        // entries with the task but emits no per-entry delete event. Delete
+        // them first; the task row survives (soft delete) so the FK holds.
+        await this.timeEntries.deleteByTaskId(job.data.taskId);
+        result = await this.tasks.softDeleteTask(job.data.taskId);
+      } else {
+        result = await this.tasks.syncTask(job.data.taskId);
+      }
       await this.jobLogs.finished(log.id, { tasksSynced: 1 });
       return result;
     } catch (e) {

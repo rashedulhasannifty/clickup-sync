@@ -11,7 +11,9 @@ function makeDeps() {
   const jobLogs = { started, finished, failed } as any;
   const recordIfExhausted = jest.fn().mockResolvedValue(false);
   const deadLetters = { recordIfExhausted } as any;
-  return { proc: new TaskSyncProcessor(tasks, jobLogs, deadLetters), syncTask, softDeleteTask, finished, failed, recordIfExhausted };
+  const deleteByTaskId = jest.fn().mockResolvedValue(0);
+  const timeEntries = { deleteByTaskId } as any;
+  return { proc: new TaskSyncProcessor(tasks, jobLogs, deadLetters, timeEntries), syncTask, softDeleteTask, finished, failed, recordIfExhausted, deleteByTaskId };
 }
 
 describe('TaskSyncProcessor', () => {
@@ -22,11 +24,18 @@ describe('TaskSyncProcessor', () => {
     expect(finished).toHaveBeenCalledWith(1n, { tasksSynced: 1 });
   });
 
-  it('soft-deletes on the delete job', async () => {
-    const { proc, softDeleteTask, syncTask } = makeDeps();
+  it('soft-deletes on the delete job and removes the task’s time entries', async () => {
+    const { proc, softDeleteTask, syncTask, deleteByTaskId } = makeDeps();
     await proc.process({ id: '1', name: JOBS.DELETE_CLICKUP_TASK, data: { taskId: 't1' } } as any);
+    expect(deleteByTaskId).toHaveBeenCalledWith('t1');
     expect(softDeleteTask).toHaveBeenCalledWith('t1');
     expect(syncTask).not.toHaveBeenCalled();
+  });
+
+  it('does not touch time entries on a normal sync', async () => {
+    const { proc, deleteByTaskId } = makeDeps();
+    await proc.process({ id: '1', name: JOBS.SYNC_CLICKUP_TASK, data: { taskId: 't1' } } as any);
+    expect(deleteByTaskId).not.toHaveBeenCalled();
   });
 
   it('logs failure and rethrows', async () => {

@@ -11,6 +11,7 @@ import { TasksService } from '../tasks/tasks.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { ReplacementJobData } from './assignee-replacement.service';
 import { ClickUpTimeEntry } from '../clickup/clickup.types';
+import { resolveTimeEntriesWindow } from '../clickup/time-entries.util';
 import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
@@ -65,7 +66,11 @@ export class TimeEntriesService {
     // members so we capture every user's tracked time on the task, including
     // time logged on tasks that have no assignees.
     const ids = assigneeIds && assigneeIds.length > 0 ? assigneeIds : await this.members.getMemberIds();
-    const entries = await this.clickup.getTimeEntries(teamId, taskId, { assigneeIds: ids, startDate, endDate });
+    // Resolve the window ONCE and reuse it for both the fetch and the prune so
+    // the two can never drift (the prune must be scoped to exactly the slice
+    // ClickUp was asked about — see pruneTaskEntriesOutsideSet below).
+    const { startMs, endMs } = resolveTimeEntriesWindow({ startDate, endDate });
+    const entries = await this.clickup.getTimeEntries(teamId, taskId, { assigneeIds: ids, startDate: startMs, endDate: endMs });
     let count = 0;
     const upserted: { normalized: NormalizedTimeEntry; rawTags: string[] }[] = [];
     // One rate cache for the whole task so multiple intervals logged by the
@@ -80,6 +85,18 @@ export class TimeEntriesService {
       if (cost.status === 'NO_RATE_FOUND') this.logger.warn(`Missing rate for user ${normalized.userId} on time entry ${normalized.timeEntryId}`);
       count += 1;
     }
+
+    // Delete-reconciliation. ClickUp emits no "time entry deleted" event, so a
+    // taskTimeTrackedUpdated webhook (or a backfill) is our only signal that an
+    // entry vanished. The freshly-fetched set is authoritative ONLY for the
+    // slice we asked about — (these `ids`) ∩ (this [startMs,endMs] window) — so
+    // we prune local rows in exactly that slice that ClickUp did not return.
+    // Rows for other users, or outside the window, are out of scope and kept.
+    // An empty fetch is a legitimate "all deleted" signal, not an error: a
+    // failed fetch throws above and never reaches here.
+    const keepIds = upserted.map((u) => u.normalized.timeEntryId);
+    const pruned = await this.repo.pruneTaskEntriesOutsideSet({ taskId, userIds: ids, startMs, endMs, keepIds });
+    if (pruned > 0) this.logger.log(`Pruned ${pruned} time entr${pruned === 1 ? 'y' : 'ies'} deleted in ClickUp for task ${taskId}`);
 
     // Tag-based assignee replacement. Triggered by the *time entry's own tags*
     // (e.g. an interval tagged "ahmad"), regardless of who logged it — that's
