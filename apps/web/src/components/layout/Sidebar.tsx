@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import {
   Home,
   BarChart3,
+  Activity,
   CheckSquare,
   Clock,
   AlertTriangle,
@@ -45,6 +46,7 @@ export function Sidebar({
   const navItems: NavItem[] = [
     { to: "/overview", label: "Overview", icon: Home },
     { to: "/analytics", label: "Analytics", icon: BarChart3 },
+    { to: "/time-spikes", label: "Time Spikes", icon: Activity },
     { to: "/tasks", label: "Tasks", icon: CheckSquare },
     { to: "/time-entries", label: "Time Entries", icon: Clock },
     {

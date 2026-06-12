@@ -22,6 +22,9 @@ const OverviewPage = React.lazy(() =>
 const AnalyticsPage = React.lazy(() =>
 	import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })),
 );
+const HourSpikesPage = React.lazy(() =>
+	import('./pages/HourSpikesPage').then((m) => ({ default: m.HourSpikesPage })),
+);
 const TasksPage = React.lazy(() =>
 	import('./pages/TasksPage').then((m) => ({ default: m.TasksPage })),
 );
@@ -112,6 +115,14 @@ export default function App() {
 									element={
 										<React.Suspense fallback={Fallback}>
 											<AnalyticsPage />
+										</React.Suspense>
+									}
+								/>
+								<Route
+									path="/time-spikes"
+									element={
+										<React.Suspense fallback={Fallback}>
+											<HourSpikesPage />
 										</React.Suspense>
 									}
 								/>
