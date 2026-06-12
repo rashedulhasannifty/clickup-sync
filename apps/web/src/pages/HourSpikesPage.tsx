@@ -42,7 +42,11 @@ export function HourSpikesPage() {
   const [selectedUserId, setSelectedUserId] = useState<string>('');
 
   // Default the dropdown to the first user once data arrives.
-  const effectiveUserId = selectedUserId || users[0]?.userId || '';
+  // Also fall back to first user when the current selection leaves the filtered set.
+  const effectiveUserId =
+    selectedUserId && users.some((u) => u.userId === selectedUserId)
+      ? selectedUserId
+      : users[0]?.userId ?? '';
   const selectedUser = users.find((u) => u.userId === effectiveUserId);
 
   const chartData: BarData[] = useMemo(

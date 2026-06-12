@@ -640,8 +640,9 @@ export function SettingsPage() {
           <Callout tone="amber" icon={<Info size={13} />}>
             Preview only — settings below reflect the current behavior of the
             sync workers, but changes here aren't persisted yet. The
-            <strong> Tag–assignee map</strong> at the bottom is the one
-            exception: it's fully active and immediately applied.
+            <strong> Tag–assignee map</strong> and the{' '}
+            <strong>daily-hour spike cap</strong> are the exceptions: they're
+            fully active and immediately applied.
           </Callout>
 
           <Card>
@@ -766,37 +767,39 @@ export function SettingsPage() {
                 desc="Not implemented — non-billable entries are costed normally today."
                 control={<Switch checked={false} disabled onChange={() => undefined} />}
               />
-              <SettingRow
-                label="Daily-hour spike cap"
-                desc="Flag a user-day as a spike when logged hours exceed this absolute cap (also flags > 2× the user's 30-day median). 1–24 hours."
-                control={
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <Input
-                      type="number"
-                      value={capInput}
-                      onChange={(e) => setCapInput(e.target.value)}
-                      style={{ width: 80 }}
-                    />
-                    <Button
-                      size="sm"
-                      disabled={updateSettings.isPending || capInput === '' || Number(capInput) === settingsQuery.data?.spikeHoursCap}
-                      onClick={() => {
-                        const n = Math.round(Number(capInput));
-                        if (!Number.isFinite(n) || n < 1 || n > 24) {
-                          showBanner('Spike cap must be a whole number between 1 and 24.', 'red');
-                          return;
-                        }
-                        updateSettings.mutate(
-                          { spikeHoursCap: n },
-                          { onError: (err) => showBanner(`Save failed: ${(err as Error).message}`, 'red') },
-                        );
-                      }}
-                    >
-                      Save
-                    </Button>
-                  </div>
-                }
-              />
+              <RequireRole min="OWNER">
+                <SettingRow
+                  label="Daily-hour spike cap"
+                  desc="Flag a user-day as a spike when logged hours exceed this absolute cap (also flags > 2× the user's 30-day median). 1–24 hours."
+                  control={
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <Input
+                        type="number"
+                        value={capInput}
+                        onChange={(e) => setCapInput(e.target.value)}
+                        style={{ width: 80 }}
+                      />
+                      <Button
+                        size="sm"
+                        disabled={updateSettings.isPending || capInput === '' || Number(capInput) === settingsQuery.data?.spikeHoursCap}
+                        onClick={() => {
+                          const n = Math.round(Number(capInput));
+                          if (!Number.isFinite(n) || n < 1 || n > 24) {
+                            showBanner('Spike cap must be a whole number between 1 and 24.', 'red');
+                            return;
+                          }
+                          updateSettings.mutate(
+                            { spikeHoursCap: n },
+                            { onError: (err) => showBanner(`Save failed: ${(err as Error).message}`, 'red') },
+                          );
+                        }}
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  }
+                />
+              </RequireRole>
             </div>
           </Card>
 
