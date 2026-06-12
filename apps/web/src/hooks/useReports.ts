@@ -216,6 +216,34 @@ export function useAnomalies() {
   });
 }
 
+export interface HourSpikeWatchRow {
+  userId: string;
+  userName: string;
+  date: string;
+  hours: number;
+  median: number;
+  multiplier: number | null;
+  rule: 'absolute' | 'relative' | 'both';
+}
+
+export interface HourSpikeUserPoint { date: string; hours: number; isSpike: boolean; }
+export interface HourSpikeUser { userId: string; userName: string; points: HourSpikeUserPoint[]; }
+
+export interface HourSpikes {
+  cap: number;
+  watchlist: HourSpikeWatchRow[];
+  byUser: { buckets: string[]; users: HourSpikeUser[] };
+}
+
+export function useHourSpikes() {
+  const { fromDate, toDate } = useGlobalFilters();
+  return useQuery<HourSpikes>({
+    queryKey: ['hour-spikes', fromDate, toDate],
+    queryFn: () => reportsApi.hourSpikes({ from: fromDate, to: toDate }),
+    placeholderData: keepPreviousData,
+  });
+}
+
 export interface OverviewDeltas {
   current: { totalHours: number; totalCostAud: number };
   prior:   { totalHours: number; totalCostAud: number };
