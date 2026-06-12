@@ -33,11 +33,20 @@ For each `(user, local-day)` we sum `duration_hours`. A user-day is a **spike** 
   flagged on a normal short day (same spirit as the `> $50` floor in the existing
   cost anomaly logic).
 
-The median is `percentile_cont(0.5)` over that user's days **with hours > 0** inside
-the selected window.
+### Two distinct windows
 
-The window honors the global date-range filter (the same one other report pages use),
-falling back to 30 days when unset.
+The feature uses two separate windows — do not conflate them:
+
+- **Baseline window (for the median):** a **fixed trailing 30 days** from today,
+  independent of the date filter. The median is `percentile_cont(0.5)` over that
+  user's days **with hours > 0** in this fixed window. This keeps "2× median"
+  statistically meaningful even when the user zooms the chart to a few days, and
+  matches the existing cost-`anomalies()` behavior (which also uses a fixed 30-day
+  median lookback).
+- **Display/evaluation window (for the chart and watchlist):** the **global
+  date-range filter** (same one other report pages use), falling back to 30 days when
+  unset. The per-user chart and the watchlist rows cover this window; each day in it
+  is flagged against the user's fixed-30-day median.
 
 ## Architecture
 
@@ -68,13 +77,17 @@ existing singleton `AppSettings` row, mirroring the ClickUp-connection settings)
 - Reads the cap from `SettingsService.getSpikeHoursCap()`. The cap is **not**
   overridable per request — it is the org setting.
 - SQL outline:
-  - CTE `daily` — `SUM(duration_hours)` per `(user_id, user_name, day_local)` over
-    the window, joined to `clickup_tasks` with `is_deleted = false` (matching the
-    other reports' filtering).
+  - CTE `daily` — `SUM(duration_hours)` per `(user_id, user_name, day_local)`,
+    joined to `clickup_tasks` with `is_deleted = false` (matching the other reports'
+    filtering). Computed over the **union** of both windows (or simply over the
+    earlier of `display_from` and `today - 30d`) so it can feed both the medians and
+    the display series.
   - CTE `medians` — `percentile_cont(0.5)` of `hours` per user over days with
-    `hours > 0`.
-  - Spike flag = `hours > :cap OR (hours > 2 * median AND hours >= 4)`.
-  - Continuous day axis via `generate_series()` so the per-user chart has no gaps.
+    `hours > 0`, restricted to the **fixed trailing 30-day** baseline window.
+  - Spike flag = `hours > :cap OR (hours > 2 * median AND hours >= 4)`, evaluated for
+    each day in the **display window**.
+  - Continuous day axis via `generate_series()` over the display window, **left-joined**
+    to `daily` so days with no entries fill as `0h` (not gaps) in each user's series.
 
 **Response shape:**
 
@@ -91,7 +104,10 @@ existing singleton `AppSettings` row, mirroring the ClickUp-connection settings)
       "multiplier": 2.42,        // hours / median (null if median is 0)
       "rule": "absolute" | "relative" | "both"
     }
-    // ranked, highest first
+    // ranked by raw hours descending (the watchlist answers "who logged a
+    // suspicious amount"); capped at top 20 so the list stays bounded.
+    // Sorting by multiplier was rejected: it would sink a 20h over-logging
+    // day (median 18h, ~1.1x) below a 9h relative spike (median 3h, 3.0x).
   ],
   "byUser": {
     "buckets": ["2026-05-13", "...", "2026-06-12"],   // continuous day axis
@@ -142,6 +158,10 @@ existing singleton `AppSettings` row, mirroring the ClickUp-connection settings)
   - neither rule triggers (normal day)
   - `both` classification when a day satisfies both rules
   - cap is read from `SettingsService` (a changed cap changes the flags)
+  - watchlist is ranked by raw hours descending and capped at top 20
+  - median uses the fixed 30-day baseline, not the display window (a narrow display
+    filter does not change which days are flagged)
+  - per-user series zero-fills days with no entries
 - **Settings tests**: `spikeHoursCap` round-trips through `update()` and appears in
   `getMasked()`; default of 12 when unset.
 
