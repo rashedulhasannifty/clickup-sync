@@ -7,6 +7,7 @@ export interface AppSettings {
   webhookEndpoint: string;
   webhookEvents: string;
   webhookSecretSet: boolean;
+  spikeHoursCap: number;
   encryptionEnabled: boolean;
   updatedAt: string | null;
   updatedBy: string | null;
@@ -18,6 +19,7 @@ export interface SettingsPatch {
   webhookEndpoint?: string;
   webhookEvents?: string;
   webhookSecret?: string;
+  spikeHoursCap?: number;
 }
 
 export const settingsApi = {

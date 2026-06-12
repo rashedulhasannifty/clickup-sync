@@ -262,6 +262,10 @@ export function SettingsPage() {
   const [defaultCurrency, setDefaultCurrency] = useState('USD');
   const [rateMatch, setRateMatch] = useState('start');
   const [webhookRetries, setWebhookRetries] = useState('5');
+  const [capInput, setCapInput] = useState('');
+  useEffect(() => {
+    if (settingsQuery.data?.spikeHoursCap != null) setCapInput(String(settingsQuery.data.spikeHoursCap));
+  }, [settingsQuery.data?.spikeHoursCap]);
 
   const [alertSyncFail, setAlertSyncFail] = useState(true);
   const [alertWebhookSpike, setAlertWebhookSpike] = useState(true);
@@ -761,6 +765,37 @@ export function SettingsPage() {
                 label="Treat non-billable as zero cost"
                 desc="Not implemented — non-billable entries are costed normally today."
                 control={<Switch checked={false} disabled onChange={() => undefined} />}
+              />
+              <SettingRow
+                label="Daily-hour spike cap"
+                desc="Flag a user-day as a spike when logged hours exceed this absolute cap (also flags > 2× the user's 30-day median). 1–24 hours."
+                control={
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <Input
+                      type="number"
+                      value={capInput}
+                      onChange={(e) => setCapInput(e.target.value)}
+                      style={{ width: 80 }}
+                    />
+                    <Button
+                      size="sm"
+                      disabled={updateSettings.isPending || capInput === '' || Number(capInput) === settingsQuery.data?.spikeHoursCap}
+                      onClick={() => {
+                        const n = Math.round(Number(capInput));
+                        if (!Number.isFinite(n) || n < 1 || n > 24) {
+                          showBanner('Spike cap must be a whole number between 1 and 24.', 'red');
+                          return;
+                        }
+                        updateSettings.mutate(
+                          { spikeHoursCap: n },
+                          { onError: (err) => showBanner(`Save failed: ${(err as Error).message}`, 'red') },
+                        );
+                      }}
+                    >
+                      Save
+                    </Button>
+                  </div>
+                }
               />
             </div>
           </Card>
