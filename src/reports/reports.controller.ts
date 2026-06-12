@@ -1,12 +1,16 @@
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { SettingsService } from '../settings/settings.service';
 import { ReportsService } from './reports.service';
 
 @ApiTags('reports')
 @ApiSecurity('x-admin-key')
 @Controller('reports')
 export class ReportsController {
-  constructor(private readonly reports: ReportsService) {}
+  constructor(
+    private readonly reports: ReportsService,
+    private readonly settings: SettingsService,
+  ) {}
 
   @Get('tasks/summary')
   @ApiOperation({ summary: 'Task count summary by space and status' })
@@ -58,6 +62,12 @@ export class ReportsController {
   @ApiOperation({ summary: 'Spend-spike anomalies for the Overview panel — daily totals and per-client weekly totals exceeding their median baselines.' })
   anomalies() {
     return this.reports.anomalies();
+  }
+
+  @Get('time-entries/hour-spikes')
+  @ApiOperation({ summary: 'Per-user daily-hour spikes: a team watchlist of days exceeding the absolute cap or 2x the user\'s 30-day median, plus per-user daily-hours series for the chart.' })
+  hourSpikes(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.reports.hourSpikes(this.settings.getSpikeHoursCap(), from, to);
   }
 
   @Get('time-entries/by-user')
