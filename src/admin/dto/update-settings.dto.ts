@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class UpdateSettingsDto {
   @ApiPropertyOptional({ description: 'ClickUp API token (write-only; stored encrypted). Omit to leave unchanged.' })
@@ -26,4 +26,11 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsString()
   webhookSecret?: string;
+
+  @ApiPropertyOptional({ description: 'Absolute daily-hours cap for spike detection (1–24). Default 12.', minimum: 1, maximum: 24 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(24)
+  spikeHoursCap?: number;
 }

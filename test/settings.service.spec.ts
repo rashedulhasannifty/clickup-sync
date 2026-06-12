@@ -95,4 +95,30 @@ describe('SettingsService', () => {
     expect(repo.upsert.mock.calls.at(-1)![0].webhookSecretEnc).toBe('enc:whsec');
     expect(svc.getWebhookSecret()).toBe('whsec');
   });
+
+  it('defaults spikeHoursCap to 12 when no DB row exists', async () => {
+    const svc = new SettingsService(makeRepo(null), makeCrypto());
+    await svc.onModuleInit();
+    expect(svc.getSpikeHoursCap()).toBe(12);
+    expect(svc.getMasked().spikeHoursCap).toBe(12);
+  });
+
+  it('reads spikeHoursCap from the DB row', async () => {
+    const repo = makeRepo({ id: 'singleton', spikeHoursCap: 10, updatedAt: new Date() });
+    const svc = new SettingsService(repo, makeCrypto());
+    await svc.onModuleInit();
+    expect(svc.getSpikeHoursCap()).toBe(10);
+  });
+
+  it('round-trips spikeHoursCap through update()', async () => {
+    const repo = makeRepo(null);
+    const svc = new SettingsService(repo, makeCrypto());
+    await svc.onModuleInit();
+    const masked = await svc.update({ spikeHoursCap: 16 }, 'tester');
+    expect(masked.spikeHoursCap).toBe(16);
+    expect(svc.getSpikeHoursCap()).toBe(16);
+    expect(repo.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ spikeHoursCap: 16, updatedBy: 'tester' }),
+    );
+  });
 });

@@ -3,6 +3,7 @@ import { CryptoService } from './crypto.service';
 import { SettingsRepository } from './settings.repository';
 
 const DEFAULT_TEAM_ID = '3450636';
+const DEFAULT_SPIKE_HOURS_CAP = 12;
 const DEFAULT_EVENTS = 'taskCreated,taskUpdated,taskDeleted,taskTimeTrackedUpdated,taskStatusUpdated';
 
 export interface SettingsPatch {
@@ -11,6 +12,7 @@ export interface SettingsPatch {
   webhookEndpoint?: string;
   webhookEvents?: string;
   webhookSecret?: string;
+  spikeHoursCap?: number;
 }
 
 export interface MaskedSettings {
@@ -20,6 +22,7 @@ export interface MaskedSettings {
   webhookEndpoint: string;
   webhookEvents: string;
   webhookSecretSet: boolean;
+  spikeHoursCap: number;
   encryptionEnabled: boolean;
   updatedAt: Date | null;
   updatedBy: string | null;
@@ -31,6 +34,7 @@ interface Cache {
   teamId: string | null;
   webhookEndpoint: string | null;
   webhookEvents: string | null;
+  spikeHoursCap: number | null;
   updatedAt: Date | null;
   updatedBy: string | null;
 }
@@ -41,6 +45,7 @@ const EMPTY: Cache = {
   teamId: null,
   webhookEndpoint: null,
   webhookEvents: null,
+  spikeHoursCap: null,
   updatedAt: null,
   updatedBy: null,
 };
@@ -76,6 +81,7 @@ export class SettingsService implements OnModuleInit {
       teamId: row?.clickupTeamId ?? null,
       webhookEndpoint: row?.webhookEndpoint ?? null,
       webhookEvents: row?.webhookEvents ?? null,
+      spikeHoursCap: row?.spikeHoursCap ?? null,
       updatedAt: row?.updatedAt ?? null,
       updatedBy: row?.updatedBy ?? null,
     };
@@ -115,6 +121,10 @@ export class SettingsService implements OnModuleInit {
     return this.cache.webhookEvents ?? process.env.CLICKUP_WEBHOOK_EVENTS ?? DEFAULT_EVENTS;
   }
 
+  getSpikeHoursCap(): number {
+    return this.cache.spikeHoursCap ?? DEFAULT_SPIKE_HOURS_CAP;
+  }
+
   // ── Read for the admin UI (secrets masked) ─────────────────────────────────
 
   getMasked(): MaskedSettings {
@@ -127,6 +137,7 @@ export class SettingsService implements OnModuleInit {
       webhookEndpoint: this.getWebhookEndpoint(),
       webhookEvents: this.getWebhookEvents(),
       webhookSecretSet: secret.length > 0,
+      spikeHoursCap: this.getSpikeHoursCap(),
       encryptionEnabled: this.crypto.isEnabled,
       updatedAt: this.cache.updatedAt,
       updatedBy: this.cache.updatedBy,
@@ -141,6 +152,7 @@ export class SettingsService implements OnModuleInit {
     if (patch.teamId !== undefined) data.clickupTeamId = patch.teamId.trim() || null;
     if (patch.webhookEndpoint !== undefined) data.webhookEndpoint = patch.webhookEndpoint.trim() || null;
     if (patch.webhookEvents !== undefined) data.webhookEvents = patch.webhookEvents.trim() || null;
+    if (patch.spikeHoursCap !== undefined) data.spikeHoursCap = patch.spikeHoursCap;
     if (patch.apiToken) data.clickupApiTokenEnc = this.crypto.encrypt(patch.apiToken);
     if (patch.webhookSecret) data.webhookSecretEnc = this.crypto.encrypt(patch.webhookSecret);
     await this.repo.upsert(data);

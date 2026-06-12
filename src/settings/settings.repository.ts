@@ -10,6 +10,7 @@ export interface SettingsWrite {
   clickupTeamId?: string | null;
   webhookEndpoint?: string | null;
   webhookEvents?: string | null;
+  spikeHoursCap?: number;
   updatedBy?: string | null;
 }
 
