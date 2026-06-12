@@ -972,4 +972,133 @@ describe('ReportsService', () => {
       expect(and).toContainEqual({ task: { folderId: 'F1' } });
     });
   });
+
+  describe('hourSpikes', () => {
+    // Helper: stub the 3 raw queries in the order hourSpikes calls them.
+    function stub(prisma: any, baseline: any[], display: any[], axis: string[]) {
+      prisma.$queryRaw
+        .mockResolvedValueOnce(baseline)
+        .mockResolvedValueOnce(display)
+        .mockResolvedValueOnce(axis.map((bucket) => ({ bucket })));
+    }
+
+    it('flags an absolute-only spike (over cap, under 2x median)', async () => {
+      const prisma = makePrisma();
+      // median(8,8,8) = 8 → 2x = 16; 14h is > cap(12) but < 16 → absolute only.
+      stub(
+        prisma,
+        [
+          { user_id: 'u1', user_name: 'Ann', day: '2026-06-01', hours: 8 },
+          { user_id: 'u1', user_name: 'Ann', day: '2026-06-02', hours: 8 },
+          { user_id: 'u1', user_name: 'Ann', day: '2026-06-03', hours: 8 },
+        ],
+        [{ user_id: 'u1', user_name: 'Ann', day: '2026-06-10', hours: 14 }],
+        ['2026-06-10'],
+      );
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-10', '2026-06-10');
+      expect(r.cap).toBe(12);
+      expect(r.watchlist).toHaveLength(1);
+      expect(r.watchlist[0]).toMatchObject({ userId: 'u1', userName: 'Ann', date: '2026-06-10', hours: 14, rule: 'absolute' });
+      expect(r.byUser.users[0].points[0]).toEqual({ date: '2026-06-10', hours: 14, isSpike: true });
+    });
+
+    it('flags a relative-only spike (over 2x median and >= 4h, under cap)', async () => {
+      const prisma = makePrisma();
+      // median(3,3,3) = 3 → 2x = 6; 7h > 6 and >= 4, and 7 < cap(12) → relative only.
+      stub(
+        prisma,
+        [
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-01', hours: 3 },
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-02', hours: 3 },
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-03', hours: 3 },
+        ],
+        [{ user_id: 'u2', user_name: 'Bob', day: '2026-06-10', hours: 7 }],
+        ['2026-06-10'],
+      );
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-10', '2026-06-10');
+      expect(r.watchlist[0]).toMatchObject({ rule: 'relative', hours: 7, median: 3 });
+      expect(r.watchlist[0].multiplier).toBeCloseTo(7 / 3, 4);
+    });
+
+    it('does not flag when the 4h floor suppresses a small-median spike', async () => {
+      const prisma = makePrisma();
+      // median(1,1,1) = 1 → 2x = 2; 3h > 2 but 3 < 4 floor, and 3 < cap → no spike.
+      stub(
+        prisma,
+        [
+          { user_id: 'u3', user_name: 'Cy', day: '2026-06-01', hours: 1 },
+          { user_id: 'u3', user_name: 'Cy', day: '2026-06-02', hours: 1 },
+          { user_id: 'u3', user_name: 'Cy', day: '2026-06-03', hours: 1 },
+        ],
+        [{ user_id: 'u3', user_name: 'Cy', day: '2026-06-10', hours: 3 }],
+        ['2026-06-10'],
+      );
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-10', '2026-06-10');
+      expect(r.watchlist).toHaveLength(0);
+      expect(r.byUser.users[0].points[0].isSpike).toBe(false);
+    });
+
+    it('does not flag a normal day (neither rule)', async () => {
+      const prisma = makePrisma();
+      // median 6 → 2x = 12; 6h is < cap(12) and < 12 → no spike.
+      stub(
+        prisma,
+        [
+          { user_id: 'u4', user_name: 'Di', day: '2026-06-01', hours: 6 },
+          { user_id: 'u4', user_name: 'Di', day: '2026-06-02', hours: 6 },
+        ],
+        [{ user_id: 'u4', user_name: 'Di', day: '2026-06-10', hours: 6 }],
+        ['2026-06-10'],
+      );
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-10', '2026-06-10');
+      expect(r.watchlist).toHaveLength(0);
+    });
+
+    it("classifies a day as 'both' when over cap and over 2x median", async () => {
+      const prisma = makePrisma();
+      // median(5,5) = 5 → 2x = 10; 15h > cap(12) and > 10 → both.
+      stub(
+        prisma,
+        [
+          { user_id: 'u5', user_name: 'Ed', day: '2026-06-01', hours: 5 },
+          { user_id: 'u5', user_name: 'Ed', day: '2026-06-02', hours: 5 },
+        ],
+        [{ user_id: 'u5', user_name: 'Ed', day: '2026-06-10', hours: 15 }],
+        ['2026-06-10'],
+      );
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-10', '2026-06-10');
+      expect(r.watchlist[0].rule).toBe('both');
+    });
+
+    it('ranks the watchlist by raw hours descending and caps at 20', async () => {
+      const prisma = makePrisma();
+      const baseline: any[] = [];
+      const display: any[] = [];
+      const axis: string[] = [];
+      // 25 distinct users, each one spike day with hours 100..76 (all over cap).
+      for (let i = 0; i < 25; i++) {
+        const day = `2026-06-${String(i + 1).padStart(2, '0')}`;
+        display.push({ user_id: `u${i}`, user_name: `U${i}`, day, hours: 100 - i });
+        axis.push(day);
+      }
+      stub(prisma, baseline, display, axis);
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-01', '2026-06-25');
+      expect(r.watchlist).toHaveLength(20);
+      expect(r.watchlist[0].hours).toBe(100);
+      expect(r.watchlist[19].hours).toBe(81);
+    });
+
+    it('zero-fills days with no entries in each user series', async () => {
+      const prisma = makePrisma();
+      stub(
+        prisma,
+        [],
+        [{ user_id: 'u6', user_name: 'Fi', day: '2026-06-02', hours: 5 }],
+        ['2026-06-01', '2026-06-02', '2026-06-03'],
+      );
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-01', '2026-06-03');
+      expect(r.byUser.buckets).toEqual(['2026-06-01', '2026-06-02', '2026-06-03']);
+      expect(r.byUser.users[0].points.map((p: any) => p.hours)).toEqual([0, 5, 0]);
+    });
+  });
 });

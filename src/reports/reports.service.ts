@@ -1212,6 +1212,134 @@ export class ReportsService {
     };
   }
 
+  /**
+   * Per-user daily-hour spikes. SQL only aggregates hours per (user, local day);
+   * detection, classification, ranking and zero-fill happen here in TS so the
+   * rule logic is unit-testable. The relative-rule median uses a FIXED trailing
+   * 30-day baseline (independent of the display window) so "2x median" stays
+   * meaningful even when the chart is zoomed to a few days.
+   */
+  async hourSpikes(cap: number, fromParam?: string, toParam?: string) {
+    const TZ = Prisma.raw(`'Asia/Dhaka'`);
+    const defaultFrom = new Date();
+    defaultFrom.setDate(defaultFrom.getDate() - 30);
+    const from = parseDate(fromParam, defaultFrom);
+    const to = parseDate(toParam, new Date());
+
+    type DayRow = { user_id: string | null; user_name: string | null; day: string; hours: number };
+
+    // Fixed trailing 30-day baseline (for medians).
+    const baselineRows = await this.prisma.$queryRaw<DayRow[]>(Prisma.sql`
+      SELECT COALESCE(e.user_id, 'unknown')                        AS user_id,
+             COALESCE(NULLIF(e.user_name, ''), e.user_id, 'Unknown') AS user_name,
+             to_char(date_trunc('day', e.start_time AT TIME ZONE ${TZ}), 'YYYY-MM-DD') AS day,
+             COALESCE(SUM(e.duration_hours), 0)::float             AS hours
+      FROM clickup_time_entries e
+      JOIN clickup_tasks t ON e.task_id = t.task_id
+      WHERE e.start_time IS NOT NULL
+        AND e.start_time >= now() - interval '30 days'
+        AND t.is_deleted = false
+      GROUP BY 1, 2, 3
+    `);
+
+    // Display window (for the chart + watchlist).
+    const displayRows = await this.prisma.$queryRaw<DayRow[]>(Prisma.sql`
+      SELECT COALESCE(e.user_id, 'unknown')                        AS user_id,
+             COALESCE(NULLIF(e.user_name, ''), e.user_id, 'Unknown') AS user_name,
+             to_char(date_trunc('day', e.start_time AT TIME ZONE ${TZ}), 'YYYY-MM-DD') AS day,
+             COALESCE(SUM(e.duration_hours), 0)::float             AS hours
+      FROM clickup_time_entries e
+      JOIN clickup_tasks t ON e.task_id = t.task_id
+      WHERE e.start_time IS NOT NULL
+        AND e.start_time >= ${from}
+        AND e.start_time <= ${to}
+        AND t.is_deleted = false
+      GROUP BY 1, 2, 3
+    `);
+
+    // Continuous day axis over the display window.
+    type BucketRow = { bucket: string };
+    const axisRows = await this.prisma.$queryRaw<BucketRow[]>(Prisma.sql`
+      SELECT to_char(generate_series(
+               date_trunc('day', (${from}::timestamptz AT TIME ZONE ${TZ})),
+               date_trunc('day', (${to  }::timestamptz AT TIME ZONE ${TZ})),
+               interval '1 day'), 'YYYY-MM-DD') AS bucket
+      ORDER BY 1 ASC
+    `);
+    const buckets = axisRows.map((r) => r.bucket);
+
+    // Median daily hours per user, from the fixed baseline (days with hours > 0).
+    const baselineByUser = new Map<string, { name: string; hours: number[] }>();
+    for (const r of baselineRows) {
+      const id = r.user_id ?? 'unknown';
+      const e = baselineByUser.get(id) ?? { name: r.user_name ?? 'Unknown', hours: [] };
+      if (r.user_name) e.name = r.user_name;
+      if (r.hours > 0) e.hours.push(r.hours);
+      baselineByUser.set(id, e);
+    }
+    const median = (xs: number[]): number => {
+      if (!xs.length) return 0;
+      const s = [...xs].sort((a, b) => a - b);
+      const mid = Math.floor(s.length / 2);
+      return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+    };
+    const medians = new Map<string, number>();
+    for (const [id, e] of baselineByUser) medians.set(id, median(e.hours));
+
+    // Display hours per user/day.
+    const displayByUser = new Map<string, { name: string; days: Map<string, number> }>();
+    for (const r of displayRows) {
+      const id = r.user_id ?? 'unknown';
+      const e = displayByUser.get(id) ?? { name: r.user_name ?? 'Unknown', days: new Map<string, number>() };
+      if (r.user_name) e.name = r.user_name;
+      e.days.set(r.day, (e.days.get(r.day) ?? 0) + r.hours);
+      displayByUser.set(id, e);
+    }
+
+    type Rule = 'absolute' | 'relative' | 'both';
+    const classify = (hours: number, med: number): Rule | null => {
+      const abs = hours > cap;
+      const rel = med > 0 && hours > 2 * med && hours >= 4;
+      if (abs && rel) return 'both';
+      if (abs) return 'absolute';
+      if (rel) return 'relative';
+      return null;
+    };
+
+    // Per-user zero-filled series.
+    const users = [...displayByUser.entries()]
+      .sort((a, b) => a[1].name.localeCompare(b[1].name))
+      .map(([id, e]) => {
+        const med = medians.get(id) ?? 0;
+        const points = buckets.map((b) => {
+          const hours = e.days.get(b) ?? 0;
+          return { date: b, hours, isSpike: classify(hours, med) !== null };
+        });
+        return { userId: id, userName: e.name, points };
+      });
+
+    // Watchlist: every flagged display day, ranked by raw hours desc, top 20.
+    type WatchRow = {
+      userId: string; userName: string; date: string; hours: number;
+      median: number; multiplier: number | null; rule: Rule;
+    };
+    const watchlist: WatchRow[] = [];
+    for (const [id, e] of displayByUser) {
+      const med = medians.get(id) ?? 0;
+      for (const [day, hours] of e.days) {
+        const rule = classify(hours, med);
+        if (!rule) continue;
+        watchlist.push({
+          userId: id, userName: e.name, date: day, hours,
+          median: med, multiplier: med > 0 ? hours / med : null, rule,
+        });
+      }
+    }
+    watchlist.sort((a, b) => b.hours - a.hours);
+
+    return { cap, watchlist: watchlist.slice(0, 20), byUser: { buckets, users } };
+  }
+
   async anomalies() {
     const TZ = Prisma.raw("'Asia/Dhaka'");
     type DailyRow = {
