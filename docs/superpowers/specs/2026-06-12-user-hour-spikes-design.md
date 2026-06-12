@@ -72,22 +72,30 @@ existing singleton `AppSettings` row, mirroring the ClickUp-connection settings)
 
 - **Route**: `GET /reports/time-entries/hour-spikes` in `reports.controller.ts`,
   guarded like the other report endpoints (`@ApiSecurity('x-admin-key')`, auth guard).
-- **Service**: `hourSpikes(filters)` in `reports.service.ts`, modeled on the existing
-  `anomalies()` and `costTrendByAssignee()` raw-SQL methods.
-- Reads the cap from `SettingsService.getSpikeHoursCap()`. The cap is **not**
-  overridable per request — it is the org setting.
-- SQL outline:
-  - CTE `daily` — `SUM(duration_hours)` per `(user_id, user_name, day_local)`,
-    joined to `clickup_tasks` with `is_deleted = false` (matching the other reports'
-    filtering). Computed over the **union** of both windows (or simply over the
-    earlier of `display_from` and `today - 30d`) so it can feed both the medians and
-    the display series.
-  - CTE `medians` — `percentile_cont(0.5)` of `hours` per user over days with
-    `hours > 0`, restricted to the **fixed trailing 30-day** baseline window.
-  - Spike flag = `hours > :cap OR (hours > 2 * median AND hours >= 4)`, evaluated for
-    each day in the **display window**.
-  - Continuous day axis via `generate_series()` over the display window, **left-joined**
-    to `daily` so days with no entries fill as `0h` (not gaps) in each user's series.
+- **Service**: `hourSpikes(cap, fromParam?, toParam?)` in `reports.service.ts`,
+  modeled on the existing `anomalies()` and `costTrendByAssignee()` methods.
+- **The cap is read by the controller**, not the service: `ReportsController` injects
+  the `@Global` `SettingsService` and passes `this.settings.getSpikeHoursCap()` into
+  `hourSpikes(cap, …)`. This keeps `ReportsService` dependency-free (prisma only, as
+  today) and makes the rule logic trivially unit-testable (cap is just an argument).
+  The cap is **not** overridable per request.
+- **SQL does aggregation only; detection/ranking is in TypeScript.** The existing
+  reports tests mock `$queryRaw` and assert on the TS mapping, so the rule logic must
+  live in TS to be testable. Three small raw queries:
+  - **baselineRows** — `SUM(duration_hours)` per `(user_id, user_name, day_local)`
+    over the **fixed trailing 30 days** (`start_time >= now() - interval '30 days'`),
+    joined to `clickup_tasks` with `is_deleted = false`.
+  - **displayRows** — same aggregation over the **display window** (`from`/`to`,
+    parsed with the existing `parseDate` helper; default 30 days).
+  - **axisRows** — `generate_series()` over the display window → ordered
+    `YYYY-MM-DD` day strings (timezone `Asia/Dhaka`), matching `costTrendByAssignee`.
+- **TypeScript then:**
+  - computes each user's median daily hours from `baselineRows` (days with
+    `hours > 0`),
+  - zero-fills each user's `displayRows` against `axisRows` so empty days are `0h`,
+  - flags each display day: `hours > cap OR (hours > 2 * median AND hours >= 4)`,
+  - classifies the rule as `absolute` / `relative` / `both`,
+  - builds the watchlist (all flagged days, ranked by raw hours desc, top 20).
 
 **Response shape:**
 
