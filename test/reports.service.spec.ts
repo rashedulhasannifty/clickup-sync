@@ -1100,5 +1100,36 @@ describe('ReportsService', () => {
       expect(r.byUser.buckets).toEqual(['2026-06-01', '2026-06-02', '2026-06-03']);
       expect(r.byUser.users[0].points.map((p: any) => p.hours)).toEqual([0, 5, 0]);
     });
+
+    it('computes an even-length median by averaging the two middle values', async () => {
+      const prisma = makePrisma();
+      // median(4,8) = 6 → 2x = 12; an 8h day is < cap(12) and < 12 → NOT a spike,
+      // proving the median is 6 (not 4 or 8). A 13h day would be absolute via cap.
+      stub(
+        prisma,
+        [
+          { user_id: 'u7', user_name: 'Gwen', day: '2026-06-01', hours: 4 },
+          { user_id: 'u7', user_name: 'Gwen', day: '2026-06-02', hours: 8 },
+        ],
+        [{ user_id: 'u7', user_name: 'Gwen', day: '2026-06-10', hours: 8 }],
+        ['2026-06-10'],
+      );
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-10', '2026-06-10');
+      expect(r.watchlist).toHaveLength(0);
+    });
+
+    it('reports multiplier null for a user with no baseline (median 0) flagged by the cap', async () => {
+      const prisma = makePrisma();
+      // No baseline rows → median 0 → relative rule cannot fire; 5h > cap(4) → absolute.
+      stub(
+        prisma,
+        [],
+        [{ user_id: 'u8', user_name: 'Hal', day: '2026-06-10', hours: 5 }],
+        ['2026-06-10'],
+      );
+      const r = await new ReportsService(prisma).hourSpikes(4, '2026-06-10', '2026-06-10');
+      expect(r.watchlist).toHaveLength(1);
+      expect(r.watchlist[0]).toMatchObject({ rule: 'absolute', median: 0, multiplier: null });
+    });
   });
 });

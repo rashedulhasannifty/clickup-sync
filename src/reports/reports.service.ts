@@ -1227,9 +1227,10 @@ export class ReportsService {
     const to = parseDate(toParam, new Date());
 
     type DayRow = { user_id: string | null; user_name: string | null; day: string; hours: number };
+    type BucketRow = { bucket: string };
 
-    // Fixed trailing 30-day baseline (for medians).
-    const baselineRows = await this.prisma.$queryRaw<DayRow[]>(Prisma.sql`
+    const [baselineRows, displayRows, axisRows] = await Promise.all([
+      this.prisma.$queryRaw<DayRow[]>(Prisma.sql`
       SELECT COALESCE(e.user_id, 'unknown')                        AS user_id,
              COALESCE(NULLIF(e.user_name, ''), e.user_id, 'Unknown') AS user_name,
              to_char(date_trunc('day', e.start_time AT TIME ZONE ${TZ}), 'YYYY-MM-DD') AS day,
@@ -1240,10 +1241,8 @@ export class ReportsService {
         AND e.start_time >= now() - interval '30 days'
         AND t.is_deleted = false
       GROUP BY 1, 2, 3
-    `);
-
-    // Display window (for the chart + watchlist).
-    const displayRows = await this.prisma.$queryRaw<DayRow[]>(Prisma.sql`
+    `),
+      this.prisma.$queryRaw<DayRow[]>(Prisma.sql`
       SELECT COALESCE(e.user_id, 'unknown')                        AS user_id,
              COALESCE(NULLIF(e.user_name, ''), e.user_id, 'Unknown') AS user_name,
              to_char(date_trunc('day', e.start_time AT TIME ZONE ${TZ}), 'YYYY-MM-DD') AS day,
@@ -1255,17 +1254,15 @@ export class ReportsService {
         AND e.start_time <= ${to}
         AND t.is_deleted = false
       GROUP BY 1, 2, 3
-    `);
-
-    // Continuous day axis over the display window.
-    type BucketRow = { bucket: string };
-    const axisRows = await this.prisma.$queryRaw<BucketRow[]>(Prisma.sql`
+    `),
+      this.prisma.$queryRaw<BucketRow[]>(Prisma.sql`
       SELECT to_char(generate_series(
                date_trunc('day', (${from}::timestamptz AT TIME ZONE ${TZ})),
                date_trunc('day', (${to  }::timestamptz AT TIME ZONE ${TZ})),
                interval '1 day'), 'YYYY-MM-DD') AS bucket
       ORDER BY 1 ASC
-    `);
+    `),
+    ]);
     const buckets = axisRows.map((r) => r.bucket);
 
     // Median daily hours per user, from the fixed baseline (days with hours > 0).
@@ -1292,6 +1289,8 @@ export class ReportsService {
       const id = r.user_id ?? 'unknown';
       const e = displayByUser.get(id) ?? { name: r.user_name ?? 'Unknown', days: new Map<string, number>() };
       if (r.user_name) e.name = r.user_name;
+      // A single user_id can yield multiple rows for one day if user_name drifted
+      // across entries (the SQL groups by the resolved name too); re-sum them here.
       e.days.set(r.day, (e.days.get(r.day) ?? 0) + r.hours);
       displayByUser.set(id, e);
     }
