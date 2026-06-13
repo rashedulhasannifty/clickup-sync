@@ -18,6 +18,7 @@ import { PageHeader } from '../components/ui/PageHeader';
 import { QueryError } from '../components/ui/QueryError';
 import { Pill } from '../components/ui/Pill';
 import { Button } from '../components/ui/Button';
+import { EmptyState } from '../components/ui/EmptyState';
 import { AnomaliesPanel } from '../components/AnomaliesPanel';
 import { fmt } from '../lib/formatters';
 import { toCsv, downloadCsv, csvFilename } from '../lib/csv';
@@ -328,7 +329,13 @@ export function OverviewPage() {
             </thead>
             <tbody>
               {webhookItems.length === 0 ? (
-                <tr><td colSpan={4} style={{ padding: '20px 14px', textAlign: 'center', color: 'var(--text-faint)', fontSize: 12 }}>No recent events</td></tr>
+                <tr><td colSpan={4}>
+                  <EmptyState
+                    icon={<Activity size={20} />}
+                    title="No recent events"
+                    body="Webhook activity from ClickUp will show up here."
+                  />
+                </td></tr>
               ) : webhookItems.map((e) => {
                 const tone = e.eventType === 'taskCreated' ? 'green'
                   : e.eventType === 'taskDeleted' ? 'red'
@@ -375,8 +382,18 @@ export function OverviewPage() {
             action={alerts.length > 0 ? <Pill tone="amber">{alerts.length}</Pill> : undefined}
           >
             {alerts.length === 0 ? (
-              <div style={{ padding: 16 }}>
-                <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No active alerts.</p>
+              <div style={{ padding: '20px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{
+                  width: 28, height: 28, borderRadius: 7, flexShrink: 0,
+                  background: 'var(--pill-green-bg)', color: 'var(--pill-green-text)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <CircleCheck size={15} strokeWidth={2} />
+                </span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>All clear</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No items need attention right now.</div>
+                </div>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column' }}>

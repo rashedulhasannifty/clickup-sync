@@ -5,7 +5,8 @@ import { PageHeader } from '../components/ui/PageHeader';
 import { Card } from '../components/ui/Card';
 import { Pill } from '../components/ui/Pill';
 import { QueryError } from '../components/ui/QueryError';
-import { Skeleton } from '../components/ui/Skeleton';
+import { TableSkeleton } from '../components/ui/TableSkeleton';
+import { EmptyState } from '../components/ui/EmptyState';
 import { Input } from '../components/ui/Input';
 import { AuditLogDrawer } from '../components/AuditLogDrawer';
 import type { AuditLogRow } from '../api/auditLog';
@@ -51,7 +52,7 @@ export function AuditLogPage() {
       </div>
 
       {query.isLoading ? (
-        <Skeleton height={320} />
+        <TableSkeleton />
       ) : (
         <Card padding={0}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -67,7 +68,13 @@ export function AuditLogPage() {
             </thead>
             <tbody>
               {items.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>No audit log entries</td></tr>
+                <tr><td colSpan={6}>
+                  <EmptyState
+                    icon={<ShieldCheck size={20} />}
+                    title="No audit log entries"
+                    body={actor ? 'No actions match this actor filter.' : 'Admin write actions will appear here as they happen.'}
+                  />
+                </td></tr>
               ) : (
                 items.map((row, i) => (
                   <tr

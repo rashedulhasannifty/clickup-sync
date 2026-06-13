@@ -21,7 +21,8 @@ import { Input } from '../components/ui/Input';
 import { Pill } from '../components/ui/Pill';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { Skeleton } from '../components/ui/Skeleton';
+import { TableSkeleton } from '../components/ui/TableSkeleton';
+import { EmptyState } from '../components/ui/EmptyState';
 import { SyncRunDrawer } from '../components/SyncRunDrawer';
 import type { JobLogItem } from '../components/SyncRunDrawer';
 import { WebhookEventDrawer } from '../components/WebhookEventDrawer';
@@ -283,7 +284,7 @@ export function SyncLogsPage() {
           </div>
 
           {runsLoading ? (
-            <Skeleton height={280} />
+            <TableSkeleton />
           ) : (
             <Card padding={0}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -315,11 +316,14 @@ export function SyncLogsPage() {
                 <tbody>
                   {jobItems.length === 0 ? (
                     <tr>
-                      <td
-                        colSpan={jobStatusFilter === 'failed' ? 10 : 9}
-                        style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}
-                      >
-                        {jobStatusFilter === 'failed' ? 'No failed jobs match this view.' : 'No job logs'}
+                      <td colSpan={jobStatusFilter === 'failed' ? 10 : 9}>
+                        <EmptyState
+                          icon={<RefreshCw size={20} />}
+                          title={jobStatusFilter === 'failed' ? 'No failed runs' : 'No sync runs yet'}
+                          body={jobStatusFilter === 'failed'
+                            ? 'Nothing has failed in this view — runs appear here when a job errors.'
+                            : 'Scheduled and manual sync runs will appear here.'}
+                        />
                       </td>
                     </tr>
                   ) : (
@@ -517,7 +521,7 @@ export function SyncLogsPage() {
           </div>
 
           {webhooksLoading ? (
-            <Skeleton height={280} />
+            <TableSkeleton />
           ) : (
             <Card padding={0}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -543,8 +547,12 @@ export function SyncLogsPage() {
                 <tbody>
                   {filteredWebhooks.length === 0 ? (
                     <tr>
-                      <td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
-                        No webhook events
+                      <td colSpan={6}>
+                        <EmptyState
+                          icon={<Activity size={20} />}
+                          title="No webhook events"
+                          body="Incoming ClickUp webhook deliveries will appear here."
+                        />
                       </td>
                     </tr>
                   ) : (
