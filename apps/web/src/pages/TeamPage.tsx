@@ -655,6 +655,16 @@ export function TeamPage() {
                       <tr
                         key={u.id}
                         onClick={() => setDetailId(u.id)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          // Only the row itself — not its checkbox / role select /
+                          // menu — activates on Enter/Space.
+                          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                            e.preventDefault();
+                            setDetailId(u.id);
+                          }
+                        }}
                         style={{
                           borderTop: '1px solid var(--border-soft)',
                           background: isSel ? 'var(--accent-soft)' : 'transparent',
@@ -756,6 +766,14 @@ export function TeamPage() {
                     <tr
                       key={inv.id}
                       onClick={() => setDetailId(inv.id)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault();
+                          setDetailId(inv.id);
+                        }
+                      }}
                       style={{
                         borderTop: '1px solid var(--border-soft)',
                         cursor: 'pointer',
