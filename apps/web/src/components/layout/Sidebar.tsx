@@ -82,6 +82,7 @@ export function Sidebar({
   return (
     <aside
       aria-hidden={isMobile && !mobileOpen ? true : undefined}
+      inert={isMobile && !mobileOpen ? true : undefined}
       style={
         isMobile
           ? {
