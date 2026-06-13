@@ -21,6 +21,18 @@ export type ReconcileProgress = {
   remaining: number;
 };
 
+export type DeadLetterJob = {
+  id: string;
+  queueName: string;
+  jobName: string;
+  entityType: string | null;
+  entityId: string | null;
+  errorMessage: string | null;
+  failedAt: string;
+  retriedAt: string | null;
+  attemptsMade: number | null;
+};
+
 export const adminApi = {
   syncTask: (taskId: string) => apiClient.post('/admin/tasks/sync', { taskId }).then(r => r.data),
   backfill: (spaceId: string, lookbackDays?: number) =>
@@ -42,5 +54,13 @@ export const adminApi = {
     apiClient
       .post('/admin/webhooks/retry-failed')
       .then((r) => r.data as { requeued: number; scanned: number; limit: number }),
+  deadLetters: (limit = 50, offset = 0): Promise<{ items: DeadLetterJob[]; total: number }> =>
+    apiClient
+      .get('/admin/dead-letters', { params: { limit, offset } })
+      .then((r) => ({ items: Array.isArray(r.data?.items) ? r.data.items : [], total: r.data?.total ?? 0 })),
+  retryDeadLetter: (id: string) =>
+    apiClient.post(`/admin/dead-letters/${id}/retry`).then((r) => r.data as { requeued: boolean; id: string }),
+  resolveDeadLetter: (id: string) =>
+    apiClient.post(`/admin/dead-letters/${id}/resolve`).then((r) => r.data as { resolved: boolean; id: string }),
   workspaceMembers: (): Promise<WorkspaceMember[]> => apiClient.get('/admin/workspace-members').then(r => r.data),
 };

@@ -70,6 +70,38 @@ export function useRetryFailedWebhooks() {
   });
 }
 
+/** Pending (unresolved) dead-letter jobs. ADMIN/OWNER only — pass enabled. */
+export function useDeadLetters(enabled = true) {
+  return useQuery({
+    queryKey: ['dead-letters'],
+    queryFn: () => adminApi.deadLetters(50, 0),
+    enabled,
+  });
+}
+
+// After retry/resolve, refresh the dead-letter list and the dashboard stats so
+// the "Dead letters: N pending" count on Overview visibly drops toward zero.
+function invalidateDeadLetterViews(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: ['dead-letters'] });
+  void qc.invalidateQueries({ queryKey: ['stats'] });
+}
+
+export function useRetryDeadLetter() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => adminApi.retryDeadLetter(id),
+    onSuccess: () => invalidateDeadLetterViews(qc),
+  });
+}
+
+export function useResolveDeadLetter() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => adminApi.resolveDeadLetter(id),
+    onSuccess: () => invalidateDeadLetterViews(qc),
+  });
+}
+
 /**
  * Probes the ClickUp API by fetching workspace members through our backend.
  * If the call succeeds with at least one member, the API token + connectivity

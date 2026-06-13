@@ -9,8 +9,11 @@ import {
   Search,
   X,
 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { useJobLogs, useWebhookEvents } from '../hooks/useReports';
-import { useRetryFailedWebhooks } from '../hooks/useAdmin';
+import { useRetryFailedWebhooks, useDeadLetters, useRetryDeadLetter, useResolveDeadLetter } from '../hooks/useAdmin';
+import { useAuth } from '../hooks/useAuth';
+import type { DeadLetterJob } from '../api/admin';
 import { Callout } from '../components/ui/Callout';
 import { QueryError } from '../components/ui/QueryError';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -87,13 +90,33 @@ function webhookLatencyLabel(w: WebhookItem): string {
 }
 
 export function SyncLogsPage() {
-  const [activeTab, setActiveTab] = useState('runs');
+  const [searchParams] = useSearchParams();
+  const { hasRole } = useAuth();
+  const isAdmin = hasRole('ADMIN');
+
+  // Allow deep-linking to a specific tab (Overview's Dead-letters / Failed-jobs
+  // health tiles link here). Dead-letters is admin-only.
+  const initialTab = (() => {
+    const t = searchParams.get('tab');
+    if (t === 'webhooks' || t === 'runs') return t;
+    if (t === 'dead-letters' && isAdmin) return t;
+    return 'runs';
+  })();
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedJob, setSelectedJob] = useState<JobLogItem | null>(null);
   const [selectedWebhook, setSelectedWebhook] = useState<WebhookItem | null>(null);
   const [webhookSearch, setWebhookSearch] = useState('');
   const [webhookStatusFilter, setWebhookStatusFilter] = useState('all');
   const [webhookEventFilter, setWebhookEventFilter] = useState('all');
-  const [jobStatusFilter, setJobStatusFilter] = useState('all');
+  const [jobStatusFilter, setJobStatusFilter] = useState(() =>
+    searchParams.get('status') === 'failed' ? 'failed' : 'all',
+  );
+
+  const deadLetters = useDeadLetters(isAdmin);
+  const retryDeadLetter = useRetryDeadLetter();
+  const resolveDeadLetter = useResolveDeadLetter();
+  const dlItems: DeadLetterJob[] = Array.isArray(deadLetters.data?.items) ? deadLetters.data!.items : [];
+  const dlTotal = deadLetters.data?.total ?? 0;
 
   const jobLogs = useJobLogs({
     limit: 50,
@@ -180,6 +203,10 @@ export function SyncLogsPage() {
   const tabItems = [
     { value: 'runs', label: 'Sync runs', count: jobTotal > 0 ? jobTotal : undefined },
     { value: 'webhooks', label: 'Webhook events', count: webhookTotal > 0 ? webhookTotal : undefined },
+    // Dead-letter management is admin-only (the API 403s for members).
+    ...(isAdmin
+      ? [{ value: 'dead-letters', label: 'Dead letters', count: dlTotal > 0 ? dlTotal : undefined }]
+      : []),
   ];
 
   const runsLoading = jobLogs.isLoading;
@@ -626,6 +653,115 @@ export function SyncLogsPage() {
                       );
                     })
                   )}
+                </tbody>
+              </table>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'dead-letters' && isAdmin && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <QueryError query={deadLetters} what="dead-letter jobs" />
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
+            Jobs that exhausted every retry and fell off their queue.{' '}
+            <strong>Retry</strong> re-queues a job onto its original queue;{' '}
+            <strong>Resolve</strong> marks it won&rsquo;t-fix and removes it without re-running. The pending count drops as you clear them.
+          </p>
+          {deadLetters.isLoading ? (
+            <TableSkeleton />
+          ) : dlItems.length === 0 ? (
+            <Card padding={0}>
+              <EmptyState
+                icon={<CircleCheck size={20} />}
+                title="No dead letters"
+                body="Nothing is stuck — every job has succeeded or is still retrying."
+              />
+            </Card>
+          ) : (
+            <Card padding={0}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr
+                    style={{
+                      background: 'var(--muted-bg)',
+                      textTransform: 'uppercase',
+                      fontSize: 10,
+                      color: 'var(--text-muted)',
+                      letterSpacing: '0.05em',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <th style={{ textAlign: 'left', padding: '10px 16px' }}>Job</th>
+                    <th style={{ textAlign: 'left', padding: '10px 12px' }}>Entity</th>
+                    <th style={{ textAlign: 'left', padding: '10px 12px' }}>Error</th>
+                    <th style={{ textAlign: 'right', padding: '10px 12px', width: 70 }}>Attempts</th>
+                    <th style={{ textAlign: 'right', padding: '10px 12px', width: 120 }}>Failed</th>
+                    <th style={{ padding: '10px 16px', width: 180 }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {dlItems.map((d, i) => {
+                    const retrying = retryDeadLetter.isPending && retryDeadLetter.variables === d.id;
+                    const resolving = resolveDeadLetter.isPending && resolveDeadLetter.variables === d.id;
+                    const busy = retrying || resolving;
+                    return (
+                      <tr key={d.id} style={{ borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined }}>
+                        <td style={{ padding: '10px 16px' }}>
+                          <div style={{ fontWeight: 600, color: 'var(--text)' }}>{d.jobName}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{d.queueName}</div>
+                        </td>
+                        <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>
+                          {d.entityType ? `${d.entityType}${d.entityId ? ` ${d.entityId}` : ''}` : '—'}
+                        </td>
+                        <td
+                          style={{ padding: '10px 12px', color: 'var(--text)', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          title={d.errorMessage ?? undefined}
+                        >
+                          {d.errorMessage ?? '—'}
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>
+                          {d.attemptsMade ?? '—'}
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>
+                          {fmt.relative(d.failedAt)}
+                        </td>
+                        <td style={{ padding: '8px 16px' }}>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <Button
+                              size="sm"
+                              variant="default"
+                              icon={<RefreshCw size={12} />}
+                              loading={retrying}
+                              disabled={busy}
+                              onClick={() =>
+                                retryDeadLetter.mutate(d.id, {
+                                  onSuccess: () => showBanner(`Re-queued ${d.jobName} onto ${d.queueName}.`),
+                                  onError: (err) => showBanner(`Retry failed: ${(err as Error).message}`),
+                                })
+                              }
+                            >
+                              Retry
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              loading={resolving}
+                              disabled={busy}
+                              onClick={() =>
+                                resolveDeadLetter.mutate(d.id, {
+                                  onSuccess: () => showBanner(`Marked ${d.jobName} resolved.`),
+                                  onError: (err) => showBanner(`Resolve failed: ${(err as Error).message}`),
+                                })
+                              }
+                            >
+                              Resolve
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </Card>

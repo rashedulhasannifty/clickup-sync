@@ -32,24 +32,42 @@ function moneyAud(dollars: number) {
   return fmt.money(Math.round(dollars * 100));
 }
 
-// HealthIndicator matches the design's inline component
-function HealthIndicator({ status, label, value }: { status: 'healthy' | 'warning' | 'error'; label: string; value: string }) {
+// HealthIndicator matches the design's inline component. When `onClick` is
+// provided it renders as a button (a way to act on the metric, e.g. jump to the
+// dead-letter queue) with a chevron affordance.
+function HealthIndicator({ status, label, value, onClick }: { status: 'healthy' | 'warning' | 'error'; label: string; value: string; onClick?: () => void }) {
   const color = status === 'healthy' ? 'var(--green)' : status === 'warning' ? 'var(--amber)' : 'var(--red)';
   const bg = status === 'healthy' ? 'var(--pill-green-bg)' : status === 'warning' ? 'var(--pill-amber-bg)' : 'var(--pill-red-bg)';
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: 'var(--muted-bg)' }}>
+  const inner = (
+    <>
       <span style={{
         width: 8, height: 8, borderRadius: 999, background: color,
         boxShadow: `0 0 0 3px ${bg}`,
         animation: status === 'healthy' ? 'pulse 2s infinite' : 'none',
         flexShrink: 0,
       }} />
-      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
         <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500 }}>{label}</span>
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>
       </div>
-    </div>
+      {onClick && <ChevronRight size={14} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />}
+    </>
   );
+  const base: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 8, background: 'var(--muted-bg)' };
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        style={{ ...base, width: '100%', textAlign: 'left', border: '1px solid var(--border)', cursor: 'pointer', color: 'inherit', fontFamily: 'inherit' }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--hover)')}
+        onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--muted-bg)')}
+      >
+        {inner}
+      </button>
+    );
+  }
+  return <div style={base}>{inner}</div>;
 }
 
 type UserTimeRow    = { userName: string; totalHours: number; totalCostAud: number };
@@ -151,7 +169,7 @@ export function OverviewPage() {
       title: `${failedJobs} failed jobs (24h)`,
       body: 'Check queue logs for details',
       action: 'Open sync logs',
-      target: '/sync-logs',
+      target: '/sync-logs?tab=runs&status=failed',
     },
     deadLetters > 0 && {
       tone: 'amber' as const,
@@ -159,7 +177,7 @@ export function OverviewPage() {
       title: `${deadLetters} dead-letter jobs pending`,
       body: 'Unrecoverable jobs that need review',
       action: 'Review',
-      target: '/sync-logs',
+      target: '/sync-logs?tab=dead-letters',
     },
   ].filter(Boolean) as { tone: 'amber' | 'red'; icon: React.ReactNode; title: string; body: string; action: string; target: string }[];
 
@@ -299,8 +317,18 @@ export function OverviewPage() {
           <HealthIndicator status="healthy" label="Webhook endpoint" value="/webhooks/clickup" />
           <HealthIndicator status={latestEvent !== '—' ? 'healthy' : 'warning'} label="Latest event" value={latestEvent} />
           <HealthIndicator status="healthy" label="Successful events (24h)" value={`${webhooks24h} processed`} />
-          <HealthIndicator status={deadLetters > 0 ? 'warning' : 'healthy'} label="Dead letters" value={`${deadLetters} pending`} />
-          <HealthIndicator status={failedJobs > 0 ? 'error' : 'healthy'} label="Failed jobs (24h)" value={`${failedJobs} need retry`} />
+          <HealthIndicator
+            status={deadLetters > 0 ? 'warning' : 'healthy'}
+            label="Dead letters"
+            value={deadLetters > 0 ? `${deadLetters} pending` : 'none'}
+            onClick={() => navigate('/sync-logs?tab=dead-letters')}
+          />
+          <HealthIndicator
+            status={failedJobs > 0 ? 'error' : 'healthy'}
+            label="Failed jobs (24h)"
+            value={failedJobs > 0 ? `${failedJobs} need retry` : 'none'}
+            onClick={() => navigate('/sync-logs?tab=runs&status=failed')}
+          />
           <HealthIndicator status={lastSyncAt ? 'healthy' : 'warning'} label="Last task update" value={lastSyncAt ? fmt.relative(lastSyncAt) : '—'} />
         </div>
       </Card>
