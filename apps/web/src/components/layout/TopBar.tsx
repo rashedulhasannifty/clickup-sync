@@ -6,6 +6,7 @@ import { UserMenu } from './UserMenu';
 import { useGlobalFilters, type DateRange } from '../../hooks/useGlobalFilters';
 import { useSpaces, useSyncHealth } from '../../hooks/useReports';
 import { fmt } from '../../lib/formatters';
+import { currentTheme, toggleTheme as flipTheme } from '../../lib/theme';
 
 // Spaces in the project's CLICKUP_SPACES config. Used as a fallback label so
 // the three primary spaces always render with their friendly names even if the
@@ -92,7 +93,7 @@ export function TopBar({ onSearchClick, isMobile = false, onMenuClick }: {
   const { dateRange, space, setDateRange, setSpace, customFrom, customTo, setCustomFrom, setCustomTo } = useGlobalFilters();
   const { data: health } = useSyncHealth();
   const { data: spacesData } = useSpaces();
-  const [isDark, setIsDark] = useState(() => document.documentElement.getAttribute('data-theme') === 'dark');
+  const [isDark, setIsDark] = useState(() => currentTheme() === 'dark');
 
   // Build the space dropdown from actual aggregated data merged with configured
   // spaces. This surfaces any unconfigured space (e.g. a ClickUp space whose
@@ -121,12 +122,7 @@ export function TopBar({ onSearchClick, isMobile = false, onMenuClick }: {
   }, [spacesData]);
 
   function toggleTheme() {
-    const next = isDark ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', next);
-    // Persist so the choice survives reload (read by the inline script in
-    // index.html before first paint). Shares the 'theme' key with AuthShell.
-    try { localStorage.setItem('theme', next); } catch { /* ignore */ }
-    setIsDark(!isDark);
+    setIsDark(flipTheme() === 'dark');
   }
 
   // Defensively coerce: if the API returned an error envelope / HTML / unexpected

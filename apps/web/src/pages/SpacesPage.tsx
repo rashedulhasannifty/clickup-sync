@@ -163,6 +163,12 @@ function LookbackInput({ sid, controls }: { sid: string; controls: SyncControls 
   );
 }
 
+/** Completion %: closed tasks (total − open) over total, clamped to 0. */
+function completionPct(taskCount: number, openCount: number): number {
+  if (taskCount <= 0) return 0;
+  return Math.round((Math.max(0, taskCount - openCount) / taskCount) * 100);
+}
+
 function ProgressBar({ value = 0, color = 'var(--accent)', height = 6 }: { value?: number; color?: string; height?: number }) {
   const v = Math.max(0, Math.min(100, value));
   return (
@@ -209,7 +215,7 @@ function SpaceGrid({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncCon
         const color = spaceColor(space.spaceId);
         const totalHours = space.hoursLogged;
         const closedCount = Math.max(0, space.taskCount - space.openCount);
-        const donePct = space.taskCount > 0 ? Math.round((closedCount / space.taskCount) * 100) : 0;
+        const donePct = completionPct(space.taskCount, space.openCount);
         const initial = (displayName.slice(0, 1) || '?').toUpperCase();
         const sid = space.spaceId?.trim() ?? '';
         const isSyncing = syncingId === sid;
@@ -456,7 +462,7 @@ function WorkloadView({ spaces, controls }: { spaces: SpaceRow[]; controls: Sync
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{sp.memberCount > 0 ? fmt.number(sp.memberCount) : '—'}</td>
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.hours(sp.hoursLogged)}</td>
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                {sp.taskCount > 0 ? `${Math.round((Math.max(0, sp.taskCount - sp.openCount) / sp.taskCount) * 100)}%` : '—'}
+                {sp.taskCount > 0 ? `${completionPct(sp.taskCount, sp.openCount)}%` : '—'}
               </td>
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
                 {fmt.money(Math.round(Number(sp.costAud ?? 0) * 100))}

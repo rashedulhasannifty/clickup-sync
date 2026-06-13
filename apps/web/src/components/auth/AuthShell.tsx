@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Sun, Moon, Eye, EyeOff, ArrowRight, Loader2, type LucideIcon } from 'lucide-react';
+import { currentTheme, toggleTheme as flipTheme } from '../../lib/theme';
 
 // ── Brand mark ────────────────────────────────────────────────────────────────
 export function BrandMark({ size = 34, showText = true, sub = 'operations console' }: {
@@ -28,14 +29,9 @@ export function BrandMark({ size = 34, showText = true, sub = 'operations consol
 export function AuthShell({ children, maxWidth = 416 }: {
   children: React.ReactNode; maxWidth?: number;
 }) {
-  const [isDark, setIsDark] = useState(
-    () => document.documentElement.getAttribute('data-theme') === 'dark',
-  );
+  const [isDark, setIsDark] = useState(() => currentTheme() === 'dark');
   function toggleTheme() {
-    const next = isDark ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', next);
-    try { localStorage.setItem('theme', next); } catch { /* ignore */ }
-    setIsDark(!isDark);
+    setIsDark(flipTheme() === 'dark');
   }
   return (
     <div style={{
