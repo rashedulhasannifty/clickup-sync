@@ -581,7 +581,7 @@ export class ReportsService {
         description: e.description,
         syncedAt: e.syncedAt,
         rateId: e.rateId != null ? e.rateId.toString() : null,
-        currency: e.currency ?? 'AUD',
+        currency: e.currency ?? 'USD',
       })),
       total,
       limit: safeLimit,
@@ -908,7 +908,7 @@ export class ReportsService {
     const from = parseDate(fromParam, defaultFromForBucket(bucket));
     const to = parseDate(toParam, new Date());
 
-    // Build the bucket expression. Applied to `e.start_time AT TIME ZONE 'Asia/Dhaka'`
+    // Build the bucket expression. Applied to start_time converted to Dhaka local
     // for the aggregate, and to the input range for generate_series.
     // Use Prisma.raw() for the timezone string so it is emitted as a literal SQL
     // identifier rather than a parameterized placeholder. This keeps the timezone
@@ -926,7 +926,9 @@ export class ReportsService {
       bucket === 'week'  ? Prisma.sql`interval '1 week'`  :
                            Prisma.sql`interval '1 month'`;
 
-    const aggBucket    = bucketExpr(Prisma.sql`(e.start_time AT TIME ZONE ${TZ})`);
+    // `start_time` is a UTC-naive `timestamp` — label it UTC before converting to
+    // Dhaka, else the offset is applied backwards (−6h) and days are misbucketed.
+    const aggBucket    = bucketExpr(Prisma.sql`(e.start_time AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})`);
     const seriesStart  = bucketExpr(Prisma.sql`(${from}::timestamptz AT TIME ZONE ${TZ})`);
     const seriesEnd    = bucketExpr(Prisma.sql`(${to  }::timestamptz AT TIME ZONE ${TZ})`);
 
@@ -1005,7 +1007,7 @@ export class ReportsService {
       bucket === 'week'  ? Prisma.sql`interval '1 week'`  :
                            Prisma.sql`interval '1 month'`;
 
-    const aggBucket   = bucketExpr(Prisma.sql`(e.start_time AT TIME ZONE ${TZ})`);
+    const aggBucket   = bucketExpr(Prisma.sql`(e.start_time AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})`);
     const seriesStart = bucketExpr(Prisma.sql`(${from}::timestamptz AT TIME ZONE ${TZ})`);
     const seriesEnd   = bucketExpr(Prisma.sql`(${to  }::timestamptz AT TIME ZONE ${TZ})`);
 
@@ -1089,7 +1091,7 @@ export class ReportsService {
     const { from, to, groupBy } = args;
     const bucketExpr =
       groupBy === 'week'
-        ? Prisma.sql`to_char(date_trunc('week', (last_done AT TIME ZONE 'Asia/Dhaka') + interval '1 day') - interval '1 day', 'YYYY-MM-DD')`
+        ? Prisma.sql`to_char(date_trunc('week', (last_done AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Dhaka') + interval '1 day') - interval '1 day', 'YYYY-MM-DD')`
         : groupBy === 'client'
           ? Prisma.sql`COALESCE(NULLIF(t.client, ''), 'Unattributed')`
           : Prisma.sql`COALESCE(NULLIF(t.department, ''), 'Unattributed')`;
@@ -1221,6 +1223,13 @@ export class ReportsService {
    */
   async hourSpikes(cap: number, fromParam?: string, toParam?: string) {
     const TZ = Prisma.raw(`'Asia/Dhaka'`);
+    // `start_time` is `timestamp without time zone` holding a UTC instant. To
+    // bucket by Dhaka calendar day we must first label it UTC, THEN convert:
+    // `AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Dhaka'`. Applying `AT TIME ZONE
+    // 'Asia/Dhaka'` directly to the naive column treats the stored value as
+    // *already* Dhaka-local and shifts it the wrong way (−6h), mis-assigning
+    // late-evening-UTC entries to the previous day — which made watchlist day
+    // totals disagree with the time-entries deep link. Keep both AT TIME ZONEs.
     const defaultFrom = new Date();
     defaultFrom.setDate(defaultFrom.getDate() - 30);
     const from = parseDate(fromParam, defaultFrom);
@@ -1233,7 +1242,7 @@ export class ReportsService {
       this.prisma.$queryRaw<DayRow[]>(Prisma.sql`
       SELECT COALESCE(e.user_id, 'unknown')                        AS user_id,
              COALESCE(NULLIF(e.user_name, ''), e.user_id, 'Unknown') AS user_name,
-             to_char(date_trunc('day', e.start_time AT TIME ZONE ${TZ}), 'YYYY-MM-DD') AS day,
+             to_char(date_trunc('day', e.start_time AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}), 'YYYY-MM-DD') AS day,
              COALESCE(SUM(e.duration_hours), 0)::float             AS hours
       FROM clickup_time_entries e
       JOIN clickup_tasks t ON e.task_id = t.task_id
@@ -1245,7 +1254,7 @@ export class ReportsService {
       this.prisma.$queryRaw<DayRow[]>(Prisma.sql`
       SELECT COALESCE(e.user_id, 'unknown')                        AS user_id,
              COALESCE(NULLIF(e.user_name, ''), e.user_id, 'Unknown') AS user_name,
-             to_char(date_trunc('day', e.start_time AT TIME ZONE ${TZ}), 'YYYY-MM-DD') AS day,
+             to_char(date_trunc('day', e.start_time AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}), 'YYYY-MM-DD') AS day,
              COALESCE(SUM(e.duration_hours), 0)::float             AS hours
       FROM clickup_time_entries e
       JOIN clickup_tasks t ON e.task_id = t.task_id
@@ -1357,7 +1366,8 @@ export class ReportsService {
     const [dailyRows, clientRows] = await Promise.all([
       this.prisma.$queryRaw<DailyRow[]>(Prisma.sql`
         WITH daily_costs AS (
-          SELECT date_trunc('day', e.start_time AT TIME ZONE ${TZ}) AS day_local,
+          -- start_time is UTC-naive: label UTC before the Dhaka conversion (see hourSpikes).
+          SELECT date_trunc('day', e.start_time AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}) AS day_local,
                  SUM(e.cost_cents)::bigint AS day_cents
           FROM clickup_time_entries e
           JOIN clickup_tasks t ON e.task_id = t.task_id
@@ -1396,7 +1406,7 @@ export class ReportsService {
         ),
         baseline_weeks AS (
           SELECT t.client,
-                 (date_trunc('week', (e.start_time AT TIME ZONE ${TZ}) + interval '1 day') - interval '1 day') AS week_local,
+                 (date_trunc('week', (e.start_time AT TIME ZONE 'UTC' AT TIME ZONE ${TZ}) + interval '1 day') - interval '1 day') AS week_local,
                  SUM(e.cost_cents)::bigint AS week_cents
           FROM clickup_time_entries e
           JOIN clickup_tasks t ON e.task_id = t.task_id
