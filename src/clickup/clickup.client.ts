@@ -59,8 +59,18 @@ export class ClickupClient {
         await this.sleep(waitMs);
         return this.request<T>(method, path, data, attempt + 1);
       }
+      // Surface ClickUp's actual response body. Axios's error.message is just
+      // "Request failed with status code 400" — the real reason (e.g.
+      // { err: "...", ECODE: "..." }) lives in error.response.data and was
+      // being discarded, making 4xx failures impossible to diagnose from logs.
+      const body = error?.response?.data;
+      const detail = body
+        ? typeof body === "string"
+          ? body
+          : JSON.stringify(body)
+        : "";
       this.logger.error(
-        `ClickUp ${method} ${path} failed: ${status || ""} ${error?.message}`,
+        `ClickUp ${method} ${path} failed: ${status || ""} ${error?.message}${detail ? ` — ${detail}` : ""}`,
       );
       throw error;
     }
