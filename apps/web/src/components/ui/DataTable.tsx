@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Button } from './Button';
 import { EmptyState } from './EmptyState';
 import { Select } from './Select';
+import { Skeleton } from './Skeleton';
 
 export interface Column<T> {
   key: string;
@@ -208,16 +209,25 @@ export function DataTable<T extends { [key: string]: unknown }>({
             </thead>
             <tbody>
               {loading ? (
-                <tr style={{ height: rowH }}>
-                  <td colSpan={visibleCols.length} style={{ padding: cellPad, color: 'var(--text-muted)', fontSize: 13 }}>
-                    Loading…
-                  </td>
-                </tr>
+                Array.from({ length: 8 }).map((_, r) => (
+                  <tr key={`sk-${r}`} style={{ height: rowH }}>
+                    {visibleCols.map((col, c) => (
+                      <td key={col.key} style={{ padding: cellPad, borderBottom: '1px solid var(--border-soft)' }}>
+                        <Skeleton height={12} width={c === 0 ? '70%' : '45%'} />
+                      </td>
+                    ))}
+                  </tr>
+                ))
               ) : (
                 sorted.map((row, idx) => (
                   <tr
                     key={String(rowId(row, idx))}
                     onClick={() => onRowClick?.(row)}
+                    role={onRowClick ? 'button' : undefined}
+                    tabIndex={onRowClick ? 0 : undefined}
+                    onKeyDown={onRowClick ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(row); }
+                    } : undefined}
                     style={{
                       cursor: onRowClick ? 'pointer' : 'default',
                       height: rowH,
@@ -380,11 +390,15 @@ export function DataTable<T extends { [key: string]: unknown }>({
           </thead>
           <tbody>
             {loading ? (
-              <tr>
-                <td colSpan={visibleCols.length} className="px-3 py-6 text-center text-(--text-muted)">
-                  Loading…
-                </td>
-              </tr>
+              Array.from({ length: 8 }).map((_, r) => (
+                <tr key={`sk-${r}`} className="border-b border-(--border-soft)">
+                  {visibleCols.map((col, c) => (
+                    <td key={col.key} className="px-3 py-2.5">
+                      <Skeleton height={12} width={c === 0 ? '70%' : '45%'} />
+                    </td>
+                  ))}
+                </tr>
+              ))
             ) : sorted.length === 0 ? (
               <tr>
                 <td colSpan={visibleCols.length}>
@@ -397,6 +411,11 @@ export function DataTable<T extends { [key: string]: unknown }>({
                   key={String(rowId(row, i))}
                   className={`border-b border-(--border-soft) last:border-0 ${i % 2 === 1 ? 'bg-(--surface-alt)' : 'bg-(--surface)'} ${onRowClick ? 'cursor-pointer hover:bg-(--hover)' : ''} transition-colors`}
                   onClick={() => onRowClick?.(row)}
+                  role={onRowClick ? 'button' : undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  onKeyDown={onRowClick ? (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(row); }
+                  } : undefined}
                 >
                   {visibleCols.map(col => (
                     <td

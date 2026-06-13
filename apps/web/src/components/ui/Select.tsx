@@ -18,6 +18,8 @@ interface SelectProps {
   icon?: ReactNode;
   /** Stretch trigger to parent width (forms / modals). */
   fullWidth?: boolean;
+  /** Accessible name for screen readers when there's no visible <label>. */
+  ariaLabel?: string;
 }
 
 export function Select({
@@ -30,6 +32,7 @@ export function Select({
   disabled,
   icon,
   fullWidth,
+  ariaLabel,
 }: SelectProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -57,6 +60,9 @@ export function Select({
       <button
         type="button"
         disabled={disabled}
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
         onClick={() => !disabled && setOpen((o) => !o)}
         style={{
           display: 'inline-flex',

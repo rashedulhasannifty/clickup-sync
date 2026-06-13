@@ -42,7 +42,7 @@ export function AuditLogPage() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
         <ShieldCheck size={14} style={{ color: 'var(--text-muted)' }} />
         <div style={{ flex: 1, maxWidth: 280 }}>
-          <Input placeholder="Filter by actor (X-Admin-User)…" value={actor} onChange={(e) => setActor(e.target.value)} />
+          <Input aria-label="Filter by actor" placeholder="Filter by actor…" value={actor} onChange={(e) => setActor(e.target.value)} />
         </div>
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -73,6 +73,9 @@ export function AuditLogPage() {
                   <tr
                     key={row.id}
                     onClick={() => setSelected(row)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(row); } }}
                     style={{ borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined, cursor: 'pointer' }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--hover)')}
                     onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}

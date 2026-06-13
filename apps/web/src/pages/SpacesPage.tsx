@@ -155,6 +155,7 @@ function LookbackInput({ sid, controls }: { sid: string; controls: SyncControls 
         value={controls.lookbackText(sid)}
         onChange={(e) => controls.onLookbackChange(sid, e.target.value)}
         disabled={!sid}
+        aria-label="Lookback days"
         style={{ width: 64 }}
       />
       <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>days back</span>

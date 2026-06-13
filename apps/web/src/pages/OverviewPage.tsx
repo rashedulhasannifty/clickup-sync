@@ -340,6 +340,9 @@ export function OverviewPage() {
                   <tr
                     key={e.id}
                     onClick={() => navigate('/sync-logs')}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); navigate('/sync-logs'); } }}
                     style={{ cursor: 'pointer', borderBottom: '1px solid var(--border-soft)' }}
                     onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.background = 'var(--hover)'}
                     onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.background = 'transparent'}

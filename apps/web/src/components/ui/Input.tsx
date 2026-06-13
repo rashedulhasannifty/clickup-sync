@@ -11,6 +11,7 @@ export function Input({ icon, error, className = '', ...props }: InputProps) {
       {icon && <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-faint)] pointer-events-none">{icon}</span>}
       <input
         {...props}
+        aria-invalid={error ? true : undefined}
         className={`w-full bg-[var(--surface)] border ${error ? 'border-[var(--red)]' : 'border-[var(--border)]'} text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] transition-colors ${className}`}
         style={{
           height: 32,

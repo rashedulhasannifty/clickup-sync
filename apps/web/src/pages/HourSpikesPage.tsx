@@ -121,6 +121,7 @@ export function HourSpikesPage() {
         action={
           users.length > 0 ? (
             <Select
+              ariaLabel="Select user"
               size="sm"
               value={effectiveUserId}
               onChange={setSelectedUserId}

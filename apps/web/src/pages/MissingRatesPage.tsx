@@ -514,9 +514,10 @@ export function MissingRatesPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search assignee…"
+            aria-label="Search assignees"
           />
         </div>
-        <Select size="md" value={severityFilter} onChange={setSeverityFilter} options={SEVERITY_OPTIONS} />
+        <Select ariaLabel="Filter by severity" size="md" value={severityFilter} onChange={setSeverityFilter} options={SEVERITY_OPTIONS} />
         <span style={{ flex: 1 }} />
         <Button
           size="md"

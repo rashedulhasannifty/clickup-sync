@@ -271,6 +271,7 @@ export function AssigneeRatesPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search assignee…"
+            aria-label="Search assignees"
           />
         </div>
         <label

@@ -712,16 +712,17 @@ export function TasksPage() {
             value={searchRaw}
             onChange={e => setSearchRaw(e.target.value)}
             placeholder="Search task name, ID, assignee, client…"
+            aria-label="Search tasks"
           />
         </div>
-        <Select size="md" value={statusFilter} onChange={v => { setStatusFilter(v); setPage(1); }} options={statusOptions} />
-        <Select size="md" value={priorityFilter} onChange={v => { setPriorityFilter(v); setPage(1); }} options={PRIORITY_OPTIONS} />
-        <Select size="md" value={assigneeFilter} onChange={v => { setAssigneeFilter(v); setPage(1); }} options={assigneeOptions} />
-        <Select size="md" value={clientFilter} onChange={v => { setClientFilter(v); setPage(1); }} options={clientOptions} />
-        <Select size="md" value={folderFilter} onChange={v => { setFolderFilter(v); setPage(1); }} options={folderOptions} />
-        <Select size="md" value={listFilter} onChange={v => { setListFilter(v); setPage(1); }} options={listOptions} />
-        <Select size="md" value={typeFilter} onChange={v => { setTypeFilter(v); setPage(1); }} options={TYPE_OPTIONS} />
-        <Select size="md" value={archivedFilter} onChange={v => { setArchivedFilter(v); setPage(1); }} options={ARCHIVED_OPTIONS} />
+        <Select ariaLabel="Filter by status" size="md" value={statusFilter} onChange={v => { setStatusFilter(v); setPage(1); }} options={statusOptions} />
+        <Select ariaLabel="Filter by priority" size="md" value={priorityFilter} onChange={v => { setPriorityFilter(v); setPage(1); }} options={PRIORITY_OPTIONS} />
+        <Select ariaLabel="Filter by assignee" size="md" value={assigneeFilter} onChange={v => { setAssigneeFilter(v); setPage(1); }} options={assigneeOptions} />
+        <Select ariaLabel="Filter by client" size="md" value={clientFilter} onChange={v => { setClientFilter(v); setPage(1); }} options={clientOptions} />
+        <Select ariaLabel="Filter by folder" size="md" value={folderFilter} onChange={v => { setFolderFilter(v); setPage(1); }} options={folderOptions} />
+        <Select ariaLabel="Filter by list" size="md" value={listFilter} onChange={v => { setListFilter(v); setPage(1); }} options={listOptions} />
+        <Select ariaLabel="Filter by type" size="md" value={typeFilter} onChange={v => { setTypeFilter(v); setPage(1); }} options={TYPE_OPTIONS} />
+        <Select ariaLabel="Filter by archived state" size="md" value={archivedFilter} onChange={v => { setArchivedFilter(v); setPage(1); }} options={ARCHIVED_OPTIONS} />
         {hasFilters && (
           <Button size="md" variant="ghost" icon={<X size={13} strokeWidth={1.75} />} onClick={reset}>Reset</Button>
         )}

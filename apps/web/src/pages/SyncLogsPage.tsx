@@ -268,7 +268,7 @@ export function SyncLogsPage() {
             }}
           >
             <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>Status</span>
-            <Select size="md" options={JOB_STATUS_OPTIONS} value={jobStatusFilter} onChange={setJobStatusFilter} />
+            <Select ariaLabel="Filter runs by status" size="md" options={JOB_STATUS_OPTIONS} value={jobStatusFilter} onChange={setJobStatusFilter} />
             <span style={{ flex: 1 }} />
             {jobStatusFilter === 'failed' && (
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -329,6 +329,9 @@ export function SyncLogsPage() {
                         <tr
                           key={r.id}
                           onClick={() => setSelectedJob(r)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedJob(r); } }}
                           style={{
                             borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined,
                             cursor: 'pointer',
@@ -478,15 +481,17 @@ export function SyncLogsPage() {
                 value={webhookSearch}
                 onChange={(e) => setWebhookSearch(e.target.value)}
                 placeholder="Search event ID, task…"
+                aria-label="Search webhook events"
               />
             </div>
             <Select
+              ariaLabel="Filter webhooks by status"
               size="md"
               options={WEBHOOK_STATUS_OPTIONS}
               value={webhookStatusFilter}
               onChange={setWebhookStatusFilter}
             />
-            <Select size="md" options={eventTypeOptions} value={webhookEventFilter} onChange={setWebhookEventFilter} />
+            <Select ariaLabel="Filter webhooks by event type" size="md" options={eventTypeOptions} value={webhookEventFilter} onChange={setWebhookEventFilter} />
             {failedWebhooks.length > 0 && (
               <Button
                 size="md"
@@ -549,6 +554,9 @@ export function SyncLogsPage() {
                         <tr
                           key={e.id}
                           onClick={() => setSelectedWebhook(e)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setSelectedWebhook(e); } }}
                           style={{
                             borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined,
                             cursor: 'pointer',
