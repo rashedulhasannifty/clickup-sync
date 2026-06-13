@@ -279,6 +279,29 @@ export class AdminController {
     return { requeued: true, id, queueName: record.queueName, jobName: record.jobName };
   }
 
+  @Post('dead-letters/retry-all')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Re-queue every pending dead-letter job onto its original queue' })
+  async retryAllDeadLetters() {
+    // High limit so a single click clears the whole backlog, not just one page.
+    const { items } = await this.deadLetters.findPending(1000, 0);
+    let requeued = 0;
+    for (const item of items) {
+      // Per-item guard: one poison record (e.g. an unknown queue name) must not
+      // abort the rest of the batch.
+      try {
+        const record = await this.deadLetters.findById(item.id);
+        if (!record) continue;
+        await this.queues.get(record.queueName).add(record.jobName, record.payload, this.queues.defaultJobOptions());
+        await this.deadLetters.markRetried(record.id);
+        requeued += 1;
+      } catch {
+        /* skip and continue */
+      }
+    }
+    return { requeued, scanned: items.length };
+  }
+
   @Post('dead-letters/:id/resolve')
   @HttpCode(200)
   @ApiOperation({ summary: 'Mark a dead-letter job resolved/won’t-fix (removes it from the pending list without re-queueing). For poison payloads that can never succeed.' })

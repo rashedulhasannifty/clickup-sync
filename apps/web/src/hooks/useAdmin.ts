@@ -102,6 +102,14 @@ export function useResolveDeadLetter() {
   });
 }
 
+export function useRetryAllDeadLetters() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: adminApi.retryAllDeadLetters,
+    onSuccess: () => invalidateDeadLetterViews(qc),
+  });
+}
+
 /**
  * Probes the ClickUp API by fetching workspace members through our backend.
  * If the call succeeds with at least one member, the API token + connectivity

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useJobLogs, useWebhookEvents } from '../hooks/useReports';
-import { useRetryFailedWebhooks, useDeadLetters, useRetryDeadLetter, useResolveDeadLetter } from '../hooks/useAdmin';
+import { useRetryFailedWebhooks, useDeadLetters, useRetryDeadLetter, useResolveDeadLetter, useRetryAllDeadLetters } from '../hooks/useAdmin';
 import { useAuth } from '../hooks/useAuth';
 import type { DeadLetterJob } from '../api/admin';
 import { Callout } from '../components/ui/Callout';
@@ -115,6 +115,7 @@ export function SyncLogsPage() {
   const deadLetters = useDeadLetters(isAdmin);
   const retryDeadLetter = useRetryDeadLetter();
   const resolveDeadLetter = useResolveDeadLetter();
+  const retryAllDeadLetters = useRetryAllDeadLetters();
   const dlItems: DeadLetterJob[] = Array.isArray(deadLetters.data?.items) ? deadLetters.data!.items : [];
   const dlTotal = deadLetters.data?.total ?? 0;
 
@@ -663,11 +664,30 @@ export function SyncLogsPage() {
       {activeTab === 'dead-letters' && isAdmin && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <QueryError query={deadLetters} what="dead-letter jobs" />
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0 }}>
-            Jobs that exhausted every retry and fell off their queue.{' '}
-            <strong>Retry</strong> re-queues a job onto its original queue;{' '}
-            <strong>Resolve</strong> marks it won&rsquo;t-fix and removes it without re-running. The pending count drops as you clear them.
-          </p>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: 0, flex: 1, minWidth: 240 }}>
+              Jobs that exhausted every retry and fell off their queue.{' '}
+              <strong>Retry</strong> re-queues a job onto its original queue;{' '}
+              <strong>Resolve</strong> marks it won&rsquo;t-fix and removes it without re-running. The pending count drops as you clear them.
+            </p>
+            {dlItems.length > 0 && (
+              <Button
+                size="sm"
+                variant="default"
+                icon={<RefreshCw size={12} />}
+                loading={retryAllDeadLetters.isPending}
+                disabled={retryDeadLetter.isPending || resolveDeadLetter.isPending}
+                onClick={() =>
+                  retryAllDeadLetters.mutate(undefined, {
+                    onSuccess: (r) => showBanner(`Re-queued ${r.requeued} dead-letter job${r.requeued === 1 ? '' : 's'}.`),
+                    onError: (err) => showBanner(`Retry all failed: ${(err as Error).message}`),
+                  })
+                }
+              >
+                Retry all ({dlItems.length})
+              </Button>
+            )}
+          </div>
           {deadLetters.isLoading ? (
             <TableSkeleton />
           ) : dlItems.length === 0 ? (
@@ -704,7 +724,7 @@ export function SyncLogsPage() {
                   {dlItems.map((d, i) => {
                     const retrying = retryDeadLetter.isPending && retryDeadLetter.variables === d.id;
                     const resolving = resolveDeadLetter.isPending && resolveDeadLetter.variables === d.id;
-                    const busy = retrying || resolving;
+                    const busy = retrying || resolving || retryAllDeadLetters.isPending;
                     return (
                       <tr key={d.id} style={{ borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined }}>
                         <td style={{ padding: '10px 16px' }}>

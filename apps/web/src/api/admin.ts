@@ -60,6 +60,8 @@ export const adminApi = {
       .then((r) => ({ items: Array.isArray(r.data?.items) ? r.data.items : [], total: r.data?.total ?? 0 })),
   retryDeadLetter: (id: string) =>
     apiClient.post(`/admin/dead-letters/${id}/retry`).then((r) => r.data as { requeued: boolean; id: string }),
+  retryAllDeadLetters: () =>
+    apiClient.post('/admin/dead-letters/retry-all').then((r) => r.data as { requeued: number; scanned: number }),
   resolveDeadLetter: (id: string) =>
     apiClient.post(`/admin/dead-letters/${id}/resolve`).then((r) => r.data as { resolved: boolean; id: string }),
   workspaceMembers: (): Promise<WorkspaceMember[]> => apiClient.get('/admin/workspace-members').then(r => r.data),
