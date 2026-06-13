@@ -57,7 +57,7 @@ export function AppLayout() {
           isMobile={isMobile}
           onMenuClick={() => setMobileNavOpen(true)}
         />
-        <main style={{ flex: 1, overflowY: 'auto', padding: '20px 24px 60px', maxWidth: 1480, width: '100%', margin: '0 auto' }}>
+        <main style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '14px 14px 48px' : '20px 24px 60px', maxWidth: 1480, width: '100%', margin: '0 auto' }}>
           <Outlet />
         </main>
       </div>
