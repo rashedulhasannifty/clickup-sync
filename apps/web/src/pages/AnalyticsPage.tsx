@@ -22,6 +22,7 @@ import { CostTrendCard } from '../components/charts/CostTrendCard';
 import { AssigneeCostTrendCard } from '../components/charts/AssigneeCostTrendCard';
 import { CycleTimeCard } from '../components/charts/CycleTimeCard';
 import { fmt } from '../lib/formatters';
+import { toCsv, downloadCsv, csvFilename } from '../lib/csv';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 
 // Backend returns dollars; fmt.money expects cents. USD is the project currency.
@@ -173,12 +174,37 @@ export function AnalyticsPage() {
     label, value, color: SPACE_COLORS[i % SPACE_COLORS.length],
   }));
 
+  // Flatten every breakdown on the page into one long-format CSV. Costs/hours
+  // are emitted as raw numbers (not "$1,234.00") so they stay spreadsheet-usable;
+  // empty cells where a metric doesn't apply to that category.
+  function handleExport() {
+    type Row = { category: string; label: string; hours?: number; cost?: number; tasks?: number; points?: number };
+    const rows: Row[] = [];
+    tasksByStatusData.forEach((d) => rows.push({ category: 'Tasks by status', label: d.label, tasks: d.value }));
+    tasksBySpaceData.forEach((d) => rows.push({ category: 'Tasks by space', label: d.label, tasks: d.value }));
+    userRows.forEach((r) => rows.push({ category: 'Time by assignee', label: r.userName, hours: r.totalHours, cost: r.totalCostAud }));
+    clientRows.forEach((r) => rows.push({ category: 'Time by client', label: r.client, hours: r.totalHours, cost: r.totalCostAud }));
+    deptRows.forEach((r) => rows.push({ category: 'Time by department', label: r.department, hours: r.totalHours, cost: r.totalCostAud }));
+    sprintData.forEach((d) => rows.push({ category: 'Sprint points by space', label: d.label, points: d.value }));
+    downloadCsv(
+      csvFilename('analytics'),
+      toCsv(rows, [
+        { header: 'Category', value: 'category' },
+        { header: 'Label', value: 'label' },
+        { header: 'Hours', value: (r) => (r.hours != null ? r.hours.toFixed(2) : '') },
+        { header: 'Cost (USD)', value: (r) => (r.cost != null ? r.cost.toFixed(2) : '') },
+        { header: 'Tasks', value: (r) => r.tasks ?? '' },
+        { header: 'Points', value: (r) => r.points ?? '' },
+      ]),
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       <PageHeader
         title="Analytics"
         description="Cost, time, and delivery analytics across your ClickUp workspace."
-        actions={<Button variant="accent" icon={<Download size={13} strokeWidth={1.75} />}>Export</Button>}
+        actions={<Button variant="accent" icon={<Download size={13} strokeWidth={1.75} />} onClick={handleExport}>Export</Button>}
       />
 
       <QueryError

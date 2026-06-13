@@ -5,6 +5,14 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ClickUp Sync Dashboard</title>
+    <!-- Apply the saved theme before first paint to avoid a light→dark flash.
+         Mirrors the 'theme' key written by AuthShell and the TopBar toggle. -->
+    <script>
+      try {
+        var t = localStorage.getItem('theme');
+        if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

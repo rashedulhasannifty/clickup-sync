@@ -76,13 +76,14 @@ export function WebhookEventDrawer({ item, onClose }: WebhookEventDrawerProps) {
         {/* JSON viewer */}
         <pre
           style={{
-            background: '#000',
+            background: 'var(--code-bg)',
+            border: '1px solid var(--border)',
             borderRadius: 'var(--radius)',
             padding: '12px 16px',
-            fontFamily: 'monospace',
+            fontFamily: 'var(--font-mono)',
             fontSize: 12,
             lineHeight: '1.6',
-            color: '#d4d4d4',
+            color: 'var(--text)',
             overflow: 'auto',
             maxHeight: 280,
             margin: 0,

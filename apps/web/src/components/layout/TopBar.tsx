@@ -119,6 +119,9 @@ export function TopBar({ onSearchClick }: { onSearchClick?: () => void }) {
   function toggleTheme() {
     const next = isDark ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
+    // Persist so the choice survives reload (read by the inline script in
+    // index.html before first paint). Shares the 'theme' key with AuthShell.
+    try { localStorage.setItem('theme', next); } catch { /* ignore */ }
     setIsDark(!isDark);
   }
 

@@ -20,7 +20,9 @@ import { Pill } from '../components/ui/Pill';
 import { Button } from '../components/ui/Button';
 import { AnomaliesPanel } from '../components/AnomaliesPanel';
 import { fmt } from '../lib/formatters';
+import { toCsv, downloadCsv, csvFilename } from '../lib/csv';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
+import { useQueryClient } from '@tanstack/react-query';
 
 // Backend returns dollars; fmt.money expects cents. USD is the project currency
 // (default in fmt.money), so no need to pass it explicitly.
@@ -63,6 +65,7 @@ type TasksSummary   = {
 
 export function OverviewPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   // `dateRangeLabel` mirrors the topbar selection ("last 24h", "last 30d", or
   // a custom-range pair). The time/cost cards' sublabels used to hardcode
   // "last 30d" regardless of what the user picked — values were correct but
@@ -158,6 +161,37 @@ export function OverviewPage() {
     },
   ].filter(Boolean) as { tone: 'amber' | 'red'; icon: React.ReactNode; title: string; body: string; action: string; target: string }[];
 
+  // Export a human-readable snapshot of the dashboard KPIs as CSV. The page has
+  // no single tabular dataset, so we flatten the headline metrics into
+  // Metric,Value rows — enough to drop into a status report or spreadsheet.
+  function handleExport() {
+    const rows = [
+      { metric: 'Total tasks', value: totalTasks },
+      { metric: 'Open tasks', value: openTasks },
+      { metric: 'Closed tasks', value: closedTasks },
+      { metric: `Time tracked (${dateRangeLabel})`, value: fmt.hours(totalHours) },
+      { metric: `Calculated cost (${dateRangeLabel})`, value: moneyAud(totalCost) },
+      { metric: 'Missing rates', value: missingRates },
+      { metric: 'Webhooks (24h)', value: webhooks24h },
+      { metric: 'Failed jobs (24h)', value: failedJobs },
+      { metric: 'Dead-letter pending', value: deadLetters },
+      { metric: 'Last successful sync', value: lastSyncAt ? new Date(lastSyncAt).toISOString() : '—' },
+    ];
+    downloadCsv(
+      csvFilename('overview-summary'),
+      toCsv(rows, [
+        { header: 'Metric', value: 'metric' },
+        { header: 'Value', value: 'value' },
+      ]),
+    );
+  }
+
+  // Refetch the dashboard's queries in place instead of a full document reload —
+  // keeps scroll position, theme, and avoids re-downloading the bundle.
+  function handleRefresh() {
+    void queryClient.invalidateQueries();
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
 
@@ -167,8 +201,9 @@ export function OverviewPage() {
         actions={
           <>
             <Button variant="default" icon={<RefreshCw size={13} strokeWidth={1.75} />}
-              onClick={() => window.location.reload()}>Refresh</Button>
-            <Button variant="accent" icon={<Download size={13} strokeWidth={1.75} />}>Export</Button>
+              onClick={handleRefresh}>Refresh</Button>
+            <Button variant="accent" icon={<Download size={13} strokeWidth={1.75} />}
+              onClick={handleExport}>Export</Button>
           </>
         }
       />

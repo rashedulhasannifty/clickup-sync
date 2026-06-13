@@ -154,3 +154,34 @@ input, select, textarea {
 ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
 
 [data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(0.7); }
+
+/* ── Accessibility ──────────────────────────────────────────────────────────
+   A single, keyboard-only focus ring for every interactive element. Implemented
+   as a box-shadow (not outline) on purpose: several controls — notably the
+   custom Select trigger — set `outline: none` inline, which would override any
+   stylesheet outline rule. box-shadow isn't touched by `outline: none`, follows
+   the element's border-radius, and reliably shows through. The inner ring uses
+   the surface color so the accent ring reads as an offset halo on any bg. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible,
+[role="switch"]:focus-visible,
+[tabindex="0"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
+
+/* Respect the OS "reduce motion" setting: kill the pulse/shimmer/slide
+   animations and snap transitions so motion-sensitive users aren't subjected
+   to the perpetual sync-dot pulse, skeleton shimmer, drawer slide, etc. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

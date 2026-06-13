@@ -532,21 +532,19 @@ export function SyncLogsPage() {
                     <th style={{ textAlign: 'left', padding: '10px 12px' }}>Task</th>
                     <th style={{ textAlign: 'left', padding: '10px 12px' }}>Received</th>
                     <th style={{ textAlign: 'right', padding: '10px 12px' }}>Latency</th>
-                    <th style={{ textAlign: 'right', padding: '10px 12px' }}>Attempts</th>
                     <th style={{ width: 60, padding: '10px 16px' }} />
                   </tr>
                 </thead>
                 <tbody>
                   {filteredWebhooks.length === 0 ? (
                     <tr>
-                      <td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
+                      <td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>
                         No webhook events
                       </td>
                     </tr>
                   ) : (
                     filteredWebhooks.map((e, i) => {
                       const ok = e.status === 'processed';
-                      const attempts = 1;
                       return (
                         <tr
                           key={e.id}
@@ -605,16 +603,6 @@ export function SyncLogsPage() {
                             }}
                           >
                             {webhookLatencyLabel(e)}
-                          </td>
-                          <td
-                            style={{
-                              padding: '10px 12px',
-                              textAlign: 'right',
-                              fontVariantNumeric: 'tabular-nums',
-                              color: attempts > 1 ? 'var(--amber)' : 'var(--text-muted)',
-                            }}
-                          >
-                            {attempts}
                           </td>
                           <td style={{ padding: '10px 16px', textAlign: 'right', color: 'var(--text-faint)' }}>
                             <ChevronRight size={14} />
