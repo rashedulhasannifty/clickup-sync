@@ -9,7 +9,7 @@ import { TagAssigneeMapRepository } from './tag-assignee-map.repository';
 import { TasksRepository } from '../tasks/tasks.repository';
 import { TasksService } from '../tasks/tasks.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
-import { ReplacementJobData } from './assignee-replacement.service';
+import { ReplacementJobData, replacementJobId } from './assignee-replacement.service';
 import { ClickUpTimeEntry } from '../clickup/clickup.types';
 import { resolveTimeEntriesWindow } from '../clickup/time-entries.util';
 import { SettingsService } from '../settings/settings.service';
@@ -162,8 +162,9 @@ export class TimeEntriesService {
           // Deterministic jobId so the same time entry can't be processed by two
           // concurrent replacement jobs (which would each create a ClickUp entry
           // = duplicate). BullMQ keeps one job per id; the worker's own audit-row
-          // check handles idempotency across time.
-          { ...this.queues.defaultJobOptions(), jobId: `replace:${normalized.timeEntryId}` },
+          // check handles idempotency across time. NB: jobId must not contain ':'
+          // (BullMQ rejects it) — replacementJobId() uses a '-' separator.
+          { ...this.queues.defaultJobOptions(), jobId: replacementJobId(normalized.timeEntryId) },
         );
       }
     }

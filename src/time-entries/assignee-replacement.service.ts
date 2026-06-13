@@ -21,6 +21,17 @@ export interface ReplacementJobData {
   tags: string[];
 }
 
+/**
+ * Deterministic BullMQ jobId for a time entry's replacement job (one per entry,
+ * so the same entry can't be processed by two concurrent jobs = duplicate
+ * ClickUp entries). MUST NOT contain ':' — BullMQ uses ':' as its Redis key
+ * separator and rejects custom job ids that contain it with the (misleading)
+ * error "Custom Id cannot contain :". Use '-' as the separator.
+ */
+export function replacementJobId(timeEntryId: string): string {
+  return `replace-${timeEntryId}`;
+}
+
 @Injectable()
 export class AssigneeReplacementService {
   private readonly logger = new Logger(AssigneeReplacementService.name);

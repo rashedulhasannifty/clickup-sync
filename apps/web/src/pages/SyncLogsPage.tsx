@@ -712,7 +712,7 @@ export function SyncLogsPage() {
                           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{d.queueName}</div>
                         </td>
                         <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>
-                          {d.entityType ? `${d.entityType}${d.entityId ? ` ${d.entityId}` : ''}` : '—'}
+                          {[d.entityType, d.entityId].filter(Boolean).join(' ') || '—'}
                         </td>
                         <td
                           style={{ padding: '10px 12px', color: 'var(--text)', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}

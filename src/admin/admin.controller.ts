@@ -16,6 +16,7 @@ import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { SettingsService } from '../settings/settings.service';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
+import { replacementJobId } from '../time-entries/assignee-replacement.service';
 import { PrismaService } from '../database/prisma.service';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { DeadLetterRepository } from '../jobs/dead-letter.repository';
@@ -315,7 +316,7 @@ export class AdminController {
         },
         // Same deterministic jobId as the webhook-driven enqueue so a backfill
         // and a live sync can't both spawn a replacement for the same entry.
-        { ...this.queues.defaultJobOptions(), jobId: `replace:${entry.time_entry_id}` },
+        { ...this.queues.defaultJobOptions(), jobId: replacementJobId(entry.time_entry_id) },
       );
       queued += 1;
     }
