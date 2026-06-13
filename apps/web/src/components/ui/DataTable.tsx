@@ -3,6 +3,7 @@ import { Button } from './Button';
 import { EmptyState } from './EmptyState';
 import { Select } from './Select';
 import { Skeleton } from './Skeleton';
+import { onActivate } from '../../lib/a11y';
 
 export interface Column<T> {
   key: string;
@@ -223,11 +224,8 @@ export function DataTable<T extends { [key: string]: unknown }>({
                   <tr
                     key={String(rowId(row, idx))}
                     onClick={() => onRowClick?.(row)}
-                    role={onRowClick ? 'button' : undefined}
                     tabIndex={onRowClick ? 0 : undefined}
-                    onKeyDown={onRowClick ? (e) => {
-                      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(row); }
-                    } : undefined}
+                    onKeyDown={onRowClick ? onActivate(() => onRowClick(row)) : undefined}
                     style={{
                       cursor: onRowClick ? 'pointer' : 'default',
                       height: rowH,
@@ -411,11 +409,8 @@ export function DataTable<T extends { [key: string]: unknown }>({
                   key={String(rowId(row, i))}
                   className={`border-b border-(--border-soft) last:border-0 ${i % 2 === 1 ? 'bg-(--surface-alt)' : 'bg-(--surface)'} ${onRowClick ? 'cursor-pointer hover:bg-(--hover)' : ''} transition-colors`}
                   onClick={() => onRowClick?.(row)}
-                  role={onRowClick ? 'button' : undefined}
                   tabIndex={onRowClick ? 0 : undefined}
-                  onKeyDown={onRowClick ? (e) => {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRowClick(row); }
-                  } : undefined}
+                  onKeyDown={onRowClick ? onActivate(() => onRowClick(row)) : undefined}
                 >
                   {visibleCols.map(col => (
                     <td

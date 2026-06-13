@@ -7,6 +7,7 @@ import {
   AuthShell, AuthCard, AuthHeading, AuthField, AuthSubmit, SSOButton, Divider, BrandMark,
 } from '../components/auth/AuthShell';
 import { Switch } from '../components/ui/Switch';
+import { isEmail } from '../lib/validation';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -27,7 +28,7 @@ export function LoginPage() {
       setError('Enter your email and password');
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    if (!isEmail(email)) {
       setError('Enter a valid email address');
       return;
     }

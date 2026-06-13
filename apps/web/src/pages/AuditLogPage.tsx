@@ -11,6 +11,7 @@ import { Input } from '../components/ui/Input';
 import { AuditLogDrawer } from '../components/AuditLogDrawer';
 import type { AuditLogRow } from '../api/auditLog';
 import { fmt } from '../lib/formatters';
+import { onActivate } from '../lib/a11y';
 
 function methodTone(m: string): 'green' | 'amber' | 'red' | 'blue' {
   if (m === 'POST') return 'green';
@@ -80,9 +81,8 @@ export function AuditLogPage() {
                   <tr
                     key={row.id}
                     onClick={() => setSelected(row)}
-                    role="button"
                     tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(row); } }}
+                    onKeyDown={onActivate(() => setSelected(row))}
                     style={{ borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined, cursor: 'pointer' }}
                     onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--hover)')}
                     onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}

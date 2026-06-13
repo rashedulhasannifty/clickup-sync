@@ -189,7 +189,7 @@ export function AuthSubmit({ children, loading, disabled }: {
       onMouseEnter={(e) => { if (!off) e.currentTarget.style.background = 'var(--accent-hover)'; }}
       onMouseLeave={(e) => { if (!off) e.currentTarget.style.background = 'var(--accent)'; }}>
       {loading
-        ? <Loader2 size={17} style={{ animation: 'spin 0.7s linear infinite' }} />
+        ? <Loader2 size={17} className="cc-spin" />
         : <>{children}<ArrowRight size={16} /></>}
     </button>
   );

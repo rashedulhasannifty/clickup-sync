@@ -32,6 +32,12 @@ export function AppLayout() {
     setMobileNavOpen(false);
   }, [location.pathname]);
 
+  // Reset the drawer when the viewport leaves mobile width, otherwise an
+  // open drawer would silently spring back when the viewport narrows again.
+  useEffect(() => {
+    if (!isMobile) setMobileNavOpen(false);
+  }, [isMobile]);
+
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--page-bg)' }}>
       <Sidebar

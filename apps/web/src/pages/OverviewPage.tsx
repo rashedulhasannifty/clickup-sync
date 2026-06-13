@@ -22,6 +22,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { AnomaliesPanel } from '../components/AnomaliesPanel';
 import { fmt } from '../lib/formatters';
 import { toCsv, downloadCsv, csvFilename } from '../lib/csv';
+import { onActivate } from '../lib/a11y';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -166,6 +167,11 @@ export function OverviewPage() {
   // no single tabular dataset, so we flatten the headline metrics into
   // Metric,Value rows — enough to drop into a status report or spreadsheet.
   function handleExport() {
+    // Guard against a non-ISO/invalid timestamp so the whole export can't throw.
+    const lastSyncDate = lastSyncAt ? new Date(lastSyncAt) : null;
+    const lastSyncIso = lastSyncDate && !Number.isNaN(lastSyncDate.getTime())
+      ? lastSyncDate.toISOString()
+      : '—';
     const rows = [
       { metric: 'Total tasks', value: totalTasks },
       { metric: 'Open tasks', value: openTasks },
@@ -176,7 +182,7 @@ export function OverviewPage() {
       { metric: 'Webhooks (24h)', value: webhooks24h },
       { metric: 'Failed jobs (24h)', value: failedJobs },
       { metric: 'Dead-letter pending', value: deadLetters },
-      { metric: 'Last successful sync', value: lastSyncAt ? new Date(lastSyncAt).toISOString() : '—' },
+      { metric: 'Last successful sync', value: lastSyncIso },
     ];
     downloadCsv(
       csvFilename('overview-summary'),
@@ -347,9 +353,8 @@ export function OverviewPage() {
                   <tr
                     key={e.id}
                     onClick={() => navigate('/sync-logs')}
-                    role="button"
                     tabIndex={0}
-                    onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); navigate('/sync-logs'); } }}
+                    onKeyDown={onActivate(() => navigate('/sync-logs'))}
                     style={{ cursor: 'pointer', borderBottom: '1px solid var(--border-soft)' }}
                     onMouseEnter={ev => (ev.currentTarget as HTMLElement).style.background = 'var(--hover)'}
                     onMouseLeave={ev => (ev.currentTarget as HTMLElement).style.background = 'transparent'}

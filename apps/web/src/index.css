@@ -174,11 +174,12 @@ textarea:focus-visible,
   box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
 }
 
-/* Table rows are the exception to the box-shadow ring above: box-shadow does
-   not reliably paint on <tr> (notably in border-collapse tables), so focused
-   keyboard rows would otherwise show nothing. outline does paint on rows —
-   inset so it isn't clipped by the row's own borders. */
-tr[role="button"]:focus-visible {
+/* Focusable table rows are the exception to the box-shadow ring above:
+   box-shadow does not reliably paint on <tr> (notably in border-collapse
+   tables), so focused keyboard rows would otherwise show nothing. outline does
+   paint on rows — inset so it isn't clipped by the row's own borders. Keyed on
+   tabindex (not role) because clickable rows keep their implicit `row` role. */
+tr[tabindex="0"]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
@@ -193,4 +194,14 @@ tr[role="button"]:focus-visible {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  /* Loading spinners are a functional "working" signal — keep them turning
+     (a frozen, tilted spinner reads as "hung"). The universal rule above would
+     otherwise stop them after one near-instant rotation. */
+  .cc-spin {
+    animation: spin 0.7s linear infinite !important;
+  }
 }
+
+/* Shared loading-spinner animation (so the reduced-motion exemption can
+   re-enable it by class). */
+.cc-spin { animation: spin 0.7s linear infinite; }

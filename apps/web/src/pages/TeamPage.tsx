@@ -26,6 +26,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { useOrgUsers, useInvites, useUserMutations } from '../hooks/useUsers';
 import { useAuth } from '../hooks/useAuth';
 import { fmt } from '../lib/formatters';
+import { onActivate } from '../lib/a11y';
 import type { OrgUser, Invite } from '../api/users';
 import type { Role } from '../api/auth';
 import { RoleSelect, ROLE_META, ALL_ROLES } from '../components/team/RoleSelect';
@@ -275,9 +276,6 @@ function Checkbox({
       onClick={(e) => {
         e.stopPropagation();
         onChange();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onChange(); }
       }}
       style={{
         width: 17,
@@ -655,16 +653,8 @@ export function TeamPage() {
                       <tr
                         key={u.id}
                         onClick={() => setDetailId(u.id)}
-                        role="button"
                         tabIndex={0}
-                        onKeyDown={(e) => {
-                          // Only the row itself — not its checkbox / role select /
-                          // menu — activates on Enter/Space.
-                          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-                            e.preventDefault();
-                            setDetailId(u.id);
-                          }
-                        }}
+                        onKeyDown={onActivate(() => setDetailId(u.id))}
                         style={{
                           borderTop: '1px solid var(--border-soft)',
                           background: isSel ? 'var(--accent-soft)' : 'transparent',
@@ -766,14 +756,8 @@ export function TeamPage() {
                     <tr
                       key={inv.id}
                       onClick={() => setDetailId(inv.id)}
-                      role="button"
                       tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-                          e.preventDefault();
-                          setDetailId(inv.id);
-                        }
-                      }}
+                      onKeyDown={onActivate(() => setDetailId(inv.id))}
                       style={{
                         borderTop: '1px solid var(--border-soft)',
                         cursor: 'pointer',

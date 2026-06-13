@@ -7,6 +7,7 @@ import {
   AuthShell, AuthCard, AuthHeading, AuthField, AuthSubmit, SSOButton, Divider,
   PasswordStrength, BrandMark,
 } from '../components/auth/AuthShell';
+import { isEmail } from '../lib/validation';
 
 export function SignupPage() {
   const [form, setForm] = useState({ orgName: '', name: '', email: '', password: '' });
@@ -26,7 +27,7 @@ export function SignupPage() {
       setError('Enter your full name.');
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+    if (!isEmail(form.email)) {
       setError('Enter a valid email address.');
       return;
     }

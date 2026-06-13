@@ -28,6 +28,7 @@ import type { JobLogItem } from '../components/SyncRunDrawer';
 import { WebhookEventDrawer } from '../components/WebhookEventDrawer';
 import type { WebhookItem } from '../components/WebhookEventDrawer';
 import { fmt } from '../lib/formatters';
+import { onActivate } from '../lib/a11y';
 
 const WEBHOOK_STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
@@ -333,9 +334,8 @@ export function SyncLogsPage() {
                         <tr
                           key={r.id}
                           onClick={() => setSelectedJob(r)}
-                          role="button"
                           tabIndex={0}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedJob(r); } }}
+                          onKeyDown={onActivate(() => setSelectedJob(r))}
                           style={{
                             borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined,
                             cursor: 'pointer',
@@ -562,9 +562,8 @@ export function SyncLogsPage() {
                         <tr
                           key={e.id}
                           onClick={() => setSelectedWebhook(e)}
-                          role="button"
                           tabIndex={0}
-                          onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); setSelectedWebhook(e); } }}
+                          onKeyDown={onActivate(() => setSelectedWebhook(e))}
                           style={{
                             borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined,
                             cursor: 'pointer',

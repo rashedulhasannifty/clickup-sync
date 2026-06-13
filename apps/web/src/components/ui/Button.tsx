@@ -86,7 +86,7 @@ export function Button({
       }}
     >
       {loading
-        ? <span style={{ width: 13, height: 13, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: 999, animation: 'spin 0.7s linear infinite', display: 'inline-block' }} />
+        ? <span className="cc-spin" style={{ width: 13, height: 13, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: 999, display: 'inline-block' }} />
         : icon}
       {children}
       {iconRight}
