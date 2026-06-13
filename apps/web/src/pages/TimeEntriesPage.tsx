@@ -40,10 +40,25 @@ const STATUS_OPTIONS = [
   { value: 'NO_RATE_FOUND', label: 'No rate found' },
 ];
 
+// Deep-link mode wants every entry for the assignee regardless of date. The
+// backend floors a missing `from` to 30 days ago, so we pass an explicit
+// all-time lower bound instead of omitting it.
+const ALL_TIME_FROM = '1970-01-01T00:00:00.000Z';
+
+// Render a deep-link's instant window as friendly day(s). Formatted in
+// Asia/Dhaka — the timezone the spike/anomaly day windows are built around — so
+// a single-day Dhaka window (which straddles two UTC dates) reads as one day.
+function fmtLinkWindow(fromIso: string, toIso: string): string {
+  const f = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Dhaka', month: 'short', day: 'numeric' });
+  const a = f.format(new Date(fromIso));
+  const b = f.format(new Date(toIso));
+  return a === b ? a : `${a} → ${b}`;
+}
+
 export function TimeEntriesPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { space, fromDate, toDate, setDateRange, setCustomFrom, setCustomTo } = useGlobalFilters();
+  const { space, fromDate, toDate } = useGlobalFilters();
   const { data: byUser } = useTimeEntriesByUser();
   const { data: clientsData } = useClients();
   const { data: listsData } = useLists(space !== 'all' ? space : undefined);
@@ -76,6 +91,16 @@ export function TimeEntriesPage() {
   // to reproduce the figure — but, unlike deepLinkActive, we keep the explicit
   // date window the anomaly link passed.
   const [bypassSpace, setBypassSpace] = useState(false);
+  // Precise date window carried by a deep link (an Hour-Spike day, an anomaly,
+  // a cost bucket). Kept page-local instead of pushed into the global topbar
+  // custom range, because: (a) these are exact ISO *instants* (e.g. a Dhaka-day
+  // window `[12T18:00Z, 13T18:00Z]`) and the topbar date input only renders
+  // YYYY-MM-DD — feeding it an instant left the field blank (dd/mm/yyyy); and
+  // (b) mutating the global filter made the custom range stick in the topbar
+  // after navigating away. The page-local window applies directly to the query
+  // and is surfaced (with a Clear) by the linked-view chip below.
+  const [linkFrom, setLinkFrom] = useState<string | null>(null);
+  const [linkTo, setLinkTo] = useState<string | null>(null);
 
   // Apply URL params from external navigations (e.g. CostBucketDrawer row click
   // passes ?from=...&to=...&search=...; MissingRatesPage card passes
@@ -98,9 +123,8 @@ export function TimeEntriesPage() {
     if (urlSearch) { setSearchRaw(urlSearch); setSearch(urlSearch); }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (urlFrom && urlTo) {
-      setDateRange('custom');
-      setCustomFrom(urlFrom);
-      setCustomTo(urlTo);
+      setLinkFrom(urlFrom);
+      setLinkTo(urlTo);
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (urlUserId) setUserId(urlUserId);
@@ -241,9 +265,16 @@ export function TimeEntriesPage() {
     // Missing Rates). bypassSpace (from an Anomalies "view") drops only the
     // space filter, keeping the explicit date window. See the state declarations.
     spaceId: (deepLinkActive || bypassSpace) ? undefined : (space !== 'all' ? space : undefined),
-    from: deepLinkActive ? undefined : (fromDate || undefined),
-    to: deepLinkActive ? undefined : (toDate || undefined),
-  }), [pageSize, page, search, userId, clientFilter, listFilter, folderFilter, billable, status, missingOnly, deepLinkActive, bypassSpace, space, fromDate, toDate]);
+    // A page-local linked window (linkFrom/linkTo) takes precedence over the
+    // topbar range; deep-link mode (Missing Rates) drops the window entirely.
+    // The backend defaults a missing `from` to "now − 30 days", so omitting it
+    // does NOT mean "all time" — it silently re-applies a 30-day floor and hid
+    // older missing-rate entries (e.g. a rate gap months back). Send an explicit
+    // all-time `from` to truly bypass the date. `to` can stay undefined: the
+    // backend defaults a missing `to` to now(), which is what we want.
+    from: deepLinkActive ? ALL_TIME_FROM : (linkFrom ?? (fromDate || undefined)),
+    to: deepLinkActive ? undefined : (linkTo ?? (toDate || undefined)),
+  }), [pageSize, page, search, userId, clientFilter, listFilter, folderFilter, billable, status, missingOnly, deepLinkActive, bypassSpace, space, fromDate, toDate, linkFrom, linkTo]);
 
   const timeEntriesQuery = useTimeEntriesList(params);
   const { data, isLoading } = timeEntriesQuery;
@@ -315,6 +346,8 @@ export function TimeEntriesPage() {
     setMissingOnly(false);
     setDeepLinkActive(false);
     setBypassSpace(false);
+    setLinkFrom(null);
+    setLinkTo(null);
     setPage(1);
   }, []);
 
@@ -410,7 +443,7 @@ export function TimeEntriesPage() {
       width: 80,
       align: 'right',
       render: (row) => {
-        const cur = row.currency ?? 'AUD';
+        const cur = row.currency ?? 'USD';
         return row.hourlyRateCents > 0 ? (
           <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)', fontSize: 12 }}>
             {fmt.money(row.hourlyRateCents, cur)}/h
@@ -426,7 +459,7 @@ export function TimeEntriesPage() {
       width: 90,
       align: 'right',
       render: (row) => {
-        const cur = row.currency ?? 'AUD';
+        const cur = row.currency ?? 'USD';
         return row.costAud > 0 ? (
           <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.money(row.costAud * 100, cur)}</span>
         ) : (
@@ -569,7 +602,7 @@ export function TimeEntriesPage() {
         </div>
       )}
 
-      {bypassSpace && !deepLinkActive && (
+      {(bypassSpace || linkFrom) && !deepLinkActive && (
         <div
           style={{
             display: 'flex',
@@ -582,17 +615,23 @@ export function TimeEntriesPage() {
             fontSize: 13,
           }}
         >
-          <Pill tone="amber" size="xs">anomaly</Pill>
+          <Pill tone="amber" size="xs">linked view</Pill>
           <span style={{ color: 'var(--text)' }}>
-            Showing a spend anomaly across all spaces.
-            <span style={{ color: 'var(--text-muted)' }}> Topbar space is bypassed.</span>
+            {linkFrom && linkTo && (
+              <>Showing <strong>{fmtLinkWindow(linkFrom, linkTo)}</strong> from a link.</>
+            )}
+            {bypassSpace && (
+              <span style={{ color: 'var(--text-muted)' }}>
+                {linkFrom ? ' ' : 'Showing a cross-space view. '}Topbar space is bypassed.
+              </span>
+            )}
           </span>
           <span style={{ flex: 1 }} />
           <Button
             size="sm"
             variant="ghost"
             icon={<X size={12} strokeWidth={1.75} />}
-            onClick={() => { setBypassSpace(false); setPage(1); }}
+            onClick={() => { setBypassSpace(false); setLinkFrom(null); setLinkTo(null); setPage(1); }}
           >
             Clear
           </Button>
