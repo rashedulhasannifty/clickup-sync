@@ -20,10 +20,23 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+// Public routes a logged-out visitor is allowed to sit on. A 401 here (e.g. the
+// AuthProvider's `/auth/me` probe finding no session) must NOT bounce them to
+// /login — otherwise invite/signup links are unusable.
+const PUBLIC_ROUTE = /^\/(login|signup|invite)(\/|$)/;
+
 apiClient.interceptors.response.use(
   (r) => r,
   (error) => {
-    if (error.response?.status === 401 && !location.pathname.startsWith('/login')) {
+    const url: string = error.config?.url ?? '';
+    // `/auth/me` is an auth *probe*: a 401 just means "not logged in" and is
+    // handled by AuthProvider's catch. Never hard-redirect on it.
+    const isAuthProbe = url.includes('/auth/me');
+    if (
+      error.response?.status === 401 &&
+      !isAuthProbe &&
+      !PUBLIC_ROUTE.test(location.pathname)
+    ) {
       location.href = '/login';
     }
     return Promise.reject(error);

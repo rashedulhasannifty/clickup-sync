@@ -208,8 +208,8 @@ function SpaceGrid({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncCon
         const displayName = spaceDisplayName(space);
         const color = spaceColor(space.spaceId);
         const totalHours = space.hoursLogged;
-        const billableHours = 0;
-        const billPct = totalHours > 0 ? Math.round((billableHours / totalHours) * 100) : 0;
+        const closedCount = Math.max(0, space.taskCount - space.openCount);
+        const donePct = space.taskCount > 0 ? Math.round((closedCount / space.taskCount) * 100) : 0;
         const initial = (displayName.slice(0, 1) || '?').toUpperCase();
         const sid = space.spaceId?.trim() ?? '';
         const isSyncing = syncingId === sid;
@@ -289,10 +289,10 @@ function SpaceGrid({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncCon
             ) : (
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
-                  <span>Billable {fmt.hours(billableHours)}</span>
-                  <span>{billPct}%</span>
+                  <span>Completed {fmt.number(closedCount)}/{fmt.number(space.taskCount)}</span>
+                  <span>{donePct}%</span>
                 </div>
-                <ProgressBar value={billPct} color={color} />
+                <ProgressBar value={donePct} color={color} />
               </div>
             )}
 
@@ -426,7 +426,7 @@ function WorkloadView({ spaces, controls }: { spaces: SpaceRow[]; controls: Sync
             <th style={{ textAlign: 'right', padding: '8px 12px' }}>Open</th>
             <th style={{ textAlign: 'right', padding: '8px 12px' }}>Members</th>
             <th style={{ textAlign: 'right', padding: '8px 12px' }}>Hours</th>
-            <th style={{ textAlign: 'right', padding: '8px 12px' }}>Billable</th>
+            <th style={{ textAlign: 'right', padding: '8px 12px' }}>Done</th>
             <th style={{ textAlign: 'right', padding: '8px 12px' }}>Cost</th>
             <th style={{ width: 230, padding: '8px 16px' }} />
           </tr>
@@ -455,7 +455,9 @@ function WorkloadView({ spaces, controls }: { spaces: SpaceRow[]; controls: Sync
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt.number(sp.openCount)}</td>
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{sp.memberCount > 0 ? fmt.number(sp.memberCount) : '—'}</td>
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.hours(sp.hoursLogged)}</td>
-              <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmt.hours(0)}</td>
+              <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                {sp.taskCount > 0 ? `${Math.round((Math.max(0, sp.taskCount - sp.openCount) / sp.taskCount) * 100)}%` : '—'}
+              </td>
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
                 {fmt.money(Math.round(Number(sp.costAud ?? 0) * 100))}
               </td>
