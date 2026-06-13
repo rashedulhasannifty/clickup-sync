@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Search, Moon, Sun, Bell, Calendar, Layers } from 'lucide-react';
+import { Search, Moon, Sun, Bell, Calendar, Layers, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Kbd } from '../ui/Kbd';
 import { UserMenu } from './UserMenu';
@@ -83,7 +83,11 @@ function DateInput({ value, onChange, placeholder }: { value: string; onChange: 
   );
 }
 
-export function TopBar({ onSearchClick }: { onSearchClick?: () => void }) {
+export function TopBar({ onSearchClick, isMobile = false, onMenuClick }: {
+  onSearchClick?: () => void;
+  isMobile?: boolean;
+  onMenuClick?: () => void;
+}) {
   const navigate = useNavigate();
   const { dateRange, space, setDateRange, setSpace, customFrom, customTo, setCustomFrom, setCustomTo } = useGlobalFilters();
   const { data: health } = useSyncHealth();
@@ -143,27 +147,50 @@ export function TopBar({ onSearchClick }: { onSearchClick?: () => void }) {
       display: 'flex', alignItems: 'center', gap: 10,
       position: 'sticky', top: 0, zIndex: 30,
       backdropFilter: 'blur(8px)',
-      flexWrap: dateRange === 'custom' ? 'wrap' : 'nowrap',
+      flexWrap: dateRange === 'custom' || isMobile ? 'wrap' : 'nowrap',
       rowGap: 8,
     }}>
+      {/* Hamburger — opens the off-canvas nav drawer (mobile only) */}
+      {isMobile && (
+        <button
+          type="button"
+          onClick={onMenuClick}
+          aria-label="Open navigation"
+          style={{
+            width: 32, height: 32, border: '1px solid var(--border)',
+            background: 'var(--surface)', color: 'var(--text)',
+            borderRadius: 7, cursor: 'pointer', flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <Menu size={16} strokeWidth={1.75} />
+        </button>
+      )}
+
       {/* Search trigger */}
       <button
         type="button"
         onClick={onSearchClick}
         style={{
           display: 'flex', alignItems: 'center', gap: 8,
-          height: 32, padding: '0 10px', minWidth: 280,
+          height: 32, padding: '0 10px',
+          minWidth: isMobile ? 0 : 280,
+          flex: isMobile ? '1 1 140px' : '0 0 auto',
           background: 'var(--muted-bg)', color: 'var(--text-muted)',
           border: '1px solid var(--border)', borderRadius: 7,
           cursor: 'pointer', fontSize: 13, fontFamily: 'inherit',
         }}
       >
         <Search size={14} strokeWidth={1.75} />
-        <span style={{ flex: 1, textAlign: 'left' }}>Search tasks, assignees, events…</span>
-        <Kbd>⌘K</Kbd>
+        <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {isMobile ? 'Search…' : 'Search tasks, assignees, events…'}
+        </span>
+        {!isMobile && <Kbd>⌘K</Kbd>}
       </button>
 
-      <div style={{ flex: 1 }} />
+      {/* On mobile this becomes a full-width line break so the filters/actions
+          wrap onto their own row below the search field. */}
+      <div style={{ flex: isMobile ? '1 1 100%' : 1 }} />
 
       <IconSelect icon={Calendar} options={DATE_RANGES} value={dateRange} onChange={v => setDateRange(v as DateRange)} />
 

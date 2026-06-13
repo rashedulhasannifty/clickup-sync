@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Settings,
   PanelLeft,
+  X,
   type LucideIcon,
   UsersRound,
 } from "lucide-react";
@@ -28,19 +29,30 @@ interface NavItem {
 
 export function Sidebar({
   onCommandPalette: _onCommandPalette,
+  isMobile = false,
+  mobileOpen = false,
+  onMobileClose,
 }: {
   onCommandPalette?: () => void;
+  isMobile?: boolean;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }) {
-  const [collapsed, setCollapsed] = useState(
+  const [collapsedDesktop, setCollapsed] = useState(
     () => localStorage.getItem("sidebarCollapsed") === "true",
   );
   const { data: stats } = useStats();
   const { hasRole, user, org } = useAuth();
   const isAdmin = hasRole("ADMIN");
 
+  // On mobile the sidebar is a full-width off-canvas drawer — never the narrow
+  // icon-rail. The desktop collapse preference is kept separately so the two
+  // modes don't fight when the viewport crosses the breakpoint.
+  const collapsed = isMobile ? false : collapsedDesktop;
+
   useEffect(() => {
-    localStorage.setItem("sidebarCollapsed", String(collapsed));
-  }, [collapsed]);
+    localStorage.setItem("sidebarCollapsed", String(collapsedDesktop));
+  }, [collapsedDesktop]);
 
   // Audit Log and Settings are admin-only; members see everything else.
   const navItems: NavItem[] = [
@@ -69,18 +81,38 @@ export function Sidebar({
 
   return (
     <aside
-      style={{
-        width: collapsed ? 60 : 232,
-        flexShrink: 0,
-        borderRight: "1px solid var(--border)",
-        background: "var(--sidebar-bg)",
-        display: "flex",
-        flexDirection: "column",
-        transition: "width 200ms cubic-bezier(0.16, 1, 0.3, 1)",
-        position: "sticky",
-        top: 0,
-        height: "100vh",
-      }}
+      aria-hidden={isMobile && !mobileOpen ? true : undefined}
+      style={
+        isMobile
+          ? {
+              width: 232,
+              flexShrink: 0,
+              borderRight: "1px solid var(--border)",
+              background: "var(--sidebar-bg)",
+              display: "flex",
+              flexDirection: "column",
+              position: "fixed",
+              top: 0,
+              left: 0,
+              height: "100vh",
+              zIndex: 50,
+              transform: mobileOpen ? "translateX(0)" : "translateX(-100%)",
+              transition: "transform 200ms cubic-bezier(0.16, 1, 0.3, 1)",
+              boxShadow: mobileOpen ? "0 8px 40px rgba(0,0,0,0.25)" : "none",
+            }
+          : {
+              width: collapsed ? 60 : 232,
+              flexShrink: 0,
+              borderRight: "1px solid var(--border)",
+              background: "var(--sidebar-bg)",
+              display: "flex",
+              flexDirection: "column",
+              transition: "width 200ms cubic-bezier(0.16, 1, 0.3, 1)",
+              position: "sticky",
+              top: 0,
+              height: "100vh",
+            }
+      }
     >
       {/* Logo */}
       <div
@@ -143,6 +175,25 @@ export function Sidebar({
               operations console
             </div>
           </div>
+        )}
+        {isMobile && (
+          <button
+            type="button"
+            onClick={onMobileClose}
+            aria-label="Close navigation"
+            style={{
+              marginLeft: "auto",
+              border: 0,
+              background: "transparent",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              padding: 6,
+              display: "flex",
+              borderRadius: 6,
+            }}
+          >
+            <X size={18} strokeWidth={1.75} />
+          </button>
         )}
       </div>
 
