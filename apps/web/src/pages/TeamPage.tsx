@@ -121,6 +121,9 @@ function RowMenu({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        aria-label="Member actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
         style={{
           width: 28,
           height: 28,
@@ -256,22 +259,32 @@ function Checkbox({
   checked,
   indeterminate,
   onChange,
+  label,
 }: {
   checked: boolean;
   indeterminate?: boolean;
   onChange: () => void;
+  label?: string;
 }) {
   return (
-    <span
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={indeterminate ? 'mixed' : checked}
+      aria-label={label}
       onClick={(e) => {
         e.stopPropagation();
         onChange();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onChange(); }
       }}
       style={{
         width: 17,
         height: 17,
         borderRadius: 5,
         flexShrink: 0,
+        padding: 0,
         border: `1.5px solid ${checked || indeterminate ? 'var(--accent)' : 'var(--border-strong)'}`,
         background: checked || indeterminate ? 'var(--accent)' : 'transparent',
         display: 'inline-flex',
@@ -284,7 +297,7 @@ function Checkbox({
     >
       {checked && <Check size={12} strokeWidth={3} />}
       {indeterminate && !checked && <span style={{ width: 8, height: 2, background: '#fff', borderRadius: 1 }} />}
-    </span>
+    </button>
   );
 }
 
@@ -610,7 +623,7 @@ export function TeamPage() {
               >
                 {tab === 'active' && (
                   <th style={{ width: 44, padding: '10px 0 10px 16px', textAlign: 'left' }}>
-                    <Checkbox checked={allSelected} indeterminate={someSelected} onChange={toggleAll} />
+                    <Checkbox checked={allSelected} indeterminate={someSelected} onChange={toggleAll} label="Select all members" />
                   </th>
                 )}
                 <th style={TH}>Member</th>
@@ -656,7 +669,7 @@ export function TeamPage() {
                         }}
                       >
                         <td style={{ padding: '12px 0 12px 16px' }} onClick={(e) => e.stopPropagation()}>
-                          <Checkbox checked={isSel} onChange={() => toggleOne(u.id)} />
+                          <Checkbox checked={isSel} onChange={() => toggleOne(u.id)} label={`Select ${u.name}`} />
                         </td>
                         <td style={{ padding: '11px 12px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>

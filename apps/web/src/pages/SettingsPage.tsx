@@ -895,7 +895,7 @@ export function SettingsPage() {
                     cursor: 'pointer',
                   }}
                 >
-                  <Switch checked={tagForm.active} onChange={(v) => setTagForm((f) => ({ ...f, active: v }))} />
+                  <Switch ariaLabel="Tag mapping active" checked={tagForm.active} onChange={(v) => setTagForm((f) => ({ ...f, active: v }))} />
                   Active
                 </label>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -1056,22 +1056,22 @@ export function SettingsPage() {
               <SettingRow
                 label="Sync run failed"
                 desc="Notify on any failed sync run."
-                control={<Switch checked={alertSyncFail} onChange={setAlertSyncFail} />}
+                control={<Switch ariaLabel="Sync run failed alerts" checked={alertSyncFail} onChange={setAlertSyncFail} />}
               />
               <SettingRow
                 label="Webhook errors spike"
                 desc="Alert if more than 25 webhooks fail in 5 min."
-                control={<Switch checked={alertWebhookSpike} onChange={setAlertWebhookSpike} />}
+                control={<Switch ariaLabel="Webhook error spike alerts" checked={alertWebhookSpike} onChange={setAlertWebhookSpike} />}
               />
               <SettingRow
                 label="Missing rate created"
                 desc="Alert when an assignee logs time without a rate."
-                control={<Switch checked={alertMissingRate} onChange={setAlertMissingRate} />}
+                control={<Switch ariaLabel="Missing rate alerts" checked={alertMissingRate} onChange={setAlertMissingRate} />}
               />
               <SettingRow
                 label="Token expiring"
                 desc="Notify 14 days before ClickUp token expires."
-                control={<Switch checked={alertToken} onChange={setAlertToken} />}
+                control={<Switch ariaLabel="Token expiring alerts" checked={alertToken} onChange={setAlertToken} />}
               />
             </div>
           </Card>
@@ -1079,12 +1079,12 @@ export function SettingsPage() {
           <Card>
             <CardHeader title="Channels" subtitle="Where alerts are delivered." />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-              <SettingRow label="Email" desc="ops-alerts@acme.co" control={<Switch checked={chEmail} onChange={setChEmail} />} />
-              <SettingRow label="Slack" desc="#data-platform-alerts" control={<Switch checked={chSlack} onChange={setChSlack} />} />
+              <SettingRow label="Email" desc="ops-alerts@acme.co" control={<Switch ariaLabel="Email channel" checked={chEmail} onChange={setChEmail} />} />
+              <SettingRow label="Slack" desc="#data-platform-alerts" control={<Switch ariaLabel="Slack channel" checked={chSlack} onChange={setChSlack} />} />
               <SettingRow
                 label="PagerDuty"
                 desc="Connect for critical failures"
-                control={<Switch checked={chPager} onChange={setChPager} />}
+                control={<Switch ariaLabel="PagerDuty channel" checked={chPager} onChange={setChPager} />}
               />
             </div>
           </Card>

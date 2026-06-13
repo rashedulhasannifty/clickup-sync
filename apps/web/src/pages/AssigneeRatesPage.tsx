@@ -284,7 +284,7 @@ export function AssigneeRatesPage() {
             cursor: 'pointer',
           }}
         >
-          <Switch checked={activeOnly} onChange={setActiveOnly} />
+          <Switch ariaLabel="Active rates only" checked={activeOnly} onChange={setActiveOnly} />
           <span>Active rates only</span>
         </label>
       </div>

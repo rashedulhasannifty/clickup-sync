@@ -659,7 +659,7 @@ export function TimeEntriesPage() {
         <Select ariaLabel="Filter by billable state" size="md" options={BILLABLE_OPTIONS} value={billable} onChange={(v) => { setBillable(v); setPage(1); }} />
         <Select ariaLabel="Filter by cost status" size="md" options={STATUS_OPTIONS} value={status} onChange={(v) => { setStatus(v); setPage(1); }} disabled={missingOnly} />
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' }}>
-          <Switch checked={missingOnly} onChange={(v) => { setMissingOnly(v); setPage(1); }} />
+          <Switch ariaLabel="Show only entries missing a rate" checked={missingOnly} onChange={(v) => { setMissingOnly(v); setPage(1); }} />
           <span>Missing rate only</span>
         </label>
         {hasFilters && (
