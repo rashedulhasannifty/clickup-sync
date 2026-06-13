@@ -24,7 +24,7 @@ import { CycleTimeCard } from '../components/charts/CycleTimeCard';
 import { fmt } from '../lib/formatters';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 
-// Backend returns dollars; fmt.money expects cents. AUD is the project currency.
+// Backend returns dollars; fmt.money expects cents. USD is the project currency.
 function moneyAud(dollars: number) {
   return fmt.money(Math.round(dollars * 100));
 }

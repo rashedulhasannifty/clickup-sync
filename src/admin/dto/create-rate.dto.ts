@@ -17,7 +17,7 @@ export class CreateRateDto {
   @IsOptional()
   assigneeEmail?: string;
 
-  @ApiProperty({ default: 'AUD' })
+  @ApiProperty({ default: 'USD' })
   @IsString()
   @IsNotEmpty()
   currency!: string;

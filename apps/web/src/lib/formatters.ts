@@ -1,10 +1,11 @@
 export const fmt = {
-  money(cents: number, currency = 'AUD') {
-    // Default currency is AUD because every backend cost column we surface
-    // (clickup_time_entries.cost_cents, assignee_rates.hourly_rate_cents,
-    // /reports/* `totalCostAud`) is denominated in AUD. Older callers that
-    // passed USD by default happened to render the right glyph ($) on en-US
-    // but the formatter's currency code was lying.
+  money(cents: number, currency = 'USD') {
+    // Default currency is USD: the business operates in USD and every assignee
+    // rate is USD, so cost columns (clickup_time_entries.cost_cents,
+    // assignee_rates.hourly_rate_cents) are USD. The `*Aud` field/column names
+    // are legacy and hold USD in practice — a rename is a separate coordinated
+    // PR. Both USD and AUD render as `$` here via narrowSymbol, so this only
+    // corrects the currency *code* (e.g. CSV export, Intl rounding rules).
     //
     // Always show 2 fractional digits (standard currency display). The previous
     // 0-digit rounding hid sub-dollar values entirely — e.g. a 9-minute entry

@@ -57,7 +57,7 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
     return <Drawer open={false} onClose={onClose} width={520} />;
   }
 
-  const currency = entry.currency ?? 'AUD';
+  const currency = entry.currency ?? 'USD';
   const hasCost = entry.status === 'COST_CALCULATED' && entry.costAud > 0;
   const firstName = entry.userName.split(/\s+/)[0] ?? entry.userName;
 

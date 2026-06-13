@@ -22,7 +22,7 @@ import { AnomaliesPanel } from '../components/AnomaliesPanel';
 import { fmt } from '../lib/formatters';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 
-// Backend returns dollars; fmt.money expects cents. AUD is the project currency
+// Backend returns dollars; fmt.money expects cents. USD is the project currency
 // (default in fmt.money), so no need to pass it explicitly.
 function moneyAud(dollars: number) {
   return fmt.money(Math.round(dollars * 100));

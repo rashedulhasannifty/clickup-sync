@@ -16,10 +16,10 @@ export class CostCalculatorService {
   constructor(private readonly prisma: PrismaService) {}
 
   async calculate(userId: string | null, startTime: Date | null, durationHours: number, cache?: RateCache) {
-    if (!userId || !startTime) return { rateId: null, currency: 'AUD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND' };
+    if (!userId || !startTime) return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND' };
     const entryDate = new Date(Date.UTC(startTime.getUTCFullYear(), startTime.getUTCMonth(), startTime.getUTCDate()));
     const rate = await this.resolveRate(userId, entryDate, cache);
-    if (!rate) return { rateId: null, currency: 'AUD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND' };
+    if (!rate) return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND' };
     return { rateId: rate.rateId, currency: rate.currency, hourlyRateCents: rate.hourlyRateCents, costCents: BigInt(Math.round(Number(rate.hourlyRateCents) * durationHours)), status: 'COST_CALCULATED' };
   }
 

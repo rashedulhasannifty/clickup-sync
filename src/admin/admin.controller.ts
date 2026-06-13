@@ -406,7 +406,7 @@ export class AdminController {
   createRate(@Body() dto: CreateRateDto) {
     const validFrom = new Date(`${dto.validFrom.slice(0, 10)}T00:00:00.000Z`);
     const validTo = dto.validTo ? new Date(`${dto.validTo.slice(0, 10)}T00:00:00.000Z`) : null;
-    return this.ratesService.create({ assigneeId: dto.assigneeId, assigneeName: dto.assigneeName, assigneeEmail: dto.assigneeEmail, currency: dto.currency ?? 'AUD', hourlyRateCents: dto.hourlyRateCents, validFrom, validTo });
+    return this.ratesService.create({ assigneeId: dto.assigneeId, assigneeName: dto.assigneeName, assigneeEmail: dto.assigneeEmail, currency: dto.currency ?? 'USD', hourlyRateCents: dto.hourlyRateCents, validFrom, validTo });
   }
 
   @Patch('rates/:id')
