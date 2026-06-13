@@ -9,7 +9,9 @@ export function Sparkline({ data, color = 'var(--accent)', width = 60, height = 
     return `${x},${y}`;
   }).join(' ');
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} fill="none">
+    // Supplementary trend visual next to a labeled metric value — hide from
+    // screen readers so the number isn't announced twice.
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} fill="none" aria-hidden="true">
       <polyline points={pts} stroke={color} strokeWidth="1.5" fill="none" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   );

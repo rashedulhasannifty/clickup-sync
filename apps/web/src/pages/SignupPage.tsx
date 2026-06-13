@@ -22,10 +22,22 @@ export function SignupPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!form.name.trim()) {
+      setError('Enter your full name.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      setError('Enter a valid email address.');
+      return;
+    }
     // Match the backend policy (@MinLength(10)) client-side so the user gets a
     // specific message instead of a generic "could not create account".
     if (form.password.length < 10) {
       setError('Password must be at least 10 characters.');
+      return;
+    }
+    if (!form.orgName.trim()) {
+      setError('Enter a workspace name.');
       return;
     }
     setLoading(true);
@@ -67,8 +79,10 @@ export function SignupPage() {
           </div>
           <AuthField label="Workspace name" icon={Building2}
             value={form.orgName} onChange={(e) => update('orgName', e.target.value)} placeholder="Acme Co"
-            hint="You can rename this later in Settings."
-            error={error || undefined} />
+            hint="You can rename this later in Settings." />
+          {error && (
+            <p role="alert" style={{ fontSize: 12.5, color: 'var(--red)', margin: 0 }}>{error}</p>
+          )}
           <AuthSubmit loading={loading}>Create account</AuthSubmit>
           <p style={{ fontSize: 11.5, color: 'var(--text-faint)', textAlign: 'center', margin: 0, lineHeight: 1.5 }}>
             By creating an account you agree to our Terms of Service and Privacy Policy.

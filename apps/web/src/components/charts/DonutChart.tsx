@@ -17,7 +17,9 @@ export function DonutChart({ data, size = 160, thickness = 14, centerLabel, cent
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
       <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {/* Decorative — the adjacent legend conveys the same data as readable
+            text, so hide the raw SVG circles from screen readers. */}
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
           <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--muted-bg)" strokeWidth={thickness}/>
           {data.map((d, i) => {
             const len = (d.value / total) * c;

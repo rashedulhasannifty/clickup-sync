@@ -245,7 +245,9 @@ export function TopBar({ onSearchClick, isMobile = false, onMenuClick }: {
         {isDark ? <Sun size={14} strokeWidth={1.75} /> : <Moon size={14} strokeWidth={1.75} />}
       </button>
 
-      {/* Bell */}
+      {/* Bell — placeholder until a notifications feed exists; no fake unread
+          badge (it previously showed a permanent amber dot implying unread
+          items that never existed). */}
       <button
         style={{
           width: 32, height: 32, border: '1px solid var(--border)',
@@ -253,13 +255,12 @@ export function TopBar({ onSearchClick, isMobile = false, onMenuClick }: {
           borderRadius: 7, cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexShrink: 0,
-          position: 'relative',
         }}
-        title="Notifications"
+        title="Notifications (coming soon)"
+        aria-label="Notifications (coming soon)"
         type="button"
       >
         <Bell size={14} strokeWidth={1.75} />
-        <span style={{ position: 'absolute', top: 4, right: 5, width: 6, height: 6, borderRadius: 999, background: 'var(--amber)' }} />
       </button>
 
       {/* Divider */}

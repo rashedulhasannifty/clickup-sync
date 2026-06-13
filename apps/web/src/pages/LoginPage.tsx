@@ -27,6 +27,10 @@ export function LoginPage() {
       setError('Enter your email and password');
       return;
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError('Enter a valid email address');
+      return;
+    }
     setLoading(true);
     setError('');
     try {

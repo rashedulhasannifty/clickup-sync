@@ -52,9 +52,10 @@ export function BarChart({ data, direction = 'horizontal', height = 200, formatV
   const padX = 8, padY = 12;
   const w = 100;
   const barW = (w - padX * 2) / data.length;
+  const summary = data.map((d) => `${d.label}: ${fv(d.value)}`).join(', ');
   return (
     <div style={{ width: '100%' }}>
-      <svg viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" style={{ width: '100%', height, display: 'block' }}>
+      <svg viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" style={{ width: '100%', height, display: 'block' }} role="img" aria-label={`Bar chart. ${summary}`}>
         {data.map((d, i) => {
           const h = max > 0 ? (d.value / max) * (height - padY * 2) : 0;
           const x = padX + i * barW + barW * 0.15;

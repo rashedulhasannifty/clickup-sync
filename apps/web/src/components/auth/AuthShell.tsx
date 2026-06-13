@@ -138,6 +138,8 @@ export function AuthField({
           autoFocus={autoFocus}
           readOnly={readOnly}
           autoComplete={autoComplete}
+          aria-label={label}
+          aria-invalid={error ? true : undefined}
           style={{
             width: '100%', height: 42,
             padding: `0 ${isPw ? 40 : 12}px 0 ${Icon ? 38 : 12}px`,
