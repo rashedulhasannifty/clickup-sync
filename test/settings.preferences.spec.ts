@@ -22,6 +22,12 @@ describe('SettingsService preferences', () => {
     expect(prefs.notifications.alerts.syncFail).toBe(true);
     expect(prefs.notifications.channels.pagerduty).toBe(false);
     expect(prefs.sync.reconcileLookbackDays).toBe(365);
+    expect(prefs.sync.realtimeWebhooks).toBe(true);
+    expect(prefs.sync.backfillOnConnect).toBe(true);
+    expect(prefs.cost.autoRecalcOnRateChange).toBe(true);
+    expect(prefs.cost.rateMatching).toBe('start');
+    expect(prefs.cost.nonBillableZero).toBe(false);
+    expect(prefs.failure.webhookRetryAttempts).toBe(5);
     expect(prefs.spaces).toEqual({});
   });
 
@@ -51,5 +57,16 @@ describe('SettingsService preferences', () => {
     await svc.onModuleInit();
     const ids = svc.getMasked().configuredSpaces.map((s) => s.id);
     expect(ids).toContain('3577824');
+  });
+
+  it('deep-merges a cost preference without clobbering other cost keys', async () => {
+    const repo = makeRepo(null);
+    const svc = new SettingsService(repo, makeCrypto());
+    await svc.onModuleInit();
+    await svc.update({ preferences: { cost: { nonBillableZero: true } } });
+    const prefs = svc.getMasked().preferences;
+    expect(prefs.cost.nonBillableZero).toBe(true);
+    expect(prefs.cost.rateMatching).toBe('start');
+    expect(prefs.cost.autoRecalcOnRateChange).toBe(true);
   });
 });

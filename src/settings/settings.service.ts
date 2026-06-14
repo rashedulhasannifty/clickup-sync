@@ -12,7 +12,9 @@ export interface SettingsPreferences {
     alerts: { syncFail: boolean; webhookSpike: boolean; missingRate: boolean; tokenExpiring: boolean };
     channels: { email: boolean; slack: boolean; pagerduty: boolean };
   };
-  sync: { reconcileLookbackDays: number };
+  sync: { reconcileLookbackDays: number; realtimeWebhooks: boolean; backfillOnConnect: boolean };
+  cost: { autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean };
+  failure: { webhookRetryAttempts: number };
   spaces: Record<string, { enabled: boolean }>;
 }
 
@@ -21,7 +23,9 @@ export const DEFAULT_PREFERENCES: SettingsPreferences = {
     alerts: { syncFail: true, webhookSpike: true, missingRate: true, tokenExpiring: true },
     channels: { email: true, slack: true, pagerduty: false },
   },
-  sync: { reconcileLookbackDays: 365 },
+  sync: { reconcileLookbackDays: 365, realtimeWebhooks: true, backfillOnConnect: true },
+  cost: { autoRecalcOnRateChange: true, rateMatching: 'start', nonBillableZero: false },
+  failure: { webhookRetryAttempts: 5 },
   spaces: {},
 };
 
