@@ -3,11 +3,15 @@ import { Cron } from '@nestjs/schedule';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class SyncScheduler {
   private readonly logger = new Logger(SyncScheduler.name);
-  constructor(private readonly queues: QueueService) {}
+  constructor(
+    private readonly queues: QueueService,
+    private readonly settings: SettingsService,
+  ) {}
 
   // Recurring reconciliation: hourly, syncs tasks updated in the last day and
   // scans a bounded 7-day time-entry window (rather than re-draining the full
@@ -30,6 +34,10 @@ export class SyncScheduler {
     for (const space of CLICKUP_SPACES) {
       if (busy.has(space.id)) {
         this.logger.warn(`Skipping recurring reconcile for space ${space.id}: a backfill is still in flight`);
+        continue;
+      }
+      if (!this.settings.isSpaceEnabled(space.id)) {
+        this.logger.log(`Skipping recurring reconcile for space ${space.id}: disabled in settings`);
         continue;
       }
       await queue.add(
