@@ -254,8 +254,20 @@ export class AdminController {
   @Roles(Role.OWNER)
   @HttpCode(200)
   @ApiOperation({ summary: 'Register NestJS webhook with ClickUp — idempotent; stores the signing secret encrypted on first creation' })
-  registerWebhook(@CurrentUser() user: AuthPrincipal) {
-    return this.webhooks.register(actorLabel(user));
+  async registerWebhook(@CurrentUser() user: AuthPrincipal) {
+    const result = await this.webhooks.register(actorLabel(user));
+    if (this.settings.getPreferences().sync.backfillOnConnect) {
+      const backfills = this.queues.get(QUEUES.CLICKUP_BACKFILLS);
+      for (const space of CLICKUP_SPACES) {
+        if (!this.settings.isSpaceEnabled(space.id)) continue;
+        await backfills.add(
+          JOBS.BACKFILL_CLICKUP_SPACE,
+          { spaceId: space.id, lookbackDays: space.backfillLookbackDays },
+          this.queues.defaultJobOptions(),
+        );
+      }
+    }
+    return result;
   }
 
   // ── ClickUp connection settings ─────────────────────────────────────────────

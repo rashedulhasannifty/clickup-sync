@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { RatesRepository } from './rates.repository';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class RatesService {
@@ -10,9 +11,14 @@ export class RatesService {
   constructor(
     private readonly repo: RatesRepository,
     private readonly queues: QueueService,
+    private readonly settings: SettingsService,
   ) {}
 
   private async enqueueRecalc(assigneeId: string) {
+    if (!this.settings.getPreferences().cost.autoRecalcOnRateChange) {
+      this.logger.log(`Auto-recalc disabled in settings; skipping recalc enqueue for ${assigneeId}`);
+      return;
+    }
     try {
       await this.queues
         .get(QUEUES.MAINTENANCE)

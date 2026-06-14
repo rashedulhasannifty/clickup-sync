@@ -91,6 +91,8 @@ describe('AdminController', () => {
       getTeamId: () => '3450636',
       getMasked: jest.fn().mockReturnValue({ teamId: '3450636', encryptionEnabled: true }),
       update: jest.fn().mockResolvedValue({ teamId: '3450636' }),
+      getPreferences: () => ({ sync: { backfillOnConnect: false }, cost: { autoRecalcOnRateChange: true } }),
+      isSpaceEnabled: () => true,
     } as any;
   }
 
