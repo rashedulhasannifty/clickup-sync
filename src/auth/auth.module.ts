@@ -31,6 +31,6 @@ import { UsersController } from './users.controller';
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
-  exports: [SessionService, OrgRepository],
+  exports: [SessionService, OrgRepository, MailerService],
 })
 export class AuthModule {}
