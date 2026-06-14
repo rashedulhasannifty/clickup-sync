@@ -130,6 +130,8 @@ describe('AdminController', () => {
       makeAuditLog(),
       makeSettings(),
       makeSpikeNotifications(),
+      { search: jest.fn() } as any,
+      { forTask: jest.fn() } as any,
     );
   }
 
@@ -406,6 +408,8 @@ describe('AdminController', () => {
       makeAuditLog(),
       makeSettings(),
       makeSpikeNotifications(),
+      { search: jest.fn() } as any,
+      { forTask: jest.fn() } as any,
     );
   }
 
@@ -512,6 +516,8 @@ describe('AdminController', () => {
       makeAuditLog(),
       settings,
       makeSpikeNotifications(),
+      { search: jest.fn() } as any,
+      { forTask: jest.fn() } as any,
     );
   }
 
