@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   CircleCheck,
@@ -45,6 +45,7 @@ function sortRatesDesc(rates: Rate[]) {
 
 export function AssigneeRatesPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const ratesQuery = useRates();
   const { data: rates, isLoading } = ratesQuery;
   const recalc = useRecalcCosts();
@@ -79,6 +80,20 @@ export function AssigneeRatesPage() {
   const missingAssigneeCount = Array.isArray(missingRatesData) ? missingRatesData.length : 0;
 
   const [search, setSearch] = useState('');
+
+  // Deep link from the command palette / other pages: ?userId=<id> seeds the
+  // assignee filter (the filter below already matches assigneeId). Consume the
+  // param once so it doesn't fight manual edits to the search box afterward.
+  useEffect(() => {
+    const urlUserId = searchParams.get('userId');
+    if (urlUserId) {
+      setSearch(urlUserId);
+      searchParams.delete('userId');
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [activeOnly, setActiveOnly] = useState(false);
   const [selectedRate, setSelectedRate] = useState<Rate | null>(null);
   const [presetAssignee, setPresetAssignee] = useState<RatePresetAssignee | null>(null);
