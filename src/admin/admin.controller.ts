@@ -13,6 +13,8 @@ import { UpdateRateDto } from './dto/update-rate.dto';
 import { CreateTagAssigneeDto } from './dto/create-tag-assignee.dto';
 import { UpdateTagAssigneeDto } from './dto/update-tag-assignee.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
+import { NotifySpikeDto } from './dto/notify-spike.dto';
+import { SpikeNotificationService } from './spike-notification.service';
 import { SettingsService } from '../settings/settings.service';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
@@ -66,6 +68,7 @@ export class AdminController {
     private readonly prisma: PrismaService,
     private readonly auditLog: AuditLogRepository,
     private readonly settings: SettingsService,
+    private readonly spikeNotifications: SpikeNotificationService,
   ) {}
 
   @Get('ping')
@@ -84,6 +87,26 @@ export class AdminController {
       name: m.user.username ?? null,
       email: m.user.email ?? null,
     }));
+  }
+
+  @Get('hour-spikes/:userId/:date/preview')
+  @ApiOperation({ summary: "Preview a spike notice: the member's per-task breakdown for that Dhaka-local day, recipient email, and whether they've already been notified." })
+  previewSpikeNotice(@Param('userId') userId: string, @Param('date') date: string) {
+    return this.spikeNotifications.preview(userId, date);
+  }
+
+  @Post('hour-spikes/notify')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Email a flagged member their spike-day task breakdown (+ optional note) and record the send. 409 if already notified for that day.' })
+  notifySpike(@Body() dto: NotifySpikeDto, @CurrentUser() user: AuthPrincipal) {
+    return this.spikeNotifications.notify({
+      userId: dto.userId,
+      date: dto.date,
+      rule: dto.rule,
+      median: dto.median,
+      note: dto.note,
+      sentBy: actorLabel(user),
+    });
   }
 
   @Post('tasks/sync')

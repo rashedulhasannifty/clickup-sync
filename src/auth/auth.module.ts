@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { AdminModule } from '../admin/admin.module';
@@ -22,7 +22,7 @@ import { InvitationController } from './invitation.controller';
 import { UsersController } from './users.controller';
 
 @Module({
-  imports: [ConfigModule, AdminModule],
+  imports: [ConfigModule, forwardRef(() => AdminModule)],
   controllers: [AuthController, InvitationController, UsersController],
   providers: [
     PasswordService, TokenService, PermissionsService, SessionService, SessionCleanupService, MailerService,

@@ -94,6 +94,13 @@ describe('AdminController', () => {
     } as any;
   }
 
+  function makeSpikeNotifications() {
+    return {
+      preview: jest.fn().mockResolvedValue({ date: '2026-06-10', recipientEmail: null, userName: null, totalHours: 0, tasks: [], alreadyNotified: false }),
+      notify: jest.fn().mockResolvedValue({ sent: true }),
+    } as any;
+  }
+
   function makeCtrl(queues?: any, deadLetters?: any, webhooks?: any, timeEntriesRepo?: any, webhookEvents?: any, webhookParser?: any, prisma?: any) {
     return new AdminController(
       queues ?? makeQueues(),
@@ -110,6 +117,7 @@ describe('AdminController', () => {
       prisma ?? makePrisma(),
       makeAuditLog(),
       makeSettings(),
+      makeSpikeNotifications(),
     );
   }
 
@@ -384,6 +392,7 @@ describe('AdminController', () => {
       makePrisma(),
       makeAuditLog(),
       makeSettings(),
+      makeSpikeNotifications(),
     );
   }
 
@@ -488,6 +497,7 @@ describe('AdminController', () => {
       makePrisma(),
       makeAuditLog(),
       settings,
+      makeSpikeNotifications(),
     );
   }
 
