@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import {
   CheckSquare, Inbox, CircleCheck, Clock, DollarSign, AlertTriangle,
-  Activity, RefreshCw, Download, ChevronRight, CircleX,
+  Activity, RefreshCw, Download, ChevronRight, CircleX, TrendingUp,
 } from 'lucide-react';
 import {
   useStats,
@@ -11,6 +11,8 @@ import {
   useSyncHealth,
   useOverviewDeltas,
 } from '../hooks/useReports';
+import { useBudgetStatus } from '../hooks/useBudgets';
+import type { BudgetStatusRow } from '../api/budgets';
 import { MetricCard } from '../components/ui/MetricCard';
 import { Delta } from '../components/ui/Delta';
 import { Card } from '../components/ui/Card';
@@ -82,6 +84,121 @@ type TasksSummary   = {
   byStatusType: { statusType: string | null; count: number }[];
   total: number;
 };
+
+function BudgetAlertCard() {
+  const navigate = useNavigate();
+  const budgetStatus = useBudgetStatus();
+  const rows = (budgetStatus.data ?? []) as BudgetStatusRow[];
+
+  const flagged = rows
+    .filter((r) => r.status === 'over' || r.status === 'projected-over')
+    .sort((a, b) => {
+      // Sort by pctOfBudget desc, nulls last
+      if (a.pctOfBudget == null && b.pctOfBudget == null) return 0;
+      if (a.pctOfBudget == null) return 1;
+      if (b.pctOfBudget == null) return -1;
+      return b.pctOfBudget - a.pctOfBudget;
+    });
+
+  const top3 = flagged.slice(0, 3);
+
+  const headlineValue = budgetStatus.isLoading ? '—' : `${flagged.length}`;
+  const headlineLabel = flagged.length === 1 ? 'client over / projected over budget' : 'clients over / projected over budget';
+
+  return (
+    <Card
+      padding={0}
+      title="Budget alerts"
+      subtitle="Clients over or projected over their monthly budget"
+      action={
+        flagged.length > 0
+          ? <Pill tone="red">{flagged.length}</Pill>
+          : undefined
+      }
+    >
+      {budgetStatus.isLoading ? (
+        <div style={{ padding: '20px 16px', fontSize: 13, color: 'var(--text-muted)' }}>Loading…</div>
+      ) : budgetStatus.isError ? (
+        <div style={{ padding: '20px 16px', fontSize: 13, color: 'var(--red)' }}>
+          Could not load budget status.
+        </div>
+      ) : flagged.length === 0 ? (
+        <div style={{ padding: '20px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{
+            width: 28, height: 28, borderRadius: 7, flexShrink: 0,
+            background: 'var(--pill-green-bg)', color: 'var(--pill-green-text)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <CircleCheck size={15} strokeWidth={2} />
+          </span>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>All clients within budget</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No clients are over or projected over budget this month.</div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {/* Headline count */}
+          <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border-soft)' }}>
+            <span style={{
+              width: 28, height: 28, borderRadius: 7, flexShrink: 0,
+              background: 'var(--pill-red-bg)', color: 'var(--pill-red-text)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <TrendingUp size={14} strokeWidth={1.75} />
+            </span>
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>
+                {headlineValue}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{headlineLabel}</div>
+            </div>
+          </div>
+          {/* Top 3 flagged clients */}
+          {top3.map((r, i) => {
+            const pct = r.pctOfBudget != null ? (r.pctOfBudget * 100).toFixed(1) : '—';
+            const isOver = r.status === 'over';
+            return (
+              <button
+                key={r.client}
+                onClick={() => navigate('/budgets')}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 16px',
+                  borderBottom: i < top3.length - 1 ? '1px solid var(--border-soft)' : 0,
+                  background: 'transparent', border: 0, cursor: 'pointer', textAlign: 'left', color: 'inherit',
+                }}
+                onMouseEnter={(e) => (e.currentTarget as HTMLElement).style.background = 'var(--hover)'}
+                onMouseLeave={(e) => (e.currentTarget as HTMLElement).style.background = 'transparent'}
+              >
+                <span style={{
+                  width: 26, height: 26, borderRadius: 7, flexShrink: 0,
+                  background: isOver ? 'var(--pill-red-bg)' : 'var(--pill-amber-bg)',
+                  color: isOver ? 'var(--pill-red-text)' : 'var(--pill-amber-text)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <AlertTriangle size={13} strokeWidth={1.75} />
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.client}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                    <Pill tone={isOver ? 'red' : 'amber'}>{isOver ? 'over' : 'projected over'}</Pill>
+                  </div>
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 700, color: isOver ? 'var(--red)' : 'var(--amber)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                  {pct}% used
+                </span>
+                <ChevronRight size={14} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
 
 export function OverviewPage() {
   const navigate = useNavigate();
@@ -289,6 +406,9 @@ export function OverviewPage() {
           onClick={() => navigate('/missing-rates')}
         />
       </div>
+
+      {/* Budget alerts */}
+      <BudgetAlertCard />
 
       {/* Sync Health */}
       <Card padding={0}>
