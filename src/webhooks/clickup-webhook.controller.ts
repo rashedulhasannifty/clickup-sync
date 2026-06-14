@@ -6,6 +6,7 @@ import { WebhookParserService } from './webhook-parser.service';
 import { WebhookEventsRepository } from './webhook-events.repository';
 import { WebhookSignatureGuard } from './webhook-signature.guard';
 import { Public } from '../auth/decorators';
+import { SettingsService } from '../settings/settings.service';
 
 @ApiTags('webhooks')
 @Controller('webhooks')
@@ -16,12 +17,16 @@ export class ClickupWebhookController {
     private readonly parser: WebhookParserService,
     private readonly repo: WebhookEventsRepository,
     private readonly queues: QueueService,
+    private readonly settings: SettingsService,
   ) {}
 
   @Public()
   @Post('clickup')
   @HttpCode(200)
   async receive(@Body() payload: unknown) {
+    if (!this.settings.getPreferences().sync.realtimeWebhooks) {
+      return { success: true, skipped: true };
+    }
     const parsed = this.parser.parse(payload);
     const saved = await this.repo.saveReceived(parsed);
     if (saved.duplicate) return { success: true, duplicate: true };
@@ -34,7 +39,7 @@ export class ClickupWebhookController {
     try {
       await this.queues
         .get(QUEUES.CLICKUP_WEBHOOKS)
-        .add(JOBS.PROCESS_CLICKUP_EVENT, parsed, this.queues.defaultJobOptions());
+        .add(JOBS.PROCESS_CLICKUP_EVENT, parsed, this.queues.webhookJobOptions());
     } catch (err: any) {
       const message = err?.message ?? String(err);
       this.logger.error(`Failed to enqueue ClickUp webhook ${parsed.fingerprint}: ${message}`);

@@ -7,7 +7,7 @@ describe('AdminController', () => {
     // getJobs defaults to empty so the reconcile in-flight guard finds no
     // running sweep and proceeds to enqueue.
     const getJobs = jest.fn().mockResolvedValue([]);
-    return { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
+    return { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}), webhookJobOptions: jest.fn().mockReturnValue({}) } as any;
   }
 
   function makeDeadLetters(record: any = null) {
@@ -185,7 +185,7 @@ describe('AdminController', () => {
         queueMocks.set(name, { getJobs: jest.fn().mockResolvedValue(jobs), add: jest.fn() });
       }
       const get = jest.fn((name: string) => queueMocks.get(name) ?? { getJobs, add: jest.fn() });
-      return { get, defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
+      return { get, defaultJobOptions: jest.fn().mockReturnValue({}), webhookJobOptions: jest.fn().mockReturnValue({}) } as any;
     }
 
     it('returns empty list when no jobs are active', async () => {
@@ -448,7 +448,7 @@ describe('AdminController', () => {
     it('refuses to start a second sweep while a reconcile is in flight (no enqueue)', async () => {
       const add = jest.fn();
       const getJobs = jest.fn().mockResolvedValue([{ name: 'reconcile-clickup-task' }]);
-      const queues = { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
+      const queues = { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}), webhookJobOptions: jest.fn().mockReturnValue({}) } as any;
       const tasksRepo = { findAllIds: jest.fn() } as any;
 
       const result = await makeCtrlWithOverride({ tasksRepo, queues }).reconcileTasks();
@@ -464,7 +464,7 @@ describe('AdminController', () => {
     function makeQueuesWithTaskJobs(jobs: Array<{ name: string }>) {
       const getJobs = jest.fn().mockResolvedValue(jobs);
       const get = jest.fn((name: string) => (name === 'clickup-tasks' ? { getJobs, add: jest.fn() } : { getJobs: jest.fn().mockResolvedValue([]), add: jest.fn() }));
-      return { get, defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
+      return { get, defaultJobOptions: jest.fn().mockReturnValue({}), webhookJobOptions: jest.fn().mockReturnValue({}) } as any;
     }
 
     it('reports remaining reconcile jobs (ignoring other clickup-tasks jobs) with total from stored task count', async () => {

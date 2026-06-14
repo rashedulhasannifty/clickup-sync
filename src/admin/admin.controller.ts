@@ -292,7 +292,7 @@ export class AdminController {
       // since the event was first received — and so we don't have to
       // shape-match what the worker expects in two places.
       const parsed = this.webhookParser.parse(row.rawPayload);
-      await queue.add(JOBS.PROCESS_CLICKUP_EVENT, parsed, this.queues.defaultJobOptions());
+      await queue.add(JOBS.PROCESS_CLICKUP_EVENT, parsed, this.queues.webhookJobOptions());
       // Clear the failed marker so this attempt can be observed.
       await this.webhookEvents.markRequeued(row.fingerprint).catch(() => undefined);
       requeued += 1;

@@ -2,7 +2,7 @@ import { ClickupWebhookController } from '../src/webhooks/clickup-webhook.contro
 
 const PARSED = { fingerprint: 'fp-1', eventType: 'taskUpdated', taskId: 't1', payload: {} };
 
-function build(overrides: { add?: jest.Mock; saveReceived?: jest.Mock; markFailed?: jest.Mock } = {}) {
+function build(overrides: { add?: jest.Mock; saveReceived?: jest.Mock; markFailed?: jest.Mock; realtimeWebhooks?: boolean } = {}) {
   const add = overrides.add ?? jest.fn().mockResolvedValue(undefined);
   const saveReceived = overrides.saveReceived ?? jest.fn().mockResolvedValue({ duplicate: false, id: 1n });
   const markFailed = overrides.markFailed ?? jest.fn().mockResolvedValue(undefined);
@@ -11,8 +11,11 @@ function build(overrides: { add?: jest.Mock; saveReceived?: jest.Mock; markFaile
   const queues = {
     get: jest.fn().mockReturnValue({ add }),
     defaultJobOptions: jest.fn().mockReturnValue({}),
+    webhookJobOptions: jest.fn().mockReturnValue({}),
   } as any;
-  const controller = new ClickupWebhookController(parser, repo, queues);
+  const realtimeWebhooks = overrides.realtimeWebhooks ?? true;
+  const settings = { getPreferences: () => ({ sync: { realtimeWebhooks } }) } as any;
+  const controller = new ClickupWebhookController(parser, repo, queues, settings);
   return { controller, add, saveReceived, markFailed };
 }
 

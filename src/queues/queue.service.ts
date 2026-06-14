@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
 import { QUEUES } from './queue.constants';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class QueueService {
@@ -12,6 +13,7 @@ export class QueueService {
     @InjectQueue(QUEUES.CLICKUP_BACKFILLS) private readonly backfills: Queue,
     @InjectQueue(QUEUES.MAINTENANCE) private readonly maintenance: Queue,
     @InjectQueue(QUEUES.CLICKUP_ASSIGNEE_REPLACEMENT) private readonly assigneeReplacement: Queue,
+    private readonly settings: SettingsService,
   ) {}
 
   get(name: string): Queue {
@@ -41,5 +43,9 @@ export class QueueService {
       // after the window.
       removeOnFail: { age: 14 * 24 * 60 * 60 },
     };
+  }
+
+  webhookJobOptions() {
+    return { ...this.defaultJobOptions(), attempts: this.settings.getPreferences().failure.webhookRetryAttempts };
   }
 }
