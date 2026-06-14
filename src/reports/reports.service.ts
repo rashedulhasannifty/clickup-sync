@@ -1359,10 +1359,15 @@ export class ReportsService {
         },
         select: { clickupUserId: true, spikeDate: true },
       });
+      // spike_notifications.spike_date is @db.Date; @prisma/adapter-pg returns it
+      // as UTC midnight, so toISOString().slice(0,10) recovers the same YYYY-MM-DD
+      // the watchlist uses (written via `${date}T00:00:00.000Z` on the write path).
       notifiedSet = new Set(
         notifs.map((n) => `${n.clickupUserId}|${n.spikeDate.toISOString().slice(0, 10)}`),
       );
     }
+    // `enriched` is WatchRow & { notified }; WatchRow itself stays the pre-enrichment
+    // shape used by the watchlist.push above (which has no `notified` yet).
     const enriched = top.map((w) => ({ ...w, notified: notifiedSet.has(`${w.userId}|${w.date}`) }));
 
     return { cap, watchlist: enriched, byUser: { buckets, users } };

@@ -1163,5 +1163,18 @@ describe('ReportsService', () => {
       const res = await new ReportsService(prisma).hourSpikes(12, day, day);
       expect(res.watchlist[0].notified).toBe(false);
     });
+
+    it('skips the notification lookup when there are no spikes', async () => {
+      const prisma = makePrisma();
+      const day = '2026-06-10';
+      // baseline + display both have only a normal (non-spike) day, axis one bucket
+      prisma.$queryRaw
+        .mockResolvedValueOnce([{ user_id: '123', user_name: 'Rashedul', day, hours: 5 }])  // baseline
+        .mockResolvedValueOnce([{ user_id: '123', user_name: 'Rashedul', day, hours: 5 }])  // display (5h, under cap, not 2x median)
+        .mockResolvedValueOnce([{ bucket: day }]);                                          // axis
+      const res = await new ReportsService(prisma).hourSpikes(12, day, day);
+      expect(res.watchlist).toHaveLength(0);
+      expect(prisma.spikeNotification.findMany).not.toHaveBeenCalled();
+    });
   });
 });
