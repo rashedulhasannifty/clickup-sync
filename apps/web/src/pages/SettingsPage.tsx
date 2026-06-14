@@ -273,8 +273,6 @@ export function SettingsPage() {
     if (prefs?.sync.reconcileLookbackDays != null) setReconcileDays(String(prefs.sync.reconcileLookbackDays));
   }, [prefs?.sync.reconcileLookbackDays]);
   const [defaultCurrency, setDefaultCurrency] = useState('USD');
-  const [rateMatch, setRateMatch] = useState('start');
-  const [webhookRetries, setWebhookRetries] = useState('5');
   const [capInput, setCapInput] = useState('');
   useEffect(() => {
     if (settingsQuery.data?.spikeHoursCap != null) setCapInput(String(settingsQuery.data.spikeHoursCap));
@@ -638,16 +636,13 @@ export function SettingsPage() {
 
       {activeTab === 'sync' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
-          {/* The schedule / cost / failure sections below describe current
-              behavior, but the controls aren't wired to backend persistence
-              yet — values shown reflect the hardcoded defaults the workers
-              already use. The Tag-assignee map further down IS fully wired. */}
           <Callout tone="amber" icon={<Info size={13} />}>
-            Preview only — settings below reflect the current behavior of the
-            sync workers, but changes here aren't persisted yet. The
-            <strong> Tag–assignee map</strong> and the{' '}
-            <strong>daily-hour spike cap</strong> are the exceptions: they're
-            fully active and immediately applied.
+            Most settings here are live: changes persist and take effect. The
+            exceptions still in preview are <strong>Default currency</strong> and{' '}
+            <strong>Pause syncing on repeated failure</strong>. Changing{' '}
+            <strong>Rate matching</strong> or <strong>Treat non-billable as zero</strong>{' '}
+            applies to new entries immediately; run <strong>Recalculate costs</strong>{' '}
+            (Assignee Rates) to apply it to existing ones.
           </Callout>
 
           <Card>
@@ -655,8 +650,14 @@ export function SettingsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
               <SettingRow
                 label="Real-time webhooks"
-                desc="Active — changes apply as ClickUp events arrive."
-                control={<Switch checked disabled onChange={() => undefined} />}
+                desc="When off, incoming ClickUp webhooks are acknowledged but not processed — the hourly reconcile catches up."
+                control={
+                  <Switch
+                    checked={prefs?.sync.realtimeWebhooks ?? true}
+                    disabled={!isOwner || updateSettings.isPending}
+                    onChange={(v) => patchPrefs({ sync: { realtimeWebhooks: v } })}
+                  />
+                }
               />
               <SettingRow
                 label="Full reconciliation"
@@ -721,8 +722,14 @@ export function SettingsPage() {
               )}
               <SettingRow
                 label="Backfill on connect"
-                desc="Active — configured spaces backfill on first sync."
-                control={<Switch checked disabled onChange={() => undefined} />}
+                desc="When on, registering the webhook also backfills enabled spaces."
+                control={
+                  <Switch
+                    checked={prefs?.sync.backfillOnConnect ?? true}
+                    disabled={!isOwner || updateSettings.isPending}
+                    onChange={(v) => patchPrefs({ sync: { backfillOnConnect: v } })}
+                  />
+                }
               />
             </div>
           </Card>
@@ -749,13 +756,13 @@ export function SettingsPage() {
               />
               <SettingRow
                 label="Rate matching"
-                desc="Always uses time-entry start_time today; selector is a placeholder."
+                desc="Which date selects the effective rate: the entry's start time, or the task's due date (falls back to start when no due date). Recalculate to apply to existing entries."
                 control={
                   <Select
                     size="sm"
-                    value={rateMatch}
-                    onChange={setRateMatch}
-                    disabled
+                    value={prefs?.cost.rateMatching ?? 'start'}
+                    disabled={!isOwner || updateSettings.isPending}
+                    onChange={(v) => patchPrefs({ cost: { rateMatching: v as 'start' | 'due' } })}
                     options={[
                       { value: 'start', label: 'Start date' },
                       { value: 'due', label: 'Task due date' },
@@ -766,12 +773,24 @@ export function SettingsPage() {
               <SettingRow
                 label="Auto-recalculate on rate change"
                 desc="Active — editing a rate enqueues a maintenance recalc job."
-                control={<Switch checked disabled onChange={() => undefined} />}
+                control={
+                  <Switch
+                    checked={prefs?.cost.autoRecalcOnRateChange ?? true}
+                    disabled={!isOwner || updateSettings.isPending}
+                    onChange={(v) => patchPrefs({ cost: { autoRecalcOnRateChange: v } })}
+                  />
+                }
               />
               <SettingRow
                 label="Treat non-billable as zero cost"
-                desc="Not implemented — non-billable entries are costed normally today."
-                control={<Switch checked={false} disabled onChange={() => undefined} />}
+                desc="When on, non-billable time entries are costed at 0. Recalculate to apply to existing entries."
+                control={
+                  <Switch
+                    checked={prefs?.cost.nonBillableZero ?? false}
+                    disabled={!isOwner || updateSettings.isPending}
+                    onChange={(v) => patchPrefs({ cost: { nonBillableZero: v } })}
+                  />
+                }
               />
               <RequireRole min="OWNER">
                 <SettingRow
@@ -814,13 +833,13 @@ export function SettingsPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
               <SettingRow
                 label="Webhook retry"
-                desc="Currently uses BullMQ defaults (5 attempts, exponential backoff). Configurable retry count isn't wired yet."
+                desc="Number of BullMQ attempts before a failed webhook job moves to dead-letter (exponential backoff)."
                 control={
                   <Select
                     size="sm"
-                    value={webhookRetries}
-                    onChange={setWebhookRetries}
-                    disabled
+                    value={String(prefs?.failure.webhookRetryAttempts ?? 5)}
+                    disabled={!isOwner || updateSettings.isPending}
+                    onChange={(v) => patchPrefs({ failure: { webhookRetryAttempts: Number(v) } })}
                     options={[
                       { value: '3', label: '3 attempts' },
                       { value: '5', label: '5 attempts' },
