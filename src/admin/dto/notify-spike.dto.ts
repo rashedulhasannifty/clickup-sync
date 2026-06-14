@@ -1,9 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsNumber, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
+import { IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
 
 export class NotifySpikeDto {
   @ApiProperty({ example: '12345678', description: 'ClickUp user id from the spike watchlist row' })
   @IsString()
+  @IsNotEmpty()
   @MaxLength(64)
   userId!: string;
 

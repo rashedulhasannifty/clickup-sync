@@ -95,6 +95,9 @@ export class AdminController {
     return this.spikeNotifications.preview(userId, date);
   }
 
+  // 200, not 201: this is an action endpoint (send the notice) like the other
+  // action POSTs in this controller (sync/backfill/retry); the recorded row is
+  // a side-effect, not the returned resource.
   @Post('hour-spikes/notify')
   @HttpCode(200)
   @ApiOperation({ summary: 'Email a flagged member their spike-day task breakdown (+ optional note) and record the send. 409 if already notified for that day.' })
