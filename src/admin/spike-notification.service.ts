@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { MailerService } from '../auth/mailer.service';
@@ -26,6 +26,8 @@ const dayStart = (date: string) => new Date(`${date}T00:00:00.000Z`);
 
 @Injectable()
 export class SpikeNotificationService {
+  private readonly logger = new Logger(SpikeNotificationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly mailer: MailerService,
@@ -96,6 +98,10 @@ export class SpikeNotificationService {
     const cap = this.settings.getSpikeHoursCap();
     const reason = this.reasonText(rule, b.totalHours, cap, median);
 
+    // Send first, then record. Deliberate: at-least-once + recoverable. If the
+    // write below fails the error surfaces and a retry converges (worst case a
+    // duplicate email); the reverse order could strand a "notified" row with no
+    // email actually sent and a 409 that blocks retry.
     await this.mailer.sendSpikeNotice({
       to: b.recipientEmail,
       userName: b.userName ?? 'there',
@@ -123,6 +129,9 @@ export class SpikeNotificationService {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new ConflictException('This member has already been notified for this day.');
       }
+      // Email already went out but the record write failed — log so this rare
+      // "sent but unrecorded" state is diagnosable (a retry may re-send).
+      this.logger.error(`Spike notice sent to ${b.recipientEmail} for user ${userId} on ${date} but recording failed: ${String(e)}`);
       throw e;
     }
 
