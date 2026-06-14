@@ -38,3 +38,21 @@ describe('RatesRepository.update — partial-update semantics', () => {
     expect(data).toEqual({ currency: 'USD' });
   });
 });
+
+describe('RatesRepository.update with assignee metadata', () => {
+  it('forwards assigneeName and assigneeEmail', async () => {
+    const update = jest.fn().mockResolvedValue({
+      rateId: BigInt(1), assigneeId: 'u1', assigneeName: 'New Name', assigneeEmail: 'new@x.co',
+      currency: 'USD', hourlyRateCents: BigInt(5000), validFrom: new Date('2024-01-01'), validTo: null, updatedAt: new Date(),
+    });
+    const prisma = { assigneeRate: { update } } as any;
+    const repo = new RatesRepository(prisma);
+
+    await repo.update(BigInt(1), { assigneeName: 'New Name', assigneeEmail: 'new@x.co' });
+
+    expect(update).toHaveBeenCalledWith({
+      where: { rateId: BigInt(1) },
+      data: { assigneeName: 'New Name', assigneeEmail: 'new@x.co' },
+    });
+  });
+});

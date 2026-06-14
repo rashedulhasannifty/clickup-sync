@@ -365,16 +365,35 @@ export function RateModal({
 		>
 			<div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 				{rate ? (
-					<Field label="Assignee">
-						<Select
-							fullWidth
-							size="md"
-							value={assigneePicker}
-							onChange={() => undefined}
-							options={assigneeSelectOptions.filter((o) => o.value !== MANUAL_VALUE)}
-							disabled
-						/>
-					</Field>
+					<>
+						<Field label="Assignee">
+							<Select
+								fullWidth
+								size="md"
+								value={assigneePicker}
+								onChange={() => undefined}
+								options={assigneeSelectOptions.filter((o) => o.value !== MANUAL_VALUE)}
+								disabled
+							/>
+						</Field>
+						<div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+							<Field label="Name">
+								<Input
+									value={assigneeName}
+									onChange={(e) => setAssigneeName(e.target.value)}
+									placeholder="Display name"
+								/>
+							</Field>
+							<Field label="Email">
+								<Input
+									value={assigneeEmail}
+									onChange={(e) => setAssigneeEmail(e.target.value)}
+									placeholder="Email"
+									type="email"
+								/>
+							</Field>
+						</div>
+					</>
 				) : (
 					<>
 						<Field label="Assignee">

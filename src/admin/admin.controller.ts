@@ -468,6 +468,8 @@ export class AdminController {
   @ApiOperation({ summary: 'Update an assignee rate' })
   updateRate(@Param('id') id: string, @Body() dto: UpdateRateDto) {
     const data: Parameters<RatesRepository['update']>[1] = {};
+    if (dto.assigneeName !== undefined) data.assigneeName = dto.assigneeName;
+    if (dto.assigneeEmail !== undefined) data.assigneeEmail = dto.assigneeEmail;
     if (dto.currency !== undefined) data.currency = dto.currency;
     if (dto.hourlyRateCents !== undefined) data.hourlyRateCents = dto.hourlyRateCents;
     if (dto.validFrom !== undefined) data.validFrom = new Date(`${dto.validFrom.slice(0, 10)}T00:00:00.000Z`);

@@ -41,8 +41,10 @@ export class RatesRepository {
     return mapRate(r);
   }
 
-  async update(id: bigint, data: { currency?: string; hourlyRateCents?: number; validFrom?: Date; validTo?: Date | null }) {
+  async update(id: bigint, data: { assigneeName?: string; assigneeEmail?: string; currency?: string; hourlyRateCents?: number; validFrom?: Date; validTo?: Date | null }) {
     const update: Record<string, unknown> = {};
+    if (data.assigneeName !== undefined) update.assigneeName = data.assigneeName;
+    if (data.assigneeEmail !== undefined) update.assigneeEmail = data.assigneeEmail;
     if (data.currency !== undefined) update.currency = data.currency;
     if (data.hourlyRateCents !== undefined) update.hourlyRateCents = BigInt(data.hourlyRateCents);
     if (data.validFrom !== undefined) update.validFrom = data.validFrom;

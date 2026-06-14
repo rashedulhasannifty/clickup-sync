@@ -5,6 +5,16 @@ export class UpdateRateDto {
   @ApiPropertyOptional()
   @IsString()
   @IsOptional()
+  assigneeName?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
+  assigneeEmail?: string;
+
+  @ApiPropertyOptional()
+  @IsString()
+  @IsOptional()
   currency?: string;
 
   @ApiPropertyOptional({ description: 'Hourly rate in cents' })
