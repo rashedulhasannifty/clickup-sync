@@ -5,10 +5,14 @@ function makePrisma(rate: unknown) {
   return { prisma: { assigneeRate: { findFirst } } as any, findFirst };
 }
 
+function makeSettings(cost: Partial<{ autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean }> = {}) {
+  return { getPreferences: () => ({ cost: { autoRecalcOnRateChange: true, rateMatching: 'start', nonBillableZero: false, ...cost } }) } as any;
+}
+
 describe('CostCalculatorService', () => {
   it('queries rates with an INCLUSIVE valid_to (closed-closed [from, to])', async () => {
     const { prisma, findFirst } = makePrisma(null);
-    const svc = new CostCalculatorService(prisma);
+    const svc = new CostCalculatorService(prisma, makeSettings());
 
     await svc.calculate('user-1', new Date('2024-06-15T10:00:00.000Z'), 2);
 
@@ -24,7 +28,7 @@ describe('CostCalculatorService', () => {
   // edge-day entry (Dec 31 → Jan 1 cutover is the canonical risk).
   it('passes the entry-date midnight as the comparison value (so a Dec 31 entry matches validTo=Dec 31)', async () => {
     const { prisma, findFirst } = makePrisma(null);
-    const svc = new CostCalculatorService(prisma);
+    const svc = new CostCalculatorService(prisma, makeSettings());
 
     await svc.calculate('user-1', new Date('2024-12-31T18:30:00.000Z'), 1);
 
@@ -36,7 +40,7 @@ describe('CostCalculatorService', () => {
 
   it('returns NO_RATE_FOUND when no effective rate exists', async () => {
     const { prisma } = makePrisma(null);
-    const svc = new CostCalculatorService(prisma);
+    const svc = new CostCalculatorService(prisma, makeSettings());
 
     const r = await svc.calculate('user-1', new Date('2024-06-15T00:00:00.000Z'), 5);
 
@@ -47,7 +51,7 @@ describe('CostCalculatorService', () => {
 
   it('computes cost = round(hourlyRateCents * durationHours)', async () => {
     const { prisma } = makePrisma({ rateId: 7n, currency: 'AUD', hourlyRateCents: 15000n });
-    const svc = new CostCalculatorService(prisma);
+    const svc = new CostCalculatorService(prisma, makeSettings());
 
     const r = await svc.calculate('user-1', new Date('2024-06-15T00:00:00.000Z'), 2.5);
 
@@ -59,7 +63,7 @@ describe('CostCalculatorService', () => {
 
   it('reuses a supplied cache so a repeated (user, date) lookup hits the DB only once', async () => {
     const { prisma, findFirst } = makePrisma({ rateId: 7n, currency: 'AUD', hourlyRateCents: 15000n });
-    const svc = new CostCalculatorService(prisma);
+    const svc = new CostCalculatorService(prisma, makeSettings());
     const cache = new Map();
 
     // Same user, same calendar day, different durations.
@@ -73,7 +77,7 @@ describe('CostCalculatorService', () => {
 
   it('caches NO_RATE results too (negative caching)', async () => {
     const { prisma, findFirst } = makePrisma(null);
-    const svc = new CostCalculatorService(prisma);
+    const svc = new CostCalculatorService(prisma, makeSettings());
     const cache = new Map();
 
     await svc.calculate('user-1', new Date('2024-06-15T09:00:00.000Z'), 2, cache);
@@ -85,11 +89,45 @@ describe('CostCalculatorService', () => {
 
   it('returns NO_RATE_FOUND when userId or startTime is null', async () => {
     const { prisma, findFirst } = makePrisma(null);
-    const svc = new CostCalculatorService(prisma);
+    const svc = new CostCalculatorService(prisma, makeSettings());
 
     const r = await svc.calculate(null, null, 3);
 
     expect(r.status).toBe('NO_RATE_FOUND');
     expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  it('returns zero cost (not NO_RATE_FOUND) for a non-billable entry when nonBillableZero is on', async () => {
+    const { prisma, findFirst } = makePrisma({ rateId: 7n, currency: 'USD', hourlyRateCents: 15000n });
+    const svc = new CostCalculatorService(prisma, makeSettings({ nonBillableZero: true }));
+    const r = await svc.calculate('user-1', new Date('2024-06-15T10:00:00.000Z'), 2, undefined, { billable: false });
+    expect(r.status).toBe('COST_CALCULATED');
+    expect(r.costCents).toBe(0n);
+    expect(r.rateId).toBeNull();
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  it('still costs a billable entry normally when nonBillableZero is on', async () => {
+    const { prisma } = makePrisma({ rateId: 7n, currency: 'USD', hourlyRateCents: 10000n });
+    const svc = new CostCalculatorService(prisma, makeSettings({ nonBillableZero: true }));
+    const r = await svc.calculate('user-1', new Date('2024-06-15T10:00:00.000Z'), 2, undefined, { billable: true });
+    expect(r.status).toBe('COST_CALCULATED');
+    expect(r.costCents).toBe(20000n);
+  });
+
+  it('uses the task due date to select the rate when rateMatching is "due"', async () => {
+    const { prisma, findFirst } = makePrisma({ rateId: 7n, currency: 'USD', hourlyRateCents: 10000n });
+    const svc = new CostCalculatorService(prisma, makeSettings({ rateMatching: 'due' }));
+    await svc.calculate('user-1', new Date('2024-06-15T10:00:00.000Z'), 2, undefined, { dueDate: new Date('2024-03-01T12:00:00.000Z') });
+    const where = findFirst.mock.calls[0][0].where;
+    expect(where.validFrom.lte.toISOString()).toBe('2024-03-01T00:00:00.000Z');
+  });
+
+  it('falls back to startTime for rate selection when rateMatching is "due" but dueDate is null', async () => {
+    const { prisma, findFirst } = makePrisma({ rateId: 7n, currency: 'USD', hourlyRateCents: 10000n });
+    const svc = new CostCalculatorService(prisma, makeSettings({ rateMatching: 'due' }));
+    await svc.calculate('user-1', new Date('2024-06-15T10:00:00.000Z'), 2, undefined, { dueDate: null });
+    const where = findFirst.mock.calls[0][0].where;
+    expect(where.validFrom.lte.toISOString()).toBe('2024-06-15T00:00:00.000Z');
   });
 });

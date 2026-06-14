@@ -118,7 +118,7 @@ export class AssigneeReplacementService {
 
     // 7. Upsert replacement entry into local DB with recalculated cost
     const startTime = new Date(data.startMs);
-    const cost = await this.costs.calculate(realUserId, startTime, data.durationHours);
+    const cost = await this.costs.calculate(realUserId, startTime, data.durationHours, undefined, { billable: data.billable });
     const normalized: NormalizedTimeEntry = {
       timeEntryId: created.id,
       taskId: data.taskId,

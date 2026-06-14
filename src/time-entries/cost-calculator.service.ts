@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { SettingsService } from '../settings/settings.service';
 
 /**
  * Resolved effective rate for a (user, calendar-day) pair, or null when none
@@ -13,11 +14,25 @@ export type RateCache = Map<string, ResolvedRate>;
 
 @Injectable()
 export class CostCalculatorService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly settings: SettingsService,
+  ) {}
 
-  async calculate(userId: string | null, startTime: Date | null, durationHours: number, cache?: RateCache) {
+  async calculate(
+    userId: string | null,
+    startTime: Date | null,
+    durationHours: number,
+    cache?: RateCache,
+    opts?: { billable?: boolean; dueDate?: Date | null },
+  ) {
     if (!userId || !startTime) return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND' };
-    const entryDate = new Date(Date.UTC(startTime.getUTCFullYear(), startTime.getUTCMonth(), startTime.getUTCDate()));
+    const cost = this.settings.getPreferences().cost;
+    if (cost.nonBillableZero && opts?.billable === false) {
+      return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'COST_CALCULATED' };
+    }
+    const basis = cost.rateMatching === 'due' && opts?.dueDate ? opts.dueDate : startTime;
+    const entryDate = new Date(Date.UTC(basis.getUTCFullYear(), basis.getUTCMonth(), basis.getUTCDate()));
     const rate = await this.resolveRate(userId, entryDate, cache);
     if (!rate) return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND' };
     return { rateId: rate.rateId, currency: rate.currency, hourlyRateCents: rate.hourlyRateCents, costCents: BigInt(Math.round(Number(rate.hourlyRateCents) * durationHours)), status: 'COST_CALCULATED' };

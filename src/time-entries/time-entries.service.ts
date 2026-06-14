@@ -13,6 +13,7 @@ import { ReplacementJobData, replacementJobId } from './assignee-replacement.ser
 import { ClickUpTimeEntry } from '../clickup/clickup.types';
 import { resolveTimeEntriesWindow } from '../clickup/time-entries.util';
 import { SettingsService } from '../settings/settings.service';
+import { PrismaService } from '../database/prisma.service';
 
 // ClickUp's GET /team/{team}/time_entries has NO pagination (no page/limit
 // params — it returns the whole window in one response). The prune below treats
@@ -37,6 +38,7 @@ export class TimeEntriesService {
     private readonly tasksRepo: TasksRepository,
     private readonly tasksService: TasksService,
     private readonly settings: SettingsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async syncTaskTimeEntries(taskId: string, assigneeIds?: string[], startDate?: number, endDate?: number) {
@@ -98,6 +100,18 @@ export class TimeEntriesService {
     // One rate cache for the whole task so multiple intervals logged by the
     // same user on the same day resolve the effective rate once, not per entry.
     const rateCache = new Map();
+    // When rateMatching='due', pre-fetch the task due dates for all resolvable
+    // tasks so we can pass dueDate to the cost calculator without a per-entry
+    // DB round-trip. Skip the query entirely when using the default 'start'
+    // matching to keep the hot path unchanged.
+    let dueByTask: Map<string, Date | null> | null = null;
+    if (this.settings.getPreferences().cost.rateMatching === 'due') {
+      const taskRows = await this.prisma.clickupTask.findMany({
+        where: { taskId: { in: [...resolvableTaskIds] } },
+        select: { taskId: true, dueDate: true },
+      });
+      dueByTask = new Map(taskRows.map((t) => [t.taskId, t.dueDate]));
+    }
     for (const entry of entries) {
       const normalized = this.normalizer.normalizeTimeEntry(entry);
       // A non-null task_id that we couldn't resolve would violate the FK. Skip
@@ -109,7 +123,7 @@ export class TimeEntriesService {
       }
       const rawTags = extractEntryTagNames(entry);
       upserted.push({ normalized, rawTags });
-      const cost = await this.costs.calculate(normalized.userId, normalized.startTime, normalized.durationHours, rateCache);
+      const cost = await this.costs.calculate(normalized.userId, normalized.startTime, normalized.durationHours, rateCache, { billable: normalized.billable, dueDate: dueByTask?.get(normalized.taskId ?? '') ?? null });
       await this.repo.upsert(normalized, cost);
       if (cost.status === 'NO_RATE_FOUND') this.logger.warn(`Missing rate for user ${normalized.userId} on time entry ${normalized.timeEntryId}`);
       count += 1;

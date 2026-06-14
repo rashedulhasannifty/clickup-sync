@@ -1,5 +1,9 @@
 import { CostRecalculationService } from './cost-recalculation.service';
 
+function makeSettings(cost: Partial<{ autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean }> = {}) {
+  return { getPreferences: () => ({ cost: { autoRecalcOnRateChange: true, rateMatching: 'start', nonBillableZero: false, ...cost } }) } as any;
+}
+
 function makeDeps(entries: any[]) {
   const findMany = jest.fn().mockResolvedValue(entries);
   const update = jest.fn().mockResolvedValue({});
@@ -8,10 +12,11 @@ function makeDeps(entries: any[]) {
     rateId: 9n, currency: 'AUD', hourlyRateCents: 10000n, costCents: 20000n, status: 'COST_CALCULATED',
   });
   const costs = { calculate } as any;
-  return { svc: new CostRecalculationService(prisma, costs), prisma, findMany, update, calculate };
+  const settings = makeSettings();
+  return { svc: new CostRecalculationService(prisma, costs, settings), prisma, findMany, update, calculate };
 }
 
-const ENTRY = { timeEntryId: 'te-1', userId: 'u1', startTime: new Date('2024-06-15T00:00:00Z'), durationHours: { toNumber: () => 2 } };
+const ENTRY = { timeEntryId: 'te-1', userId: 'u1', startTime: new Date('2024-06-15T00:00:00Z'), durationHours: { toNumber: () => 2 }, billable: true, task: null };
 
 describe('CostRecalculationService', () => {
   it('scopes the query to one assignee when assigneeId is given', async () => {
@@ -30,7 +35,7 @@ describe('CostRecalculationService', () => {
     const { svc, update, calculate } = makeDeps([ENTRY]);
     const res = await svc.recalculate({ assigneeId: 'u1' });
 
-    expect(calculate).toHaveBeenCalledWith('u1', ENTRY.startTime, 2, expect.any(Map));
+    expect(calculate).toHaveBeenCalledWith('u1', ENTRY.startTime, 2, expect.any(Map), { billable: true, dueDate: null });
     expect(update).toHaveBeenCalledWith({
       where: { timeEntryId: 'te-1' },
       data: { rateId: 9n, currency: 'AUD', hourlyRateCents: 10000n, costCents: 20000n, status: 'COST_CALCULATED' },

@@ -42,9 +42,11 @@ function makeService(overrides: Partial<{
   const tasksRepo = { exists } as any;
   const tasksService = { syncTask } as any;
 
+  const prisma = { clickupTask: { findMany: jest.fn().mockResolvedValue([]) } } as any;
   const service = new TimeEntriesService(
     clickup, normalizer, repo, costsService, queues, members, tagAssigneeMap, tasksRepo, tasksService,
-    { getTeamId: () => '3450636' } as any,
+    { getTeamId: () => '3450636', getPreferences: () => ({ cost: { rateMatching: 'start', nonBillableZero: false, autoRecalcOnRateChange: true } }) } as any,
+    prisma,
   );
 
   return { service, exists, syncTask, getMemberIds, getTimeEntries, upsert, costs, findAllActive, pruneTaskEntriesOutsideSet };

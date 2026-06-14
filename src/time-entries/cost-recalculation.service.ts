@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { CostCalculatorService, RateCache } from './cost-calculator.service';
+import { SettingsService } from '../settings/settings.service';
 
 const BATCH_SIZE = 1000;
 
@@ -11,6 +12,7 @@ export class CostRecalculationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly costs: CostCalculatorService,
+    private readonly settings: SettingsService,
   ) {}
 
   /**
@@ -39,12 +41,12 @@ export class CostRecalculationService {
         take: BATCH_SIZE,
         ...(cursor ? { skip: 1, cursor: { timeEntryId: cursor } } : {}),
         orderBy: { timeEntryId: 'asc' },
-        select: { timeEntryId: true, userId: true, startTime: true, durationHours: true },
+        select: { timeEntryId: true, userId: true, startTime: true, durationHours: true, billable: true, task: { select: { dueDate: true } } },
       });
       if (entries.length === 0) break;
 
       for (const e of entries) {
-        const cost = await this.costs.calculate(e.userId, e.startTime, e.durationHours.toNumber(), cache);
+        const cost = await this.costs.calculate(e.userId, e.startTime, e.durationHours.toNumber(), cache, { billable: e.billable, dueDate: e.task?.dueDate ?? null });
         await this.prisma.clickupTimeEntry.update({
           where: { timeEntryId: e.timeEntryId },
           data: {
