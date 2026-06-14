@@ -37,7 +37,13 @@ describe('BudgetsService.clientBudgetStatus', () => {
 
     const rows = await service.clientBudgetStatus({ month: '2026-06', now });
 
-    expect(rows.find((r) => r.client === 'NoBudgetCo')!.status).toBe('no-budget');
+    expect(rows.find((r) => r.client === 'NoBudgetCo')!).toMatchObject({
+      status: 'no-budget',
+      monthlyAmount: null,
+      currency: null,
+      pctOfBudget: null,
+      forecastPct: null,
+    });
   });
 
   it('for a fully past month, both forecasts equal the actual', async () => {
@@ -51,5 +57,20 @@ describe('BudgetsService.clientBudgetStatus', () => {
 
     expect(acme.forecastRunRate).toBe(acme.mtdCost);
     expect(acme.forecastTrailing).toBe(acme.mtdCost);
+  });
+
+  it('ignores a budget row whose validTo is before the queried month', async () => {
+    const now = new Date('2026-06-15T08:00:00Z');
+    const daily = [{ day: '2026-06-05', client: 'Acme', cost_cents: 100000n, hours: '5' }];
+    const budgets = [
+      { id: '1', client: 'Acme', monthlyAmountCents: 500000, currency: 'USD', validFrom: new Date('2026-01-01'), validTo: new Date('2026-05-31'), notes: null },
+    ];
+    const { service } = makeDeps(daily, budgets);
+
+    const rows = await service.clientBudgetStatus({ month: '2026-06', now });
+    const acme = rows.find((r) => r.client === 'Acme')!;
+
+    expect(acme.monthlyAmount).toBeNull();
+    expect(acme.status).toBe('no-budget');
   });
 });

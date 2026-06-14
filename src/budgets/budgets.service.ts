@@ -70,14 +70,23 @@ export class BudgetsService {
     const TZ = Prisma.raw(`'Asia/Dhaka'`);
     const dhakaDay = Prisma.sql`((e.start_time AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date)`;
 
+    // Index-friendly superset range on the raw start_time column (timestamp-without-tz
+    // holding UTC). Postgres can use the start_time index for this range; the exact
+    // dhakaDay predicates below then trim to the precise Dhaka calendar window. Pad by a
+    // day on each side so the raw range is a guaranteed superset regardless of session TZ.
+    const rawLower = new Date(`${addDaysIso(bounds.start, -1)}T00:00:00Z`);
+    const rawUpper = new Date(`${addDaysIso(effectiveToday, 2)}T00:00:00Z`);
+
     const dailyRows = await this.prisma.$queryRaw<DailyRow[]>(Prisma.sql`
       SELECT to_char(${dhakaDay}, 'YYYY-MM-DD')              AS day,
              COALESCE(NULLIF(t.client, ''), ${NO_CLIENT})    AS client,
              COALESCE(SUM(e.cost_cents), 0)::bigint          AS cost_cents,
-             COALESCE(SUM(e.duration_hours), 0)::text        AS hours
+             COALESCE(SUM(e.duration_hours), 0)::text        AS hours -- ::text avoids Decimal/float ambiguity for SUM of a numeric column via $queryRaw; parsed with Number() below
       FROM clickup_time_entries e
       JOIN clickup_tasks t ON e.task_id = t.task_id
       WHERE e.start_time IS NOT NULL
+        AND e.start_time >= ${rawLower}
+        AND e.start_time <  ${rawUpper}
         AND ${dhakaDay} >= ${bounds.start}::date
         AND ${dhakaDay} <= ${effectiveToday}::date
         AND t.is_deleted = false
@@ -140,6 +149,7 @@ export class BudgetsService {
         mtdHours: Number(mtdHours.toFixed(2)),
         forecastRunRate: frCents / 100,
         forecastTrailing: ftCents / 100,
+        // budgetCents is null (no budget) or a positive integer; the falsy check covers both null and a defensive 0, matching deriveBudgetStatus's no-budget guard.
         pctOfBudget: budgetCents ? mtdCents / budgetCents : null,
         forecastPct: budgetCents ? frCents / budgetCents : null,
         status,
