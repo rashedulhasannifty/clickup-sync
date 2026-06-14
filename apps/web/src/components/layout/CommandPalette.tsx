@@ -61,7 +61,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       label: t.taskName,
       sub: t.client ? `Task · ${t.client}` : 'Task',
       icon: CheckSquare,
-      run: () => select(`/tasks?search=${encodeURIComponent(t.taskName)}`),
+      run: () => select(`/tasks?taskIds=${encodeURIComponent(t.taskId)}`),
     }));
     const assigneeActions: Action[] = (results?.assignees ?? []).map((a) => ({
       key: 'assignee:' + a.userId,
