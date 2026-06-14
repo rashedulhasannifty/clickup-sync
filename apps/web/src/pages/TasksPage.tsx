@@ -6,6 +6,7 @@ import {
   CircleCheck, Inbox,
 } from 'lucide-react';
 import { useTasks, useTasksAssignees, useTasksSummary, useClients, useLists, useFolders } from '../hooks/useReports';
+import { useTaskHistory } from '../hooks/useTaskHistory';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { useAuth } from '../hooks/useAuth';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -102,6 +103,9 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
   useEffect(() => {
     setTab('overview');
   }, [String(task?.taskId ?? task?.task_id ?? '')]);
+
+  const taskIdForHistory = task ? String(task.taskId ?? task.task_id ?? '') : null;
+  const history = useTaskHistory(taskIdForHistory || null);
 
   if (!task) return <Drawer open={false} onClose={onClose} />;
 
@@ -208,7 +212,7 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
           </pre>
         )}
         {tab === 'sync' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: 'var(--muted-bg)', borderRadius: 8 }}>
               <span style={{ width: 24, height: 24, borderRadius: 999, background: 'var(--pill-green-bg)', color: 'var(--pill-green-text)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <CircleCheck size={13} strokeWidth={1.75} />
@@ -220,6 +224,32 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
                 )}
               </div>
             </div>
+            {history.isLoading ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading activity…</div>
+            ) : (history.data ?? []).length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No recorded sync jobs or status changes yet.</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(history.data ?? []).map((it) => (
+                  <div key={it.kind + it.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 10px', borderRadius: 8, background: 'var(--muted-bg)' }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: it.kind === 'event' ? 'var(--accent)' : it.kind === 'job' && it.error ? 'var(--red)' : 'var(--text-muted)', minWidth: 52 }}>
+                      {it.kind === 'event' ? 'EVENT' : 'SYNC'}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text)' }}>
+                        {it.kind === 'event'
+                          ? `${it.eventType}${it.changedByUserName ? ` · ${it.changedByUserName}` : ''}`
+                          : `${it.jobName} (${it.queueName}) · ${it.status}`}
+                      </div>
+                      {it.kind === 'job' && it.error && (
+                        <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2, wordBreak: 'break-word' }}>{it.error}</div>
+                      )}
+                      {it.at && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{fmt.relative(it.at)}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
