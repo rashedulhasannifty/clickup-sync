@@ -1344,8 +1344,28 @@ export class ReportsService {
       }
     }
     watchlist.sort((a, b) => b.hours - a.hours);
+    const top = watchlist.slice(0, 20);
 
-    return { cap, watchlist: watchlist.slice(0, 20), byUser: { buckets, users } };
+    // Flag rows the admin has already emailed about (one notice per user-day).
+    // Guard the empty case: an empty `OR` would match every row.
+    let notifiedSet = new Set<string>();
+    if (top.length > 0) {
+      const notifs = await this.prisma.spikeNotification.findMany({
+        where: {
+          OR: top.map((w) => ({
+            clickupUserId: w.userId,
+            spikeDate: new Date(`${w.date}T00:00:00.000Z`),
+          })),
+        },
+        select: { clickupUserId: true, spikeDate: true },
+      });
+      notifiedSet = new Set(
+        notifs.map((n) => `${n.clickupUserId}|${n.spikeDate.toISOString().slice(0, 10)}`),
+      );
+    }
+    const enriched = top.map((w) => ({ ...w, notified: notifiedSet.has(`${w.userId}|${w.date}`) }));
+
+    return { cap, watchlist: enriched, byUser: { buckets, users } };
   }
 
   async anomalies() {

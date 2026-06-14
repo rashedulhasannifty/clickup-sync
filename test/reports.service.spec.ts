@@ -28,6 +28,7 @@ describe('ReportsService', () => {
       },
       $transaction: jest.fn().mockImplementation((arr: Promise<unknown>[]) => Promise.all(arr)),
       $queryRaw: jest.fn().mockResolvedValue([]),
+      spikeNotification: { findMany: jest.fn().mockResolvedValue([]) },
     };
     return { ...base, ...overrides } as any;
   }
@@ -1130,6 +1131,37 @@ describe('ReportsService', () => {
       const r = await new ReportsService(prisma).hourSpikes(4, '2026-06-10', '2026-06-10');
       expect(r.watchlist).toHaveLength(1);
       expect(r.watchlist[0]).toMatchObject({ rule: 'absolute', median: 0, multiplier: null });
+    });
+  });
+
+  describe('hourSpikes notified enrichment', () => {
+    it('marks a watchlist row notified when a SpikeNotification exists for it', async () => {
+      const prisma = makePrisma();
+      const day = '2026-06-10';
+      // baseline rows (median), display rows (the spike day), axis rows (day series)
+      prisma.$queryRaw
+        .mockResolvedValueOnce([{ user_id: '123', user_name: 'Rashedul', day, hours: 5 }])      // baseline
+        .mockResolvedValueOnce([{ user_id: '123', user_name: 'Rashedul', day, hours: 20 }])     // display
+        .mockResolvedValueOnce([{ bucket: day }]);                                              // axis
+      prisma.spikeNotification.findMany.mockResolvedValue([
+        { clickupUserId: '123', spikeDate: new Date('2026-06-10T00:00:00.000Z') },
+      ]);
+
+      const res = await new ReportsService(prisma).hourSpikes(12, day, day);
+      expect(res.watchlist).toHaveLength(1);
+      expect(res.watchlist[0]).toMatchObject({ userId: '123', date: day, notified: true });
+    });
+
+    it('leaves rows not-notified when no SpikeNotification matches', async () => {
+      const prisma = makePrisma();
+      const day = '2026-06-10';
+      prisma.$queryRaw
+        .mockResolvedValueOnce([{ user_id: '123', user_name: 'Rashedul', day, hours: 5 }])
+        .mockResolvedValueOnce([{ user_id: '123', user_name: 'Rashedul', day, hours: 20 }])
+        .mockResolvedValueOnce([{ bucket: day }]);
+      // findMany defaults to [] from makePrisma
+      const res = await new ReportsService(prisma).hourSpikes(12, day, day);
+      expect(res.watchlist[0].notified).toBe(false);
     });
   });
 });
