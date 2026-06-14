@@ -12,6 +12,8 @@ interface BudgetModalProps {
 	initial?: Budget | null;
 	/** Options for the client autocomplete datalist */
 	clientOptions: string[];
+	/** Pre-populate the client field in create mode (ignored when initial is set) */
+	presetClient?: string;
 	onClose: () => void;
 	onSubmit: (data: {
 		client: string;
@@ -29,6 +31,7 @@ export function BudgetModal({
 	open,
 	initial,
 	clientOptions,
+	presetClient,
 	onClose,
 	onSubmit,
 	submitting,
@@ -53,7 +56,7 @@ export function BudgetModal({
 			setValidTo(initial.validTo ? initial.validTo.slice(0, 10) : '');
 			setNotes(initial.notes ?? '');
 		} else {
-			setClient('');
+			setClient(presetClient ?? '');
 			setMonthlyAmountDollars('');
 			setCurrency('USD');
 			setValidFrom('');
@@ -61,7 +64,7 @@ export function BudgetModal({
 			setNotes('');
 		}
 		setFormError('');
-	}, [open, initial]);
+	}, [open, initial, presetClient]);
 
 	function handleSave() {
 		if (!client.trim()) {

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Home, BarChart3, Activity, CheckSquare, Clock, AlertTriangle, DollarSign,
-  Layers, Webhook, Settings, Search,
+  Layers, Webhook, Settings, Search, Wallet,
 } from 'lucide-react';
 import { Kbd } from '../ui/Kbd';
 
@@ -14,6 +14,7 @@ const NAV_ITEMS: { label: string; to: string; sub: string; icon: typeof Home }[]
   { label: 'Time Entries', to: '/time-entries', sub: '/time-entries', icon: Clock },
   { label: 'Missing Rates', to: '/missing-rates', sub: '/missing-rates', icon: AlertTriangle },
   { label: 'Assignee Rates', to: '/assignee-rates', sub: '/assignee-rates', icon: DollarSign },
+  { label: 'Budgets', to: '/budgets', sub: '/budgets', icon: Wallet },
   { label: 'Spaces', to: '/spaces', sub: '/spaces', icon: Layers },
   { label: 'Sync Logs', to: '/sync-logs', sub: '/sync-logs', icon: Webhook },
   { label: 'Settings', to: '/settings', sub: '/settings', icon: Settings },

@@ -43,6 +43,9 @@ const AssigneeRatesPage = React.lazy(() =>
 		default: m.AssigneeRatesPage,
 	})),
 );
+const BudgetsPage = React.lazy(() =>
+	import('./pages/BudgetsPage').then((m) => ({ default: m.BudgetsPage })),
+);
 const SpacesPage = React.lazy(() =>
 	import('./pages/SpacesPage').then((m) => ({ default: m.SpacesPage })),
 );
@@ -163,6 +166,14 @@ export default function App() {
 									element={
 										<React.Suspense fallback={Fallback}>
 											<AssigneeRatesPage />
+										</React.Suspense>
+									}
+								/>
+								<Route
+									path="/budgets"
+									element={
+										<React.Suspense fallback={Fallback}>
+											<BudgetsPage />
 										</React.Suspense>
 									}
 								/>

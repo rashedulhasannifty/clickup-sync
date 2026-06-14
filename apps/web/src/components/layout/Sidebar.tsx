@@ -16,6 +16,7 @@ import {
   X,
   type LucideIcon,
   UsersRound,
+  Wallet,
 } from "lucide-react";
 import { useStats } from "../../hooks/useReports";
 import { useAuth } from "../../hooks/useAuth";
@@ -68,6 +69,7 @@ export function Sidebar({
       badge: stats?.missingRateEntries,
     },
     { to: "/assignee-rates", label: "Assignee Rates", icon: DollarSign },
+    { to: "/budgets", label: "Budgets", icon: Wallet },
     { to: "/spaces", label: "Spaces", icon: Layers },
     { to: "/sync-logs", label: "Sync Logs", icon: Webhook },
     ...(isAdmin
