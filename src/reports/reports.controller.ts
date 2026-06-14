@@ -1,5 +1,6 @@
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { BudgetsService } from '../budgets/budgets.service';
 import { SettingsService } from '../settings/settings.service';
 import { ReportsService } from './reports.service';
 
@@ -10,6 +11,7 @@ export class ReportsController {
   constructor(
     private readonly reports: ReportsService,
     private readonly settings: SettingsService,
+    private readonly budgets: BudgetsService,
   ) {}
 
   @Get('tasks/summary')
@@ -149,6 +151,12 @@ export class ReportsController {
       throw new BadRequestException(`Invalid bucket "${bucket ?? ''}" (expected day|week|month)`);
     }
     return this.reports.costTrendByClient(bucket, from, to);
+  }
+
+  @Get('budgets/status')
+  @ApiOperation({ summary: 'Per-client monthly budget vs actual + month-end forecast. ?month=YYYY-MM (defaults to current Dhaka month).' })
+  budgetStatus(@Query('month') month?: string) {
+    return this.budgets.clientBudgetStatus({ month });
   }
 
   @Get('overview-deltas')

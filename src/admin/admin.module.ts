@@ -3,6 +3,7 @@ import { QueuesModule } from '../queues/queues.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { ClickupModule } from '../clickup/clickup.module';
 import { TimeEntriesModule } from '../time-entries/time-entries.module';
+import { BudgetsModule } from '../budgets/budgets.module';
 import { RatesModule } from '../rates/rates.module';
 import { TasksModule } from '../tasks/tasks.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
@@ -13,7 +14,7 @@ import { AuditLogInterceptor } from './audit-log.interceptor';
 import { SpikeNotificationService } from './spike-notification.service';
 
 @Module({
-  imports: [QueuesModule, JobsModule, ClickupModule, TimeEntriesModule, RatesModule, TasksModule, WebhooksModule, MailerModule],
+  imports: [QueuesModule, JobsModule, ClickupModule, TimeEntriesModule, RatesModule, BudgetsModule, TasksModule, WebhooksModule, MailerModule],
   providers: [AuditLogRepository, AuditLogInterceptor, SpikeNotificationService],
   controllers: [AdminController],
   exports: [AuditLogRepository, AuditLogInterceptor],

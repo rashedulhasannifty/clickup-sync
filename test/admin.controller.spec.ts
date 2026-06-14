@@ -94,6 +94,17 @@ describe('AdminController', () => {
     } as any;
   }
 
+  function makeBudgetsRepo() {
+    return {
+      findAll: jest.fn().mockResolvedValue({ items: [], total: 0, page: 1, limit: 50 }),
+      findAllRows: jest.fn().mockResolvedValue([]),
+      findById: jest.fn().mockResolvedValue(null),
+      create: jest.fn(),
+      update: jest.fn(),
+      remove: jest.fn(),
+    } as any;
+  }
+
   function makeSpikeNotifications() {
     return {
       preview: jest.fn().mockResolvedValue({ date: '2026-06-10', recipientEmail: null, userName: null, totalHours: 0, tasks: [], alreadyNotified: false }),
@@ -109,6 +120,7 @@ describe('AdminController', () => {
       webhooks ?? makeWebhooks(),
       timeEntriesRepo ?? makeTimeEntriesRepo(),
       makeRatesRepo(),
+      makeBudgetsRepo(),
       makeTagAssigneeRepo(),
       makeTasksRepo(),
       makeRatesService(),
@@ -384,6 +396,7 @@ describe('AdminController', () => {
       makeWebhooks(),
       makeTimeEntriesRepo(),
       overrides.ratesRepo ?? makeRatesRepo(),
+      makeBudgetsRepo(),
       overrides.tagAssigneeRepo ?? makeTagAssigneeRepo(),
       overrides.tasksRepo ?? makeTasksRepo(),
       overrides.ratesService ?? makeRatesService(),
@@ -489,6 +502,7 @@ describe('AdminController', () => {
       makeWebhooks(),
       makeTimeEntriesRepo(),
       makeRatesRepo(),
+      makeBudgetsRepo(),
       makeTagAssigneeRepo(),
       makeTasksRepo(),
       makeRatesService(),
