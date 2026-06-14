@@ -18,6 +18,7 @@ import { RatesModule } from './rates/rates.module';
 import { SyncModule } from './sync/sync.module';
 import { WorkersModule } from './workers/workers.module';
 import { AdminModule } from './admin/admin.module';
+import { BudgetsModule } from './budgets/budgets.module';
 import { ReportsModule } from './reports/reports.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
@@ -49,6 +50,7 @@ import { HealthModule } from './health/health.module';
     SyncModule,
     WorkersModule,
     AdminModule,
+    BudgetsModule,
     ReportsModule,
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 5 }]),
     AuthModule,
