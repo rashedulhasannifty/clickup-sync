@@ -1,4 +1,4 @@
-import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Logger, NotFoundException, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles, CurrentUser } from '../auth/decorators';
@@ -58,6 +58,8 @@ function actorLabel(user: AuthPrincipal): string {
 @UseInterceptors(AuditLogInterceptor)
 @Controller('admin')
 export class AdminController {
+  private readonly logger = new Logger(AdminController.name);
+
   constructor(
     private readonly queues: QueueService,
     private readonly deadLetters: DeadLetterRepository,
@@ -257,14 +259,18 @@ export class AdminController {
   async registerWebhook(@CurrentUser() user: AuthPrincipal) {
     const result = await this.webhooks.register(actorLabel(user));
     if (this.settings.getPreferences().sync.backfillOnConnect) {
-      const backfills = this.queues.get(QUEUES.CLICKUP_BACKFILLS);
-      for (const space of CLICKUP_SPACES) {
-        if (!this.settings.isSpaceEnabled(space.id)) continue;
-        await backfills.add(
-          JOBS.BACKFILL_CLICKUP_SPACE,
-          { spaceId: space.id, lookbackDays: space.backfillLookbackDays },
-          this.queues.defaultJobOptions(),
-        );
+      try {
+        const backfills = this.queues.get(QUEUES.CLICKUP_BACKFILLS);
+        for (const space of CLICKUP_SPACES) {
+          if (!this.settings.isSpaceEnabled(space.id)) continue;
+          await backfills.add(
+            JOBS.BACKFILL_CLICKUP_SPACE,
+            { spaceId: space.id, lookbackDays: space.backfillLookbackDays },
+            this.queues.defaultJobOptions(),
+          );
+        }
+      } catch (err) {
+        this.logger.error(`backfill-on-connect enqueue failed (webhook still registered): ${(err as Error).message}`);
       }
     }
     return result;

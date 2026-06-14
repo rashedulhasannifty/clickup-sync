@@ -6,6 +6,7 @@ import { TimeEntryReplacementsRepository } from './time-entry-replacements.repos
 import { CostCalculatorService } from './cost-calculator.service';
 import { TimeEntriesRepository } from './time-entries.repository';
 import { SettingsService } from '../settings/settings.service';
+import { PrismaService } from '../database/prisma.service';
 
 export interface ReplacementJobData {
   timeEntryId: string;
@@ -43,6 +44,7 @@ export class AssigneeReplacementService {
     private readonly costs: CostCalculatorService,
     private readonly timeEntries: TimeEntriesRepository,
     private readonly settings: SettingsService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async replaceEntry(data: ReplacementJobData): Promise<{ status: 'replaced' | 'skipped' | 'no_mapping' }> {
@@ -118,7 +120,11 @@ export class AssigneeReplacementService {
 
     // 7. Upsert replacement entry into local DB with recalculated cost
     const startTime = new Date(data.startMs);
-    const cost = await this.costs.calculate(realUserId, startTime, data.durationHours, undefined, { billable: data.billable });
+    const dueDate =
+      this.settings.getPreferences().cost.rateMatching === 'due'
+        ? (await this.prisma.clickupTask.findUnique({ where: { taskId: data.taskId }, select: { dueDate: true } }))?.dueDate ?? null
+        : null;
+    const cost = await this.costs.calculate(realUserId, startTime, data.durationHours, undefined, { billable: data.billable, dueDate });
     const normalized: NormalizedTimeEntry = {
       timeEntryId: created.id,
       taskId: data.taskId,
