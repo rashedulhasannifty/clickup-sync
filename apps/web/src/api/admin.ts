@@ -33,6 +33,15 @@ export type DeadLetterJob = {
   attemptsMade: number | null;
 };
 
+export type SpikeNoticePreview = {
+  date: string;
+  recipientEmail: string | null;
+  userName: string | null;
+  totalHours: number;
+  tasks: { taskId: string; taskName: string; hours: number }[];
+  alreadyNotified: boolean;
+};
+
 export const adminApi = {
   syncTask: (taskId: string) => apiClient.post('/admin/tasks/sync', { taskId }).then(r => r.data),
   backfill: (spaceId: string, lookbackDays?: number) =>
@@ -65,4 +74,12 @@ export const adminApi = {
   resolveDeadLetter: (id: string) =>
     apiClient.post(`/admin/dead-letters/${id}/resolve`).then((r) => r.data as { resolved: boolean; id: string }),
   workspaceMembers: (): Promise<WorkspaceMember[]> => apiClient.get('/admin/workspace-members').then(r => r.data),
+  spikeNoticePreview: (userId: string, date: string): Promise<SpikeNoticePreview> =>
+    apiClient
+      .get(`/admin/hour-spikes/${encodeURIComponent(userId)}/${encodeURIComponent(date)}/preview`)
+      .then((r) => r.data),
+  notifySpike: (body: { userId: string; date: string; rule?: 'absolute' | 'relative' | 'both'; median?: number; note?: string }) =>
+    apiClient
+      .post('/admin/hour-spikes/notify', body)
+      .then((r) => r.data as { sent: boolean; recipientEmail: string; date: string; totalHours: number }),
 };

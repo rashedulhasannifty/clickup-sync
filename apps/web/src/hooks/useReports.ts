@@ -1,4 +1,5 @@
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { adminApi, type SpikeNoticePreview } from '../api/admin';
 import { reportsApi } from '../api/reports';
 import { useGlobalFilters } from './useGlobalFilters';
 
@@ -224,6 +225,7 @@ export interface HourSpikeWatchRow {
   median: number;
   multiplier: number | null;
   rule: 'absolute' | 'relative' | 'both';
+  notified: boolean;
 }
 
 export interface HourSpikeUserPoint { date: string; hours: number; isSpike: boolean; }
@@ -241,6 +243,23 @@ export function useHourSpikes() {
     queryKey: ['hour-spikes', fromDate, toDate],
     queryFn: () => reportsApi.hourSpikes({ from: fromDate, to: toDate }),
     placeholderData: keepPreviousData,
+  });
+}
+
+export function useSpikeNoticePreview(userId: string | null, date: string | null) {
+  return useQuery<SpikeNoticePreview>({
+    queryKey: ['spike-notice-preview', userId, date],
+    queryFn: () => adminApi.spikeNoticePreview(userId as string, date as string),
+    enabled: !!userId && !!date,
+  });
+}
+
+export function useNotifySpike() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { userId: string; date: string; rule?: 'absolute' | 'relative' | 'both'; median?: number; note?: string }) =>
+      adminApi.notifySpike(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hour-spikes'] }),
   });
 }
 
