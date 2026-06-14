@@ -100,6 +100,26 @@ export function useAssigneeCostTrend(
   });
 }
 
+export interface ClientCostTrendData {
+  buckets: string[];
+  clients: string[];
+  points: AssigneeCostTrendPoint[];
+}
+
+export function useClientCostTrend(
+  bucket: CostTrendBucket,
+  from?: string,
+  to?: string,
+  enabled = true,
+) {
+  return useQuery<ClientCostTrendData>({
+    queryKey: ['cost-trend-by-client', bucket, from || null, to || null],
+    queryFn: () => reportsApi.costTrendByClient({ bucket, from, to }),
+    placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
 export function useTimeEntriesByClient() {
   const { fromDate, toDate } = useGlobalFilters();
   return useQuery({

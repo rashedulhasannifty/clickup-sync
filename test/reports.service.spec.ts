@@ -660,9 +660,9 @@ describe('ReportsService', () => {
         prisma,
         [{ bucket: '2026-05-18' }, { bucket: '2026-05-19' }, { bucket: '2026-05-20' }],
         [
-          { bucket: '2026-05-18', assignee: 'Alice', cost_cents: BigInt(120000) },
-          { bucket: '2026-05-18', assignee: 'Bob',   cost_cents: BigInt(40000) },
-          { bucket: '2026-05-20', assignee: 'Alice', cost_cents: BigInt(60000) },
+          { bucket: '2026-05-18', segment: 'Alice', cost_cents: BigInt(120000) },
+          { bucket: '2026-05-18', segment: 'Bob',   cost_cents: BigInt(40000) },
+          { bucket: '2026-05-20', segment: 'Alice', cost_cents: BigInt(60000) },
         ],
       );
       const result = await new ReportsService(prisma).costTrendByAssignee('day');
@@ -676,15 +676,34 @@ describe('ReportsService', () => {
       ]);
     });
 
+    it('returns every assignee (no "Other") by default, ordered by total cost', async () => {
+      const prisma = makePrisma();
+      // 10 assignees — more than the old default cap of 8 — none should collapse.
+      const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
+      mockTwoQueries(
+        prisma,
+        [{ bucket: '2026-05-18' }],
+        names.map((n, idx) => ({
+          bucket: '2026-05-18',
+          segment: n,
+          // Descending cost so the expected order is the input order.
+          cost_cents: BigInt((names.length - idx) * 10000),
+        })),
+      );
+      const result = await new ReportsService(prisma).costTrendByAssignee('day');
+      expect(result.assignees).toEqual(names);
+      expect(result.assignees).not.toContain('Other');
+    });
+
     it('collapses assignees beyond topN into an "Other" segment', async () => {
       const prisma = makePrisma();
       mockTwoQueries(
         prisma,
         [{ bucket: '2026-05-18' }],
         [
-          { bucket: '2026-05-18', assignee: 'A', cost_cents: BigInt(50000) },
-          { bucket: '2026-05-18', assignee: 'B', cost_cents: BigInt(40000) },
-          { bucket: '2026-05-18', assignee: 'C', cost_cents: BigInt(30000) },
+          { bucket: '2026-05-18', segment: 'A', cost_cents: BigInt(50000) },
+          { bucket: '2026-05-18', segment: 'B', cost_cents: BigInt(40000) },
+          { bucket: '2026-05-18', segment: 'C', cost_cents: BigInt(30000) },
         ],
       );
       const result = await new ReportsService(prisma).costTrendByAssignee('day', undefined, undefined, 2);
@@ -708,6 +727,54 @@ describe('ReportsService', () => {
       expect(aggSql).toMatch(/GROUP BY 1, 2/);
       expect(aggSql).toMatch(/Asia\/Dhaka/);
       expect(aggSql).toMatch(/t\.is_deleted\s*=\s*false/);
+    });
+  });
+
+  describe('costTrendByClient', () => {
+    function mockTwoQueries(prisma: any, buckets: any[], agg: any[]) {
+      prisma.$queryRaw
+        .mockResolvedValueOnce(buckets)
+        .mockResolvedValueOnce(agg);
+    }
+
+    it('builds a continuous bucket axis with per-client dollar values, ordered by cost', async () => {
+      const prisma = makePrisma();
+      mockTwoQueries(
+        prisma,
+        [{ bucket: '2026-05-18' }, { bucket: '2026-05-19' }, { bucket: '2026-05-20' }],
+        [
+          { bucket: '2026-05-18', segment: 'Acme',  cost_cents: BigInt(120000) },
+          { bucket: '2026-05-18', segment: 'Globex', cost_cents: BigInt(40000) },
+          { bucket: '2026-05-20', segment: 'Acme',  cost_cents: BigInt(60000) },
+        ],
+      );
+      const result = await new ReportsService(prisma).costTrendByClient('day');
+      expect(result.buckets).toEqual(['2026-05-18', '2026-05-19', '2026-05-20']);
+      // Acme (1800 total) ranks above Globex (400); no "Other" by default.
+      expect(result.clients).toEqual(['Acme', 'Globex']);
+      expect(result.clients).not.toContain('Other');
+      expect(result.points).toEqual([
+        { bucket: '2026-05-18', values: { Acme: 1200, Globex: 400 } },
+        { bucket: '2026-05-19', values: { Acme: 0,    Globex: 0 } },
+        { bucket: '2026-05-20', values: { Acme: 600,  Globex: 0 } },
+      ]);
+    });
+
+    it('groups by the task client and coalesces empty client to "No client"', async () => {
+      const prisma = makePrisma();
+      mockTwoQueries(prisma, [], []);
+      await new ReportsService(prisma).costTrendByClient('day');
+      const aggSql: string = prisma.$queryRaw.mock.calls[1][0].sql ?? String(prisma.$queryRaw.mock.calls[1][0]);
+      expect(aggSql).toMatch(/t\.client/);
+      expect(aggSql).toMatch(/No client/);
+      expect(aggSql).toMatch(/GROUP BY 1, 2/);
+      expect(aggSql).toMatch(/Asia\/Dhaka/);
+    });
+
+    it('throws on an invalid bucket value', async () => {
+      const prisma = makePrisma();
+      await expect(new ReportsService(prisma).costTrendByClient('year' as any))
+        .rejects.toThrow(/bucket/i);
     });
   });
 

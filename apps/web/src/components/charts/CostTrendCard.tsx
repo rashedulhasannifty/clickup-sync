@@ -1,13 +1,18 @@
 import { useMemo, useState } from 'react';
 import { Card } from '../ui/Card';
 import { LineChart } from './LineChart';
-import { useCostTrend, useOverviewDeltas } from '../../hooks/useReports';
+import { StackedBarChart } from './StackedBarChart';
+import type { StackedSeries } from './StackedBarChart';
+import { useCostTrend, useClientCostTrend, useOverviewDeltas } from '../../hooks/useReports';
 import type { CostTrendBucket, CostTrendPoint } from '../../hooks/useReports';
 import { useGlobalFilters } from '../../hooks/useGlobalFilters';
 import { CostBucketDrawer } from '../CostBucketDrawer';
 import { fmt } from '../../lib/formatters';
+import { segmentColor } from '../../lib/segmentColors';
 import { currentPeriodProgress } from '../../lib/periodProgress';
 import { Delta } from '../ui/Delta';
+
+type ChartMode = 'line' | 'bar';
 
 // Day-count fallbacks for the rolling default window. The `month` branch uses
 // setMonth(-12) directly (calendar-month math) and doesn't read from here, so
@@ -40,6 +45,15 @@ function shortBucketLabel(p: CostTrendPoint, bucket: CostTrendBucket): string {
   return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
+// Compact label for the stacked bar view (no "Wk of" prefix — bars are narrow
+// and the axis is thinned, matching the Assignee cost trend chart).
+function barBucketLabel(bucketStr: string, bucket: CostTrendBucket): string {
+  const [y, m, d] = bucketStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (bucket === 'month') return dt.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
 function windowDescription(bucket: CostTrendBucket, customActive: boolean): string {
   if (customActive) return 'custom range';
   if (bucket === 'day')   return 'last 30 days';
@@ -49,6 +63,7 @@ function windowDescription(bucket: CostTrendBucket, customActive: boolean): stri
 
 export function CostTrendCard() {
   const [bucket, setBucket] = useState<CostTrendBucket>('day');
+  const [mode, setMode] = useState<ChartMode>('line');
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
 
   // Topbar override = explicit custom range. Other presets (7d/30d/90d)
@@ -71,6 +86,17 @@ export function CostTrendCard() {
 
   const q = useCostTrend(bucket, range.from, range.to);
   const data = q.data ?? [];
+
+  // Bar view: cost split by client per bucket. Only fetched while the bar mode
+  // is active so the line view stays a single request.
+  const clientQ = useClientCostTrend(bucket, range.from, range.to, mode === 'bar');
+  const clientData = clientQ.data;
+  const barLabels = (clientData?.buckets ?? []).map(b => barBucketLabel(b, bucket));
+  const barValues = clientData?.points.map(p => p.values) ?? [];
+  const barSeries: StackedSeries[] = (clientData?.clients ?? []).map((key, i) => ({
+    key,
+    color: segmentColor(i),
+  }));
 
   const totalCostAud = data.reduce((s, p) => s + p.totalCostAud, 0);
 
@@ -107,28 +133,55 @@ export function CostTrendCard() {
         subtitle={`${bucket === 'day' ? 'Daily' : bucket === 'week' ? 'Weekly' : 'Monthly'} — ${windowDescription(bucket, useTopbar)} · ${moneyAud(totalCostAud)} total`}
         padding={16}
         action={
-          <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
-            {(['day', 'week', 'month'] as const).map((b) => {
-              const active = bucket === b;
-              return (
-                <button
-                  key={b}
-                  type="button"
-                  onClick={() => setBucket(b)}
-                  style={{
-                    padding: '4px 10px', fontSize: 11, fontWeight: 600,
-                    background: active ? 'var(--accent)' : 'var(--surface)',
-                    color: active ? '#fff' : 'var(--text-muted)',
-                    border: 0, cursor: 'pointer',
-                    borderLeft: b === 'day' ? 0 : '1px solid var(--border)',
-                  }}
-                  aria-pressed={active}
-                  aria-label={`Switch to ${BUCKET_ARIA[b]} granularity`}
-                >
-                  {b === 'day' ? 'D' : b === 'week' ? 'W' : 'M'}
-                </button>
-              );
-            })}
+          <div style={{ display: 'inline-flex', gap: 8 }}>
+            {/* Line / bar toggle */}
+            <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+              {(['line', 'bar'] as const).map((m) => {
+                const active = mode === m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMode(m)}
+                    style={{
+                      padding: '4px 10px', fontSize: 11, fontWeight: 600,
+                      background: active ? 'var(--accent)' : 'var(--surface)',
+                      color: active ? '#fff' : 'var(--text-muted)',
+                      border: 0, cursor: 'pointer',
+                      borderLeft: m === 'line' ? 0 : '1px solid var(--border)',
+                    }}
+                    aria-pressed={active}
+                    aria-label={m === 'line' ? 'Show line chart (total cost)' : 'Show bar chart split by client'}
+                  >
+                    {m === 'line' ? 'Line' : 'Bar'}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Granularity */}
+            <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+              {(['day', 'week', 'month'] as const).map((b) => {
+                const active = bucket === b;
+                return (
+                  <button
+                    key={b}
+                    type="button"
+                    onClick={() => setBucket(b)}
+                    style={{
+                      padding: '4px 10px', fontSize: 11, fontWeight: 600,
+                      background: active ? 'var(--accent)' : 'var(--surface)',
+                      color: active ? '#fff' : 'var(--text-muted)',
+                      border: 0, cursor: 'pointer',
+                      borderLeft: b === 'day' ? 0 : '1px solid var(--border)',
+                    }}
+                    aria-pressed={active}
+                    aria-label={`Switch to ${BUCKET_ARIA[b]} granularity`}
+                  >
+                    {b === 'day' ? 'D' : b === 'week' ? 'W' : 'M'}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         }
       >
@@ -141,7 +194,22 @@ export function CostTrendCard() {
             />
           </div>
         )}
-        {q.isError ? (
+        {mode === 'bar' ? (
+          clientQ.isError ? (
+            <div style={{ fontSize: 13, color: 'var(--red)', padding: '8px 0' }}>
+              Couldn't load client cost trend.
+            </div>
+          ) : (
+            <StackedBarChart
+              labels={barLabels}
+              series={barSeries}
+              values={barValues}
+              height={200}
+              formatValue={moneyAud}
+              sortSegmentsByValue
+            />
+          )
+        ) : q.isError ? (
           <div style={{ fontSize: 13, color: 'var(--red)', padding: '8px 0' }}>
             Couldn't load cost trend.
           </div>

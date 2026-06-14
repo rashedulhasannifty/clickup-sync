@@ -15,6 +15,13 @@ interface StackedBarChartProps {
   values: Record<string, number>[];
   height?: number;
   formatValue?: (v: number) => string;
+  /**
+   * When true, each column stacks its own segments largest→smallest (biggest at
+   * the bottom) instead of using the fixed `series` order. Colors stay keyed to
+   * each series, so a key keeps its color across columns; only the order moves.
+   * The legend keeps the global `series` order.
+   */
+  sortSegmentsByValue?: boolean;
 }
 
 /**
@@ -23,13 +30,20 @@ interface StackedBarChartProps {
  * column *total* across all buckets (not the per-column total) so the bars read
  * as a trend rather than all filling to full height.
  */
-export function StackedBarChart({ labels, series, values, height = 220, formatValue }: StackedBarChartProps) {
+export function StackedBarChart({ labels, series, values, height = 220, formatValue, sortSegmentsByValue = false }: StackedBarChartProps) {
   // Track the hovered bucket plus the cursor position so the tooltip can be
   // rendered viewport-fixed — that keeps it from being clipped by the card's
   // overflow when it would otherwise spill above the plot.
   const [hovered, setHovered] = useState<number | null>(null);
   const [cursor, setCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const fv = formatValue ?? String;
+
+  // Segment order for a given column: either the fixed global order, or that
+  // column's own values largest→smallest (used for both the stack and tooltip).
+  const orderFor = (i: number) =>
+    sortSegmentsByValue
+      ? [...series].sort((a, b) => (values[i]?.[b.key] ?? 0) - (values[i]?.[a.key] ?? 0))
+      : series;
 
   const totals = values.map(v => series.reduce((s, ser) => s + (v[ser.key] ?? 0), 0));
   const maxTotal = Math.max(0, ...totals);
@@ -82,14 +96,14 @@ export function StackedBarChart({ labels, series, values, height = 220, formatVa
                   style={{
                     width: '100%',
                     display: 'flex',
-                    flexDirection: 'column-reverse', // series[0] at the bottom
+                    flexDirection: 'column-reverse', // first entry at the bottom
                     borderRadius: '3px 3px 0 0',
                     overflow: 'hidden',
                     opacity: hovered === null || isHovered ? 1 : 0.45,
                     transition: 'opacity 120ms',
                   }}
                 >
-                  {series.map(s => {
+                  {orderFor(i).map(s => {
                     const v = values[i]?.[s.key] ?? 0;
                     const h = (v / maxTotal) * height;
                     if (h <= 0) return null;
@@ -132,7 +146,7 @@ export function StackedBarChart({ labels, series, values, height = 220, formatVa
             }}
           >
             <div style={{ fontWeight: 600, marginBottom: 4 }}>{labels[hovered]}</div>
-            {series
+            {orderFor(hovered)
               .filter(s => (values[hovered]?.[s.key] ?? 0) > 0)
               .map(s => (
                 <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>

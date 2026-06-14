@@ -6,17 +6,10 @@ import { useAssigneeCostTrend } from '../../hooks/useReports';
 import type { CostTrendBucket } from '../../hooks/useReports';
 import { useGlobalFilters } from '../../hooks/useGlobalFilters';
 import { fmt } from '../../lib/formatters';
+import { segmentColor } from '../../lib/segmentColors';
 
 const BUCKET_ARIA: Record<CostTrendBucket, string> = { day: 'daily', week: 'weekly', month: 'monthly' };
 const BUCKET_DEFAULTS_DAYS: Record<Exclude<CostTrendBucket, 'month'>, number> = { day: 30, week: 7 * 12 };
-
-// Distinct hues for assignee segments; the last entry colors the "Other" bucket.
-// Hues are spread around the wheel so adjacent legend entries stay readable —
-// no two near-identical purples/blues (the donut had this exact problem).
-const ASSIGNEE_PALETTE = [
-  '#7B68EE', '#FF02F0', '#49CCF9', '#10b981', '#f59e0b', '#ef4444',
-  '#84cc16', '#06b6d4', '#ec4899', '#6366f1', '#94a3b8',
-];
 
 function moneyAud(dollars: number) { return fmt.money(Math.round(dollars * 100)); }
 
@@ -63,8 +56,7 @@ export function AssigneeCostTrendCard() {
   const values = data?.points.map(p => p.values) ?? [];
   const series: StackedSeries[] = (data?.assignees ?? []).map((key, i) => ({
     key,
-    // Keep "Other" visually muted via the palette's last slot.
-    color: key === 'Other' ? ASSIGNEE_PALETTE[ASSIGNEE_PALETTE.length - 1] : ASSIGNEE_PALETTE[i % (ASSIGNEE_PALETTE.length - 1)],
+    color: segmentColor(i),
   }));
 
   const total = values.reduce((s, v) => s + Object.values(v).reduce((a, b) => a + b, 0), 0);
@@ -105,7 +97,7 @@ export function AssigneeCostTrendCard() {
           Couldn't load assignee cost trend.
         </div>
       ) : (
-        <StackedBarChart labels={labels} series={series} values={values} height={220} formatValue={moneyAud} />
+        <StackedBarChart labels={labels} series={series} values={values} height={220} formatValue={moneyAud} sortSegmentsByValue />
       )}
     </Card>
   );

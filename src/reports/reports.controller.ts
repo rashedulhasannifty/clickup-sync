@@ -126,7 +126,7 @@ export class ReportsController {
   }
 
   @Get('time-entries/cost-trend-by-assignee')
-  @ApiOperation({ summary: 'Time-bucketed labor cost split by assignee for the stacked Assignee cost trend chart. bucket=day|week|month; top assignees by cost are returned, the rest collapsed into "Other".' })
+  @ApiOperation({ summary: 'Time-bucketed labor cost split by assignee for the stacked Assignee cost trend chart. bucket=day|week|month; every assignee is returned as its own segment, ordered by total cost (highest first).' })
   costTrendByAssignee(
     @Query('bucket') bucket?: string,
     @Query('from') from?: string,
@@ -136,6 +136,19 @@ export class ReportsController {
       throw new BadRequestException(`Invalid bucket "${bucket ?? ''}" (expected day|week|month)`);
     }
     return this.reports.costTrendByAssignee(bucket, from, to);
+  }
+
+  @Get('time-entries/cost-trend-by-client')
+  @ApiOperation({ summary: 'Time-bucketed labor cost split by client for the stacked bar view of the Client cost trend chart. bucket=day|week|month; every client is returned as its own segment, ordered by total cost (highest first). Tasks with no client are grouped under "No client".' })
+  costTrendByClient(
+    @Query('bucket') bucket?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    if (bucket !== 'day' && bucket !== 'week' && bucket !== 'month') {
+      throw new BadRequestException(`Invalid bucket "${bucket ?? ''}" (expected day|week|month)`);
+    }
+    return this.reports.costTrendByClient(bucket, from, to);
   }
 
   @Get('overview-deltas')

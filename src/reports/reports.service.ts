@@ -973,21 +973,25 @@ export class ReportsService {
   }
 
   /**
-   * Labor cost per time bucket, broken down by assignee — feeds the stacked
-   * "Assignee cost trend" chart. Mirrors `costTrend`'s bucketing/timezone logic
-   * so the two charts line up. Assignees beyond the top `topN` (by total cost
-   * over the range) are collapsed into a single "Other" segment to keep the
-   * stack legible.
+   * Shared engine for the stacked cost-trend charts: labor cost per time bucket,
+   * broken down by an arbitrary segment expression (assignee, client, …).
+   * Mirrors `costTrend`'s bucketing/timezone logic so all three charts line up.
+   * By default every segment is returned on its own (highest total cost first),
+   * never collapsed; an explicit `topN` caps the segments and folds the
+   * remainder into a single "Other" bucket (opt-in only).
    *
-   * Returns continuous `buckets` (including zero-cost periods via the same
-   * generate_series the line chart uses) plus the ordered segment keys and a
-   * per-bucket cost map in dollars.
+   * `segmentExpr` is a raw SQL expression evaluated over the
+   * `clickup_time_entries e JOIN clickup_tasks t` rows; it must already coalesce
+   * NULL/empty to a stable label. Returns continuous `buckets` (including
+   * zero-cost periods via the same generate_series the line chart uses), the
+   * ordered `segments`, and a per-bucket cost map in dollars.
    */
-  async costTrendByAssignee(
+  private async costTrendBySegment(
     bucket: 'day' | 'week' | 'month',
-    fromParam?: string,
-    toParam?: string,
-    topN = 8,
+    fromParam: string | undefined,
+    toParam: string | undefined,
+    topN: number | undefined,
+    segmentExpr: Prisma.Sql,
   ) {
     if (bucket !== 'day' && bucket !== 'week' && bucket !== 'month') {
       throw new Error(`Invalid bucket "${bucket}" (expected day|week|month)`);
@@ -1020,13 +1024,13 @@ export class ReportsService {
     `);
     const buckets = bucketRows.map((r) => r.bucket);
 
-    // Cost per (bucket, assignee). The bucket string uses the identical
+    // Cost per (bucket, segment). The bucket string uses the identical
     // to_char(bucketExpr) form as the axis above so the keys line up exactly.
-    type AggRow = { bucket: string; assignee: string; cost_cents: bigint };
+    type AggRow = { bucket: string; segment: string; cost_cents: bigint };
     const aggRows = await this.prisma.$queryRaw<AggRow[]>(Prisma.sql`
-      SELECT to_char(${aggBucket}, 'YYYY-MM-DD')                       AS bucket,
-             COALESCE(NULLIF(e.user_name, ''), e.user_id, 'Unknown')   AS assignee,
-             COALESCE(SUM(e.cost_cents), 0)::bigint                    AS cost_cents
+      SELECT to_char(${aggBucket}, 'YYYY-MM-DD')      AS bucket,
+             ${segmentExpr}                           AS segment,
+             COALESCE(SUM(e.cost_cents), 0)::bigint   AS cost_cents
       FROM clickup_time_entries e
       JOIN clickup_tasks t ON e.task_id = t.task_id
       WHERE e.start_time IS NOT NULL
@@ -1036,36 +1040,74 @@ export class ReportsService {
       GROUP BY 1, 2
     `);
 
-    // Rank assignees by total cost across the whole range to choose the top N.
+    // Rank segments by total cost across the whole range to choose the top N.
     const totals = new Map<string, number>();
     for (const r of aggRows) {
-      totals.set(r.assignee, (totals.get(r.assignee) ?? 0) + Number(r.cost_cents));
+      totals.set(r.segment, (totals.get(r.segment) ?? 0) + Number(r.cost_cents));
     }
-    const topAssignees = [...totals.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, topN)
-      .map(([name]) => name);
-    const topSet = new Set(topAssignees);
-    const hasOther = totals.size > topSet.size;
+    // No `topN` → every segment gets its own bar slice (highest cost first),
+    // never collapsed into "Other". An explicit cap opts into the collapse.
+    const sorted = [...totals.entries()].sort((a, b) => b[1] - a[1]);
+    const capped = typeof topN === 'number';
+    const topSegments = (capped ? sorted.slice(0, topN) : sorted).map(([name]) => name);
+    const topSet = new Set(topSegments);
+    const hasOther = capped && totals.size > topSet.size;
 
-    // bucket -> (assignee/"Other") -> dollars
+    // bucket -> (segment/"Other") -> dollars
     const matrix = new Map<string, Map<string, number>>();
     for (const r of aggRows) {
-      const key = topSet.has(r.assignee) ? r.assignee : 'Other';
+      const key = topSet.has(r.segment) ? r.segment : 'Other';
       const row = matrix.get(r.bucket) ?? new Map<string, number>();
       row.set(key, (row.get(key) ?? 0) + Number(r.cost_cents) / 100);
       matrix.set(r.bucket, row);
     }
 
-    const assignees = [...topAssignees, ...(hasOther ? ['Other'] : [])];
+    const segments = [...topSegments, ...(hasOther ? ['Other'] : [])];
     const points = buckets.map((b) => {
       const row = matrix.get(b);
       const values: Record<string, number> = {};
-      for (const a of assignees) values[a] = row?.get(a) ?? 0;
+      for (const s of segments) values[s] = row?.get(s) ?? 0;
       return { bucket: b, values };
     });
 
-    return { buckets, assignees, points };
+    return { buckets, segments, points };
+  }
+
+  /**
+   * Labor cost per time bucket, broken down by assignee — feeds the stacked
+   * "Assignee cost trend" chart. See {@link costTrendBySegment}; the segment is
+   * the entry's logger name (falling back to user id, then "Unknown").
+   */
+  async costTrendByAssignee(
+    bucket: 'day' | 'week' | 'month',
+    fromParam?: string,
+    toParam?: string,
+    topN?: number,
+  ) {
+    const { buckets, segments, points } = await this.costTrendBySegment(
+      bucket, fromParam, toParam, topN,
+      Prisma.sql`COALESCE(NULLIF(e.user_name, ''), e.user_id, 'Unknown')`,
+    );
+    return { buckets, assignees: segments, points };
+  }
+
+  /**
+   * Labor cost per time bucket, broken down by the task's client — feeds the
+   * stacked bar view of the "Client cost trend" chart. See
+   * {@link costTrendBySegment}; tasks with no client are grouped under
+   * "No client".
+   */
+  async costTrendByClient(
+    bucket: 'day' | 'week' | 'month',
+    fromParam?: string,
+    toParam?: string,
+    topN?: number,
+  ) {
+    const { buckets, segments, points } = await this.costTrendBySegment(
+      bucket, fromParam, toParam, topN,
+      Prisma.sql`COALESCE(NULLIF(t.client, ''), 'No client')`,
+    );
+    return { buckets, clients: segments, points };
   }
 
   /**
