@@ -1,11 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TrendingUp, ChevronRight } from 'lucide-react';
+import { TrendingUp, ChevronRight, Check } from 'lucide-react';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Card } from '../components/ui/Card';
 import { Select } from '../components/ui/Select';
+import { Button } from '../components/ui/Button';
 import { BarChart, type BarData } from '../components/charts/BarChart';
 import { useHourSpikes, type HourSpikeWatchRow } from '../hooks/useReports';
+import { useAuth } from '../hooks/useAuth';
+import { NotifySpikeModal } from '../components/NotifySpikeModal';
 
 const SPIKE_COLOR = '#f59e0b'; // amber, matches the anomalies styling
 const BASE_COLOR = '#7B68EE';
@@ -37,6 +40,10 @@ export function HourSpikesPage() {
   const navigate = useNavigate();
   const q = useHourSpikes();
   const data = q.data;
+
+  const { hasRole } = useAuth();
+  const canNotify = hasRole('ADMIN');
+  const [activeRow, setActiveRow] = useState<HourSpikeWatchRow | null>(null);
 
   const users = data?.byUser.users ?? [];
   const [selectedUserId, setSelectedUserId] = useState<string>('');
@@ -81,35 +88,54 @@ export function HourSpikesPage() {
         {data && data.watchlist.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {data.watchlist.map((s, i) => (
-              <button
+              <div
                 key={`${s.userId}-${s.date}`}
-                type="button"
-                onClick={() => navigate(dayLink(s.userId, s.date))}
                 style={{
-                  display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 16px',
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px',
                   borderBottom: i < data.watchlist.length - 1 ? '1px solid var(--border-soft)' : 0,
-                  background: 'transparent', border: 0, cursor: 'pointer', textAlign: 'left', color: 'inherit',
                 }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--hover)')}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
               >
-                <span style={{
-                  width: 26, height: 26, borderRadius: 7, flexShrink: 0,
-                  background: 'var(--pill-amber-bg)', color: 'var(--pill-amber-text)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <TrendingUp size={13} />
-                </span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>
-                    {s.userName} logged {s.hours.toFixed(1)}h on {formatDate(s.date)}
+                <button
+                  type="button"
+                  onClick={() => navigate(dayLink(s.userId, s.date))}
+                  style={{
+                    flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: 10,
+                    background: 'transparent', border: 0, cursor: 'pointer', textAlign: 'left', color: 'inherit', padding: 0,
+                  }}
+                >
+                  <span style={{
+                    width: 26, height: 26, borderRadius: 7, flexShrink: 0,
+                    background: 'var(--pill-amber-bg)', color: 'var(--pill-amber-text)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <TrendingUp size={13} />
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>
+                      {s.userName} logged {s.hours.toFixed(1)}h on {formatDate(s.date)}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{watchSubtitle(s, data.cap)}</div>
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{watchSubtitle(s, data.cap)}</div>
-                </div>
-                <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-                  view <ChevronRight size={12} />
-                </span>
-              </button>
+                  <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+                    view <ChevronRight size={12} />
+                  </span>
+                </button>
+                {canNotify && (
+                  s.notified ? (
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0,
+                      fontSize: 12, fontWeight: 600, padding: '4px 8px', borderRadius: 7,
+                      background: 'var(--pill-amber-bg)', color: 'var(--pill-amber-text)',
+                    }}>
+                      <Check size={12} /> Notified
+                    </span>
+                  ) : (
+                    <Button size="sm" variant="subtle" onClick={() => setActiveRow(s)} style={{ flexShrink: 0 }}>
+                      Notify
+                    </Button>
+                  )
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -132,6 +158,8 @@ export function HourSpikesPage() {
       >
         <BarChart data={chartData} direction="vertical" height={240} formatValue={(v) => `${v.toFixed(1)}h`} />
       </Card>
+
+      {activeRow && <NotifySpikeModal row={activeRow} onClose={() => setActiveRow(null)} />}
     </div>
   );
 }
