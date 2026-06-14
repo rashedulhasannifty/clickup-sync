@@ -1,13 +1,13 @@
-import { forwardRef, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { AdminModule } from '../admin/admin.module';
+import { MailerModule } from './mailer.module';
 import { PasswordService } from './password.service';
 import { TokenService } from './token.service';
 import { PermissionsService } from './permissions.service';
 import { SessionService } from './session.service';
 import { SessionCleanupService } from './session-cleanup.service';
-import { MailerService } from './mailer.service';
 import { AuthService } from './auth.service';
 import { InvitationService } from './invitation.service';
 import { UsersService } from './users.service';
@@ -22,15 +22,15 @@ import { InvitationController } from './invitation.controller';
 import { UsersController } from './users.controller';
 
 @Module({
-  imports: [ConfigModule, forwardRef(() => AdminModule)],
+  imports: [ConfigModule, MailerModule, AdminModule],
   controllers: [AuthController, InvitationController, UsersController],
   providers: [
-    PasswordService, TokenService, PermissionsService, SessionService, SessionCleanupService, MailerService,
+    PasswordService, TokenService, PermissionsService, SessionService, SessionCleanupService,
     AuthService, InvitationService, UsersService,
     OrgRepository, UserRepository, SessionRepository, InvitationRepository,
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
-  exports: [SessionService, OrgRepository, MailerService],
+  exports: [SessionService, OrgRepository],
 })
 export class AuthModule {}
