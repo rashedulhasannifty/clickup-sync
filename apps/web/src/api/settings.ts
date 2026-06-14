@@ -1,5 +1,16 @@
 import { apiClient } from './client';
 
+export interface SettingsPreferences {
+  notifications: {
+    alerts: { syncFail: boolean; webhookSpike: boolean; missingRate: boolean; tokenExpiring: boolean };
+    channels: { email: boolean; slack: boolean; pagerduty: boolean };
+  };
+  sync: { reconcileLookbackDays: number };
+  spaces: Record<string, { enabled: boolean }>;
+}
+
+type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
+
 export interface AppSettings {
   apiTokenSet: boolean;
   apiTokenLast4: string | null;
@@ -11,6 +22,8 @@ export interface AppSettings {
   encryptionEnabled: boolean;
   updatedAt: string | null;
   updatedBy: string | null;
+  preferences: SettingsPreferences;
+  configuredSpaces: { id: string; name: string }[];
 }
 
 export interface SettingsPatch {
@@ -20,6 +33,7 @@ export interface SettingsPatch {
   webhookEvents?: string;
   webhookSecret?: string;
   spikeHoursCap?: number;
+  preferences?: DeepPartial<SettingsPreferences>;
 }
 
 export const settingsApi = {

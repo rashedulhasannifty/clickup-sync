@@ -254,11 +254,24 @@ export function SettingsPage() {
     bannerTimerRef.current = setTimeout(() => setBanner(null), 5000);
   }
 
+  const prefs = settingsQuery.data?.preferences;
+  const isOwner = hasRole('OWNER');
+
+  function patchPrefs(patch: SettingsPatch['preferences']) {
+    updateSettings.mutate(
+      { preferences: patch },
+      { onError: (err) => showBanner(`Save failed: ${(err as Error).message}`, 'red') },
+    );
+  }
+
   const [showTagForm, setShowTagForm] = useState(false);
   const [editingTagId, setEditingTagId] = useState<string | null>(null);
   const [tagForm, setTagForm] = useState<TagFormState>(emptyForm);
 
   const [reconcileDays, setReconcileDays] = useState('365');
+  useEffect(() => {
+    if (prefs?.sync.reconcileLookbackDays != null) setReconcileDays(String(prefs.sync.reconcileLookbackDays));
+  }, [prefs?.sync.reconcileLookbackDays]);
   const [defaultCurrency, setDefaultCurrency] = useState('USD');
   const [rateMatch, setRateMatch] = useState('start');
   const [webhookRetries, setWebhookRetries] = useState('5');
@@ -266,14 +279,6 @@ export function SettingsPage() {
   useEffect(() => {
     if (settingsQuery.data?.spikeHoursCap != null) setCapInput(String(settingsQuery.data.spikeHoursCap));
   }, [settingsQuery.data?.spikeHoursCap]);
-
-  const [alertSyncFail, setAlertSyncFail] = useState(true);
-  const [alertWebhookSpike, setAlertWebhookSpike] = useState(true);
-  const [alertMissingRate, setAlertMissingRate] = useState(true);
-  const [alertToken, setAlertToken] = useState(true);
-  const [chEmail, setChEmail] = useState(true);
-  const [chSlack, setChSlack] = useState(true);
-  const [chPager, setChPager] = useState(false);
 
   const lastSyncAt = syncHealth.data?.[0]?.lastSuccessfulSyncAt;
   const webhookStatus = syncHealth.data?.[0]?.status ?? 'Unknown';
@@ -679,6 +684,7 @@ export function SettingsPage() {
                         }
                         reconcileTasks.mutate(days, {
                           onSuccess: (res) => {
+                            if (isOwner) patchPrefs({ sync: { reconcileLookbackDays: days } });
                             showBanner(
                               `Reconciliation queued for ${res.queued} task${res.queued === 1 ? '' : 's'} (last ${days} days). Deletions will clear as the jobs run.`,
                               'blue',
@@ -980,8 +986,8 @@ export function SettingsPage() {
       {activeTab === 'scopes' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
           <Callout tone="blue" icon={<Info size={13} />}>
-            Configured spaces are defined in <code style={{ fontFamily: 'ui-monospace, monospace' }}>src/config/clickup-spaces.config.ts</code>{' '}
-            and applied at startup. Adding or removing a space here isn't supported yet — edit the config and restart the backend to change the set.
+            Toggling a space off pauses its <strong>scheduled</strong> hourly sync. Manual backfills and existing reports are unaffected. The set of spaces still comes from{' '}
+            <code style={{ fontFamily: 'ui-monospace, monospace' }}>src/config/clickup-spaces.config.ts</code>; add or remove a space there and restart.
           </Callout>
           <Card>
             <CardHeader
@@ -991,48 +997,41 @@ export function SettingsPage() {
               }
             />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {spaceRows.length === 0 ? (
-                <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No spaces loaded yet. Sync data to see spaces here.</p>
-              ) : (
-                spaceRows.map((s) => {
+              {(() => {
+                const configured = settingsQuery.data?.configuredSpaces ?? [];
+                const byId = new Map<string, { id: string; name: string }>();
+                for (const c of configured) byId.set(c.id, { id: c.id, name: c.name });
+                for (const s of spaceRows) {
                   const sid = (s as { spaceId?: string }).spaceId ?? '';
+                  if (!sid) continue;
                   const nameRaw = (s as { spaceName?: string | null }).spaceName?.trim();
-                  const name = nameRaw || (sid ? `Space ${sid}` : 'Space');
-                  const taskCount = (s as { taskCount?: number }).taskCount ?? 0;
-                  const hours = (s as { hoursLogged?: number }).hoursLogged ?? 0;
+                  if (!byId.has(sid)) byId.set(sid, { id: sid, name: nameRaw || `Space ${sid}` });
+                }
+                const rows = Array.from(byId.values());
+                if (rows.length === 0) {
+                  return <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>No spaces configured or synced yet.</p>;
+                }
+                return rows.map((s) => {
+                  const enabled = prefs?.spaces[s.id]?.enabled ?? true;
                   return (
-                    <div
-                      key={sid}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10,
-                        padding: 10,
-                        borderRadius: 8,
-                        background: 'var(--muted-bg)',
-                        marginBottom: 4,
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 2,
-                          background: spaceColor(sid),
-                          flexShrink: 0,
-                        }}
-                      />
+                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, borderRadius: 8, background: 'var(--muted-bg)', marginBottom: 4 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, background: spaceColor(s.id), flexShrink: 0 }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{name}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{s.name}</div>
                         <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'ui-monospace, monospace' }}>
-                          {sid || '—'} · {fmt.number(taskCount)} tasks · {fmt.hours(hours)}
+                          {s.id}{enabled ? '' : ' · scheduled sync paused'}
                         </div>
                       </div>
-                      <Pill tone="green" size="xs" icon={<CircleCheck size={10} />}>active</Pill>
+                      <Switch
+                        ariaLabel={`Scheduled sync for ${s.name}`}
+                        checked={enabled}
+                        disabled={!isOwner || updateSettings.isPending}
+                        onChange={(v) => patchPrefs({ spaces: { [s.id]: { enabled: v } } })}
+                      />
                     </div>
                   );
-                })
-              )}
+                });
+              })()}
             </div>
           </Card>
 
@@ -1047,8 +1046,8 @@ export function SettingsPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
           <Callout tone="amber" icon={<AlertTriangle size={13} />}>
             Preview only — no notifications are actually delivered yet.
-            Toggling these switches doesn't persist or wire any channel. Operational alerts surface in the
-            <strong> Overview → Alerts</strong> card today; outbound delivery (email, Slack, PagerDuty) is on the roadmap.
+            Toggle preferences are persisted, but outbound delivery (email, Slack, PagerDuty) is on the roadmap.
+            Operational alerts surface in the <strong> Overview → Alerts</strong> card today.
           </Callout>
           <Card>
             <CardHeader title="Alerts" subtitle="Get notified when sync issues need attention." />
@@ -1056,22 +1055,50 @@ export function SettingsPage() {
               <SettingRow
                 label="Sync run failed"
                 desc="Notify on any failed sync run."
-                control={<Switch ariaLabel="Sync run failed alerts" checked={alertSyncFail} onChange={setAlertSyncFail} />}
+                control={
+                  <Switch
+                    ariaLabel="Sync run failed alerts"
+                    checked={prefs?.notifications.alerts.syncFail ?? true}
+                    disabled={!isOwner || updateSettings.isPending}
+                    onChange={(v) => patchPrefs({ notifications: { alerts: { syncFail: v } } })}
+                  />
+                }
               />
               <SettingRow
                 label="Webhook errors spike"
                 desc="Alert if more than 25 webhooks fail in 5 min."
-                control={<Switch ariaLabel="Webhook error spike alerts" checked={alertWebhookSpike} onChange={setAlertWebhookSpike} />}
+                control={
+                  <Switch
+                    ariaLabel="Webhook error spike alerts"
+                    checked={prefs?.notifications.alerts.webhookSpike ?? true}
+                    disabled={!isOwner || updateSettings.isPending}
+                    onChange={(v) => patchPrefs({ notifications: { alerts: { webhookSpike: v } } })}
+                  />
+                }
               />
               <SettingRow
                 label="Missing rate created"
                 desc="Alert when an assignee logs time without a rate."
-                control={<Switch ariaLabel="Missing rate alerts" checked={alertMissingRate} onChange={setAlertMissingRate} />}
+                control={
+                  <Switch
+                    ariaLabel="Missing rate alerts"
+                    checked={prefs?.notifications.alerts.missingRate ?? true}
+                    disabled={!isOwner || updateSettings.isPending}
+                    onChange={(v) => patchPrefs({ notifications: { alerts: { missingRate: v } } })}
+                  />
+                }
               />
               <SettingRow
                 label="Token expiring"
                 desc="Notify 14 days before ClickUp token expires."
-                control={<Switch ariaLabel="Token expiring alerts" checked={alertToken} onChange={setAlertToken} />}
+                control={
+                  <Switch
+                    ariaLabel="Token expiring alerts"
+                    checked={prefs?.notifications.alerts.tokenExpiring ?? true}
+                    disabled={!isOwner || updateSettings.isPending}
+                    onChange={(v) => patchPrefs({ notifications: { alerts: { tokenExpiring: v } } })}
+                  />
+                }
               />
             </div>
           </Card>
@@ -1079,12 +1106,41 @@ export function SettingsPage() {
           <Card>
             <CardHeader title="Channels" subtitle="Where alerts are delivered." />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-              <SettingRow label="Email" desc="ops-alerts@acme.co" control={<Switch ariaLabel="Email channel" checked={chEmail} onChange={setChEmail} />} />
-              <SettingRow label="Slack" desc="#data-platform-alerts" control={<Switch ariaLabel="Slack channel" checked={chSlack} onChange={setChSlack} />} />
+              <SettingRow
+                label="Email"
+                desc="ops-alerts@acme.co"
+                control={
+                  <Switch
+                    ariaLabel="Email channel"
+                    checked={prefs?.notifications.channels.email ?? true}
+                    disabled={!isOwner || updateSettings.isPending}
+                    onChange={(v) => patchPrefs({ notifications: { channels: { email: v } } })}
+                  />
+                }
+              />
+              <SettingRow
+                label="Slack"
+                desc="#data-platform-alerts"
+                control={
+                  <Switch
+                    ariaLabel="Slack channel"
+                    checked={prefs?.notifications.channels.slack ?? true}
+                    disabled={!isOwner || updateSettings.isPending}
+                    onChange={(v) => patchPrefs({ notifications: { channels: { slack: v } } })}
+                  />
+                }
+              />
               <SettingRow
                 label="PagerDuty"
                 desc="Connect for critical failures"
-                control={<Switch ariaLabel="PagerDuty channel" checked={chPager} onChange={setChPager} />}
+                control={
+                  <Switch
+                    ariaLabel="PagerDuty channel"
+                    checked={prefs?.notifications.channels.pagerduty ?? false}
+                    disabled={!isOwner || updateSettings.isPending}
+                    onChange={(v) => patchPrefs({ notifications: { channels: { pagerduty: v } } })}
+                  />
+                }
               />
             </div>
           </Card>
