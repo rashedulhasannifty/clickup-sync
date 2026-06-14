@@ -231,6 +231,22 @@ model TimeEntryReplacement {
   @@map("time_entry_replacements")
 }
 
+model SpikeNotification {
+  id             BigInt   @id @default(autoincrement())
+  clickupUserId  String   @map("clickup_user_id")
+  spikeDate      DateTime @map("spike_date") @db.Date
+  recipientEmail String   @map("recipient_email")
+  userName       String?  @map("user_name")
+  totalHours     Decimal  @default(0) @map("total_hours") @db.Decimal(12, 4)
+  rule           String?
+  note           String?
+  sentBy         String?  @map("sent_by")
+  sentAt         DateTime @default(now()) @map("sent_at")
+
+  @@unique([clickupUserId, spikeDate])
+  @@map("spike_notifications")
+}
+
 model AdminAuditLog {
   id           BigInt   @id @default(autoincrement())
   occurredAt   DateTime @default(now()) @map("occurred_at")
