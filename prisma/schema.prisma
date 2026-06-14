@@ -154,6 +154,7 @@ model AppSettings {
   webhookEndpoint    String?  @map("webhook_endpoint")
   webhookEvents      String?  @map("webhook_events")
   spikeHoursCap      Int      @default(12) @map("spike_hours_cap")
+  preferences        Json?    @map("preferences")
   updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
   updatedBy          String?  @map("updated_by")
 
