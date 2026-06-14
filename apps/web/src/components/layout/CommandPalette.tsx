@@ -5,6 +5,7 @@ import {
   Layers, Webhook, Settings, Search, Wallet,
 } from 'lucide-react';
 import { Kbd } from '../ui/Kbd';
+import { useSearch } from '../../hooks/useSearch';
 
 const NAV_ITEMS: { label: string; to: string; sub: string; icon: typeof Home }[] = [
   { label: 'Overview', to: '/overview', sub: '/overview', icon: Home },
@@ -25,34 +26,53 @@ interface CommandPaletteProps {
   onClose: () => void;
 }
 
+type Action = { key: string; label: string; sub: string; icon: typeof Home; run: () => void };
+
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
+  const [debounced, setDebounced] = useState('');
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const items = useMemo(() =>
-    NAV_ITEMS.map(r => ({
-      label: `Go to ${r.label}`,
-      sub: r.sub,
-      to: r.to,
-      icon: r.icon,
-    })),
-  []);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query), 200);
+    return () => clearTimeout(t);
+  }, [query]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const list = q
-      ? items.filter(i => (i.label + ' ' + i.sub).toLowerCase().includes(q)).slice(0, 12)
-      : items.slice(0, 8);
-    return list;
-  }, [items, query]);
+  const { data: results } = useSearch(debounced);
 
   const select = useCallback((to: string) => {
     navigate(to);
     onClose();
     setQuery('');
   }, [navigate, onClose]);
+
+  const filtered = useMemo<Action[]>(() => {
+    const q = query.trim().toLowerCase();
+    const nav: Action[] = NAV_ITEMS
+      .filter((r) => !q || (r.label + ' ' + r.sub).toLowerCase().includes(q))
+      .map((r) => ({ key: 'nav:' + r.to, label: `Go to ${r.label}`, sub: r.sub, icon: r.icon, run: () => select(r.to) }));
+
+    if (q.length < 2) return nav.slice(0, 8);
+
+    const taskActions: Action[] = (results?.tasks ?? []).map((t) => ({
+      key: 'task:' + t.taskId,
+      label: t.taskName,
+      sub: t.client ? `Task · ${t.client}` : 'Task',
+      icon: CheckSquare,
+      run: () => select(`/tasks?search=${encodeURIComponent(t.taskName)}`),
+    }));
+    const assigneeActions: Action[] = (results?.assignees ?? []).map((a) => ({
+      key: 'assignee:' + a.userId,
+      label: a.name ?? a.userId,
+      sub: a.email ?? 'Assignee',
+      icon: DollarSign,
+      run: () => select(`/assignee-rates?userId=${encodeURIComponent(a.userId)}`),
+    }));
+
+    return [...taskActions, ...assigneeActions, ...nav].slice(0, 20);
+  }, [query, results, select]);
 
   useEffect(() => {
     if (open) {
@@ -74,13 +94,13 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         setActive(v => Math.max(v - 1, 0));
       }
       if (e.key === 'Enter' && filtered[active]) {
-        select(filtered[active].to);
+        filtered[active].run();
       }
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [open, filtered, active, select, onClose]);
+  }, [open, filtered, active, onClose]);
 
   if (!open) return null;
 
@@ -132,9 +152,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
               const isActive = i === active;
               return (
                 <button
-                  key={item.to + item.label}
+                  key={item.key}
                   type="button"
-                  onClick={() => select(item.to)}
+                  onClick={item.run}
                   onMouseEnter={() => setActive(i)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10, width: '100%',
