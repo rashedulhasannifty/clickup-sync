@@ -13,10 +13,11 @@ import { AuditLogRepository } from './audit-log.repository';
 import { AuditLogInterceptor } from './audit-log.interceptor';
 import { SpikeNotificationService } from './spike-notification.service';
 import { SearchRepository } from './search.repository';
+import { TaskHistoryRepository } from './task-history.repository';
 
 @Module({
   imports: [QueuesModule, JobsModule, ClickupModule, TimeEntriesModule, RatesModule, BudgetsModule, TasksModule, WebhooksModule, MailerModule],
-  providers: [AuditLogRepository, AuditLogInterceptor, SpikeNotificationService, SearchRepository],
+  providers: [AuditLogRepository, AuditLogInterceptor, SpikeNotificationService, SearchRepository, TaskHistoryRepository],
   controllers: [AdminController],
   exports: [AuditLogRepository, AuditLogInterceptor],
 })

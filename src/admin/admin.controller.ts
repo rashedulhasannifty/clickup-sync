@@ -19,6 +19,7 @@ import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { NotifySpikeDto } from './dto/notify-spike.dto';
 import { SpikeNotificationService } from './spike-notification.service';
 import { SearchRepository } from './search.repository';
+import { TaskHistoryRepository } from './task-history.repository';
 import { SettingsService } from '../settings/settings.service';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
@@ -75,6 +76,7 @@ export class AdminController {
     private readonly settings: SettingsService,
     private readonly spikeNotifications: SpikeNotificationService,
     private readonly searchRepo: SearchRepository,
+    private readonly taskHistoryRepo: TaskHistoryRepository,
   ) {}
 
   @Get('ping')
@@ -571,6 +573,14 @@ export class AdminController {
   @ApiOperation({ summary: 'Delete a tag → assignee mapping' })
   deleteTagAssignee(@Param('id') id: string) {
     return this.tagAssigneeRepo.remove(parseId(id));
+  }
+
+  // ── Task history ───────────────────────────────────────────────────────────
+
+  @Get('tasks/:taskId/history')
+  @ApiOperation({ summary: 'Merged sync-job + status-event history for one task.' })
+  taskHistory(@Param('taskId') taskId: string) {
+    return this.taskHistoryRepo.forTask(taskId);
   }
 
   // ── Audit log viewer ───────────────────────────────────────────────────────
