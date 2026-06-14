@@ -68,3 +68,32 @@ describe('TagAssigneeMapRepository.update', () => {
     });
   });
 });
+
+describe('TagAssigneeMapRepository.create with active', () => {
+  it('forwards active when provided', async () => {
+    const create = jest.fn().mockResolvedValue({ id: BigInt(1) });
+    const prisma = { tagAssigneeMap: { create } } as any;
+    const repo = new TagAssigneeMapRepository(prisma);
+
+    await repo.create({ tagName: 'sayem', clickupUserId: '5', active: false });
+
+    expect(create).toHaveBeenCalledWith({
+      data: { tagName: 'sayem', clickupUserId: '5', active: false },
+    });
+  });
+});
+
+describe('TagAssigneeMapRepository.update with tagName', () => {
+  it('forwards a tagName rename', async () => {
+    const update = jest.fn().mockResolvedValue({ id: BigInt(3) });
+    const prisma = { tagAssigneeMap: { update } } as any;
+    const repo = new TagAssigneeMapRepository(prisma);
+
+    await repo.update(BigInt(3), { tagName: 'renamed' });
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: BigInt(3) },
+      data: { tagName: 'renamed' },
+    });
+  });
+});

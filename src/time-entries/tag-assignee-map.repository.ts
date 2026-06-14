@@ -17,11 +17,11 @@ export class TagAssigneeMapRepository {
     return this.prisma.tagAssigneeMap.findMany({ where: { active: true }, orderBy: { tagName: 'asc' } });
   }
 
-  create(data: { tagName: string; clickupUserId: string; clickupUserName?: string; clickupEmail?: string }) {
+  create(data: { tagName: string; clickupUserId: string; clickupUserName?: string; clickupEmail?: string; active?: boolean }) {
     return this.prisma.tagAssigneeMap.create({ data });
   }
 
-  update(id: bigint, data: { clickupUserId?: string; clickupUserName?: string; clickupEmail?: string; active?: boolean }) {
+  update(id: bigint, data: { tagName?: string; clickupUserId?: string; clickupUserName?: string; clickupEmail?: string; active?: boolean }) {
     return this.prisma.tagAssigneeMap.update({ where: { id }, data });
   }
 

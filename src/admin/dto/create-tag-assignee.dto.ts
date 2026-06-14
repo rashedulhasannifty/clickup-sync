@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateTagAssigneeDto {
   @ApiProperty({ description: 'Tag name as it appears in ClickUp (e.g. "ahmad")' })
@@ -21,4 +21,9 @@ export class CreateTagAssigneeDto {
   @IsString()
   @IsOptional()
   clickupEmail?: string;
+
+  @ApiPropertyOptional()
+  @IsBoolean()
+  @IsOptional()
+  active?: boolean;
 }

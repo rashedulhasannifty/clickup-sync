@@ -2,6 +2,11 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsBoolean, IsOptional, IsString } from 'class-validator';
 
 export class UpdateTagAssigneeDto {
+  @ApiPropertyOptional({ description: 'Rename the tag (must stay unique).' })
+  @IsString()
+  @IsOptional()
+  tagName?: string;
+
   @ApiPropertyOptional()
   @IsString()
   @IsOptional()

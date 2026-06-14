@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, NotFoundException, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles, CurrentUser } from '../auth/decorators';
@@ -539,14 +539,21 @@ export class AdminController {
   @HttpCode(201)
   @ApiOperation({ summary: 'Add a tag → assignee mapping' })
   createTagAssignee(@Body() dto: CreateTagAssigneeDto) {
-    return this.tagAssigneeRepo.create({ tagName: dto.tagName, clickupUserId: dto.clickupUserId, clickupUserName: dto.clickupUserName, clickupEmail: dto.clickupEmail });
+    return this.tagAssigneeRepo.create({ tagName: dto.tagName, clickupUserId: dto.clickupUserId, clickupUserName: dto.clickupUserName, clickupEmail: dto.clickupEmail, active: dto.active });
   }
 
   @Patch('tag-assignee-map/:id')
   @HttpCode(200)
   @ApiOperation({ summary: 'Update a tag → assignee mapping' })
-  updateTagAssignee(@Param('id') id: string, @Body() dto: UpdateTagAssigneeDto) {
-    return this.tagAssigneeRepo.update(parseId(id), dto);
+  async updateTagAssignee(@Param('id') id: string, @Body() dto: UpdateTagAssigneeDto) {
+    try {
+      return await this.tagAssigneeRepo.update(parseId(id), dto);
+    } catch (e) {
+      if ((e as { code?: string }).code === 'P2002') {
+        throw new ConflictException(`A tag named "${dto.tagName}" already exists.`);
+      }
+      throw e;
+    }
   }
 
   @Delete('tag-assignee-map/:id')
