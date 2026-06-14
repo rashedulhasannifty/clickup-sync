@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 
 export const SETTINGS_ID = 'singleton';
@@ -12,6 +13,7 @@ export interface SettingsWrite {
   webhookEvents?: string | null;
   spikeHoursCap?: number;
   updatedBy?: string | null;
+  preferences?: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput;
 }
 
 export interface SettingsRow extends SettingsWrite {

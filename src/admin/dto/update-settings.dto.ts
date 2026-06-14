@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsInt, IsObject, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class UpdateSettingsDto {
   @ApiPropertyOptional({ description: 'ClickUp API token (write-only; stored encrypted). Omit to leave unchanged.' })
@@ -33,4 +33,9 @@ export class UpdateSettingsDto {
   @Min(1)
   @Max(24)
   spikeHoursCap?: number;
+
+  @ApiPropertyOptional({ description: 'Non-secret UI preferences (notifications, sync rules, per-space enable map). Deep-merged.' })
+  @IsOptional()
+  @IsObject()
+  preferences?: Record<string, unknown>;
 }

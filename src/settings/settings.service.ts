@@ -1,10 +1,46 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { CryptoService } from './crypto.service';
 import { SettingsRepository } from './settings.repository';
 
 const DEFAULT_TEAM_ID = '3450636';
 const DEFAULT_SPIKE_HOURS_CAP = 12;
 const DEFAULT_EVENTS = 'taskCreated,taskUpdated,taskDeleted,taskTimeTrackedUpdated,taskStatusUpdated';
+
+export interface SettingsPreferences {
+  notifications: {
+    alerts: { syncFail: boolean; webhookSpike: boolean; missingRate: boolean; tokenExpiring: boolean };
+    channels: { email: boolean; slack: boolean; pagerduty: boolean };
+  };
+  sync: { reconcileLookbackDays: number };
+  spaces: Record<string, { enabled: boolean }>;
+}
+
+export const DEFAULT_PREFERENCES: SettingsPreferences = {
+  notifications: {
+    alerts: { syncFail: true, webhookSpike: true, missingRate: true, tokenExpiring: true },
+    channels: { email: true, slack: true, pagerduty: false },
+  },
+  sync: { reconcileLookbackDays: 365 },
+  spaces: {},
+};
+
+type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
+
+/** Recursively merge `patch` onto `base`, returning a new object. Plain objects
+ *  merge key-by-key; everything else (incl. the per-space leaf objects) replaces. */
+function deepMergePrefs(base: SettingsPreferences, patch: DeepPartial<SettingsPreferences>): SettingsPreferences {
+  const out: any = Array.isArray(base) ? [...base] : { ...base };
+  for (const [k, v] of Object.entries(patch ?? {})) {
+    const cur = (base as any)[k];
+    if (v && typeof v === 'object' && !Array.isArray(v) && cur && typeof cur === 'object' && !Array.isArray(cur)) {
+      out[k] = deepMergePrefs(cur, v as any);
+    } else if (v !== undefined) {
+      out[k] = v;
+    }
+  }
+  return out as SettingsPreferences;
+}
 
 export interface SettingsPatch {
   apiToken?: string;
@@ -13,6 +49,7 @@ export interface SettingsPatch {
   webhookEvents?: string;
   webhookSecret?: string;
   spikeHoursCap?: number;
+  preferences?: DeepPartial<SettingsPreferences>;
 }
 
 export interface MaskedSettings {
@@ -26,6 +63,8 @@ export interface MaskedSettings {
   encryptionEnabled: boolean;
   updatedAt: Date | null;
   updatedBy: string | null;
+  preferences: SettingsPreferences;
+  configuredSpaces: { id: string; name: string }[];
 }
 
 interface Cache {
@@ -37,6 +76,7 @@ interface Cache {
   spikeHoursCap: number | null;
   updatedAt: Date | null;
   updatedBy: string | null;
+  preferences: SettingsPreferences;
 }
 
 const EMPTY: Cache = {
@@ -48,6 +88,7 @@ const EMPTY: Cache = {
   spikeHoursCap: null,
   updatedAt: null,
   updatedBy: null,
+  preferences: DEFAULT_PREFERENCES,
 };
 
 /**
@@ -84,6 +125,7 @@ export class SettingsService implements OnModuleInit {
       spikeHoursCap: row?.spikeHoursCap ?? null,
       updatedAt: row?.updatedAt ?? null,
       updatedBy: row?.updatedBy ?? null,
+      preferences: deepMergePrefs(DEFAULT_PREFERENCES, (row?.preferences as DeepPartial<SettingsPreferences>) ?? {}),
     };
   }
 
@@ -125,6 +167,14 @@ export class SettingsService implements OnModuleInit {
     return this.cache.spikeHoursCap ?? DEFAULT_SPIKE_HOURS_CAP;
   }
 
+  getPreferences(): SettingsPreferences {
+    return this.cache.preferences;
+  }
+
+  isSpaceEnabled(spaceId: string): boolean {
+    return this.cache.preferences.spaces[spaceId]?.enabled ?? true;
+  }
+
   // ── Read for the admin UI (secrets masked) ─────────────────────────────────
 
   getMasked(): MaskedSettings {
@@ -141,6 +191,8 @@ export class SettingsService implements OnModuleInit {
       encryptionEnabled: this.crypto.isEnabled,
       updatedAt: this.cache.updatedAt,
       updatedBy: this.cache.updatedBy,
+      preferences: this.cache.preferences,
+      configuredSpaces: CLICKUP_SPACES.map((s) => ({ id: s.id, name: s.name })),
     };
   }
 
@@ -155,6 +207,9 @@ export class SettingsService implements OnModuleInit {
     if (patch.spikeHoursCap !== undefined) data.spikeHoursCap = patch.spikeHoursCap;
     if (patch.apiToken) data.clickupApiTokenEnc = this.crypto.encrypt(patch.apiToken);
     if (patch.webhookSecret) data.webhookSecretEnc = this.crypto.encrypt(patch.webhookSecret);
+    if (patch.preferences !== undefined) {
+      data.preferences = deepMergePrefs(this.cache.preferences, patch.preferences) as unknown as import('@prisma/client').Prisma.InputJsonValue | import('@prisma/client').Prisma.NullableJsonNullValueInput;
+    }
     await this.repo.upsert(data);
     await this.refresh();
     return this.getMasked();
