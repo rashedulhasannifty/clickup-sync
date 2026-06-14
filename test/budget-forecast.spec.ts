@@ -13,6 +13,10 @@ describe('budget-forecast helpers', () => {
       // 2026-06-14T20:00:00Z = 2026-06-15T02:00 Dhaka
       expect(dhakaTodayParts(new Date('2026-06-14T20:00:00Z'))).toEqual({ year: 2026, month0: 5, day: 15 });
     });
+    it('rolls across a year boundary', () => {
+      // 2026-12-31T20:00:00Z = 2027-01-01T02:00 Dhaka
+      expect(dhakaTodayParts(new Date('2026-12-31T20:00:00Z'))).toEqual({ year: 2027, month0: 0, day: 1 });
+    });
   });
 
   describe('monthBounds', () => {
@@ -21,6 +25,11 @@ describe('budget-forecast helpers', () => {
       expect(b.start).toBe('2026-02-01');
       expect(b.end).toBe('2026-02-28');
       expect(b.daysInMonth).toBe(28);
+    });
+    it('handles leap year February', () => {
+      const b = monthBounds(2024, 1); // Feb 2024, leap year
+      expect(b.daysInMonth).toBe(29);
+      expect(b.end).toBe('2024-02-29');
     });
   });
 
@@ -33,6 +42,10 @@ describe('budget-forecast helpers', () => {
     });
     it('returns 0 when end is before start', () => {
       expect(countBusinessDays('2026-06-05', '2026-06-01')).toBe(0);
+    });
+    it('counts business days across a full month', () => {
+      // June 2026: 22 weekdays
+      expect(countBusinessDays('2026-06-01', '2026-06-30')).toBe(22);
     });
   });
 
@@ -74,6 +87,11 @@ describe('budget-forecast helpers', () => {
     it('no-budget when budget is null/zero', () => {
       expect(deriveBudgetStatus(2000, 4000, null)).toBe('no-budget');
       expect(deriveBudgetStatus(2000, 4000, 0)).toBe('no-budget');
+    });
+    it('treats the 85% and 100% thresholds as inclusive (>=)', () => {
+      expect(deriveBudgetStatus(5000, 8500, 10000)).toBe('near');        // exactly 85%
+      expect(deriveBudgetStatus(5000, 8499, 10000)).toBe('under');       // just under 85%
+      expect(deriveBudgetStatus(5000, 10000, 10000)).toBe('projected-over'); // forecast == budget
     });
   });
 });
