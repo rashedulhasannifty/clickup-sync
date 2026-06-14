@@ -69,7 +69,7 @@ row is the primary record; the audit log is secondary.
     "userName": "Rashedul",
     "date": "2026-06-10",
     "totalHours": 14.5,
-    "rule": "absolute",                       // recomputed/snapshotted classification
+    "rule": "absolute",                       // display-only wording context (from the watchlist row)
     "tasks": [
       { "taskId": "86abc", "taskName": "Fix sync", "hours": 9.0 },
       { "taskId": "86def", "taskName": "Backfill", "hours": 5.5 }
@@ -86,14 +86,18 @@ row is the primary record; the audit log is secondary.
     the preview/notify endpoints sit under `AdminController`'s role gate.
 
 - **`POST /admin/hour-spikes/notify`** `{ userId, date, note? }`:
-  1. **Recomputes** the breakdown itself (does **not** trust any client-supplied hours,
-     email, or task list).
+  1. **Recomputes the trust-sensitive parts** itself — total hours, the per-task
+     breakdown, and the `recipientEmail` — from `clickup_time_entries ⋈ clickup_tasks`
+     for that Dhaka-day. It does **not** trust any client-supplied hours, email, or
+     task list. (The `rule`/`median` wording context is display-only and may be carried
+     from the watchlist row; it is not security-sensitive and not re-derived here.)
   2. `400` if the day has no entries or no resolvable `recipientEmail`.
   3. Sends via `MailerService.sendSpikeNotice(...)`.
   4. Inserts the `SpikeNotification`. A unique-constraint conflict on
      `(clickupUserId, spikeDate)` → `409 Already notified` (no second email).
   - `note` is validated by a small DTO (`NotifySpikeDto`): optional string, trimmed,
-    sane max length (e.g. 2000 chars).
+    sane max length (e.g. 2000 chars). `userId` and `date` (`YYYY-MM-DD`) are also
+    validated.
 
 - **`MailerService.sendSpikeNotice(args)`** — new method beside `sendInvite`, same
   transport (real SMTP when `SMTP_HOST` set, else `jsonTransport` dev log). Builds the
