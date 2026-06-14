@@ -88,7 +88,10 @@ function BurnDownChart({ row, month, forecastMode }: BurnDownChartProps) {
 
   const W = 100; // viewBox width
   const H = 120; // viewBox height
-  const PAD = { top: 8, right: 4, bottom: 20, left: 4 };
+  // Bottom padding is small because the x-axis date labels are rendered as an
+  // HTML row BELOW the svg (not as in-svg <text>, which distorts under
+  // preserveAspectRatio="none" — see LineChart.tsx for the same approach).
+  const PAD = { top: 8, right: 4, bottom: 6, left: 4 };
   const chartW = W - PAD.left - PAD.right;
   const chartH = H - PAD.top - PAD.bottom;
 
@@ -166,83 +169,101 @@ function BurnDownChart({ row, month, forecastMode }: BurnDownChartProps) {
           </span>
         )}
       </div>
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        preserveAspectRatio="none"
-        style={{ width: '100%', height: H, display: 'block', overflow: 'visible' }}
-      >
-        {/* Budget ceiling */}
-        {ceilingY != null && (
-          <line
-            x1={PAD.left}
-            y1={ceilingY}
-            x2={W - PAD.right}
-            y2={ceilingY}
-            stroke="var(--pill-red-text)"
-            strokeOpacity={0.5}
-            strokeWidth={1}
-            strokeDasharray="4 3"
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
-
-        {/* Ideal-pace line */}
-        {idealLine && (
-          <path
-            d={idealLine}
-            fill="none"
-            stroke="var(--text-faint)"
-            strokeWidth={1}
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
-
-        {/* Actual cumulative line */}
-        {actualPath && (
-          <path
-            d={actualPath}
-            fill="none"
-            stroke="var(--accent)"
-            strokeWidth={1.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
-
-        {/* Dashed projection */}
-        {projectionPath && (
-          <path
-            d={projectionPath}
-            fill="none"
-            stroke="var(--accent)"
-            strokeOpacity={0.5}
-            strokeWidth={1.5}
-            strokeDasharray="3 3"
-            strokeLinecap="round"
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
-
-        {/* X-axis tick labels */}
-        {xTicks.map((day) => (
-          <text
-            key={day}
-            x={xOf(day)}
-            y={H - 4}
-            textAnchor={day === 1 ? 'start' : day === daysInMonth ? 'end' : 'middle'}
-            fontSize={7}
-            fill="var(--text-muted)"
-          >
-            {`${month}-${String(day).padStart(2, '0')}`}
-          </text>
-        ))}
-
-        {/* Y-axis max label */}
-        <text x={PAD.left} y={PAD.top - 2} fontSize={7} fill="var(--text-muted)">
+      <div style={{ position: 'relative', width: '100%' }}>
+        {/* Y-axis max label as an HTML overlay. In-svg <text> distorts badly
+            because the svg uses preserveAspectRatio="none" (x stretched ~15x). */}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            fontSize: 10,
+            color: 'var(--text-muted)',
+            fontVariantNumeric: 'tabular-nums',
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}
+        >
           {moneyDollars(maxY)}
-        </text>
-      </svg>
+        </div>
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          preserveAspectRatio="none"
+          style={{ width: '100%', height: H, display: 'block', overflow: 'visible' }}
+        >
+          {/* Budget ceiling */}
+          {ceilingY != null && (
+            <line
+              x1={PAD.left}
+              y1={ceilingY}
+              x2={W - PAD.right}
+              y2={ceilingY}
+              stroke="var(--pill-red-text)"
+              strokeOpacity={0.5}
+              strokeWidth={1}
+              strokeDasharray="4 3"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+
+          {/* Ideal-pace line */}
+          {idealLine && (
+            <path
+              d={idealLine}
+              fill="none"
+              stroke="var(--text-faint)"
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+
+          {/* Actual cumulative line */}
+          {actualPath && (
+            <path
+              d={actualPath}
+              fill="none"
+              stroke="var(--accent)"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+
+          {/* Dashed projection */}
+          {projectionPath && (
+            <path
+              d={projectionPath}
+              fill="none"
+              stroke="var(--accent)"
+              strokeOpacity={0.5}
+              strokeWidth={1.5}
+              strokeDasharray="3 3"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
+        </svg>
+
+        {/* X-axis tick labels as an HTML row below the svg (not in-svg text). */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            padding: `4px ${PAD.left}% 0`,
+            fontSize: 10,
+            color: 'var(--text-muted)',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {xTicks.map((day) => (
+            <span key={day}>
+              {new Date(Date.UTC(year, mon - 1, day)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            </span>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
