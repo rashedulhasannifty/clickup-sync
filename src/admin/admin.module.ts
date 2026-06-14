@@ -12,10 +12,11 @@ import { AdminController } from './admin.controller';
 import { AuditLogRepository } from './audit-log.repository';
 import { AuditLogInterceptor } from './audit-log.interceptor';
 import { SpikeNotificationService } from './spike-notification.service';
+import { SearchRepository } from './search.repository';
 
 @Module({
   imports: [QueuesModule, JobsModule, ClickupModule, TimeEntriesModule, RatesModule, BudgetsModule, TasksModule, WebhooksModule, MailerModule],
-  providers: [AuditLogRepository, AuditLogInterceptor, SpikeNotificationService],
+  providers: [AuditLogRepository, AuditLogInterceptor, SpikeNotificationService, SearchRepository],
   controllers: [AdminController],
   exports: [AuditLogRepository, AuditLogInterceptor],
 })

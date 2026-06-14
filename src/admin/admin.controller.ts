@@ -18,6 +18,7 @@ import { BudgetsRepository } from '../budgets/budgets.repository';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { NotifySpikeDto } from './dto/notify-spike.dto';
 import { SpikeNotificationService } from './spike-notification.service';
+import { SearchRepository } from './search.repository';
 import { SettingsService } from '../settings/settings.service';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
@@ -73,12 +74,19 @@ export class AdminController {
     private readonly auditLog: AuditLogRepository,
     private readonly settings: SettingsService,
     private readonly spikeNotifications: SpikeNotificationService,
+    private readonly searchRepo: SearchRepository,
   ) {}
 
   @Get('ping')
   @ApiOperation({ summary: 'Validate admin key' })
   ping() {
     return { ok: true };
+  }
+
+  @Get('search')
+  @ApiOperation({ summary: 'Quick search across tasks and assignees (command palette).' })
+  search(@Query('q') q = '') {
+    return this.searchRepo.search(q);
   }
 
   @Get('workspace-members')
