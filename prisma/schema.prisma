@@ -106,6 +106,21 @@ model AssigneeRate {
   @@map("assignee_rates")
 }
 
+model ClientBudget {
+  budgetId           BigInt    @id @default(autoincrement()) @map("budget_id")
+  client             String
+  monthlyAmountCents BigInt    @map("monthly_amount_cents")
+  currency           String    @default("USD")
+  validFrom          DateTime  @map("valid_from") @db.Date
+  validTo            DateTime? @map("valid_to")  @db.Date
+  notes              String?
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([client, validFrom])
+  @@index([client, validFrom, validTo])
+  @@map("client_budgets")
+}
+
 model ClickupWebhookEvent {
   id           BigInt   @id @default(autoincrement())
   fingerprint  String   @unique
