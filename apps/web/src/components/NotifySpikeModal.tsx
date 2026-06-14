@@ -42,7 +42,7 @@ export function NotifySpikeModal({ row, onClose }: { row: HourSpikeWatchRow; onC
             variant="accent"
             size="sm"
             loading={notify.isPending}
-            disabled={preview.isLoading || noEmail || already}
+            disabled={preview.isLoading || preview.isError || noEmail || already}
             onClick={() => void send()}
           >
             Send email

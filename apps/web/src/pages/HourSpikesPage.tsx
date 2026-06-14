@@ -98,6 +98,8 @@ export function HourSpikesPage() {
                 <button
                   type="button"
                   onClick={() => navigate(dayLink(s.userId, s.date))}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--hover)')}
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                   style={{
                     flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: 10,
                     background: 'transparent', border: 0, cursor: 'pointer', textAlign: 'left', color: 'inherit', padding: 0,
@@ -130,7 +132,7 @@ export function HourSpikesPage() {
                       <Check size={12} /> Notified
                     </span>
                   ) : (
-                    <Button size="sm" variant="subtle" onClick={() => setActiveRow(s)} style={{ flexShrink: 0 }}>
+                    <Button size="sm" variant="subtle" aria-label={`Notify ${s.userName} about ${formatDate(s.date)}`} onClick={() => setActiveRow(s)} style={{ flexShrink: 0 }}>
                       Notify
                     </Button>
                   )
