@@ -21,6 +21,7 @@ import { Pill } from '../components/ui/Pill';
 import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { BudgetModal } from '../components/BudgetModal';
+import { BudgetBurnDownChart } from '../components/charts/BudgetBurnDownChart';
 
 // ---------------------------------------------------------------------------
 // Money helper — status rows are in dollars; fmt.money expects cents.
@@ -49,224 +50,6 @@ function statusTone(status: BudgetStatus): PillTone {
 // Forecast toggle type
 // ---------------------------------------------------------------------------
 type ForecastMode = 'runrate' | 'trailing';
-
-// ---------------------------------------------------------------------------
-// Burn-down chart (custom SVG — no Recharts in this app)
-// ---------------------------------------------------------------------------
-interface BurnDownChartProps {
-  row: BudgetStatusRow;
-  month: string; // 'YYYY-MM'
-  forecastMode: ForecastMode;
-}
-
-function BurnDownChart({ row, month, forecastMode }: BurnDownChartProps) {
-  const { dailySeries, monthlyAmount } = row;
-
-  // Derive the month's last day
-  const [year, mon] = month.split('-').map(Number);
-  const daysInMonth = new Date(Date.UTC(year, mon, 0)).getUTCDate();
-
-  // Build cumulative actual series
-  const cumulativeActual: { day: number; value: number }[] = [];
-  let running = 0;
-  for (const pt of dailySeries) {
-    const day = parseInt(pt.date.split('-')[2], 10);
-    running += pt.cost;
-    cumulativeActual.push({ day, value: running });
-  }
-
-  const lastActual = cumulativeActual[cumulativeActual.length - 1] ?? null;
-  const forecast = forecastMode === 'runrate' ? row.forecastRunRate : row.forecastTrailing;
-
-  // Y domain: 0 → max of budget, last actual, forecast
-  const maxY = Math.max(
-    monthlyAmount ?? 0,
-    lastActual?.value ?? 0,
-    forecast,
-    1,
-  );
-
-  const W = 100; // viewBox width
-  const H = 120; // viewBox height
-  // Bottom padding is small because the x-axis date labels are rendered as an
-  // HTML row BELOW the svg (not as in-svg <text>, which distorts under
-  // preserveAspectRatio="none" — see LineChart.tsx for the same approach).
-  const PAD = { top: 8, right: 4, bottom: 6, left: 4 };
-  const chartW = W - PAD.left - PAD.right;
-  const chartH = H - PAD.top - PAD.bottom;
-
-  const xOf = (day: number) => PAD.left + ((day - 1) / (daysInMonth - 1 || 1)) * chartW;
-  const yOf = (val: number) => PAD.top + chartH - (val / maxY) * chartH;
-
-  // Actual line
-  const actualPoints = cumulativeActual.map(({ day, value }) => [xOf(day), yOf(value)] as [number, number]);
-
-  // Ideal-pace line: 0 on day 1 → budget on last day (skip if no budget)
-  const idealLine =
-    monthlyAmount != null
-      ? `M ${xOf(1)},${yOf(0)} L ${xOf(daysInMonth)},${yOf(monthlyAmount)}`
-      : null;
-
-  // Budget ceiling: horizontal line (skip if no budget)
-  const ceilingY = monthlyAmount != null ? yOf(monthlyAmount) : null;
-
-  // Projection: dashed from last actual to (month-end, forecast)
-  let projectionPath: string | null = null;
-  if (lastActual) {
-    const fromX = xOf(lastActual.day);
-    const fromY = yOf(lastActual.value);
-    const toX = xOf(daysInMonth);
-    const toY = yOf(forecast);
-    if (Math.abs(fromX - toX) > 0.5) {
-      projectionPath = `M ${fromX},${fromY} L ${toX},${toY}`;
-    }
-  }
-
-  // Actual polyline path
-  const actualPath =
-    actualPoints.length > 1
-      ? actualPoints.map(([x, y], i) => (i === 0 ? `M ${x},${y}` : `L ${x},${y}`)).join(' ')
-      : actualPoints.length === 1
-        ? `M ${actualPoints[0][0]},${actualPoints[0][1]}`
-        : null;
-
-  // X-axis tick labels (first, mid, last)
-  const xTicks = [1, Math.ceil(daysInMonth / 2), daysInMonth];
-
-  if (dailySeries.length === 0 && monthlyAmount == null) {
-    return (
-      <div style={{ padding: '12px 16px', fontSize: 12, color: 'var(--text-muted)' }}>
-        No spend data for this month.
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ padding: '12px 16px 4px' }}>
-      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-        {actualPath && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ display: 'inline-block', width: 20, height: 2, background: 'var(--accent)', borderRadius: 1 }} />
-            Actual
-          </span>
-        )}
-        {idealLine && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ display: 'inline-block', width: 20, height: 2, background: 'var(--text-faint)', borderRadius: 1 }} />
-            Ideal pace
-          </span>
-        )}
-        {ceilingY != null && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ display: 'inline-block', width: 20, height: 2, background: 'var(--pill-red-text)', borderRadius: 1, opacity: 0.7 }} />
-            Budget ceiling
-          </span>
-        )}
-        {projectionPath && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ display: 'inline-block', width: 20, height: 2, background: 'var(--accent)', borderRadius: 1, opacity: 0.5, borderTop: '1px dashed var(--accent)' }} />
-            Projection
-          </span>
-        )}
-      </div>
-      <div style={{ position: 'relative', width: '100%' }}>
-        {/* Y-axis max label as an HTML overlay. In-svg <text> distorts badly
-            because the svg uses preserveAspectRatio="none" (x stretched ~15x). */}
-        <div
-          aria-hidden
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            fontSize: 10,
-            color: 'var(--text-muted)',
-            fontVariantNumeric: 'tabular-nums',
-            pointerEvents: 'none',
-            zIndex: 1,
-          }}
-        >
-          {moneyDollars(maxY)}
-        </div>
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          preserveAspectRatio="none"
-          style={{ width: '100%', height: H, display: 'block', overflow: 'visible' }}
-        >
-          {/* Budget ceiling */}
-          {ceilingY != null && (
-            <line
-              x1={PAD.left}
-              y1={ceilingY}
-              x2={W - PAD.right}
-              y2={ceilingY}
-              stroke="var(--pill-red-text)"
-              strokeOpacity={0.5}
-              strokeWidth={1}
-              strokeDasharray="4 3"
-              vectorEffect="non-scaling-stroke"
-            />
-          )}
-
-          {/* Ideal-pace line */}
-          {idealLine && (
-            <path
-              d={idealLine}
-              fill="none"
-              stroke="var(--text-faint)"
-              strokeWidth={1}
-              vectorEffect="non-scaling-stroke"
-            />
-          )}
-
-          {/* Actual cumulative line */}
-          {actualPath && (
-            <path
-              d={actualPath}
-              fill="none"
-              stroke="var(--accent)"
-              strokeWidth={1.5}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke"
-            />
-          )}
-
-          {/* Dashed projection */}
-          {projectionPath && (
-            <path
-              d={projectionPath}
-              fill="none"
-              stroke="var(--accent)"
-              strokeOpacity={0.5}
-              strokeWidth={1.5}
-              strokeDasharray="3 3"
-              strokeLinecap="round"
-              vectorEffect="non-scaling-stroke"
-            />
-          )}
-        </svg>
-
-        {/* X-axis tick labels as an HTML row below the svg (not in-svg text). */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            padding: `4px ${PAD.left}% 0`,
-            fontSize: 10,
-            color: 'var(--text-muted)',
-            fontVariantNumeric: 'tabular-nums',
-          }}
-        >
-          {xTicks.map((day) => (
-            <span key={day}>
-              {new Date(Date.UTC(year, mon - 1, day)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-            </span>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Helper: find the most recent budget record for a client
@@ -721,10 +504,11 @@ export function BudgetsPage() {
                     {isExpanded && (
                       <tr style={{ borderTop: '1px solid var(--border-soft)' }}>
                         <td colSpan={9} style={{ padding: 0, background: 'var(--muted-bg)' }}>
-                          <BurnDownChart
-                            row={row}
+                          <BudgetBurnDownChart
+                            dailySeries={row.dailySeries}
+                            monthlyAmount={row.monthlyAmount}
+                            forecast={forecastMode === 'runrate' ? row.forecastRunRate : row.forecastTrailing}
                             month={effectiveMonth}
-                            forecastMode={forecastMode}
                           />
                         </td>
                       </tr>
