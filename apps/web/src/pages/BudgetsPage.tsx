@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { Download, Plus, Pencil, Trash2, Wallet, ChevronDown, ChevronRight } from 'lucide-react';
 import { type Budget, type BudgetStatus, type BudgetStatusRow } from '../api/budgets';
 import {
@@ -41,6 +41,7 @@ function statusTone(status: BudgetStatus): PillTone {
     case 'near':           return 'amber';
     case 'under':          return 'green';
     case 'no-budget':      return 'gray';
+    default:               return 'gray';
   }
 }
 
@@ -256,6 +257,20 @@ function findBudgetForClient(budgets: Budget[], client: string): Budget | null {
 }
 
 // ---------------------------------------------------------------------------
+// CSV export columns (module-level — no closure dependencies)
+// ---------------------------------------------------------------------------
+const CSV_COLS: CsvColumn<BudgetStatusRow>[] = [
+  { header: 'Client',                   value: 'client' },
+  { header: 'Budget',                   value: (r) => r.monthlyAmount ?? '' },
+  { header: 'MTD Cost',                 value: 'mtdCost' },
+  { header: 'MTD Hours',                value: 'mtdHours' },
+  { header: '% Used',                   value: (r) => r.pctOfBudget != null ? `${(r.pctOfBudget * 100).toFixed(1)}%` : '' },
+  { header: 'Forecast (run-rate)',       value: 'forecastRunRate' },
+  { header: 'Forecast (trailing)',       value: 'forecastTrailing' },
+  { header: 'Status',                   value: 'status' },
+];
+
+// ---------------------------------------------------------------------------
 // BudgetsPage
 // ---------------------------------------------------------------------------
 export function BudgetsPage() {
@@ -349,7 +364,7 @@ export function BudgetsPage() {
         { onSuccess: closeModal },
       );
     } else {
-      createBudget.mutate(data as Omit<Budget, 'id' | 'updatedAt'>, { onSuccess: closeModal });
+      createBudget.mutate(data, { onSuccess: closeModal });
     }
   }
 
@@ -365,17 +380,6 @@ export function BudgetsPage() {
 
   const isLoading = statusQuery.isLoading;
 
-  // CSV export columns
-  const csvCols: CsvColumn<BudgetStatusRow>[] = [
-    { header: 'Client',                   value: 'client' },
-    { header: 'Budget',                   value: (r) => r.monthlyAmount ?? '' },
-    { header: 'MTD Cost',                 value: 'mtdCost' },
-    { header: 'MTD Hours',                value: 'mtdHours' },
-    { header: 'Forecast (run-rate)',       value: 'forecastRunRate' },
-    { header: 'Forecast (trailing)',       value: 'forecastTrailing' },
-    { header: 'Status',                   value: 'status' },
-  ];
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <PageHeader
@@ -389,7 +393,7 @@ export function BudgetsPage() {
               icon={<Download size={13} />}
               disabled={isLoading || statusRows.length === 0}
               onClick={() =>
-                downloadCsv(csvFilename('client-budgets'), toCsv(statusRows, csvCols))
+                downloadCsv(csvFilename('client-budgets'), toCsv(statusRows, CSV_COLS))
               }
             >
               Export
@@ -552,13 +556,12 @@ export function BudgetsPage() {
                         budgetCents,
                       );
 
-                const hasBudget = row.status !== 'no-budget' || row.monthlyAmount != null;
+                const hasBudget = row.monthlyAmount != null;
                 const existingBudget = findBudgetForClient(budgets, row.client);
 
                 return (
-                  <>
+                  <Fragment key={row.client}>
                     <tr
-                      key={`row-${row.client}`}
                       onClick={() => toggleExpand(row.client)}
                       style={{
                         borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined,
@@ -695,7 +698,7 @@ export function BudgetsPage() {
 
                     {/* Expanded burn-down chart row */}
                     {isExpanded && (
-                      <tr key={`chart-${row.client}`} style={{ borderTop: '1px solid var(--border-soft)' }}>
+                      <tr style={{ borderTop: '1px solid var(--border-soft)' }}>
                         <td colSpan={9} style={{ padding: 0, background: 'var(--muted-bg)' }}>
                           <BurnDownChart
                             row={row}
@@ -705,7 +708,7 @@ export function BudgetsPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>
