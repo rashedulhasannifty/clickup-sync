@@ -9,6 +9,7 @@ import { BarChart, type BarData } from '../components/charts/BarChart';
 import { useHourSpikes, type HourSpikeWatchRow } from '../hooks/useReports';
 import { useAuth } from '../hooks/useAuth';
 import { NotifySpikeModal } from '../components/NotifySpikeModal';
+import { ClickupAvatar } from '../components/ui/ClickupAvatar';
 
 const SPIKE_COLOR = '#f59e0b'; // amber, matches the anomalies styling
 const BASE_COLOR = '#7B68EE';
@@ -153,7 +154,7 @@ export function HourSpikesPage() {
               size="sm"
               value={effectiveUserId}
               onChange={setSelectedUserId}
-              options={users.map((u) => ({ value: u.userId, label: u.userName }))}
+              options={users.map((u) => ({ value: u.userId, label: u.userName, icon: <ClickupAvatar userId={u.userId} name={u.userName} size={18} /> }))}
             />
           ) : undefined
         }

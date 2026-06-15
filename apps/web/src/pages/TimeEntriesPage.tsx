@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -204,12 +204,12 @@ export function TimeEntriesPage() {
   const assigneeOptions = useMemo(() => {
     const rows = (byUser ?? []) as { userId?: string; userName: string }[];
     const seen = new Set<string>();
-    const opts = [{ value: '', label: 'Any assignee' }];
+    const opts: { value: string; label: string; icon?: ReactNode }[] = [{ value: '', label: 'Any assignee' }];
     for (const r of rows) {
       const id = r.userId ?? r.userName;
       if (!id || seen.has(id)) continue;
       seen.add(id);
-      opts.push({ value: id, label: r.userName });
+      opts.push({ value: id, label: r.userName, icon: <ClickupAvatar userId={r.userId} name={r.userName} size={18} /> });
     }
     return opts;
   }, [byUser]);
