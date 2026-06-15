@@ -4,6 +4,7 @@ import { ChevronDown, CircleCheck } from 'lucide-react';
 interface SelectOption {
   value: string;
   label: string;
+  icon?: ReactNode;
 }
 
 interface SelectProps {
@@ -101,11 +102,15 @@ export function Select({
             flex: 1,
             textAlign: 'left',
             overflow: 'hidden',
-            textOverflow: 'ellipsis',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            minWidth: 0,
             color: selected ? 'var(--text)' : 'var(--text-muted)',
           }}
         >
-          {selected ? selected.label : placeholder ?? '—'}
+          {selected?.icon}
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected ? selected.label : placeholder ?? '—'}</span>
         </span>
         <span
           style={{
@@ -165,7 +170,10 @@ export function Select({
                 fontFamily: 'inherit',
               }}
             >
-              {opt.label}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden' }}>
+                {opt.icon}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{opt.label}</span>
+              </span>
               {opt.value === value && <CircleCheck size={14} style={{ flexShrink: 0, color: 'var(--accent)' }} />}
             </button>
           ))}
