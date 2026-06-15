@@ -18,7 +18,7 @@ import { DataTable } from '../components/ui/DataTable';
 import type { Column } from '../components/ui/DataTable';
 import { QueryError } from '../components/ui/QueryError';
 import { StatusBadge } from '../components/ui/StatusBadge';
-import { ClickupAvatarStack } from '../components/ui/ClickupAvatar';
+import { ClickupAvatar, ClickupAvatarStack } from '../components/ui/ClickupAvatar';
 import { Drawer } from '../components/ui/Drawer';
 import { Tabs } from '../components/ui/Tabs';
 import { fmt } from '../lib/formatters';
@@ -332,12 +332,14 @@ export function TasksPage() {
   const assigneeOptions = useMemo(() => {
     const rows = (Array.isArray(assigneesData) ? assigneesData : []) as { name: string; taskCount?: number }[];
     const seen = new Set<string>();
-    const opts = [{ value: '', label: 'Any assignee' }];
+    // These rows carry only a name (no ClickUp id/email), so the avatar resolves
+    // by username — falling back to initials when there's no directory match.
+    const opts: { value: string; label: string; icon?: ReactNode }[] = [{ value: '', label: 'Any assignee' }];
     for (const r of rows) {
       if (!r.name || seen.has(r.name)) continue;
       seen.add(r.name);
       const count = typeof r.taskCount === 'number' ? ` (${r.taskCount})` : '';
-      opts.push({ value: r.name, label: `${r.name}${count}` });
+      opts.push({ value: r.name, label: `${r.name}${count}`, icon: <ClickupAvatar name={r.name} size={18} /> });
     }
     return opts;
   }, [assigneesData]);
