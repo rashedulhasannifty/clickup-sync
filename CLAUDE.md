@@ -318,7 +318,7 @@ When implementing this in code:
 This service is internal-only and intentionally narrow in scope. Items still expected next:
 
 - Per-ORG data isolation (`org_id` on ClickUp data tables, per-org sync/queries, true multi-org self-serve signup). Per-user auth + a single tenant org exist now (see below), but all ClickUp data still belongs to one implicit seed org — this is Spec 2.
-- v2 status-change event types: `taskMoved`, `taskAssigneeUpdated`, `taskPriorityUpdated`. v1 captures only `taskStatusUpdated` into `clickup_task_events`.
+- Reporting surfaces for the newer event types: `taskMoved`, `taskAssigneeUpdated`, `taskPriorityUpdated` are now captured into `clickup_task_events` (alongside `taskStatusUpdated`) via `HISTORY_FIELDS` in `clickup-event.processor.ts`, but no report/UI reads them yet (cycle-time/time-in-status still query `event_type='taskStatusUpdated'` only).
 - Cycle-time drill-downs by client and department (backend accepts `groupBy=client|department`; UI surface is single bucket).
 - Currency rename (the `*Aud` field names and the `currency` columns hold USD in practice — see the `currency-aud-usd-debt` memory).
 

@@ -9,6 +9,7 @@ import {
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient';
 import { FilterProvider } from './hooks/useGlobalFilters';
+import { ToastProvider } from './components/ui/Toast';
 import { AppLayout } from './components/layout/AppLayout';
 import { LoginPage } from './pages/LoginPage';
 import { useAuth } from './hooks/useAuth';
@@ -82,6 +83,7 @@ const Fallback = <div className="p-6 text-(--text-muted)">Loading…</div>;
 export default function App() {
 	return (
 		<QueryClientProvider client={queryClient}>
+			<ToastProvider>
 			<FilterProvider>
 				<BrowserRouter>
 					<Routes>
@@ -229,6 +231,7 @@ export default function App() {
 					</Routes>
 				</BrowserRouter>
 			</FilterProvider>
+			</ToastProvider>
 		</QueryClientProvider>
 	);
 }

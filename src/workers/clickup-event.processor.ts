@@ -9,6 +9,19 @@ import { WebhookParserService } from '../webhooks/webhook-parser.service';
 import { PrismaService } from '../database/prisma.service';
 import { DeadLetterService } from '../jobs/dead-letter.service';
 
+/**
+ * Webhook event types whose ClickUp `history_items` we record into
+ * `clickup_task_events`, mapped to the history `field` names to extract.
+ * status is history-only; moved/assignee/priority ALSO re-sync the task (they
+ * change current task state) — see process().
+ */
+const HISTORY_FIELDS: Record<string, string[]> = {
+  taskStatusUpdated: ['status'],
+  taskPriorityUpdated: ['priority'],
+  taskAssigneeUpdated: ['assignee_add', 'assignee_rem'],
+  taskMoved: ['section_moved'],
+};
+
 @Injectable()
 @Processor(QUEUES.CLICKUP_WEBHOOKS)
 export class ClickupEventProcessor extends WorkerHost {
@@ -42,8 +55,16 @@ export class ClickupEventProcessor extends WorkerHost {
   async process(job: Job<any>) {
     const { eventType, taskId, fingerprint, loggedUserId, payload } = job.data;
 
+    // Record field-change history (status / priority / assignee / move) into
+    // clickup_task_events. Safe for null taskId (persist no-ops).
+    if (eventType && HISTORY_FIELDS[eventType]) {
+      await this.persistFieldChanges(taskId, eventType, HISTORY_FIELDS[eventType], payload);
+    }
+
+    // taskStatusUpdated is treated as history-only here; current-state refresh
+    // relies on a taskUpdated event if/when ClickUp fires one alongside it.
+    // moved/assignee/priority fall through below so they also re-sync the task.
     if (eventType === 'taskStatusUpdated') {
-      await this.persistStatusChanges(taskId, payload);
       await this.events.markProcessed(fingerprint).catch((e) => this.logger.warn(e.message));
       return;
     }
@@ -75,15 +96,24 @@ export class ClickupEventProcessor extends WorkerHost {
     await this.events.markProcessed(fingerprint).catch((e) => this.logger.warn(e.message));
   }
 
-  private async persistStatusChanges(taskId: string | null, payload: unknown) {
+  private async persistFieldChanges(
+    taskId: string | null,
+    eventType: string,
+    fields: string[],
+    payload: unknown,
+  ) {
     if (!taskId) return;
-    const records = this.parser.extractStatusChanges(payload);
+    const records = this.parser.extractFieldChanges(payload, fields);
     for (const r of records) {
+      // Fingerprint deliberately omits `field`: eventType namespaces the row and
+      // distinct before/after (or dates) separate items within one payload —
+      // e.g. assignee_add vs assignee_rem yield different rows. This keeps the
+      // status fingerprint byte-identical to the pre-generalization formula.
       const fp = crypto
         .createHash('sha256')
         .update([
           taskId,
-          'taskStatusUpdated',
+          eventType,
           r.occurredAt.toISOString(),
           JSON.stringify(r.before),
           JSON.stringify(r.after),
@@ -94,7 +124,7 @@ export class ClickupEventProcessor extends WorkerHost {
           where: { fingerprint: fp },
           create: {
             taskId,
-            eventType: 'taskStatusUpdated',
+            eventType,
             occurredAt: r.occurredAt,
             changedByUserId: r.changedByUserId,
             changedByUserName: r.changedByUserName,

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useCallback, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -9,7 +9,7 @@ import { useTimeEntriesList, useTimeEntriesByUser, useTimeEntriesAggregates, use
 import { useMutation } from '@tanstack/react-query';
 import { reportsApi } from '../api/reports';
 import { csvFilename, downloadCsv, toCsv, type CsvColumn } from '../lib/csv';
-import { Callout } from '../components/ui/Callout';
+import { useToast } from '../components/ui/Toast';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { fmt } from '../lib/formatters';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -165,23 +165,11 @@ export function TimeEntriesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Inline banner replaces the previous `alert()` for sync results — a native
-  // alert blocked the page until dismissed and looked off-brand. Banner
-  // auto-dismisses after 5s, same pattern as AssigneeRatesPage's recalcMsg.
-  const [banner, setBanner] = useState<string | null>(null);
-  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
-    },
-    [],
-  );
-
+  // Sync results surface as a toast (top-right, auto-dismiss) instead of the
+  // previous off-brand native alert / inline banner.
+  const toast = useToast();
   function showBanner(msg: string) {
-    setBanner(msg);
-    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
-    bannerTimerRef.current = setTimeout(() => setBanner(null), 5000);
+    toast.show(msg, 'blue');
   }
 
   useEffect(() => {
@@ -353,26 +341,31 @@ export function TimeEntriesPage() {
 
   const columns: Column<TimeEntryItem>[] = useMemo(() => [
     {
+      // Frozen first column: stays visible while scrolling horizontally.
+      key: 'taskName',
+      header: 'Task',
+      width: 280,
+      // maxWidth 256 = column 280 − cell padding (12+12) so a long name
+      // truncates instead of widening the column; title shows the full name.
+      render: (row) => (
+        <span
+          title={String(row.taskName ?? '')}
+          style={{
+            fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            display: 'block', maxWidth: 256,
+          }}
+        >
+          {row.taskName ?? '—'}
+        </span>
+      ),
+    },
+    {
       key: 'timeEntryId',
       header: 'ID',
       width: 100,
       render: (row) => (
         <span style={{ fontSize: 11, fontFamily: 'ui-monospace, monospace', color: 'var(--text-muted)' }}>
           {row.timeEntryId}
-        </span>
-      ),
-    },
-    {
-      key: 'taskName',
-      header: 'Task',
-      width: 280,
-      render: (row) => (
-        <span style={{
-          fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          display: 'block', maxWidth: 280,
-        }}
-        >
-          {row.taskName ?? '—'}
         </span>
       ),
     },
@@ -530,7 +523,6 @@ export function TimeEntriesPage() {
         }
       />
 
-      {banner && <Callout tone="blue">{banner}</Callout>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
         <MetricCard
@@ -671,6 +663,7 @@ export function TimeEntriesPage() {
 
       <DataTable<TimeEntryItem>
         layout="design"
+        stickyFirstColumn
         rowKey="timeEntryId"
         columns={columns}
         data={items}

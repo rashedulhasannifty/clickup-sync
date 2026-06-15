@@ -45,6 +45,58 @@ describe('WebhookParserService.extractStatusChanges', () => {
   });
 });
 
+describe('WebhookParserService.extractFieldChanges', () => {
+  const svc = new WebhookParserService();
+
+  it('extracts priority changes (field "priority") with before/after passed through', () => {
+    const out = svc.extractFieldChanges(fixture, ['priority']);
+    expect(out).toHaveLength(1);
+    expect(out[0].field).toBe('priority');
+    expect(out[0].before).toEqual({ priority: null });
+    expect(out[0].after).toEqual({ priority: 'high' });
+  });
+
+  it('extracts a task move (field "section_moved")', () => {
+    const out = svc.extractFieldChanges(
+      {
+        event: 'taskMoved',
+        history_items: [{
+          date: '1716470600000', field: 'section_moved',
+          user: { id: 12345, username: 'Sam' },
+          before: { id: '1', name: 'List A' },
+          after: { id: '2', name: 'List B' },
+        }],
+      },
+      ['section_moved'],
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].field).toBe('section_moved');
+    expect(out[0].after).toEqual({ id: '2', name: 'List B' });
+  });
+
+  it('extracts both assignee_add and assignee_rem in one payload as separate records', () => {
+    const out = svc.extractFieldChanges(
+      {
+        event: 'taskAssigneeUpdated',
+        history_items: [
+          { date: '1716470700000', field: 'assignee_rem', user: { id: 1 }, before: { id: 9 }, after: null },
+          { date: '1716470700000', field: 'assignee_add', user: { id: 1 }, before: null, after: { id: 5 } },
+        ],
+      },
+      ['assignee_add', 'assignee_rem'],
+    );
+    expect(out).toHaveLength(2);
+    expect(out.map((r) => r.field)).toEqual(['assignee_rem', 'assignee_add']);
+  });
+
+  it('ignores history_items whose field is not requested', () => {
+    // fixture has a status item and a priority item; ask only for status
+    const out = svc.extractFieldChanges(fixture, ['status']);
+    expect(out).toHaveLength(1);
+    expect(out[0].field).toBe('status');
+  });
+});
+
 describe('WebhookParserService.parse — fingerprint (dedupe key)', () => {
   const svc = new WebhookParserService();
 

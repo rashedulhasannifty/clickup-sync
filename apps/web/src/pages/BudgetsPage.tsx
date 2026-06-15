@@ -502,8 +502,8 @@ export function BudgetsPage() {
 
                     {/* Expanded burn-down chart row */}
                     {isExpanded && (
-                      <tr style={{ borderTop: '1px solid var(--border-soft)' }}>
-                        <td colSpan={9} style={{ padding: 0, background: 'var(--muted-bg)' }}>
+                      <tr style={{ borderTop: '1px solid var(--border)' }}>
+                        <td colSpan={9} style={{ padding: 0, background: 'var(--surface)' }}>
                           <BudgetBurnDownChart
                             dailySeries={row.dailySeries}
                             monthlyAmount={row.monthlyAmount}

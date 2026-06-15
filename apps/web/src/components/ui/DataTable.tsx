@@ -33,8 +33,16 @@ interface DataTableProps<T> {
   loading?: boolean;
   /** Match design/project `data-table.jsx` (tasks explorer). */
   layout?: 'default' | 'design';
-  /** Sticky first column (design table). */
+  /** Sticky first column (design table). Shorthand for stickyColumns={1}. */
   stickyFirstColumn?: boolean;
+  /**
+   * Freeze the first N columns during horizontal scroll (design layout only).
+   * Each frozen column's `left` offset is derived from the declared widths of
+   * the frozen columns before it, so those columns MUST have numeric (or `px`)
+   * widths and should render at that width (pin long content with maxWidth +
+   * ellipsis) or the offsets drift. Takes precedence over stickyFirstColumn.
+   */
+  stickyColumns?: number;
   rowKey?: keyof T | string;
   /**
    * Initial sort indicator for server-paginated tables. The arrow renders next
@@ -62,6 +70,7 @@ export function DataTable<T extends { [key: string]: unknown }>({
   loading = false,
   layout = 'default',
   stickyFirstColumn = false,
+  stickyColumns,
   rowKey = 'id' as keyof T,
   initialSort,
 }: DataTableProps<T>) {
@@ -95,15 +104,33 @@ export function DataTable<T extends { [key: string]: unknown }>({
   const rangeStart = total == null || total === 0 ? 0 : (safePage - 1) * pageSize + 1;
   const rangeEnd = total == null || total === 0 ? 0 : Math.min(safePage * pageSize, total);
 
+  const colPx = (w: Column<T>['width']): number => {
+    if (typeof w === 'number') return w;
+    if (typeof w === 'string' && w.endsWith('px')) return parseInt(w, 10);
+    return 120;
+  };
+
   const tableMinWidth = useMemo(() => {
     if (layout !== 'design') return undefined;
-    return visibleCols.reduce((sum, c) => {
-      const w = c.width;
-      if (typeof w === 'number') return sum + w;
-      if (typeof w === 'string' && w.endsWith('px')) return sum + parseInt(w, 10);
-      return sum + 120;
-    }, 0);
+    return visibleCols.reduce((sum, c) => sum + colPx(c.width), 0);
   }, [layout, visibleCols]);
+
+  // How many leading columns to freeze, and each one's cumulative left offset.
+  const stickyCount = stickyColumns ?? (stickyFirstColumn ? 1 : 0);
+  const stickyLefts = useMemo(() => {
+    const lefts: number[] = [];
+    let acc = 0;
+    for (let i = 0; i < stickyCount; i++) {
+      lefts[i] = acc;
+      acc += colPx(visibleCols[i]?.width);
+    }
+    return lefts;
+  }, [stickyCount, visibleCols]);
+
+  // The frozen-column edge shadow should appear only once the table is scrolled
+  // horizontally — at rest it would bleed onto the first scrollable column.
+  const [scrolledX, setScrolledX] = useState(false);
+  const stickyShadow = scrolledX ? '6px 0 8px -6px rgba(15, 23, 42, 0.18)' : undefined;
 
   useEffect(() => {
     if (!showColMenu) return;
@@ -156,7 +183,13 @@ export function DataTable<T extends { [key: string]: unknown }>({
         borderRadius: 10, overflow: 'hidden',
       }}
       >
-        <div style={{ overflowX: 'auto', position: 'relative' }}>
+        <div
+          style={{ overflowX: 'auto', position: 'relative' }}
+          onScroll={(e) => {
+            const next = e.currentTarget.scrollLeft > 0;
+            setScrolledX((prev) => (prev === next ? prev : next));
+          }}
+        >
           <table style={{
             width: '100%', borderCollapse: 'separate', borderSpacing: 0,
             fontSize: 13, minWidth: tableMinWidth,
@@ -167,7 +200,8 @@ export function DataTable<T extends { [key: string]: unknown }>({
                 {visibleCols.map((col, i) => {
                   const w = col.width != null ? (typeof col.width === 'number' ? `${col.width}px` : col.width) : undefined;
                   const align = col.align || 'left';
-                  const sticky = stickyFirstColumn && i === 0;
+                  const sticky = i < stickyCount;
+                  const isLastSticky = sticky && i === stickyCount - 1;
                   const headerClickable = !isServerPaginated && col.sortable !== false;
                   return (
                     <th
@@ -186,8 +220,10 @@ export function DataTable<T extends { [key: string]: unknown }>({
                         userSelect: 'none',
                         whiteSpace: 'nowrap',
                         position: sticky ? 'sticky' : 'static',
-                        left: sticky ? 0 : 'auto',
+                        left: sticky ? stickyLefts[i] : 'auto',
                         background: sticky ? 'var(--table-head-bg)' : undefined,
+                        borderRight: isLastSticky ? '1px solid var(--border-soft)' : undefined,
+                        boxShadow: isLastSticky ? stickyShadow : undefined,
                         zIndex: sticky ? 2 : 1,
                         width: w,
                       }}
@@ -238,10 +274,8 @@ export function DataTable<T extends { [key: string]: unknown }>({
                   >
                     {visibleCols.map((col, i) => {
                       const align = col.align || 'left';
-                      const sticky = stickyFirstColumn && i === 0;
-                      const bg = sticky
-                        ? (idx % 2 === 0 ? 'var(--surface)' : 'var(--table-zebra)')
-                        : undefined;
+                      const sticky = i < stickyCount;
+                      const isLastSticky = sticky && i === stickyCount - 1;
                       return (
                         <td
                           key={col.key}
@@ -255,8 +289,17 @@ export function DataTable<T extends { [key: string]: unknown }>({
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             position: sticky ? 'sticky' : 'static',
-                            left: sticky ? 0 : 'auto',
-                            background: bg,
+                            left: sticky ? stickyLefts[i] : 'auto',
+                            // Sticky cell must be OPAQUE or scrolled columns show
+                            // through it. --table-zebra is translucent, so for
+                            // zebra rows we composite it over the solid surface.
+                            background: sticky ? 'var(--surface)' : undefined,
+                            backgroundImage:
+                              sticky && idx % 2 !== 0
+                                ? 'linear-gradient(var(--table-zebra), var(--table-zebra))'
+                                : undefined,
+                            borderRight: isLastSticky ? '1px solid var(--border-soft)' : undefined,
+                            boxShadow: isLastSticky ? stickyShadow : undefined,
                             zIndex: sticky ? 1 : 0,
                           }}
                         >

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -29,7 +29,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Card } from '../components/ui/Card';
 import { RateModal } from '../components/RateModal';
-import { Callout } from '../components/ui/Callout';
+import { useToast } from '../components/ui/Toast';
 import { fmt } from '../lib/formatters';
 
 type GroupRow = {
@@ -51,26 +51,18 @@ export function AssigneeRatesPage() {
   const recalc = useRecalcCosts();
   const { hasRole } = useAuth();
   const isAdmin = hasRole('ADMIN');
-  const [recalcMsg, setRecalcMsg] = useState<string | null>(null);
-  const recalcMsgTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Clear any pending dismiss timer when the page unmounts so we don't
-  // setState on an unmounted component.
-  useEffect(() => () => {
-    if (recalcMsgTimerRef.current) clearTimeout(recalcMsgTimerRef.current);
-  }, []);
+  const toast = useToast();
 
   function runRecalc(assigneeId?: string) {
     recalc.mutate(assigneeId, {
       onSuccess: () => {
-        setRecalcMsg(
+        toast.success(
           assigneeId
             ? 'Recalculation queued for this assignee — costs update shortly.'
             : 'Recalculation queued for all entries — costs update shortly.',
         );
-        if (recalcMsgTimerRef.current) clearTimeout(recalcMsgTimerRef.current);
-        recalcMsgTimerRef.current = setTimeout(() => setRecalcMsg(null), 5000);
       },
+      onError: (err) => toast.error(`Recalculation failed: ${(err as Error).message}`),
     });
   }
 
@@ -225,7 +217,6 @@ export function AssigneeRatesPage() {
         }
       />
 
-      {recalcMsg && <Callout tone="blue">{recalcMsg}</Callout>}
 
       <QueryError query={ratesQuery} what="assignee rates" />
 

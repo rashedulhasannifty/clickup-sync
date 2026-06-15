@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   CircleCheck,
@@ -25,6 +25,7 @@ import { Input } from '../components/ui/Input';
 import { Switch } from '../components/ui/Switch';
 import { Pill } from '../components/ui/Pill';
 import { Callout } from '../components/ui/Callout';
+import { useToast } from '../components/ui/Toast';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Field } from '../components/ui/Field';
 import { Select } from '../components/ui/Select';
@@ -44,6 +45,149 @@ function spaceColor(spaceId: string | null | undefined): string {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
   return PALETTE[h % PALETTE.length];
+}
+
+// ClickUp task-scoped webhook event types. Stored as a comma-separated string;
+// the UI below is a grouped checkbox list. "handled" events are processed by the
+// backend (clickup-event.processor.ts) — some with dedicated logic, the rest
+// captured as task-event history and/or a task re-sync. "unimplemented" events
+// have no handler yet, so they're shown disabled (greyed out) and can't be
+// selected. Non-task events (list/space/folder/goal) are omitted — they carry
+// no taskId and the worker discards them.
+type WebhookEventGroup = 'handled' | 'unimplemented';
+const WEBHOOK_EVENT_OPTIONS: { value: string; label: string; desc: string; group: WebhookEventGroup }[] = [
+  { value: 'taskCreated', label: 'Task created', desc: 'New tasks appear in reporting.', group: 'handled' },
+  { value: 'taskUpdated', label: 'Task updated', desc: 'Field changes re-sync the task.', group: 'handled' },
+  { value: 'taskDeleted', label: 'Task deleted', desc: 'Soft-deletes the task in reporting.', group: 'handled' },
+  { value: 'taskTimeTrackedUpdated', label: 'Time tracked', desc: 'Tracked-time entries and costs.', group: 'handled' },
+  { value: 'taskStatusUpdated', label: 'Status changed', desc: 'Powers cycle-time & status history.', group: 'handled' },
+  { value: 'taskMoved', label: 'Task moved', desc: 'Records move history + re-syncs the task.', group: 'handled' },
+  { value: 'taskAssigneeUpdated', label: 'Assignee changed', desc: 'Records assignee history + re-syncs the task.', group: 'handled' },
+  { value: 'taskPriorityUpdated', label: 'Priority changed', desc: 'Records priority history + re-syncs the task.', group: 'handled' },
+  { value: 'taskCommentPosted', label: 'Comment posted', desc: 'No handler yet.', group: 'unimplemented' },
+  { value: 'taskCommentUpdated', label: 'Comment updated', desc: 'No handler yet.', group: 'unimplemented' },
+  { value: 'taskTagUpdated', label: 'Tags changed', desc: 'No handler yet.', group: 'unimplemented' },
+  { value: 'taskDueDateUpdated', label: 'Due date changed', desc: 'No handler yet.', group: 'unimplemented' },
+  { value: 'taskTimeEstimateUpdated', label: 'Estimate changed', desc: 'No handler yet.', group: 'unimplemented' },
+];
+
+const WEBHOOK_EVENT_GROUPS: { group: WebhookEventGroup; label: string; disabled?: boolean }[] = [
+  { group: 'handled', label: 'Available' },
+  { group: 'unimplemented', label: 'Not yet implemented', disabled: true },
+];
+
+const KNOWN_EVENT_VALUES = WEBHOOK_EVENT_OPTIONS.map((o) => o.value);
+
+/** Checkbox list for the webhook event subscription. Keeps the value a
+ * comma-separated string (known events in canonical order, then any custom
+ * ones already stored so they aren't silently dropped). */
+function WebhookEventsField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const selected = new Set(value.split(',').map((s) => s.trim()).filter(Boolean));
+  const extras = [...selected].filter((v) => !KNOWN_EVENT_VALUES.includes(v));
+
+  function emit(next: Set<string>) {
+    const known = KNOWN_EVENT_VALUES.filter((v) => next.has(v));
+    const stillExtra = [...next].filter((v) => !KNOWN_EVENT_VALUES.includes(v));
+    onChange([...known, ...stillExtra].join(','));
+  }
+
+  function toggle(ev: string) {
+    const next = new Set(selected);
+    if (next.has(ev)) next.delete(ev);
+    else next.add(ev);
+    emit(next);
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {WEBHOOK_EVENT_GROUPS.map(({ group, label, disabled }) => (
+        <div key={group} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              color: 'var(--text-muted)',
+            }}
+          >
+            {label}
+          </span>
+          {WEBHOOK_EVENT_OPTIONS.filter((o) => o.group === group).map((o) => {
+            const checked = selected.has(o.value);
+            return (
+              <label
+                key={o.value}
+                title={disabled ? 'Not implemented yet — no backend handler.' : undefined}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 10,
+                  padding: '8px 10px',
+                  border: `1px solid ${checked && !disabled ? 'var(--accent)' : 'var(--border)'}`,
+                  borderRadius: 8,
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                  background: checked && !disabled ? 'var(--accent-soft)' : 'var(--surface)',
+                  opacity: disabled ? 0.5 : 1,
+                  transition: 'border-color 100ms, background 100ms',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={disabled}
+                  onChange={() => !disabled && toggle(o.value)}
+                  style={{
+                    marginTop: 1,
+                    width: 15,
+                    height: 15,
+                    accentColor: 'var(--accent)',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>
+                    {o.label}{' '}
+                    <code style={{ fontWeight: 400, fontSize: 11, color: 'var(--text-muted)' }}>{o.value}</code>
+                  </span>
+                  <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{o.desc}</span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      ))}
+      {extras.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-muted)' }}>
+          <span>Also subscribed:</span>
+          {extras.map((e) => (
+            <button
+              key={e}
+              type="button"
+              onClick={() => toggle(e)}
+              title="Remove this custom event"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '2px 7px',
+                fontSize: 11,
+                fontFamily: 'inherit',
+                color: 'var(--text)',
+                background: 'var(--muted-bg)',
+                border: '1px solid var(--border)',
+                borderRadius: 999,
+                cursor: 'pointer',
+              }}
+            >
+              {e} ×
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SectionTitle({ title, subtitle }: { title: string; subtitle?: ReactNode }) {
@@ -203,6 +347,7 @@ export function SettingsPage() {
   const reconcileProgress = useReconcileActive(hasRole('ADMIN'));
   const settingsQuery = useSettings();
   const updateSettings = useUpdateSettings();
+  const toast = useToast();
 
   // Editable ClickUp connection form. API token + webhook secret are write-only:
   // empty means "leave unchanged"; the masked status comes from the query.
@@ -241,17 +386,9 @@ export function SettingsPage() {
     });
   }
 
-  // Auto-dismissing inline banner for Test connection / Register webhook
-  // results — same pattern as the other pages.
-  const [banner, setBanner] = useState<{ tone: 'blue' | 'red'; text: string } | null>(null);
-  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
-  }, []);
+  // Connection/webhook/save results surface as toasts (top-right, auto-dismiss).
   function showBanner(text: string, tone: 'blue' | 'red' = 'blue') {
-    setBanner({ tone, text });
-    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
-    bannerTimerRef.current = setTimeout(() => setBanner(null), 5000);
+    toast.show(text, tone);
   }
 
   const prefs = settingsQuery.data?.preferences;
@@ -345,7 +482,6 @@ export function SettingsPage() {
         variant="underline"
       />
 
-      {banner && <Callout tone={banner.tone}>{banner.text}</Callout>}
 
       {activeTab === 'connection' && (
         <RequireRole min="OWNER">
@@ -545,11 +681,10 @@ export function SettingsPage() {
                   placeholder="https://your-domain.com/api/webhooks/clickup"
                 />
               </Field>
-              <Field label="Subscribed events" hint="Comma-separated ClickUp event types.">
-                <Input
+              <Field label="Subscribed events" hint="Pick which ClickUp events trigger a sync. Re-register the webhook after changing.">
+                <WebhookEventsField
                   value={connForm.webhookEvents}
-                  onChange={(e) => setConnForm((f) => ({ ...f, webhookEvents: e.target.value }))}
-                  placeholder="taskCreated,taskUpdated,taskDeleted,taskTimeTrackedUpdated,taskStatusUpdated"
+                  onChange={(v) => setConnForm((f) => ({ ...f, webhookEvents: v }))}
                 />
               </Field>
               <Field

@@ -21,6 +21,7 @@ interface BudgetBurnDownChartProps {
 }
 
 const ACCENT = 'var(--accent)';
+const PROJECTION = 'var(--blue)';
 const W = 100;
 const PAD_X = 6; // viewBox units == % of width (viewBox width is 100)
 
@@ -45,7 +46,7 @@ export function BudgetBurnDownChart({
   monthlyAmount,
   forecast,
   month,
-  height = 180,
+  height = 240,
 }: BudgetBurnDownChartProps) {
   const [hover, setHover] = useState<number | null>(null);
   const gradId = `bd-${useId()}`;
@@ -108,7 +109,7 @@ export function BudgetBurnDownChart({
 
   const legend: { label: string; color: string; dashed?: boolean; show: boolean }[] = [
     { label: 'Actual', color: actualColor, show: !!actualPath },
-    { label: 'Projection', color: ACCENT, dashed: true, show: !!projection },
+    { label: 'Projection', color: PROJECTION, dashed: true, show: !!projection },
     { label: 'Ideal pace', color: 'var(--text-faint)', dashed: true, show: !!idealPath },
     { label: 'Budget', color: 'var(--pill-red-text)', dashed: true, show: ceilingY != null },
   ];
@@ -163,8 +164,8 @@ export function BudgetBurnDownChart({
         >
           <defs>
             <linearGradient id={gradId} x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor={actualColor} stopOpacity="0.16" />
-              <stop offset="100%" stopColor={actualColor} stopOpacity="0" />
+              <stop offset="0%" stopColor={actualColor} stopOpacity="0.32" />
+              <stop offset="100%" stopColor={actualColor} stopOpacity="0.02" />
             </linearGradient>
           </defs>
 
@@ -195,8 +196,8 @@ export function BudgetBurnDownChart({
               x2={W - PAD_X}
               y2={ceilingY}
               stroke="var(--pill-red-text)"
-              strokeOpacity={0.6}
-              strokeWidth={1.25}
+              strokeOpacity={0.85}
+              strokeWidth={1.75}
               strokeDasharray="5 3"
               vectorEffect="non-scaling-stroke"
             />
@@ -209,7 +210,7 @@ export function BudgetBurnDownChart({
               d={actualPath}
               fill="none"
               stroke={actualColor}
-              strokeWidth={2}
+              strokeWidth={2.75}
               strokeLinecap="round"
               strokeLinejoin="round"
               vectorEffect="non-scaling-stroke"
@@ -221,9 +222,9 @@ export function BudgetBurnDownChart({
             <path
               d={projection.path}
               fill="none"
-              stroke={ACCENT}
-              strokeOpacity={0.55}
-              strokeWidth={2}
+              stroke={PROJECTION}
+              strokeOpacity={0.85}
+              strokeWidth={2.25}
               strokeDasharray="4 3"
               strokeLinecap="round"
               vectorEffect="non-scaling-stroke"
@@ -243,7 +244,7 @@ export function BudgetBurnDownChart({
               fontSize: 10,
               fontWeight: 600,
               color: 'var(--pill-red-text)',
-              background: 'var(--muted-bg)',
+              background: 'var(--surface)',
               padding: '0 4px',
               borderRadius: 4,
               pointerEvents: 'none',
@@ -293,8 +294,8 @@ export function BudgetBurnDownChart({
               height: 8,
               borderRadius: '50%',
               background: 'var(--surface)',
-              border: `2px solid ${ACCENT}`,
-              opacity: 0.7,
+              border: `2px solid ${PROJECTION}`,
+              opacity: 0.85,
               transform: 'translate(-50%, -50%)',
               pointerEvents: 'none',
               zIndex: 3,

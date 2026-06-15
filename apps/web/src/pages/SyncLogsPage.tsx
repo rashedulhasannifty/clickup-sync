@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -14,7 +14,7 @@ import { useJobLogs, useWebhookEvents } from '../hooks/useReports';
 import { useRetryFailedWebhooks, useDeadLetters, useRetryDeadLetter, useResolveDeadLetter, useRetryAllDeadLetters } from '../hooks/useAdmin';
 import { useAuth } from '../hooks/useAuth';
 import type { DeadLetterJob } from '../api/admin';
-import { Callout } from '../components/ui/Callout';
+import { useToast } from '../components/ui/Toast';
 import { QueryError } from '../components/ui/QueryError';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Tabs } from '../components/ui/Tabs';
@@ -133,20 +133,10 @@ export function SyncLogsPage() {
   const webhookEvents = useWebhookEvents({ limit: 50 });
   const retryFailedWebhooks = useRetryFailedWebhooks();
 
-  // Inline banner for retry feedback — auto-dismisses after 5s. Same pattern
-  // as TimeEntriesPage / AssigneeRatesPage so the surface stays consistent.
-  const [banner, setBanner] = useState<string | null>(null);
-  const bannerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
-    },
-    [],
-  );
-  function showBanner(msg: string) {
-    setBanner(msg);
-    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
-    bannerTimerRef.current = setTimeout(() => setBanner(null), 5000);
+  // Retry/resolve feedback surfaces as a toast (top-right, auto-dismiss).
+  const toast = useToast();
+  function showBanner(msg: string, tone: 'blue' | 'green' | 'red' = 'blue') {
+    toast.show(msg, tone);
   }
 
   const jobItems: JobLogItem[] = Array.isArray(jobLogs.data?.items) ? (jobLogs.data!.items as JobLogItem[]) : [];
@@ -233,7 +223,6 @@ export function SyncLogsPage() {
         }
       />
 
-      {banner && <Callout tone="blue">{banner}</Callout>}
 
       <Tabs items={tabItems} value={activeTab} onChange={setActiveTab} variant="underline" />
 
@@ -535,10 +524,11 @@ export function SyncLogsPage() {
                     onSuccess: (res) => {
                       showBanner(
                         `Re-queued ${res.requeued} failed webhook${res.requeued === 1 ? '' : 's'} — they'll move out of the failed list as workers pick them up.`,
+                        'green',
                       );
                     },
                     onError: (err) => {
-                      showBanner(`Retry failed: ${(err as Error).message}`);
+                      showBanner(`Retry failed: ${(err as Error).message}`, 'red');
                     },
                   })
                 }
@@ -679,8 +669,8 @@ export function SyncLogsPage() {
                 disabled={retryDeadLetter.isPending || resolveDeadLetter.isPending}
                 onClick={() =>
                   retryAllDeadLetters.mutate(undefined, {
-                    onSuccess: (r) => showBanner(`Re-queued ${r.requeued} dead-letter job${r.requeued === 1 ? '' : 's'}.`),
-                    onError: (err) => showBanner(`Retry all failed: ${(err as Error).message}`),
+                    onSuccess: (r) => showBanner(`Re-queued ${r.requeued} dead-letter job${r.requeued === 1 ? '' : 's'}.`, 'green'),
+                    onError: (err) => showBanner(`Retry all failed: ${(err as Error).message}`, 'red'),
                   })
                 }
               >
@@ -756,8 +746,8 @@ export function SyncLogsPage() {
                               disabled={busy}
                               onClick={() =>
                                 retryDeadLetter.mutate(d.id, {
-                                  onSuccess: () => showBanner(`Re-queued ${d.jobName} onto ${d.queueName}.`),
-                                  onError: (err) => showBanner(`Retry failed: ${(err as Error).message}`),
+                                  onSuccess: () => showBanner(`Re-queued ${d.jobName} onto ${d.queueName}.`, 'green'),
+                                  onError: (err) => showBanner(`Retry failed: ${(err as Error).message}`, 'red'),
                                 })
                               }
                             >
@@ -770,8 +760,8 @@ export function SyncLogsPage() {
                               disabled={busy}
                               onClick={() =>
                                 resolveDeadLetter.mutate(d.id, {
-                                  onSuccess: () => showBanner(`Marked ${d.jobName} resolved.`),
-                                  onError: (err) => showBanner(`Resolve failed: ${(err as Error).message}`),
+                                  onSuccess: () => showBanner(`Marked ${d.jobName} resolved.`, 'green'),
+                                  onError: (err) => showBanner(`Resolve failed: ${(err as Error).message}`, 'red'),
                                 })
                               }
                             >

@@ -21,6 +21,7 @@ import { StatusBadge } from '../components/ui/StatusBadge';
 import { ClickupAvatar, ClickupAvatarStack } from '../components/ui/ClickupAvatar';
 import { Drawer } from '../components/ui/Drawer';
 import { Tabs } from '../components/ui/Tabs';
+import { TaskTimeline, type TaskTimelineEvent } from '../components/tasks/TaskTimeline';
 import { fmt } from '../lib/formatters';
 import { adminApi } from '../api/admin';
 import { reportsApi } from '../api/reports';
@@ -107,6 +108,10 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
   const taskIdForHistory = task ? String(task.taskId ?? task.task_id ?? '') : null;
   const history = useTaskHistory(taskIdForHistory || null);
 
+  const historyItems = history.data ?? [];
+  const timelineEvents = historyItems.filter((it): it is TaskTimelineEvent => it.kind === 'event');
+  const syncJobs = historyItems.filter((it) => it.kind === 'job');
+
   if (!task) return <Drawer open={false} onClose={onClose} />;
 
   const assignees = parseAssignees(task);
@@ -161,8 +166,9 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
       <div style={{ padding: '0 20px', flexShrink: 0 }}>
         <Tabs value={tab} onChange={setTab} items={[
           { value: 'overview', label: 'Overview' },
-          { value: 'raw', label: 'Raw fields' },
+          { value: 'timeline', label: 'Timeline' },
           { value: 'sync', label: 'Sync history' },
+          { value: 'raw', label: 'Raw fields' },
         ]}
         />
       </div>
@@ -200,6 +206,9 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
             </div>
           </div>
         )}
+        {tab === 'timeline' && (
+          <TaskTimeline events={timelineEvents} loading={history.isLoading} />
+        )}
         {tab === 'raw' && (
           <pre style={{
             fontSize: 11, fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
@@ -226,20 +235,18 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
             </div>
             {history.isLoading ? (
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading activity…</div>
-            ) : (history.data ?? []).length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No recorded sync jobs or status changes yet.</div>
+            ) : syncJobs.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No recorded sync jobs yet. Field changes appear under the Timeline tab.</div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {(history.data ?? []).map((it) => (
+                {syncJobs.map((it) => (
                   <div key={it.kind + it.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 10px', borderRadius: 8, background: 'var(--muted-bg)' }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: it.kind === 'event' ? 'var(--accent)' : it.kind === 'job' && it.error ? 'var(--red)' : 'var(--text-muted)', minWidth: 52 }}>
-                      {it.kind === 'event' ? 'EVENT' : 'SYNC'}
+                    <span style={{ fontSize: 11, fontWeight: 600, color: it.kind === 'job' && it.error ? 'var(--red)' : 'var(--text-muted)', minWidth: 52 }}>
+                      SYNC
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, color: 'var(--text)' }}>
-                        {it.kind === 'event'
-                          ? `${it.eventType}${it.changedByUserName ? ` · ${it.changedByUserName}` : ''}`
-                          : `${it.jobName} (${it.queueName}) · ${it.status}`}
+                        {it.kind === 'job' ? `${it.jobName} (${it.queueName}) · ${it.status}` : ''}
                       </div>
                       {it.kind === 'job' && it.error && (
                         <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 2, wordBreak: 'break-word' }}>{it.error}</div>
@@ -505,16 +512,20 @@ export function TasksPage() {
         const justSynced = isJustSynced(r);
         const isSubtask = !!(r.parentTaskId || r.parent_task_id);
         const arch = !!r.archived;
+        // maxWidth bounds the flex row so a long name truncates instead of
+        // widening the column. 336 = column width 360 − cell padding (12+12).
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, paddingLeft: isSubtask ? 14 : 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, maxWidth: 336, overflow: 'hidden', paddingLeft: isSubtask ? 14 : 0 }}>
             {isSubtask && (
               <span style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--text-faint)', flexShrink: 0 }} />
             )}
             <span style={{ width: 4, height: 16, borderRadius: 2, background: bar, flexShrink: 0 }} />
-            <span style={{
-              flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              fontWeight: 500, color: 'var(--text)',
-            }}
+            <span
+              title={String(r.taskName ?? r.task_name ?? '')}
+              style={{
+                flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                fontWeight: 500, color: 'var(--text)',
+              }}
             >
               {String(r.taskName ?? r.task_name ?? '')}
             </span>

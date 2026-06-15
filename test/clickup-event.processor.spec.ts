@@ -28,7 +28,10 @@ function makePrisma() {
 }
 
 function makeParser(records: any[] = []) {
-  return { extractStatusChanges: jest.fn().mockReturnValue(records) } as any;
+  return {
+    extractFieldChanges: jest.fn().mockReturnValue(records),
+    extractStatusChanges: jest.fn().mockReturnValue(records),
+  } as any;
 }
 
 describe('ClickupEventProcessor — taskStatusUpdated', () => {
@@ -133,6 +136,58 @@ describe('ClickupEventProcessor — event dispatch', () => {
     await done;
     expect(queues._queue.add).not.toHaveBeenCalled();
     expect(events.markProcessed).toHaveBeenCalledWith('fp');
+  });
+});
+
+describe('ClickupEventProcessor — moved/assignee/priority capture history AND re-sync', () => {
+  const oneRecord = [
+    {
+      field: 'priority',
+      occurredAt: new Date(1716470500000),
+      changedByUserId: '7',
+      changedByUserName: 'Sam',
+      before: null,
+      after: { priority: 'high' },
+      raw: { id: 'h_p' },
+    },
+  ];
+
+  for (const eventType of ['taskMoved', 'taskAssigneeUpdated', 'taskPriorityUpdated']) {
+    it(`${eventType} → persists a clickup_task_events row AND enqueues a task sync`, async () => {
+      const prisma = makePrisma();
+      const queues = makeQueues();
+      const proc = new ClickupEventProcessor(queues, makeEvents(), makeParser(oneRecord), prisma, makeDeadLetters());
+      await proc.process({
+        data: { eventType, taskId: 't1', fingerprint: 'fp', loggedUserId: null, payload: {} },
+      } as any);
+      // history persisted
+      expect(prisma.clickupTaskEvent.upsert).toHaveBeenCalledTimes(1);
+      expect(prisma.clickupTaskEvent.upsert.mock.calls[0][0].create.eventType).toBe(eventType);
+      // task still re-synced
+      expect(queues._queue.add).toHaveBeenCalledWith(JOBS.SYNC_CLICKUP_TASK, { taskId: 't1' }, {});
+    });
+  }
+
+  it('taskAssigneeUpdated with add+rem at the same date → two distinct rows (field omitted from fp, before/after disambiguate)', async () => {
+    const prisma = makePrisma();
+    const sameDate = new Date(1716470500000);
+    const proc = new ClickupEventProcessor(
+      makeQueues(),
+      makeEvents(),
+      makeParser([
+        { field: 'assignee_rem', occurredAt: sameDate, changedByUserId: '1', changedByUserName: null, before: { id: 9 }, after: null, raw: {} },
+        { field: 'assignee_add', occurredAt: sameDate, changedByUserId: '1', changedByUserName: null, before: null, after: { id: 5 }, raw: {} },
+      ]),
+      prisma,
+      makeDeadLetters(),
+    );
+    await proc.process({
+      data: { eventType: 'taskAssigneeUpdated', taskId: 't1', fingerprint: 'fp', loggedUserId: null, payload: {} },
+    } as any);
+    expect(prisma.clickupTaskEvent.upsert).toHaveBeenCalledTimes(2);
+    const fp0 = prisma.clickupTaskEvent.upsert.mock.calls[0][0].where.fingerprint;
+    const fp1 = prisma.clickupTaskEvent.upsert.mock.calls[1][0].where.fingerprint;
+    expect(fp0).not.toBe(fp1);
   });
 });
 
