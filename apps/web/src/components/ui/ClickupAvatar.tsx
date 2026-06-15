@@ -9,10 +9,11 @@ interface ClickupAvatarProps {
 }
 
 export function ClickupAvatar({ userId, email, name, size }: ClickupAvatarProps) {
-  const { byId, byEmail } = useClickupMembers();
+  const { byId, byEmail, byName } = useClickupMembers();
   const m =
     (userId != null ? byId.get(String(userId)) : undefined) ||
     (email ? byEmail.get(email.toLowerCase()) : undefined) ||
+    (name ? byName.get(name.toLowerCase()) : undefined) ||
     undefined;
   return (
     <Avatar
@@ -26,11 +27,12 @@ export function ClickupAvatar({ userId, email, name, size }: ClickupAvatarProps)
 export interface ClickupPerson { userId?: string | null; email?: string | null; name?: string | null }
 
 export function ClickupAvatarStack({ users, max = 3 }: { users: ClickupPerson[]; max?: number }) {
-  const { byId, byEmail } = useClickupMembers();
+  const { byId, byEmail, byName } = useClickupMembers();
   const resolved = users.map((u) => {
     const m =
       (u.userId != null ? byId.get(String(u.userId)) : undefined) ||
       (u.email ? byEmail.get(u.email.toLowerCase()) : undefined) ||
+      (u.name ? byName.get(u.name.toLowerCase()) : undefined) ||
       undefined;
     return { name: u.name ?? m?.name ?? u.email ?? '?', image: m?.profilePicture ?? undefined };
   });
