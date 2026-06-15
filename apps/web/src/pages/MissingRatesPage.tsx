@@ -21,7 +21,7 @@ import { MetricCard } from '../components/ui/MetricCard';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { Tabs } from '../components/ui/Tabs';
-import { Avatar } from '../components/ui/Avatar';
+import { ClickupAvatar } from '../components/ui/ClickupAvatar';
 import { Pill } from '../components/ui/Pill';
 import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -102,7 +102,7 @@ function MissingRateGroupCard({ item, navigate }: { item: MissingRateItem; navig
       }}
     >
       <div style={{ padding: 14, display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-        <Avatar name={item.userName} size={36} />
+        <ClickupAvatar userId={item.userId} name={item.userName} size={36} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
             <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{item.userName}</span>
@@ -358,7 +358,7 @@ function QueueView({ items, navigate }: { items: MissingRateItem[]; navigate: Re
                   flexShrink: 0,
                 }}
               />
-              <Avatar name={issue.userName} size={32} />
+              <ClickupAvatar userId={issue.userId} name={issue.userName} size={32} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{issue.userName}</span>

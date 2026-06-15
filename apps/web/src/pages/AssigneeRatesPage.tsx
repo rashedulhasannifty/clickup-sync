@@ -23,7 +23,7 @@ import { MetricCard } from '../components/ui/MetricCard';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Switch } from '../components/ui/Switch';
-import { Avatar } from '../components/ui/Avatar';
+import { ClickupAvatar } from '../components/ui/ClickupAvatar';
 import { Pill } from '../components/ui/Pill';
 import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -339,7 +339,7 @@ export function AssigneeRatesPage() {
                     gap: 12,
                   }}
                 >
-                  <Avatar name={g.displayName} size={36} />
+                  <ClickupAvatar userId={g.assigneeId} email={g.email} name={g.displayName} size={36} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{g.displayName}</div>
                     {g.email && (

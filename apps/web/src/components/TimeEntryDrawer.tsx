@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, CircleCheck, AlertTriangle, Eye, Plus } from 'lucide-react';
 import { fmt } from '../lib/formatters';
 import { Drawer } from './ui/Drawer';
-import { Avatar } from './ui/Avatar';
+import { ClickupAvatar } from './ui/ClickupAvatar';
 import { Pill } from './ui/Pill';
 import { Button } from './ui/Button';
 
@@ -100,7 +100,7 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
 
       <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, background: 'var(--muted-bg)', borderRadius: 8 }}>
-          <Avatar user={{ name: entry.userName }} size={36} />
+          <ClickupAvatar userId={entry.userId} email={entry.userEmail} name={entry.userName} size={36} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{entry.userName}</div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{entry.userEmail}</div>

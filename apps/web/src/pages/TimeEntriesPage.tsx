@@ -21,7 +21,7 @@ import { Switch } from '../components/ui/Switch';
 import type { Column } from '../components/ui/DataTable';
 import { DataTable } from '../components/ui/DataTable';
 import { QueryError } from '../components/ui/QueryError';
-import { Avatar } from '../components/ui/Avatar';
+import { ClickupAvatar } from '../components/ui/ClickupAvatar';
 import { Pill } from '../components/ui/Pill';
 import { TimeEntryDrawer } from '../components/TimeEntryDrawer';
 import type { TimeEntryItem } from '../components/TimeEntryDrawer';
@@ -382,7 +382,7 @@ export function TimeEntriesPage() {
       width: 180,
       render: (row) => (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <Avatar user={{ name: row.userName }} size={22} />
+          <ClickupAvatar userId={row.userId} email={row.userEmail} name={row.userName} size={22} />
           <span style={{ fontSize: 13 }}>{row.userName}</span>
         </span>
       ),
