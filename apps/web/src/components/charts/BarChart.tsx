@@ -1,8 +1,9 @@
+import type { ReactNode } from 'react';
 import { ChartEmpty } from './ChartEmpty';
 
 const PALETTE = ['#7B68EE','#FF02F0','#49CCF9','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'];
 
-export interface BarData { label: string; value: number; color?: string; }
+export interface BarData { label: string; value: number; color?: string; leading?: ReactNode; }
 
 interface BarChartProps {
   data: BarData[];
@@ -33,6 +34,7 @@ export function BarChart({ data, direction = 'horizontal', height = 200, formatV
       >
         {data.map((d, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+            {d.leading}
             <span style={{ width: 110, color: 'var(--text-muted)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flexShrink: 0 }}>
               {d.label}
             </span>
