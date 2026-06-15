@@ -7,6 +7,7 @@ import { ClickupNormalizer } from './clickup-normalizer';
 import { CustomFieldExtractor } from './custom-field-extractor';
 import { ClickupWebhooksService } from './clickup-webhooks.service';
 import { WorkspaceMembersService } from './workspace-members.service';
+import { ClickupMembersController } from './clickup-members.controller';
 
 @Module({
   // Reuse TLS connections to the ClickUp API rather than a fresh handshake per
@@ -17,6 +18,7 @@ import { WorkspaceMembersService } from './workspace-members.service';
       httpsAgent: new HttpsAgent({ keepAlive: true }),
     }),
   ],
+  controllers: [ClickupMembersController],
   providers: [ClickupClient, ClickupNormalizer, CustomFieldExtractor, ClickupWebhooksService, WorkspaceMembersService],
   exports: [ClickupClient, ClickupNormalizer, CustomFieldExtractor, ClickupWebhooksService, WorkspaceMembersService],
 })
