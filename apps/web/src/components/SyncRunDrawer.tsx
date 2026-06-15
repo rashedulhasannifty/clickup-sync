@@ -29,8 +29,8 @@ interface SyncRunDrawerProps {
 function MetaRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
-      <span className="text-xs font-medium text-[var(--text-muted)]">{label}</span>
-      <span className="text-sm text-[var(--text)]">{children}</span>
+      <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-muted)' }}>{label}</span>
+      <span style={{ fontSize: 13, color: 'var(--text)' }}>{children}</span>
     </>
   );
 }
@@ -56,7 +56,7 @@ export function SyncRunDrawer({ item, onClose }: SyncRunDrawerProps) {
 
   return (
     <Drawer open={item !== null} onClose={onClose} title="Sync Run Detail" width={620}>
-      <div className="p-5 flex flex-col gap-5">
+      <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
         {/* Meta grid */}
         <div
           style={{
@@ -67,7 +67,7 @@ export function SyncRunDrawer({ item, onClose }: SyncRunDrawerProps) {
           }}
         >
           <MetaRow label="Run ID">
-            <span className="font-mono text-xs">{item.id}</span>
+            <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{item.id}</span>
           </MetaRow>
           <MetaRow label="Queue">{item.queueName}</MetaRow>
           <MetaRow label="Job Name">{item.jobName}</MetaRow>
@@ -75,7 +75,7 @@ export function SyncRunDrawer({ item, onClose }: SyncRunDrawerProps) {
             <StatusBadge status={item.status} />
           </MetaRow>
           <MetaRow label="Entity ID">
-            <span className="font-mono text-xs">{item.entityId ?? '—'}</span>
+            <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{item.entityId ?? '—'}</span>
           </MetaRow>
           <MetaRow label="Started At">
             {item.startedAt ? fmt.dateTime(item.startedAt) : '—'}

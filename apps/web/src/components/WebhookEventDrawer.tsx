@@ -23,8 +23,8 @@ interface WebhookEventDrawerProps {
 function MetaRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
-      <span className="text-xs font-medium text-[var(--text-muted)]">{label}</span>
-      <span className="text-sm text-[var(--text)]">{children}</span>
+      <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-muted)' }}>{label}</span>
+      <span style={{ fontSize: 13, color: 'var(--text)' }}>{children}</span>
     </>
   );
 }
@@ -40,9 +40,9 @@ export function WebhookEventDrawer({ item, onClose }: WebhookEventDrawerProps) {
 
   return (
     <Drawer open={item !== null} onClose={onClose} title="Webhook Event" width={580}>
-      <div className="p-5 flex flex-col gap-5">
+      <div style={{ flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 20 }}>
         {/* Status + event type */}
-        <div className="flex items-center gap-2">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <StatusBadge status={item.status} />
           <Pill tone="blue">{item.eventType}</Pill>
         </div>
@@ -57,10 +57,10 @@ export function WebhookEventDrawer({ item, onClose }: WebhookEventDrawerProps) {
           }}
         >
           <MetaRow label="Event ID">
-            <span className="font-mono text-xs">{item.id}</span>
+            <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{item.id}</span>
           </MetaRow>
           <MetaRow label="Task ID">
-            <span className="font-mono text-xs">{item.taskId ?? '—'}</span>
+            <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }}>{item.taskId ?? '—'}</span>
           </MetaRow>
           <MetaRow label="Received">{fmt.dateTime(item.receivedAt)}</MetaRow>
           <MetaRow label="Processed">
@@ -95,7 +95,7 @@ export function WebhookEventDrawer({ item, onClose }: WebhookEventDrawerProps) {
         </pre>
 
         {/* Footer actions */}
-        <div className="flex justify-end">
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <Button variant="ghost" size="sm" onClick={handleCopy}>
             Copy payload
           </Button>
