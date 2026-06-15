@@ -18,7 +18,7 @@ import { DataTable } from '../components/ui/DataTable';
 import type { Column } from '../components/ui/DataTable';
 import { QueryError } from '../components/ui/QueryError';
 import { StatusBadge } from '../components/ui/StatusBadge';
-import { AvatarStack } from '../components/ui/Avatar';
+import { ClickupAvatarStack } from '../components/ui/ClickupAvatar';
 import { Drawer } from '../components/ui/Drawer';
 import { Tabs } from '../components/ui/Tabs';
 import { fmt } from '../lib/formatters';
@@ -48,10 +48,10 @@ const ARCHIVED_OPTIONS = [
   { value: 'only', label: 'Archived only' },
 ];
 
-function parseAssignees(r: Task): { name: string; color?: string }[] {
-  const raw = String(r.assigneesNames ?? '').trim();
-  if (!raw) return [];
-  return raw.split(',').map(s => s.trim()).filter(Boolean).map(name => ({ name }));
+function parseAssignees(r: Task): { name: string; email?: string }[] {
+  const names = String(r.assigneesNames ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  const emails = String(r.assigneesEmails ?? '').split(',').map((s) => s.trim());
+  return names.map((name, i) => ({ name, email: emails[i] || undefined }));
 }
 
 function statusColor(r: Task): string {
@@ -177,7 +177,7 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
                 ['List', task.listName ?? task.list_name],
                 ['Parent task', task.parentTaskId ?? task.parent_task_id ?? '—'],
                 ['Creator', task.creatorName ?? task.creator_name],
-                ['Assignees', assignees.length > 0 ? <AvatarStack users={assignees} max={5} /> : '—'],
+                ['Assignees', assignees.length > 0 ? <ClickupAvatarStack users={assignees} max={5} /> : '—'],
               ] as [string, ReactNode][]} />
             </div>
             <div>
@@ -558,7 +558,7 @@ export function TasksPage() {
       sortable: false,
       render: (r) => {
         const users = parseAssignees(r);
-        return users.length > 0 ? <AvatarStack users={users} max={3} /> : <span style={{ color: 'var(--text-faint)' }}>—</span>;
+        return users.length > 0 ? <ClickupAvatarStack users={users} max={3} /> : <span style={{ color: 'var(--text-faint)' }}>—</span>;
       },
     },
     {
