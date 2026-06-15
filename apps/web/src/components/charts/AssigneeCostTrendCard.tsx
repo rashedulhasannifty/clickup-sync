@@ -5,6 +5,7 @@ import type { StackedSeries } from './StackedBarChart';
 import { useAssigneeCostTrend } from '../../hooks/useReports';
 import type { CostTrendBucket } from '../../hooks/useReports';
 import { useGlobalFilters } from '../../hooks/useGlobalFilters';
+import { ClickupAvatar } from '../ui/ClickupAvatar';
 import { fmt } from '../../lib/formatters';
 import { segmentColor } from '../../lib/segmentColors';
 
@@ -57,6 +58,8 @@ export function AssigneeCostTrendCard() {
   const series: StackedSeries[] = (data?.assignees ?? []).map((key, i) => ({
     key,
     color: segmentColor(i),
+    // Assignee keys are usernames (no id/email here), so resolve by name.
+    leading: <ClickupAvatar name={key} size={16} />,
   }));
 
   const total = values.reduce((s, v) => s + Object.values(v).reduce((a, b) => a + b, 0), 0);

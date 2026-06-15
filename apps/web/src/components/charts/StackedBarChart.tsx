@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ChartEmpty } from './ChartEmpty';
 
 export interface StackedSeries {
   key: string;
   color: string;
+  /** Optional node (e.g. an avatar) shown before the name in the legend/tooltip.
+   *  The color swatch stays — it maps the entry to its stacked segment color. */
+  leading?: ReactNode;
 }
 
 interface StackedBarChartProps {
@@ -59,6 +62,7 @@ export function StackedBarChart({ labels, series, values, height = 220, formatVa
         {series.map(s => (
           <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
             <span style={{ width: 9, height: 9, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+            {s.leading}
             <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 140 }}>
               {s.key}
             </span>
@@ -151,6 +155,7 @@ export function StackedBarChart({ labels, series, values, height = 220, formatVa
               .map(s => (
                 <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                   <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+                  {s.leading}
                   <span style={{ color: 'var(--text-muted)', flex: 1 }}>{s.key}</span>
                   <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{fv(values[hovered]?.[s.key] ?? 0)}</span>
                 </div>
