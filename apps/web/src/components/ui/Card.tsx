@@ -13,6 +13,11 @@ interface CardProps {
 
 export function Card({ children, title, subtitle, action, className = '', padding = 16, onClick, style }: CardProps) {
   const pad = padding === true ? 16 : padding === false ? 0 : padding;
+  // When a consumer explicitly asks the card to let content overflow (e.g. a
+  // row with an absolutely-positioned dropdown menu that needs to escape the
+  // card bounds), the inner body must not clip/scroll either — otherwise the
+  // popover triggers a spurious scrollbar on the card body.
+  const bodyOverflowY = style?.overflow === 'visible' ? 'visible' : 'auto';
   return (
     <div
       className={className}
@@ -43,7 +48,7 @@ export function Card({ children, title, subtitle, action, className = '', paddin
           {action && <div style={{ flexShrink: 0 }}>{action}</div>}
         </div>
       )}
-      <div style={{ padding: pad, flex: 1, minHeight: 0, overflowY: 'auto' }}>{children}</div>
+      <div style={{ padding: pad, flex: 1, minHeight: 0, overflowY: bodyOverflowY }}>{children}</div>
     </div>
   );
 }
