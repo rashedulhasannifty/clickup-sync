@@ -115,7 +115,10 @@ export function HourSpikesPage() {
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>
-                      {s.userName} logged {s.hours.toFixed(1)}h on {formatDate(s.date)}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <ClickupAvatar userId={s.userId} name={s.userName} size={22} />
+                        <span>{s.userName} logged {s.hours.toFixed(1)}h on {formatDate(s.date)}</span>
+                      </span>
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{watchSubtitle(s, data.cap)}</div>
                   </div>
