@@ -56,4 +56,26 @@ describe('WorkspaceMembersService', () => {
     await svc.getMemberIds();
     expect(getTeamMembers).toHaveBeenCalledWith('999');
   });
+
+  it('getDirectory maps profilePicture/color/initials and drops members without an id', async () => {
+    const { client } = makeClient([
+      { user: { id: 123, username: 'Ada', email: 'ada@x.com', profilePicture: 'https://cdn/ada.png', color: '#7B68EE', initials: 'AD' } },
+      { user: { id: '456', username: 'Bo', email: 'bo@x.com', profilePicture: null } },
+      { user: { id: null } },
+      {},
+    ]);
+    const svc = new WorkspaceMembersService(client, settings);
+    expect(await svc.getDirectory()).toEqual([
+      { id: '123', name: 'Ada', email: 'ada@x.com', profilePicture: 'https://cdn/ada.png', color: '#7B68EE', initials: 'AD' },
+      { id: '456', name: 'Bo', email: 'bo@x.com', profilePicture: null, color: null, initials: null },
+    ]);
+  });
+
+  it('getDirectory and getMemberIds share a single ClickUp fetch within the TTL', async () => {
+    const { client, getTeamMembers } = makeClient([{ user: { id: 1, username: 'A' } }]);
+    const svc = new WorkspaceMembersService(client, settings);
+    await svc.getDirectory();
+    await svc.getMemberIds();
+    expect(getTeamMembers).toHaveBeenCalledTimes(1);
+  });
 });

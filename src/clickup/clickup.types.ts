@@ -25,7 +25,16 @@ export interface CreateTimeEntryPayload {
   tid?: string;           // task id
   assignee?: number;      // real user's ClickUp user ID (numeric)
 }
-export interface ClickUpMember { user: { id: string | number; username?: string; email?: string } }
+export interface ClickUpMember {
+  user: {
+    id: string | number;
+    username?: string;
+    email?: string;
+    profilePicture?: string | null;
+    color?: string | null;
+    initials?: string | null;
+  };
+}
 export interface ClickUpWebhook {
   id: string;
   endpoint?: string;
