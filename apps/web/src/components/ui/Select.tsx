@@ -21,6 +21,10 @@ interface SelectProps {
   fullWidth?: boolean;
   /** Accessible name for screen readers when there's no visible <label>. */
   ariaLabel?: string;
+  /** Which edge the dropdown menu aligns to. Use 'right' when the trigger sits
+   *  at the right edge of its container (e.g. a card's action slot) so the menu
+   *  grows inward instead of overflowing the page. Defaults to 'left'. */
+  menuAlign?: 'left' | 'right';
 }
 
 export function Select({
@@ -34,6 +38,7 @@ export function Select({
   icon,
   fullWidth,
   ariaLabel,
+  menuAlign = 'left',
 }: SelectProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -131,7 +136,7 @@ export function Select({
           style={{
             position: 'absolute',
             top: 'calc(100% + 4px)',
-            left: 0,
+            ...(menuAlign === 'right' ? { right: 0 } : { left: 0 }),
             zIndex: 40,
             minWidth: '100%',
             background: 'var(--surface)',

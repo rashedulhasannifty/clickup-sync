@@ -155,6 +155,7 @@ export function HourSpikesPage() {
             <Select
               ariaLabel="Select user"
               size="sm"
+              menuAlign="right"
               value={effectiveUserId}
               onChange={setSelectedUserId}
               options={users.map((u) => ({ value: u.userId, label: u.userName, icon: <ClickupAvatar userId={u.userId} name={u.userName} size={18} /> }))}
