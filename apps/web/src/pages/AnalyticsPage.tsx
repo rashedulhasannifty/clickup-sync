@@ -17,6 +17,7 @@ import { PageHeader } from '../components/ui/PageHeader';
 import { QueryError } from '../components/ui/QueryError';
 import { Button } from '../components/ui/Button';
 import { BarChart } from '../components/charts/BarChart';
+import { ClickupAvatar } from '../components/ui/ClickupAvatar';
 import { DonutChart } from '../components/charts/DonutChart';
 import { CostTrendCard } from '../components/charts/CostTrendCard';
 import { AssigneeCostTrendCard } from '../components/charts/AssigneeCostTrendCard';
@@ -142,12 +143,12 @@ export function AnalyticsPage() {
   // BarChart: time by assignee — all assignees, ranked by hours.
   const timeByUserData = [...userRows]
     .sort((a, b) => b.totalHours - a.totalHours)
-    .map((r, i) => ({ label: r.userName, value: r.totalHours, color: SPACE_COLORS[i % SPACE_COLORS.length] }));
+    .map((r, i) => ({ label: r.userName, value: r.totalHours, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} /> }));
 
   // BarChart: cost by assignee — all assignees.
   const costByUserData = [...userRows]
     .sort((a, b) => b.totalCostAud - a.totalCostAud)
-    .map((r, i) => ({ label: r.userName, value: r.totalCostAud, color: SPACE_COLORS[i % SPACE_COLORS.length] }));
+    .map((r, i) => ({ label: r.userName, value: r.totalCostAud, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} /> }));
 
   // BarChart: cost by department — all departments.
   const deptRows = (timeByDept.data as DeptTimeRow[] | undefined) ?? [];
