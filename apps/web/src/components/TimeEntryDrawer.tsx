@@ -78,6 +78,8 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
           <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {entry.status === 'COST_CALCULATED' ? (
               <Pill tone="green" size="xs" icon={<CircleCheck size={11} strokeWidth={2} />}>Cost calculated</Pill>
+            ) : entry.status === 'COST_EXCLUDED' ? (
+              <Pill tone="gray" size="xs">Excluded</Pill>
             ) : (
               <Pill tone="amber" size="xs" icon={<AlertTriangle size={11} strokeWidth={2} />}>No rate found</Pill>
             )}
@@ -134,6 +136,14 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
               <div style={{ fontSize: 13, color: 'var(--text)', fontVariantNumeric: 'tabular-nums', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 {fmt.duration(entry.durationHours)} × {fmt.money(entry.hourlyRateCents, currency)}/h ={' '}
                 <strong style={{ fontSize: 16 }}>{fmt.money(entry.costAud * 100, currency)}</strong>
+              </div>
+            </div>
+          ) : entry.status === 'COST_EXCLUDED' ? (
+            <div style={{ padding: 12, background: 'var(--muted-bg)', borderRadius: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Excluded from costing</div>
+              <div style={{ fontSize: 12, color: 'var(--text)' }}>
+                {firstName} is excluded from costing, so this entry&apos;s cost is $0. Hours still count toward totals.
+                Manage exclusions on the Assignee Rates page.
               </div>
             </div>
           ) : (
