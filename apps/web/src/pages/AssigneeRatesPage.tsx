@@ -313,7 +313,7 @@ export function AssigneeRatesPage() {
                 </div>
                 <Pill tone="gray" size="xs">excluded</Pill>
                 {isAdmin && (
-                  <Button size="sm" variant="ghost" loading={updateExcluded.isPending} onClick={() => removeExclusion(a.id)}>
+                  <Button size="sm" variant="danger" loading={updateExcluded.isPending} onClick={() => removeExclusion(a.id)}>
                     Remove
                   </Button>
                 )}
