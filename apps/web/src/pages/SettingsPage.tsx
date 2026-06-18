@@ -705,7 +705,7 @@ export function SettingsPage() {
               </Field>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <Button
-                  variant={webhookStatus === 'Fresh' ? 'default' : 'accent'}
+                  variant={webhookStatus === 'Fresh' ? 'default' : 'caution'}
                   loading={registerWebhook.isPending}
                   onClick={() =>
                     registerWebhook.mutate(undefined, {
@@ -810,7 +810,7 @@ export function SettingsPage() {
                     <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>days back</span>
                     <Button
                       size="sm"
-                      variant="accent"
+                      variant="caution"
                       loading={reconcileTasks.isPending}
                       onClick={() => {
                         const days = Number(reconcileDays);
@@ -941,6 +941,7 @@ export function SettingsPage() {
                       />
                       <Button
                         size="sm"
+                        variant="accent"
                         disabled={updateSettings.isPending || capInput === '' || Number(capInput) === settingsQuery.data?.spikeHoursCap}
                         onClick={() => {
                           const n = Math.round(Number(capInput));
@@ -996,7 +997,7 @@ export function SettingsPage() {
               title="Tag–assignee map"
               subtitle="Map ClickUp tags to assignees for tracked-time replacement."
               action={
-                <Button variant="ghost" size="sm" onClick={startAddTag}>
+                <Button variant="accent" size="sm" onClick={startAddTag}>
                   Add mapping
                 </Button>
               }

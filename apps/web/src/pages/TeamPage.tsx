@@ -545,7 +545,7 @@ export function TeamPage() {
             <BulkRoleButton roles={assignableRoles} onPick={(r) => void bulkChangeRole(r)} />
             <Button
               size="sm"
-              variant="default"
+              variant="danger"
               icon={<Trash2 size={13} />}
               onClick={() =>
                 setConfirm(
@@ -555,7 +555,6 @@ export function TeamPage() {
                     .map((u) => ({ id: u.id, label: u.name?.trim() || emailLabel(u.email), pending: false })),
                 )
               }
-              style={{ color: 'var(--red)', borderColor: 'var(--border)' }}
             >
               Remove
             </Button>

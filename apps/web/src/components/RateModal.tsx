@@ -321,12 +321,12 @@ export function RateModal({
 		>
 			{rate && (
 				<Button
-					variant="ghost"
+					variant="danger"
 					size="sm"
 					icon={<Trash2 size={13} strokeWidth={2} />}
 					onClick={handleDelete}
 					loading={deleteRate.isPending}
-					style={{ marginRight: 'auto', color: 'var(--red)' }}
+					style={{ marginRight: 'auto' }}
 				>
 					Delete
 				</Button>

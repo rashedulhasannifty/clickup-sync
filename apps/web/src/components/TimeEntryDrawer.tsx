@@ -154,7 +154,7 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
               </div>
               <Button
                 size="sm"
-                variant="default"
+                variant="accent"
                 style={{ marginTop: 10 }}
                 icon={<Plus size={12} strokeWidth={1.75} />}
                 onClick={() => navigate('/assignee-rates')}

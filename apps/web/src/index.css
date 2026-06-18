@@ -48,6 +48,12 @@
   --pill-blue-text: #1e40af;
   --pill-purple-bg: #ede9fe;
   --pill-purple-text: #5b21b6;
+
+  /* Semantic button hover backgrounds (soft fills; base bg/text reuse the
+     accessible pill tokens above). */
+  --btn-success-hover: #b7f0d8;
+  --btn-danger-hover: #fdcfcf;
+  --btn-caution-hover: #fde9a8;
 }
 
 [data-density="compact"] {
@@ -92,6 +98,11 @@
   --table-head-bg: var(--surface-alt);
   --table-zebra: rgba(255, 255, 255, 0.02);
   --code-bg: #0f0f11;
+
+  /* Semantic button hover backgrounds — dark */
+  --btn-success-hover: rgba(16, 185, 129, 0.25);
+  --btn-danger-hover: rgba(239, 68, 68, 0.25);
+  --btn-caution-hover: rgba(245, 158, 11, 0.25);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }

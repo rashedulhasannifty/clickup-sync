@@ -82,7 +82,7 @@ export function InviteMembersModal({
           <Button variant="default" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="accent" icon={<Send size={13} />} disabled={!allValid} loading={sending} onClick={send}>
+          <Button variant="success" icon={<Send size={13} />} disabled={!allValid} loading={sending} onClick={send}>
             Send {filled.length > 1 ? `${filled.length} invitations` : 'invitation'}
           </Button>
         </div>

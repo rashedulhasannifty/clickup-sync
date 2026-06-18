@@ -516,7 +516,7 @@ export function SyncLogsPage() {
             {failedWebhooks.length > 0 && (
               <Button
                 size="md"
-                variant="default"
+                variant="caution"
                 icon={<RefreshCw size={13} />}
                 loading={retryFailedWebhooks.isPending}
                 onClick={() =>
@@ -663,7 +663,7 @@ export function SyncLogsPage() {
             {dlItems.length > 0 && (
               <Button
                 size="sm"
-                variant="default"
+                variant="caution"
                 icon={<RefreshCw size={12} />}
                 loading={retryAllDeadLetters.isPending}
                 disabled={retryDeadLetter.isPending || resolveDeadLetter.isPending}
@@ -740,7 +740,7 @@ export function SyncLogsPage() {
                           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                             <Button
                               size="sm"
-                              variant="default"
+                              variant="caution"
                               icon={<RefreshCw size={12} />}
                               loading={retrying}
                               disabled={busy}
@@ -755,7 +755,7 @@ export function SyncLogsPage() {
                             </Button>
                             <Button
                               size="sm"
-                              variant="ghost"
+                              variant="success"
                               loading={resolving}
                               disabled={busy}
                               onClick={() =>

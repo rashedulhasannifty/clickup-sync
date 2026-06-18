@@ -48,7 +48,7 @@ export function ExcludeAssigneeModal({ open, onClose, excludedIds, onConfirm, sa
             <Button variant="ghost" onClick={() => setSelected(null)} disabled={saving}>Back</Button>
             <div style={{ display: 'flex', gap: 8 }}>
               <Button variant="ghost" onClick={close} disabled={saving}>Cancel</Button>
-              <Button variant="accent" loading={saving} onClick={() => onConfirm(selected)}>Exclude assignee</Button>
+              <Button variant="caution" loading={saving} onClick={() => onConfirm(selected)}>Exclude assignee</Button>
             </div>
           </div>
         ) : undefined

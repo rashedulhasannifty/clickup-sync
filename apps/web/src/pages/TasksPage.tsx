@@ -698,7 +698,7 @@ export function TasksPage() {
             </Button>
             {isAdmin && (
               <Button
-                variant="accent"
+                variant="caution"
                 size="md"
                 icon={<RefreshCw size={13} strokeWidth={1.75} />}
                 loading={backfill.isPending}

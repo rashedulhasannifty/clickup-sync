@@ -510,7 +510,7 @@ export function TimeEntriesPage() {
             {isAdmin && (
               <Button
                 size="md"
-                variant="default"
+                variant="caution"
                 icon={<RefreshCw size={13} strokeWidth={1.75} />}
                 loading={syncAllTimeEntries.isPending}
                 onClick={() => syncAllTimeEntries.mutate(undefined, {

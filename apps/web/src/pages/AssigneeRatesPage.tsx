@@ -206,7 +206,7 @@ export function AssigneeRatesPage() {
             {isAdmin && (
               <Button
                 size="md"
-                variant="default"
+                variant="caution"
                 icon={<RefreshCw size={13} />}
                 loading={recalc.isPending}
                 onClick={() => runRecalc()}
@@ -297,7 +297,7 @@ export function AssigneeRatesPage() {
             </div>
           </div>
           {isAdmin && (
-            <Button size="sm" variant="default" icon={<UserMinus size={12} />} onClick={() => setExcludeModalOpen(true)}>
+            <Button size="sm" variant="caution" icon={<UserMinus size={12} />} onClick={() => setExcludeModalOpen(true)}>
               Exclude assignee
             </Button>
           )}
@@ -372,7 +372,7 @@ export function AssigneeRatesPage() {
             body="Create a rate for an assignee so time entries can be costed."
             action={
               isAdmin ? (
-                <Button onClick={openNewGlobal} icon={<Plus size={12} />}>
+                <Button variant="accent" onClick={openNewGlobal} icon={<Plus size={12} />}>
                   New rate
                 </Button>
               ) : undefined
@@ -423,14 +423,14 @@ export function AssigneeRatesPage() {
                     <>
                       <Button
                         size="sm"
-                        variant="ghost"
+                        variant="caution"
                         icon={<RefreshCw size={12} />}
                         loading={recalc.isPending}
                         onClick={() => runRecalc(g.assigneeId)}
                       >
                         Recalc
                       </Button>
-                      <Button size="sm" variant="default" icon={<Plus size={12} />} onClick={() => openNewForAssignee(g)}>
+                      <Button size="sm" variant="accent" icon={<Plus size={12} />} onClick={() => openNewForAssignee(g)}>
                         New rate
                       </Button>
                     </>

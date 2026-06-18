@@ -53,7 +53,7 @@ export function QueryError({
         {failing.refetch && (
           <Button
             size="sm"
-            variant="ghost"
+            variant="caution"
             onClick={() => failing.refetch?.()}
             disabled={failing.isFetching}
           >
