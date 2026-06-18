@@ -5,6 +5,7 @@ export const reportsApi = {
   tasksSummary: () => apiClient.get('/reports/tasks/summary').then(r => r.data),
   tasksBySpaceStatus: () => apiClient.get('/reports/tasks/by-space-status').then(r => r.data),
   tasksAssignees: () => apiClient.get('/reports/tasks/assignees').then(r => r.data),
+  timeEntriesAssignees: () => apiClient.get('/reports/time-entries/assignees').then(r => r.data),
   clients: () => apiClient.get('/reports/clients').then(r => r.data),
   lists: (params?: { spaceId?: string }) =>
     apiClient.get('/reports/lists', { params }).then(r => r.data),

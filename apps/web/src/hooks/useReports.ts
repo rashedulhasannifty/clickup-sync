@@ -19,6 +19,16 @@ export function useTasksAssignees() {
   return useQuery({ queryKey: ['tasks-assignees'], queryFn: reportsApi.tasksAssignees });
 }
 
+export interface TimeEntryAssignee { id: string; name: string | null; email: string | null; }
+
+export function useTimeEntriesAssignees() {
+  return useQuery<TimeEntryAssignee[]>({
+    queryKey: ['time-entries-assignees'],
+    queryFn: reportsApi.timeEntriesAssignees,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useClients() {
   return useQuery({ queryKey: ['clients'], queryFn: reportsApi.clients });
 }

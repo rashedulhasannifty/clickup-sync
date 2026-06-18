@@ -33,6 +33,8 @@ export type DeadLetterJob = {
   attemptsMade: number | null;
 };
 
+export type ExcludedAssignee = { id: string; name: string | null; email: string | null };
+
 export type SpikeNoticePreview = {
   date: string;
   recipientEmail: string | null;
@@ -82,4 +84,10 @@ export const adminApi = {
     apiClient
       .post('/admin/hour-spikes/notify', body)
       .then((r) => r.data as { sent: boolean; recipientEmail: string; date: string; totalHours: number }),
+  excludedAssignees: {
+    get: (): Promise<ExcludedAssignee[]> =>
+      apiClient.get('/admin/excluded-assignees').then((r) => (Array.isArray(r.data?.assignees) ? r.data.assignees : [])),
+    put: (assignees: ExcludedAssignee[]) =>
+      apiClient.put('/admin/excluded-assignees', { assignees }).then((r) => r.data as { assignees: ExcludedAssignee[]; recalculated: string[] }),
+  },
 };
