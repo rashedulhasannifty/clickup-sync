@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 
 interface TabItem {
   value: string;
@@ -11,16 +11,61 @@ interface TabsProps {
   value: string;
   onChange: (value: string) => void;
   variant?: 'underline' | 'segmented' | 'plain';
+  /** Accessible name for the tablist (e.g. "Report view"). */
+  ariaLabel?: string;
 }
 
-export function Tabs({ items, value, onChange, variant = 'underline' }: TabsProps) {
+export function Tabs({ items, value, onChange, variant = 'underline', ariaLabel }: TabsProps) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Roving-tabindex keyboard model: ArrowLeft/Right (and Home/End) move between
+  // tabs and activate them, matching the WAI-ARIA tabs pattern.
+  function onKeyDown(e: React.KeyboardEvent) {
+    const current = items.findIndex((i) => i.value === value);
+    if (current < 0) return;
+    let next = current;
+    switch (e.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+        next = (current + 1) % items.length;
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+        next = (current - 1 + items.length) % items.length;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = items.length - 1;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    onChange(items[next].value);
+    const btn = ref.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next];
+    btn?.focus();
+  }
+
+  function tabProps(item: TabItem) {
+    const selected = value === item.value;
+    return {
+      role: 'tab' as const,
+      'aria-selected': selected,
+      tabIndex: selected ? 0 : -1,
+      onClick: () => onChange(item.value),
+      onKeyDown,
+    };
+  }
+
   if (variant === 'plain') {
     return (
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+      <div ref={ref} role="tablist" aria-label={ariaLabel} style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
         {items.map(item => (
           <button
             key={item.value}
-            onClick={() => onChange(item.value)}
+            {...tabProps(item)}
             style={{
               fontSize: 13,
               fontWeight: value === item.value ? 600 : 400,
@@ -40,14 +85,14 @@ export function Tabs({ items, value, onChange, variant = 'underline' }: TabsProp
 
   if (variant === 'segmented') {
     return (
-      <div style={{
+      <div ref={ref} role="tablist" aria-label={ariaLabel} style={{
         display: 'inline-flex', background: 'var(--muted-bg)',
         borderRadius: 8, padding: 3,
       }}>
         {items.map(item => (
           <button
             key={item.value}
-            onClick={() => onChange(item.value)}
+            {...tabProps(item)}
             style={{
               padding: '5px 12px', fontSize: 13, fontWeight: 500,
               borderRadius: 6, border: 0, cursor: 'pointer',
@@ -75,11 +120,11 @@ export function Tabs({ items, value, onChange, variant = 'underline' }: TabsProp
   }
 
   return (
-    <div style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
+    <div ref={ref} role="tablist" aria-label={ariaLabel} style={{ display: 'flex', borderBottom: '1px solid var(--border)' }}>
       {items.map(item => (
         <button
           key={item.value}
-          onClick={() => onChange(item.value)}
+          {...tabProps(item)}
           style={{
             padding: '8px 16px', fontSize: 13, fontWeight: 500,
             borderBottom: `2px solid ${value === item.value ? 'var(--accent)' : 'transparent'}`,

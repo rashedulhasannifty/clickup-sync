@@ -5,7 +5,7 @@ import { Skeleton } from './Skeleton';
  * card with a header strip + shimmer "rows" so the loading state reads as a
  * table and matches DataTable's skeleton, instead of one flat grey block.
  */
-export function TableSkeleton({ rows = 8 }: { rows?: number }) {
+export function TableSkeleton({ rows = 12 }: { rows?: number }) {
   return (
     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
       <div style={{ padding: '10px 16px', background: 'var(--muted-bg)', borderBottom: '1px solid var(--border)' }}>

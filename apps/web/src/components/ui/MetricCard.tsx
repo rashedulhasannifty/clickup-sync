@@ -22,6 +22,7 @@ export function MetricCard({ label, value, sublabel, delta, deltaTone, trend, ic
   return (
     <Tag
       onClick={onClick}
+      type={onClick ? 'button' : undefined}
       style={{
         textAlign: 'left',
         cursor: onClick ? 'pointer' : 'default',

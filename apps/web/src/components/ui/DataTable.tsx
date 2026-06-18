@@ -203,10 +203,21 @@ export function DataTable<T extends { [key: string]: unknown }>({
                   const sticky = i < stickyCount;
                   const isLastSticky = sticky && i === stickyCount - 1;
                   const headerClickable = !isServerPaginated && col.sortable !== false;
+                  const sortState: 'ascending' | 'descending' | 'none' | undefined =
+                    col.sortable === false || isServerPaginated
+                      ? undefined
+                      : sortKey === col.key
+                        ? sortDir === 'asc' ? 'ascending' : 'descending'
+                        : 'none';
                   return (
                     <th
                       key={col.key}
+                      scope="col"
+                      aria-sort={sortState}
+                      role={headerClickable ? 'button' : undefined}
+                      tabIndex={headerClickable ? 0 : undefined}
                       onClick={() => headerClickable && handleSort(col.key)}
+                      onKeyDown={headerClickable ? onActivate(() => handleSort(col.key)) : undefined}
                       style={{
                         padding: headPad,
                         textAlign: align,
@@ -413,20 +424,34 @@ export function DataTable<T extends { [key: string]: unknown }>({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-(--border) bg-(--surface-alt)">
-              {visibleCols.map(col => (
-                <th
-                  key={col.key}
-                  className={`px-3 py-2.5 text-left text-xs font-medium text-(--text-muted) whitespace-nowrap ${col.sortable !== false ? 'cursor-pointer hover:text-(--text) select-none' : ''}`}
-                  style={{
-                    width: col.width != null ? (typeof col.width === 'number' ? `${col.width}px` : col.width) : undefined,
-                    textAlign: col.align === 'right' ? 'right' : 'left',
-                  }}
-                  onClick={() => col.sortable !== false && handleSort(col.key)}
-                >
-                  {col.header}
-                  {col.sortable !== false && sortKey === col.key && (sortDir === 'asc' ? ' ↑' : ' ↓')}
-                </th>
-              ))}
+              {visibleCols.map(col => {
+                const clickable = col.sortable !== false && !isServerPaginated;
+                const sortState: 'ascending' | 'descending' | 'none' | undefined =
+                  col.sortable === false || isServerPaginated
+                    ? undefined
+                    : sortKey === col.key
+                      ? sortDir === 'asc' ? 'ascending' : 'descending'
+                      : 'none';
+                return (
+                  <th
+                    key={col.key}
+                    scope="col"
+                    aria-sort={sortState}
+                    role={clickable ? 'button' : undefined}
+                    tabIndex={clickable ? 0 : undefined}
+                    className={`px-3 py-2.5 text-left text-xs font-medium text-(--text-muted) whitespace-nowrap ${clickable ? 'cursor-pointer hover:text-(--text) select-none' : ''}`}
+                    style={{
+                      width: col.width != null ? (typeof col.width === 'number' ? `${col.width}px` : col.width) : undefined,
+                      textAlign: col.align === 'right' ? 'right' : 'left',
+                    }}
+                    onClick={() => clickable && handleSort(col.key)}
+                    onKeyDown={clickable ? onActivate(() => handleSort(col.key)) : undefined}
+                  >
+                    {col.header}
+                    {col.sortable !== false && sortKey === col.key && (sortDir === 'asc' ? ' ↑' : ' ↓')}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
