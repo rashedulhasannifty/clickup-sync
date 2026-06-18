@@ -153,7 +153,7 @@ describe('CostCalculatorService', () => {
     const { prisma } = makePrisma({ rateId: 7n, currency: 'USD', hourlyRateCents: 15000n });
     const svc = new CostCalculatorService(prisma, makeSettings({ nonBillableZero: true }, ['user-1']));
 
-    const r = await svc.calculate('user-1', new Date('2024-06-15T10:00:00.000Z'), 2, undefined, { billable: true });
+    const r = await svc.calculate('user-1', new Date('2024-06-15T10:00:00.000Z'), 2, undefined, { billable: false });
 
     expect(r.status).toBe('COST_EXCLUDED');
     expect(r.costCents).toBe(0n);
