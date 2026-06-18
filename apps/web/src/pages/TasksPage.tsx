@@ -687,7 +687,7 @@ export function TasksPage() {
         actions={
           <>
             <Button
-              variant="default"
+              variant="subtle"
               size="md"
               icon={<Download size={13} strokeWidth={1.75} />}
               loading={exportCsv.isPending}

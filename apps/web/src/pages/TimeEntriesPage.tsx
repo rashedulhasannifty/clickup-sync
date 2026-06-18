@@ -499,7 +499,7 @@ export function TimeEntriesPage() {
           <>
             <Button
               size="md"
-              variant="default"
+              variant="subtle"
               icon={<Download size={13} strokeWidth={1.75} />}
               loading={exportCsv.isPending}
               disabled={exportCsv.isPending || isLoading}

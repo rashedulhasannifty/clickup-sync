@@ -193,7 +193,7 @@ export function BudgetsPage() {
           <>
             <Button
               size="md"
-              variant="default"
+              variant="subtle"
               icon={<Download size={13} />}
               disabled={isLoading || statusRows.length === 0}
               onClick={() =>

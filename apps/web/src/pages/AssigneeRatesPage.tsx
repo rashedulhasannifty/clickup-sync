@@ -216,7 +216,7 @@ export function AssigneeRatesPage() {
             )}
             <Button
               size="md"
-              variant="default"
+              variant="subtle"
               icon={<Download size={13} />}
               disabled={isLoading || filtered.length === 0}
               onClick={() => {

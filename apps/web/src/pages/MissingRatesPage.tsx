@@ -521,7 +521,7 @@ export function MissingRatesPage() {
         <span style={{ flex: 1 }} />
         <Button
           size="md"
-          variant="ghost"
+          variant="subtle"
           icon={<Download size={13} />}
           disabled={filtered.length === 0}
           onClick={() => {

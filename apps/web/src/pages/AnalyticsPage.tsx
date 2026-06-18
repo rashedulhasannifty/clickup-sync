@@ -205,7 +205,7 @@ export function AnalyticsPage() {
       <PageHeader
         title="Analytics"
         description="Cost, time, and delivery analytics across your ClickUp workspace."
-        actions={<Button variant="accent" icon={<Download size={13} strokeWidth={1.75} />} onClick={handleExport}>Export</Button>}
+        actions={<Button variant="subtle" icon={<Download size={13} strokeWidth={1.75} />} onClick={handleExport}>Export</Button>}
       />
 
       <QueryError
