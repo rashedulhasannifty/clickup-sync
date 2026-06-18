@@ -212,9 +212,12 @@ export function DataTable<T extends { [key: string]: unknown }>({
                   return (
                     <th
                       key={col.key}
+                      // No role="button": a <th> in <thead> is implicitly
+                      // columnheader, which is what makes aria-sort valid and
+                      // gives the "column header" announcement. role="button"
+                      // would strip that. Stays operable via tabIndex+onKeyDown.
                       scope="col"
                       aria-sort={sortState}
-                      role={headerClickable ? 'button' : undefined}
                       tabIndex={headerClickable ? 0 : undefined}
                       onClick={() => headerClickable && handleSort(col.key)}
                       onKeyDown={headerClickable ? onActivate(() => handleSort(col.key)) : undefined}
@@ -437,7 +440,6 @@ export function DataTable<T extends { [key: string]: unknown }>({
                     key={col.key}
                     scope="col"
                     aria-sort={sortState}
-                    role={clickable ? 'button' : undefined}
                     tabIndex={clickable ? 0 : undefined}
                     className={`px-3 py-2.5 text-left text-xs font-medium text-(--text-muted) whitespace-nowrap ${clickable ? 'cursor-pointer hover:text-(--text) select-none' : ''}`}
                     style={{

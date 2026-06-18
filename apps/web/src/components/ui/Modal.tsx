@@ -145,6 +145,7 @@ export function Modal({ open = true, onClose, title, subtitle, children, footer,
         </div>
         {onSubmit ? (
           <form
+            noValidate
             onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
             style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}
           >

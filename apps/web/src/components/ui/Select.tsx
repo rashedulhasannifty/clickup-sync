@@ -146,7 +146,10 @@ export function Select({
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
         aria-activedescendant={open && activeIndex >= 0 ? `${listboxId}-opt-${activeIndex}` : undefined}
-        onClick={() => !disabled && setOpen((o) => !o)}
+        // Ignore keyboard-synthesized clicks (detail === 0) — Enter/Space are
+        // fully handled in onKeyDown. Otherwise Space (whose click fires on
+        // keyup, after our keydown already toggled) would toggle a second time.
+        onClick={(e) => { if (e.detail !== 0) !disabled && setOpen((o) => !o); }}
         onKeyDown={onKeyDown}
         style={{
           display: 'inline-flex',
