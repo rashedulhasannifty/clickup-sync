@@ -16,7 +16,7 @@
 #   DOMAIN, POSTGRES_PASSWORD, IMAGE_TAG (defaults to latest for manual use).
 
 x-app: &app-common
-  image: ghcr.io/rashedulhasansojib/clickup-sync:${IMAGE_TAG:-latest}
+  image: ghcr.io/rashedulhasannifty/clickup-sync:${IMAGE_TAG:-latest}
   restart: unless-stopped
   env_file: .env
   depends_on:
