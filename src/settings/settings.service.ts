@@ -13,7 +13,7 @@ export interface SettingsPreferences {
     channels: { email: boolean; slack: boolean; pagerduty: boolean };
   };
   sync: { reconcileLookbackDays: number; realtimeWebhooks: boolean; backfillOnConnect: boolean };
-  cost: { autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean };
+  cost: { autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean; excludedAssignees: { id: string; name: string | null; email: string | null }[] };
   failure: { webhookRetryAttempts: number };
   spaces: Record<string, { enabled: boolean }>;
 }
@@ -24,7 +24,7 @@ export const DEFAULT_PREFERENCES: SettingsPreferences = {
     channels: { email: true, slack: true, pagerduty: false },
   },
   sync: { reconcileLookbackDays: 365, realtimeWebhooks: true, backfillOnConnect: true },
-  cost: { autoRecalcOnRateChange: true, rateMatching: 'start', nonBillableZero: false },
+  cost: { autoRecalcOnRateChange: true, rateMatching: 'start', nonBillableZero: false, excludedAssignees: [] },
   failure: { webhookRetryAttempts: 5 },
   spaces: {},
 };
@@ -173,6 +173,12 @@ export class SettingsService implements OnModuleInit {
 
   getPreferences(): SettingsPreferences {
     return this.cache.preferences;
+  }
+
+  /** Sync set of assignee ids excluded from costing. Read on the per-entry cost
+   *  hot path, so it must stay synchronous (backed by the in-memory cache). */
+  getExcludedAssigneeIds(): Set<string> {
+    return new Set((this.cache.preferences.cost.excludedAssignees ?? []).map((a) => a.id));
   }
 
   isSpaceEnabled(spaceId: string): boolean {
