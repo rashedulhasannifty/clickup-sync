@@ -7,4 +7,5 @@ coverage
 .prisma
 /logs
 .DS_Store
+tsconfig.build.tsbuildinfo
 # /design
