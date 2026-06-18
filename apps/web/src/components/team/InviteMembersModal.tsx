@@ -71,6 +71,7 @@ export function InviteMembersModal({
       width={540}
       title="Invite members"
       subtitle="They'll get an email invitation to join this workspace."
+      onSubmit={send}
       footer={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
@@ -79,10 +80,10 @@ export function InviteMembersModal({
               : 'Add at least one email'}
           </span>
           <div style={{ flex: 1 }} />
-          <Button variant="default" onClick={onClose}>
+          <Button type="button" variant="default" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="success" icon={<Send size={13} />} disabled={!allValid} loading={sending} onClick={send}>
+          <Button type="submit" variant="success" icon={<Send size={13} />} disabled={!allValid} loading={sending}>
             Send {filled.length > 1 ? `${filled.length} invitations` : 'invitation'}
           </Button>
         </div>
@@ -119,6 +120,8 @@ export function InviteMembersModal({
                     type="email"
                     value={r.email}
                     autoFocus={i === 0}
+                    aria-label={`Email address ${i + 1}`}
+                    aria-invalid={err && err !== 'empty' ? true : undefined}
                     onChange={(e) => setRow(i, { email: e.target.value })}
                     placeholder="name@company.com"
                     style={{
@@ -140,6 +143,7 @@ export function InviteMembersModal({
                 </div>
                 <button
                   type="button"
+                  aria-label={`Remove email ${i + 1}`}
                   onClick={() => removeRow(i)}
                   disabled={rows.length === 1}
                   style={{
