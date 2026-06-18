@@ -39,7 +39,10 @@ $COMPOSE up -d --force-recreate "app-web-$TARGET"
 echo "==> Health-gating app-web-$TARGET on /api/health"
 HEALTHY=0
 for i in $(seq 1 30); do
-  if docker exec caddy wget -qO- "http://app-web-$TARGET:3000/api/health" >/dev/null 2>&1; then
+  # Probe from INSIDE the caddy container (app-web-* is only reachable on the
+  # compose network). Use `compose exec` (service name) not `docker exec` — the
+  # real container is named <project>-caddy-1, so `docker exec caddy` would fail.
+  if $COMPOSE exec -T caddy wget -qO- "http://app-web-$TARGET:3000/api/health" >/dev/null 2>&1; then
     HEALTHY=1
     echo "    healthy after ${i} attempt(s)"
     break
@@ -53,7 +56,7 @@ fi
 
 echo "==> Flipping traffic to app-web-$TARGET"
 printf 'reverse_proxy app-web-%s:3000\n' "$TARGET" > active.conf
-docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+$COMPOSE exec -T caddy caddy reload --config /etc/caddy/Caddyfile
 
 echo "==> Updating worker (singleton, recreate-in-place)"
 $COMPOSE up -d --force-recreate app-worker
