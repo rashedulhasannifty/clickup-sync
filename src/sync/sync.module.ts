@@ -6,6 +6,13 @@ import { TasksModule } from '../tasks/tasks.module';
 import { SyncCheckpointsRepository } from './sync-checkpoints.repository';
 import { BackfillService } from './backfill.service';
 import { SyncScheduler } from './sync.scheduler';
+import { isWorker } from '../config/role';
 
-@Module({ imports: [ScheduleModule, QueuesModule, ClickupModule, TasksModule], providers: [SyncCheckpointsRepository, BackfillService, SyncScheduler], exports: [SyncCheckpointsRepository, BackfillService] })
+const worker = isWorker();
+
+@Module({
+  imports: [...(worker ? [ScheduleModule] : []), QueuesModule, ClickupModule, TasksModule],
+  providers: [SyncCheckpointsRepository, BackfillService, ...(worker ? [SyncScheduler] : [])],
+  exports: [SyncCheckpointsRepository, BackfillService],
+})
 export class SyncModule {}

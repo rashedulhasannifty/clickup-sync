@@ -12,8 +12,18 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { getRole } from './config/role';
 
 async function bootstrap() {
+  // Worker role: boot the DI container so BullMQ processors + cron start, but
+  // do NOT open an HTTP port. enableShutdownHooks() lets SIGTERM drain active
+  // jobs cleanly on deploy. No helmet/cors/swagger/listen — there is no HTTP.
+  if (getRole() === 'worker') {
+    const app = await NestFactory.create(AppModule, { bufferLogs: true });
+    app.enableShutdownHooks();
+    await app.init();
+    return;
+  }
   const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   // Drain in-flight work on SIGTERM/SIGINT: triggers Nest lifecycle hooks so
   // BullMQ workers close (finishing active jobs) and the Prisma/Redis pools
