@@ -149,6 +149,13 @@ lookup.
      **Remove** (un-exclude) button.
    - An **"Exclude assignee"** action opens a searchable picker populated from
      `GET /reports/time-entries/assignees`.
+   - **Confirmation warning on exclude** — before an assignee is actually added
+     to the list, show a confirm dialog warning that their existing and future
+     time entries will be set to **$0 (Excluded)**, they will no longer appear as
+     missing a rate, and (if they currently have a rate) **their active rate will
+     be ignored while excluded**. The PUT is only sent after the admin confirms.
+     The dialog names the assignee. Removing (un-excluding) does not require a
+     warning — it restores normal rate-based costing.
    - Add/remove issues a `PUT /admin/excluded-assignees` with the full new list,
      then shows a toast ("recalculation queued — costs update shortly").
 
