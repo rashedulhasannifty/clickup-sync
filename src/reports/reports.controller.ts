@@ -222,11 +222,11 @@ export class ReportsController {
 
   @Get('ops/stats')
   @ApiOperation({ summary: 'Dashboard overview stats (failures, dead-letters, webhooks, missing rates)' })
-  stats() { return this.reports.stats(); }
+  stats() { return this.reports.stats([...this.settings.getExcludedAssigneeIds()]); }
 
   @Get('ops/missing-rates')
   @ApiOperation({ summary: 'Assignees with NO_RATE_FOUND time entries, grouped by user' })
-  missingRates() { return this.reports.missingRates(); }
+  missingRates() { return this.reports.missingRates([...this.settings.getExcludedAssigneeIds()]); }
 
   @Get('spaces')
   @ApiOperation({ summary: 'Per-space task, hour, and cost aggregates' })

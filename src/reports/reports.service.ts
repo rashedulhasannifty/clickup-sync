@@ -717,18 +717,23 @@ export class ReportsService {
     return { items: items.map(i => ({ ...i, id: i.id.toString() })), total };
   }
 
-  async stats() {
+  async stats(excludedIds: string[] = []) {
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const [failedJobsLast24h, deadLetterPending, webhooksLast24h, missingRateEntries] = await Promise.all([
       this.prisma.syncJobLog.count({ where: { status: 'failed', finishedAt: { gte: since24h } } }),
       this.prisma.deadLetterJob.count({ where: { retriedAt: null, resolvedAt: null } }),
       this.prisma.clickupWebhookEvent.count({ where: { receivedAt: { gte: since24h } } }),
-      this.prisma.clickupTimeEntry.count({ where: { status: { not: 'COST_CALCULATED' } } }),
+      this.prisma.clickupTimeEntry.count({
+        where: {
+          status: { notIn: ['COST_CALCULATED', 'COST_EXCLUDED'] },
+          ...(excludedIds.length ? { userId: { notIn: excludedIds } } : {}),
+        },
+      }),
     ]);
     return { failedJobsLast24h, deadLetterPending, webhooksLast24h, missingRateEntries };
   }
 
-  async missingRates() {
+  async missingRates(excludedIds: string[] = []) {
     type Row = {
       user_id: string;
       user_name: string;
@@ -751,6 +756,7 @@ export class ReportsService {
           e.start_time
         FROM clickup_time_entries e
         WHERE e.user_id IS NOT NULL
+          AND e.user_id <> ALL(${Prisma.sql`array[${Prisma.join(excludedIds.length ? excludedIds : [''])}]::text[]`})
           AND NOT EXISTS (
             -- Inclusive closed-closed interval [valid_from, valid_to], matching
             -- cost-calculator.service.ts. The earlier exclusive upper bound
