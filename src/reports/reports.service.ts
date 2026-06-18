@@ -108,6 +108,23 @@ export class ReportsService {
     return rows.map((r) => ({ name: r.name, email: r.email, taskCount: Number(r.task_count) }));
   }
 
+  /** Distinct assignees that have at least one time entry. Feeds the
+   *  "Exclude assignee" picker (all assignees with tracked time, so an admin
+   *  can pre-emptively exclude someone who currently has a rate). */
+  async timeEntriesAssignees() {
+    type Row = { user_id: string; user_name: string | null; user_email: string | null };
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      SELECT user_id,
+             MAX(user_name)  AS user_name,
+             MAX(user_email) AS user_email
+      FROM clickup_time_entries
+      WHERE user_id IS NOT NULL
+      GROUP BY user_id
+      ORDER BY MAX(user_name) NULLS LAST
+    `);
+    return rows.map((r) => ({ id: r.user_id, name: r.user_name, email: r.user_email }));
+  }
+
   async tasksClients() {
     type Row = { client: string; task_count: bigint };
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`

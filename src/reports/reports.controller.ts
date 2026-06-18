@@ -26,6 +26,10 @@ export class ReportsController {
   @ApiOperation({ summary: 'Distinct task assignees for the Tasks page filter dropdown. Drawn from clickup_tasks.assignees_names so assignees with zero time entries (e.g. expense-only tasks) still appear.' })
   tasksAssignees() { return this.reports.tasksAssignees(); }
 
+  @Get('time-entries/assignees')
+  @ApiOperation({ summary: 'Distinct assignees that have time entries. Feeds the exclude-from-costing picker.' })
+  timeEntriesAssignees() { return this.reports.timeEntriesAssignees(); }
+
   @Get('clients')
   @ApiOperation({ summary: 'Distinct task clients for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks.client (non-empty, non-deleted), with per-client task counts.' })
   tasksClients() { return this.reports.tasksClients(); }
