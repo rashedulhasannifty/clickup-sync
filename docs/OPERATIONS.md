@@ -74,7 +74,7 @@ tagged `:<sha>`) → `deploy`. The deploy job renders `.env` on the host from Gi
 secrets, syncs compose/Caddyfile/scripts, then runs `scripts/deploy.sh`, which:
 
 1. Pulls the new image and ensures infra + Caddy are up.
-2. Runs migrations once (`docker compose run --rm migrate`) — before any cutover.
+2. Runs migrations once (`docker compose --profile tools run --rm migrate`) — before any cutover.
 3. Detects the current live color from `active.conf` and targets the other.
 4. Starts the target color on the new image.
 5. Health-gates it on `/api/health` (30 × 2s). **If it never goes healthy, the
@@ -94,7 +94,7 @@ secrets, syncs compose/Caddyfile/scripts, then runs `scripts/deploy.sh`, which:
   This is instant — no rebuild.
 - **Later** (the idle color has since been overwritten): re-run the `Deploy`
   workflow via `workflow_dispatch` from the previous good commit, or
-  `IMAGE_TAG=<previous-sha> bash scripts/deploy.sh` on the host (the image is
+  `DEPLOY_PATH=<path> IMAGE_TAG=<previous-sha> bash scripts/deploy.sh` on the host (the image is
   still in GHCR).
 
 ### Migration discipline — expand/contract (REQUIRED)
