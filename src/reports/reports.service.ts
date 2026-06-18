@@ -726,7 +726,7 @@ export class ReportsService {
       this.prisma.clickupTimeEntry.count({
         where: {
           status: { notIn: ['COST_CALCULATED', 'COST_EXCLUDED'] },
-          ...(excludedIds.length ? { userId: { notIn: excludedIds } } : {}),
+          ...(excludedIds.length ? { OR: [{ userId: null }, { userId: { notIn: excludedIds } }] } : {}),
         },
       }),
     ]);
@@ -756,7 +756,7 @@ export class ReportsService {
           e.start_time
         FROM clickup_time_entries e
         WHERE e.user_id IS NOT NULL
-          AND e.user_id <> ALL(${Prisma.sql`array[${Prisma.join(excludedIds.length ? excludedIds : [''])}]::text[]`})
+          ${excludedIds.length ? Prisma.sql`AND e.user_id <> ALL(array[${Prisma.join(excludedIds)}]::text[])` : Prisma.empty}
           AND NOT EXISTS (
             -- Inclusive closed-closed interval [valid_from, valid_to], matching
             -- cost-calculator.service.ts. The earlier exclusive upper bound

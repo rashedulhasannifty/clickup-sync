@@ -1201,6 +1201,38 @@ describe('ReportsService', () => {
     });
   });
 
+  describe('stats excludedIds filtering', () => {
+    it('counts COST_EXCLUDED as not-missing and excludes excluded users while keeping NULL-userId rows', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).stats(['u1']);
+      // 4th count call (missingRateEntries) is on clickupTimeEntry.count
+      const where = prisma.clickupTimeEntry.count.mock.calls[0][0].where;
+      expect(where.status).toEqual({ notIn: ['COST_CALCULATED', 'COST_EXCLUDED'] });
+      expect(where.OR).toEqual([{ userId: null }, { userId: { notIn: ['u1'] } }]);
+    });
+
+    it('omits the userId filter when no ids are excluded', async () => {
+      const prisma = makePrisma();
+      await new ReportsService(prisma).stats();
+      const where = prisma.clickupTimeEntry.count.mock.calls[0][0].where;
+      expect(where.OR).toBeUndefined();
+    });
+  });
+
+  describe('missingRates excludedIds SQL safety', () => {
+    it('does not throw when the excluded list is empty (no Prisma.join on [])', async () => {
+      const prisma = makePrisma();
+      await expect(new ReportsService(prisma).missingRates([])).resolves.toBeDefined();
+      expect(prisma.$queryRaw).toHaveBeenCalled();
+    });
+
+    it('builds the query with excluded ids without throwing', async () => {
+      const prisma = makePrisma();
+      await expect(new ReportsService(prisma).missingRates(['u1'])).resolves.toBeDefined();
+      expect(prisma.$queryRaw).toHaveBeenCalled();
+    });
+  });
+
   describe('hourSpikes notified enrichment', () => {
     it('marks a watchlist row notified when a SpikeNotification exists for it', async () => {
       const prisma = makePrisma();
