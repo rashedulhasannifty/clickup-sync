@@ -36,12 +36,18 @@ services:
     expose:
       - "5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Postgres 18+ images store data in a major-version subdirectory and want
+      # a SINGLE mount at /var/lib/postgresql (NOT /var/lib/postgresql/data —
+      # that path is rejected as an "unused mount/volume" and the container
+      # restart-loops). Matches the dev compose.
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U clickup -d clickup_sync"]
       interval: 10s
       timeout: 5s
       retries: 5
+      # Give first-time initdb room on a small host before being marked unhealthy.
+      start_period: 30s
 
   redis:
     image: redis:8-alpine
