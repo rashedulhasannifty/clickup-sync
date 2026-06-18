@@ -25,7 +25,7 @@ echo "==> Ensuring infra + proxy are up"
 $COMPOSE up -d postgres redis caddy
 
 echo "==> Running one-shot migration"
-$COMPOSE run --rm migrate
+$COMPOSE --profile tools run --rm migrate
 
 # Detect the live color from the mounted active.conf; default to blue on first run.
 CURRENT="$(grep -oE 'app-web-(blue|green)' active.conf | head -1 | sed 's/app-web-//' || true)"
