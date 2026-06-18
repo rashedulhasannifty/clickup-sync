@@ -58,7 +58,7 @@ export class CostRecalculationService {
           },
         });
         updated += 1;
-        if (cost.status !== 'COST_CALCULATED') noRate += 1;
+        if (cost.status === 'NO_RATE_FOUND') noRate += 1;
       }
 
       scanned += entries.length;
