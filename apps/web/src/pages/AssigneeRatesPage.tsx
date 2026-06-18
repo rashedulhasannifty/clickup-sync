@@ -9,11 +9,12 @@ import {
   Plus,
   RefreshCw,
   Search,
+  UserMinus,
   Users,
 } from 'lucide-react';
 import { parseRatesListResponse, type Rate } from '../api/rates';
 import type { RatePresetAssignee } from '../components/RateModal';
-import { useRates, useRecalcCosts } from '../hooks/useRates';
+import { useRates, useRecalcCosts, useExcludedAssignees, useUpdateExcludedAssignees } from '../hooks/useRates';
 import { useMissingRates, useStats } from '../hooks/useReports';
 import { useAuth } from '../hooks/useAuth';
 import { csvFilename, downloadCsv, toCsv, type CsvColumn } from '../lib/csv';
@@ -29,6 +30,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Card } from '../components/ui/Card';
 import { RateModal } from '../components/RateModal';
+import { ExcludeAssigneeModal } from '../components/ExcludeAssigneeModal';
 import { useToast } from '../components/ui/Toast';
 import { fmt } from '../lib/formatters';
 
@@ -49,9 +51,36 @@ export function AssigneeRatesPage() {
   const ratesQuery = useRates();
   const { data: rates, isLoading } = ratesQuery;
   const recalc = useRecalcCosts();
+  const excludedQuery = useExcludedAssignees();
+  const updateExcluded = useUpdateExcludedAssignees();
+  const [excludeModalOpen, setExcludeModalOpen] = useState(false);
   const { hasRole } = useAuth();
   const isAdmin = hasRole('ADMIN');
   const toast = useToast();
+
+  const excluded = excludedQuery.data ?? [];
+  const excludedIds = useMemo(() => new Set(excluded.map((a) => a.id)), [excluded]);
+
+  function addExclusion(a: { id: string; name: string | null; email: string | null }) {
+    updateExcluded.mutate([...excluded, a], {
+      onSuccess: () => {
+        toast.success(`${a.name ?? a.id} excluded — recalculation queued, costs update shortly.`);
+        setExcludeModalOpen(false);
+      },
+      onError: (err) => toast.error(`Could not exclude assignee: ${(err as Error).message}`),
+    });
+  }
+
+  function removeExclusion(id: string) {
+    const a = excluded.find((x) => x.id === id);
+    updateExcluded.mutate(
+      excluded.filter((x) => x.id !== id),
+      {
+        onSuccess: () => toast.success(`${a?.name ?? id} re-included — recalculation queued.`),
+        onError: (err) => toast.error(`Could not update: ${(err as Error).message}`),
+      },
+    );
+  }
 
   function runRecalc(assigneeId?: string) {
     recalc.mutate(assigneeId, {
@@ -258,6 +287,41 @@ export function AssigneeRatesPage() {
           }
         />
       </div>
+
+      <Card padding={0}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: excluded.length ? '1px solid var(--border-soft)' : undefined }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Excluded from costing</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              These assignees need no rate. Their tasks and time entries stay visible; cost is $0 and marked “Excluded”.
+            </div>
+          </div>
+          {isAdmin && (
+            <Button size="sm" variant="default" icon={<UserMinus size={12} />} onClick={() => setExcludeModalOpen(true)}>
+              Exclude assignee
+            </Button>
+          )}
+        </div>
+        {excluded.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {excluded.map((a) => (
+              <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', borderTop: '1px solid var(--border-soft)' }}>
+                <ClickupAvatar userId={a.id} email={a.email} name={a.name ?? a.id} size={28} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{a.name ?? a.id}</div>
+                  {a.email && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{a.email}</div>}
+                </div>
+                <Pill tone="gray" size="xs">excluded</Pill>
+                {isAdmin && (
+                  <Button size="sm" variant="ghost" loading={updateExcluded.isPending} onClick={() => removeExclusion(a.id)}>
+                    Remove
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       <div
         style={{
@@ -486,6 +550,14 @@ export function AssigneeRatesPage() {
         rate={selectedRate}
         presetAssignee={presetAssignee}
         onClose={closeModal}
+      />
+
+      <ExcludeAssigneeModal
+        open={excludeModalOpen}
+        onClose={() => setExcludeModalOpen(false)}
+        excludedIds={excludedIds}
+        onConfirm={addExclusion}
+        saving={updateExcluded.isPending}
       />
     </div>
   );
