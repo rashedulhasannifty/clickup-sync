@@ -237,7 +237,7 @@ export function BudgetsPage() {
           <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Month</span>
           <input
             type="month"
-            value={rawMonth}
+            value={rawMonth || effectiveMonth}
             onChange={(e) => setRawMonth(e.target.value)}
             style={{
               fontSize: 12,
