@@ -8,6 +8,7 @@ import { QueryError } from '../components/ui/QueryError';
 import { TableSkeleton } from '../components/ui/TableSkeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Input } from '../components/ui/Input';
+import { Pagination } from '../components/ui/Pagination';
 import { AuditLogDrawer } from '../components/AuditLogDrawer';
 import type { AuditLogRow } from '../api/auditLog';
 import { fmt } from '../lib/formatters';
@@ -29,8 +30,15 @@ function statusTone(code: number): 'green' | 'amber' | 'red' {
 export function AuditLogPage() {
   const [actor, setActor] = useState('');
   const [selected, setSelected] = useState<AuditLogRow | null>(null);
-  const query = useAuditLog({ actor: actor || undefined, limit: 100 });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const query = useAuditLog({
+    actor: actor || undefined,
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
+  });
   const items: AuditLogRow[] = query.data?.items ?? [];
+  const total = query.data?.total ?? 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -44,7 +52,7 @@ export function AuditLogPage() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
         <ShieldCheck size={14} style={{ color: 'var(--text-muted)' }} />
         <div style={{ flex: 1, maxWidth: 280 }}>
-          <Input aria-label="Filter by actor" placeholder="Filter by actor…" value={actor} onChange={(e) => setActor(e.target.value)} />
+          <Input aria-label="Filter by actor" placeholder="Filter by actor…" value={actor} onChange={(e) => { setActor(e.target.value); setPage(1); }} />
         </div>
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -98,6 +106,13 @@ export function AuditLogPage() {
               )}
             </tbody>
           </table>
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            onPageChange={setPage}
+            onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+          />
         </Card>
       )}
 

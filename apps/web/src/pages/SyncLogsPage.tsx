@@ -24,6 +24,7 @@ import { Input } from '../components/ui/Input';
 import { Pill } from '../components/ui/Pill';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
+import { Pagination } from '../components/ui/Pagination';
 import { TableSkeleton } from '../components/ui/TableSkeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { SyncRunDrawer } from '../components/SyncRunDrawer';
@@ -111,6 +112,10 @@ export function SyncLogsPage() {
   const [jobStatusFilter, setJobStatusFilter] = useState(() =>
     searchParams.get('status') === 'failed' ? 'failed' : 'all',
   );
+  const [runsPage, setRunsPage] = useState(1);
+  const [runsPageSize, setRunsPageSize] = useState(50);
+  const [webhooksPage, setWebhooksPage] = useState(1);
+  const [webhooksPageSize, setWebhooksPageSize] = useState(50);
 
   const deadLetters = useDeadLetters(isAdmin);
   const retryDeadLetter = useRetryDeadLetter();
@@ -120,7 +125,8 @@ export function SyncLogsPage() {
   const dlTotal = deadLetters.data?.total ?? 0;
 
   const jobLogs = useJobLogs({
-    limit: 50,
+    limit: runsPageSize,
+    offset: (runsPage - 1) * runsPageSize,
     status: jobStatusFilter !== 'all' ? jobStatusFilter : undefined,
   });
   // "Last success" / "Last failure" cards source their values from these
@@ -130,7 +136,10 @@ export function SyncLogsPage() {
   // contradicted Overview's "Failed jobs (24h): N need retry" KPI.
   const lastSuccessQuery = useJobLogs({ status: 'completed', limit: 1 });
   const lastFailureQuery = useJobLogs({ status: 'failed', limit: 1 });
-  const webhookEvents = useWebhookEvents({ limit: 50 });
+  const webhookEvents = useWebhookEvents({
+    limit: webhooksPageSize,
+    offset: (webhooksPage - 1) * webhooksPageSize,
+  });
   const retryFailedWebhooks = useRetryFailedWebhooks();
 
   // Retry/resolve feedback surfaces as a toast (top-right, auto-dismiss).
@@ -163,6 +172,12 @@ export function SyncLogsPage() {
     const types = [...new Set(allWebhookItems.map((w) => w.eventType).filter(Boolean))];
     return [{ value: 'all', label: 'All events' }, ...types.map((e) => ({ value: e, label: e }))];
   }, [allWebhookItems]);
+
+  // Webhook search/status/event filters run client-side over the current page
+  // (the endpoint only accepts limit/offset). With pagination on, surface that
+  // so an active filter showing few/no rows reads as "this page" not "ever".
+  const webhookFilterActive =
+    webhookStatusFilter !== 'all' || webhookEventFilter !== 'all' || webhookSearch.trim() !== '';
 
   const filteredWebhooks = allWebhookItems.filter((w) => {
     if (webhookStatusFilter !== 'all' && w.status !== webhookStatusFilter) return false;
@@ -287,7 +302,7 @@ export function SyncLogsPage() {
             }}
           >
             <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>Status</span>
-            <Select ariaLabel="Filter runs by status" size="md" options={JOB_STATUS_OPTIONS} value={jobStatusFilter} onChange={setJobStatusFilter} />
+            <Select ariaLabel="Filter runs by status" size="md" options={JOB_STATUS_OPTIONS} value={jobStatusFilter} onChange={(v) => { setJobStatusFilter(v); setRunsPage(1); }} />
             <span style={{ flex: 1 }} />
             {jobStatusFilter === 'failed' && (
               <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
@@ -446,6 +461,13 @@ export function SyncLogsPage() {
                   )}
                 </tbody>
               </table>
+              <Pagination
+                page={runsPage}
+                pageSize={runsPageSize}
+                total={jobTotal}
+                onPageChange={setRunsPage}
+                onPageSizeChange={(s) => { setRunsPageSize(s); setRunsPage(1); }}
+              />
             </Card>
           )}
         </div>
@@ -500,7 +522,7 @@ export function SyncLogsPage() {
               <Input
                 icon={<Search size={14} />}
                 value={webhookSearch}
-                onChange={(e) => setWebhookSearch(e.target.value)}
+                onChange={(e) => { setWebhookSearch(e.target.value); setWebhooksPage(1); }}
                 placeholder="Search event ID, task…"
                 aria-label="Search webhook events"
               />
@@ -510,9 +532,9 @@ export function SyncLogsPage() {
               size="md"
               options={WEBHOOK_STATUS_OPTIONS}
               value={webhookStatusFilter}
-              onChange={setWebhookStatusFilter}
+              onChange={(v) => { setWebhookStatusFilter(v); setWebhooksPage(1); }}
             />
-            <Select ariaLabel="Filter webhooks by event type" size="md" options={eventTypeOptions} value={webhookEventFilter} onChange={setWebhookEventFilter} />
+            <Select ariaLabel="Filter webhooks by event type" size="md" options={eventTypeOptions} value={webhookEventFilter} onChange={(v) => { setWebhookEventFilter(v); setWebhooksPage(1); }} />
             {failedWebhooks.length > 0 && (
               <Button
                 size="md"
@@ -646,6 +668,18 @@ export function SyncLogsPage() {
                   )}
                 </tbody>
               </table>
+              {webhookFilterActive && (
+                <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border)', fontSize: 11.5, color: 'var(--text-muted)' }}>
+                  Showing {filteredWebhooks.length} of {allWebhookItems.length} on this page · filters apply to the current page only.
+                </div>
+              )}
+              <Pagination
+                page={webhooksPage}
+                pageSize={webhooksPageSize}
+                total={webhookTotal}
+                onPageChange={setWebhooksPage}
+                onPageSizeChange={(s) => { setWebhooksPageSize(s); setWebhooksPage(1); }}
+              />
             </Card>
           )}
         </div>
