@@ -5,8 +5,14 @@ function makePrisma(rate: unknown) {
   return { prisma: { assigneeRate: { findFirst } } as any, findFirst };
 }
 
-function makeSettings(cost: Partial<{ autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean }> = {}) {
-  return { getPreferences: () => ({ cost: { autoRecalcOnRateChange: true, rateMatching: 'start', nonBillableZero: false, ...cost } }) } as any;
+function makeSettings(
+  cost: Partial<{ autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean }> = {},
+  excludedIds: string[] = [],
+) {
+  return {
+    getPreferences: () => ({ cost: { autoRecalcOnRateChange: true, rateMatching: 'start', nonBillableZero: false, excludedAssignees: [], ...cost } }),
+    getExcludedAssigneeIds: () => new Set(excludedIds),
+  } as any;
 }
 
 describe('CostCalculatorService', () => {
@@ -129,5 +135,27 @@ describe('CostCalculatorService', () => {
     await svc.calculate('user-1', new Date('2024-06-15T10:00:00.000Z'), 2, undefined, { dueDate: null });
     const where = findFirst.mock.calls[0][0].where;
     expect(where.validFrom.lte.toISOString()).toBe('2024-06-15T00:00:00.000Z');
+  });
+
+  it('returns COST_EXCLUDED with zero cost when the assignee is excluded', async () => {
+    const { prisma, findFirst } = makePrisma({ rateId: 7n, currency: 'USD', hourlyRateCents: 15000n });
+    const svc = new CostCalculatorService(prisma, makeSettings({}, ['user-1']));
+
+    const r = await svc.calculate('user-1', new Date('2024-06-15T10:00:00.000Z'), 2);
+
+    expect(r.status).toBe('COST_EXCLUDED');
+    expect(r.costCents).toBe(0n);
+    expect(r.rateId).toBeNull();
+    expect(findFirst).not.toHaveBeenCalled(); // short-circuits before the rate lookup
+  });
+
+  it('exclusion wins over nonBillableZero and over an existing rate', async () => {
+    const { prisma } = makePrisma({ rateId: 7n, currency: 'USD', hourlyRateCents: 15000n });
+    const svc = new CostCalculatorService(prisma, makeSettings({ nonBillableZero: true }, ['user-1']));
+
+    const r = await svc.calculate('user-1', new Date('2024-06-15T10:00:00.000Z'), 2, undefined, { billable: true });
+
+    expect(r.status).toBe('COST_EXCLUDED');
+    expect(r.costCents).toBe(0n);
   });
 });

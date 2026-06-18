@@ -27,6 +27,9 @@ export class CostCalculatorService {
     opts?: { billable?: boolean; dueDate?: Date | null },
   ) {
     if (!userId || !startTime) return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND' };
+    if (this.settings.getExcludedAssigneeIds().has(userId)) {
+      return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'COST_EXCLUDED' };
+    }
     const cost = this.settings.getPreferences().cost;
     if (cost.nonBillableZero && opts?.billable === false) {
       return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'COST_CALCULATED' };
