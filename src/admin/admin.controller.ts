@@ -1,4 +1,4 @@
-import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Logger, NotFoundException, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, HttpCode, Logger, NotFoundException, Param, Patch, Post, Put, Query, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles, CurrentUser } from '../auth/decorators';
@@ -10,6 +10,7 @@ import { BackfillDto } from './dto/backfill.dto';
 import { BackfillReplacementDto } from './dto/backfill-replacement.dto';
 import { CreateRateDto } from './dto/create-rate.dto';
 import { UpdateRateDto } from './dto/update-rate.dto';
+import { UpdateExcludedAssigneesDto } from './dto/update-excluded-assignees.dto';
 import { CreateTagAssigneeDto } from './dto/create-tag-assignee.dto';
 import { UpdateTagAssigneeDto } from './dto/update-tag-assignee.dto';
 import { CreateClientBudgetDto } from './dto/create-client-budget.dto';
@@ -510,6 +511,36 @@ export class AdminController {
   @ApiOperation({ summary: 'Delete an assignee rate' })
   deleteRate(@Param('id') id: string) {
     return this.ratesService.remove(parseId(id));
+  }
+
+  // ── Excluded-from-costing assignees ────────────────────────────────────────
+
+  @Get('excluded-assignees')
+  @ApiOperation({ summary: 'List assignees excluded from costing' })
+  listExcludedAssignees() {
+    return { assignees: this.settings.getPreferences().cost.excludedAssignees };
+  }
+
+  @Put('excluded-assignees')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Replace the whole excluded-from-costing assignee list; recalcs changed assignees' })
+  async updateExcludedAssignees(@Body() dto: UpdateExcludedAssigneesDto, @CurrentUser() user: AuthPrincipal) {
+    const prev = new Set(this.settings.getPreferences().cost.excludedAssignees.map((a) => a.id));
+    const next = dto.assignees.map((a) => ({ id: a.id, name: a.name ?? null, email: a.email ?? null }));
+    const nextIds = new Set(next.map((a) => a.id));
+
+    await this.settings.update({ preferences: { cost: { excludedAssignees: next } } }, actorLabel(user));
+
+    // Recalc anyone whose excluded-ness changed: added (now COST_EXCLUDED) and
+    // removed (back to rate-based costing / NO_RATE_FOUND).
+    const changed = new Set<string>();
+    for (const id of nextIds) if (!prev.has(id)) changed.add(id);
+    for (const id of prev) if (!nextIds.has(id)) changed.add(id);
+    for (const id of changed) {
+      this.queues.get(QUEUES.MAINTENANCE).add(JOBS.RECALCULATE_COSTS, { assigneeId: id }, this.queues.defaultJobOptions());
+    }
+
+    return { assignees: next, recalculated: [...changed] };
   }
 
   // ── Client Budgets CRUD ─────────────────────────────────────────────────────
