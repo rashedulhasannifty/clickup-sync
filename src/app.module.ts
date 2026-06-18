@@ -7,6 +7,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { join } from 'path';
 import { validateEnv } from './config/env.validation';
 import { buildBullConnection } from './config/connection.config';
+import { isWorker } from './config/role';
 import { DatabaseModule } from './database/database.module';
 import { SettingsModule } from './settings/settings.module';
 import { ClickupModule } from './clickup/clickup.module';
@@ -23,6 +24,12 @@ import { ReportsModule } from './reports/reports.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
 
+// Background work (BullMQ processors + cron) only runs in the worker role. In
+// the web role these are omitted so blue-green's warm old web color can't
+// double-fire scheduled jobs. Job *producers* (controllers/QueuesModule) stay
+// in both roles; only consumers (WorkersModule) and the scheduler move out.
+const worker = isWorker();
+
 @Module({
   imports: [
     ServeStaticModule.forRoot({
@@ -35,7 +42,7 @@ import { HealthModule } from './health/health.module';
       exclude: ['/api/*splat', '/docs/*splat', '/webhooks/*splat', '/admin/*splat', '/reports/*splat'],
     }),
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
-    ScheduleModule.forRoot(),
+    ...(worker ? [ScheduleModule.forRoot()] : []),
     BullModule.forRootAsync({
       useFactory: () => ({ connection: buildBullConnection(process.env.REDIS_URL ?? '') }),
     }),
@@ -48,7 +55,7 @@ import { HealthModule } from './health/health.module';
     TimeEntriesModule,
     RatesModule,
     SyncModule,
-    WorkersModule,
+    ...(worker ? [WorkersModule] : []),
     AdminModule,
     BudgetsModule,
     ReportsModule,
