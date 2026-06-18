@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { TrendingUp, ChevronRight } from 'lucide-react';
 import { Card } from './ui/Card';
+import { Button } from './ui/Button';
 import { fmt } from '../lib/formatters';
 import { useAnomalies } from '../hooks/useReports';
 
@@ -48,15 +49,9 @@ export function AnomaliesPanel() {
       {q.isError && (
         <div style={{ padding: 16 }}>
           <div style={{ fontSize: 13, color: 'var(--red)', marginBottom: 8 }}>Couldn't load anomalies.</div>
-          <button
-            type="button"
-            onClick={() => q.refetch()}
-            style={{
-              padding: '6px 12px', fontSize: 12, fontWeight: 600,
-              background: 'var(--surface)', color: 'var(--text)',
-              border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer',
-            }}
-          >Retry</button>
+          <Button size="sm" variant="caution" onClick={() => q.refetch()} disabled={q.isFetching}>
+            {q.isFetching ? 'Retrying…' : 'Retry'}
+          </Button>
         </div>
       )}
       {data && rows.length === 0 && !q.isLoading && (
