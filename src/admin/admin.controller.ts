@@ -536,8 +536,14 @@ export class AdminController {
     const changed = new Set<string>();
     for (const id of nextIds) if (!prev.has(id)) changed.add(id);
     for (const id of prev) if (!nextIds.has(id)) changed.add(id);
+    // Settings already persisted; a queue failure must not fail the request or
+    // leave a floating rejection. Recalc can be re-run via the manual button.
     for (const id of changed) {
-      this.queues.get(QUEUES.MAINTENANCE).add(JOBS.RECALCULATE_COSTS, { assigneeId: id }, this.queues.defaultJobOptions());
+      try {
+        await this.queues.get(QUEUES.MAINTENANCE).add(JOBS.RECALCULATE_COSTS, { assigneeId: id }, this.queues.defaultJobOptions());
+      } catch (e) {
+        this.logger.error(`Failed to enqueue cost recalculation for excluded-assignee change ${id}: ${(e as Error).message}`);
+      }
     }
 
     return { assignees: next, recalculated: [...changed] };
