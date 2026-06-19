@@ -71,9 +71,14 @@ export class ReportsController {
   }
 
   @Get('time-entries/hour-spikes')
-  @ApiOperation({ summary: 'Per-user daily-hour spikes: a team watchlist of days exceeding the absolute cap or 2x the user\'s 30-day median, plus per-user daily-hours series for the chart.' })
-  hourSpikes(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.reports.hourSpikes(this.settings.getSpikeHoursCap(), from, to);
+  @ApiOperation({ summary: "Per-user daily-hour spikes: a team watchlist of days exceeding the absolute cap or 2x the user's median over the selected window (min 14 days), plus per-user daily-hours series for the chart. Supports limit + includeResolved." })
+  hourSpikes(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+    @Query('includeResolved') includeResolved?: string,
+  ) {
+    return this.reports.hourSpikes(this.settings.getSpikeHoursCap(), from, to, Number(limit) || 20, includeResolved === 'true');
   }
 
   @Get('time-entries/by-user')
