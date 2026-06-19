@@ -24,24 +24,26 @@ const VARIANTS: Record<Variant, { bg: string; color: string; border: string }> =
   primary: { bg: 'var(--text)',    color: 'var(--surface)', border: 'transparent'   },
   accent:  { bg: 'var(--accent)',  color: '#fff',           border: 'transparent'   },
   ghost:   { bg: 'transparent',   color: 'var(--text)',     border: 'transparent'   },
-  // Semantic variants: soft tinted fill + dark colored text from the accessible
-  // pill tokens (correct contrast in both light and dark themes).
-  danger:  { bg: 'var(--pill-red-bg)',   color: 'var(--pill-red-text)',   border: 'transparent' },
-  success: { bg: 'var(--pill-green-bg)', color: 'var(--pill-green-text)', border: 'transparent' },
-  caution: { bg: 'var(--pill-amber-bg)', color: 'var(--pill-amber-text)', border: 'transparent' },
+  // Semantic variants: solid, saturated fills so they read as buttons, not
+  // badges. Colors live in --btn-* tokens (separate from the soft --pill-*
+  // chips); text/contrast is handled per token (amber takes dark text).
+  danger:  { bg: 'var(--btn-danger-bg)',  color: 'var(--btn-danger-text)',  border: 'transparent' },
+  success: { bg: 'var(--btn-success-bg)', color: 'var(--btn-success-text)', border: 'transparent' },
+  caution: { bg: 'var(--btn-caution-bg)', color: 'var(--btn-caution-text)', border: 'transparent' },
   subtle:  { bg: 'var(--muted-bg)', color: 'var(--text)',   border: 'transparent'   },
 };
 
-/** Hover backgrounds aligned with `design/project/components.jsx` Button. */
+/** Per-variant hover backgrounds. Neutral variants use theme-relative tokens
+ *  (stronger than the global --hover); filled variants darken to a solid. */
 const HOVER_BG: Record<Variant, string> = {
-  default: 'var(--hover)',
-  primary: 'var(--text)',
+  default: 'var(--btn-neutral-hover)',
+  primary: 'var(--btn-primary-hover)',
   accent: 'var(--accent-hover)',
-  ghost: 'var(--hover)',
+  ghost: 'var(--btn-neutral-hover)',
   danger: 'var(--btn-danger-hover)',
   success: 'var(--btn-success-hover)',
   caution: 'var(--btn-caution-hover)',
-  subtle: 'var(--hover)',
+  subtle: 'var(--btn-subtle-hover)',
 };
 
 export function Button({

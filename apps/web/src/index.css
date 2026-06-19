@@ -49,11 +49,18 @@
   --pill-purple-bg: #ede9fe;
   --pill-purple-text: #5b21b6;
 
-  /* Semantic button hover backgrounds (soft fills; base bg/text reuse the
-     accessible pill tokens above). */
-  --btn-success-hover: #b7f0d8;
-  --btn-danger-hover: #fdcfcf;
-  --btn-caution-hover: #fde9a8;
+  /* Semantic action buttons: solid, saturated fills so they read as buttons
+     (not badges). Kept separate from the soft --pill-* tokens, which status
+     chips still use. Amber takes dark text (white fails contrast on amber). */
+  --btn-danger-bg: #dc2626;   --btn-danger-text: #ffffff;  --btn-danger-hover: #b91c1c;
+  --btn-success-bg: #059669;  --btn-success-text: #ffffff; --btn-success-hover: #047857;
+  --btn-caution-bg: #f59e0b;  --btn-caution-text: #451a03; --btn-caution-hover: #d97706;
+
+  /* Neutral button hovers — stronger than the global --hover so the feedback
+     reads clearly. primary/subtle are solid fills, so they get full colors. */
+  --btn-neutral-hover: rgba(15, 23, 42, 0.07);
+  --btn-subtle-hover: #e7e5e3;
+  --btn-primary-hover: #1e293b;
 
   /* Soft amber fill for inline warning banners (deep-link notices, etc.).
      Tracks the per-theme pill token so it tints correctly in dark mode. */
@@ -103,10 +110,12 @@
   --table-zebra: rgba(255, 255, 255, 0.02);
   --code-bg: #0f0f11;
 
-  /* Semantic button hover backgrounds — dark */
-  --btn-success-hover: rgba(16, 185, 129, 0.25);
-  --btn-danger-hover: rgba(239, 68, 68, 0.25);
-  --btn-caution-hover: rgba(245, 158, 11, 0.25);
+  /* Neutral button hovers — dark. Solid semantic fills (--btn-*-bg/text/hover)
+     are saturated colors and read correctly on dark surfaces, so they inherit
+     from :root; only the neutral (theme-relative) hovers are redefined here. */
+  --btn-neutral-hover: rgba(255, 255, 255, 0.09);
+  --btn-subtle-hover: #2a2a30;
+  --btn-primary-hover: #e4e4e7;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
