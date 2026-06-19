@@ -278,6 +278,23 @@ export function useHourSpikes(limit: number, includeResolved: boolean) {
   });
 }
 
+/**
+ * Hour-spike watchlist over a fixed trailing 7-day window, independent of the
+ * topbar date filter. Used by the notification center so the spike feed is
+ * stable regardless of what range the user is currently viewing. Keyed by the
+ * day (not the exact timestamp) so it doesn't refetch on every render.
+ */
+export function useHourSpikeWatch() {
+  const now = Date.now();
+  const to = new Date(now).toISOString();
+  const from = new Date(now - 7 * 86_400_000).toISOString();
+  return useQuery<HourSpikes>({
+    queryKey: ['hour-spikes-watch', from.slice(0, 10), to.slice(0, 10)],
+    queryFn: () => reportsApi.hourSpikes({ from, to }),
+    staleTime: 60_000,
+  });
+}
+
 export function useSpikeNoticePreview(userId: string | null, date: string | null) {
   return useQuery<SpikeNoticePreview>({
     queryKey: ['spike-notice-preview', userId, date],
