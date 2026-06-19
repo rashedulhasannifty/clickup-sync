@@ -6,7 +6,7 @@ import { Card } from '../components/ui/Card';
 import { Select } from '../components/ui/Select';
 import { Button } from '../components/ui/Button';
 import { BarChart, type BarData } from '../components/charts/BarChart';
-import { useHourSpikes, type HourSpikeWatchRow } from '../hooks/useReports';
+import { useHourSpikes, useResolveSpike, useUnresolveSpike, type HourSpikeWatchRow } from '../hooks/useReports';
 import { useAuth } from '../hooks/useAuth';
 import { NotifySpikeModal } from '../components/NotifySpikeModal';
 import { ClickupAvatar } from '../components/ui/ClickupAvatar';
@@ -39,8 +39,17 @@ function watchSubtitle(s: HourSpikeWatchRow, cap: number): string {
 
 export function HourSpikesPage() {
   const navigate = useNavigate();
-  const q = useHourSpikes();
+  const [limit, setLimit] = useState(20);
+  const [showResolved, setShowResolved] = useState(false);
+  const q = useHourSpikes(limit, showResolved);
   const data = q.data;
+
+  const resolveSpike = useResolveSpike();
+  const unresolveSpike = useUnresolveSpike();
+
+  // Reset paging when the toggle changes so totals/buttons stay consistent.
+  // (Date-range changes already remount the query via its key.)
+  const onToggleResolved = (next: boolean) => { setShowResolved(next); setLimit(20); };
 
   const { hasRole } = useAuth();
   const canNotify = hasRole('ADMIN');
@@ -70,7 +79,19 @@ export function HourSpikesPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <PageHeader title="Time Spikes" />
 
-      <Card padding={0} title="Spike watchlist" subtitle="Days a user logged unusually high hours">
+      <Card
+        padding={0}
+        title="Spike watchlist"
+        subtitle="Days a user logged unusually high hours"
+        action={
+          canNotify ? (
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={showResolved} onChange={(e) => onToggleResolved(e.target.checked)} />
+              Show resolved
+            </label>
+          ) : undefined
+        }
+      >
         {q.isLoading && (
           <div style={{ padding: 16 }}>
             {[0, 1, 2].map((i) => (
@@ -94,6 +115,7 @@ export function HourSpikesPage() {
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px',
                   borderBottom: i < data.watchlist.length - 1 ? '1px solid var(--border-soft)' : 0,
+                  opacity: s.resolved ? 0.55 : 1,
                 }}
               >
                 <button
@@ -127,22 +149,63 @@ export function HourSpikesPage() {
                   </span>
                 </button>
                 {canNotify && (
-                  s.notified ? (
-                    <span style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0,
-                      fontSize: 12, fontWeight: 600, padding: '4px 8px', borderRadius: 7,
-                      background: 'var(--pill-amber-bg)', color: 'var(--pill-amber-text)',
-                    }}>
-                      <Check size={12} /> Notified
-                    </span>
-                  ) : (
-                    <Button size="sm" variant="caution" aria-label={`Notify ${s.userName} about ${formatDate(s.date)}`} onClick={() => setActiveRow(s)} style={{ flexShrink: 0 }}>
-                      Notify
-                    </Button>
-                  )
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    {s.resolved ? (
+                      <>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          fontSize: 12, fontWeight: 600, padding: '4px 8px', borderRadius: 7,
+                          background: 'var(--muted-bg)', color: 'var(--text-muted)',
+                        }}>
+                          <Check size={12} /> Resolved
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Unresolve ${s.userName} on ${formatDate(s.date)}`}
+                          disabled={unresolveSpike.isPending}
+                          onClick={() => unresolveSpike.mutate({ userId: s.userId, date: s.date })}
+                        >
+                          Unresolve
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        {s.notified ? (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            fontSize: 12, fontWeight: 600, padding: '4px 8px', borderRadius: 7,
+                            background: 'var(--pill-amber-bg)', color: 'var(--pill-amber-text)',
+                          }}>
+                            <Check size={12} /> Notified
+                          </span>
+                        ) : (
+                          <Button size="sm" variant="caution" aria-label={`Notify ${s.userName} about ${formatDate(s.date)}`} onClick={() => setActiveRow(s)}>
+                            Notify
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={`Resolve ${s.userName} on ${formatDate(s.date)}`}
+                          disabled={resolveSpike.isPending}
+                          onClick={() => resolveSpike.mutate({ userId: s.userId, date: s.date, userName: s.userName })}
+                        >
+                          Resolve
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
             ))}
+          </div>
+        )}
+        {data && data.watchlist.length < data.watchlistTotal && (
+          <div style={{ padding: 12, borderTop: '1px solid var(--border-soft)', display: 'flex', justifyContent: 'center' }}>
+            <Button size="sm" variant="ghost" disabled={q.isFetching} onClick={() => setLimit((n) => n + 20)}>
+              Load 20 more ({data.watchlist.length} of {data.watchlistTotal})
+            </Button>
           </div>
         )}
       </Card>
