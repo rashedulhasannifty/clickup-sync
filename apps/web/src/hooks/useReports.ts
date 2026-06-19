@@ -256,6 +256,7 @@ export interface HourSpikeWatchRow {
   multiplier: number | null;
   rule: 'absolute' | 'relative' | 'both';
   notified: boolean;
+  resolved: boolean;
 }
 
 export interface HourSpikeUserPoint { date: string; hours: number; isSpike: boolean; }
@@ -264,14 +265,15 @@ export interface HourSpikeUser { userId: string; userName: string; points: HourS
 export interface HourSpikes {
   cap: number;
   watchlist: HourSpikeWatchRow[];
+  watchlistTotal: number;
   byUser: { buckets: string[]; users: HourSpikeUser[] };
 }
 
-export function useHourSpikes() {
+export function useHourSpikes(limit: number, includeResolved: boolean) {
   const { fromDate, toDate } = useGlobalFilters();
   return useQuery<HourSpikes>({
-    queryKey: ['hour-spikes', fromDate, toDate],
-    queryFn: () => reportsApi.hourSpikes({ from: fromDate, to: toDate }),
+    queryKey: ['hour-spikes', fromDate, toDate, limit, includeResolved],
+    queryFn: () => reportsApi.hourSpikes({ from: fromDate, to: toDate, limit, includeResolved }),
     placeholderData: keepPreviousData,
   });
 }
@@ -289,6 +291,22 @@ export function useNotifySpike() {
   return useMutation({
     mutationFn: (body: { userId: string; date: string; rule?: 'absolute' | 'relative' | 'both'; median?: number; note?: string }) =>
       adminApi.notifySpike(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hour-spikes'] }),
+  });
+}
+
+export function useResolveSpike() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { userId: string; date: string; userName?: string; note?: string }) => adminApi.resolveSpike(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['hour-spikes'] }),
+  });
+}
+
+export function useUnresolveSpike() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { userId: string; date: string }) => adminApi.unresolveSpike(body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['hour-spikes'] }),
   });
 }
