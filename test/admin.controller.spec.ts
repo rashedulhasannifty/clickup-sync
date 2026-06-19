@@ -650,7 +650,7 @@ describe('AdminController', () => {
       const user = { id: 'admin@x', email: 'admin@x', role: 'OWNER' } as any;
       await ctrl.resolveSpike({ userId: 'u1', date: '2026-06-10', userName: 'Ann', note: 'ok' } as any, user);
       expect(resolutions.resolve).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: 'u1', date: '2026-06-10', userName: 'Ann', note: 'ok' }),
+        expect.objectContaining({ userId: 'u1', date: '2026-06-10', userName: 'Ann', note: 'ok', resolvedBy: 'admin@x' }),
       );
     });
 
