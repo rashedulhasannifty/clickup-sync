@@ -13,6 +13,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { getRole } from './config/role';
+import { helmetOptions } from './config/helmet.config';
 
 async function bootstrap() {
   // Worker role: boot the DI container so BullMQ processors + cron start, but
@@ -35,7 +36,7 @@ async function bootstrap() {
   // brute-force protection gone, and one client can lock everyone out. Match the
   // hop count to the actual deployment topology if more than one proxy is added.
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
-  app.use(helmet());
+  app.use(helmet(helmetOptions));
   app.use(compression());
   app.use(cookieParser());
   app.enableCors({
