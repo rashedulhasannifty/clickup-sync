@@ -263,6 +263,19 @@ model SpikeNotification {
   @@map("spike_notifications")
 }
 
+model SpikeResolution {
+  id            BigInt   @id @default(autoincrement())
+  clickupUserId String   @map("clickup_user_id")
+  spikeDate     DateTime @map("spike_date") @db.Date
+  userName      String?  @map("user_name")
+  note          String?
+  resolvedBy    String?  @map("resolved_by")
+  resolvedAt    DateTime @default(now()) @map("resolved_at")
+
+  @@unique([clickupUserId, spikeDate])
+  @@map("spike_resolutions")
+}
+
 model AdminAuditLog {
   id           BigInt   @id @default(autoincrement())
   occurredAt   DateTime @default(now()) @map("occurred_at")
