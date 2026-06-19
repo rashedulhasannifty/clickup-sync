@@ -195,7 +195,7 @@ export function HourSpikesPage() {
                         <StatusPill tone="muted" icon={<Check size={13} />}>Resolved</StatusPill>
                         <Button
                           size="sm"
-                          variant="subtle"
+                          variant="default"
                           aria-label={`Unresolve ${s.userName} on ${formatDate(s.date)}`}
                           disabled={unresolvePending}
                           onClick={() => unresolveSpike.mutate({ userId: s.userId, date: s.date })}
@@ -219,7 +219,7 @@ export function HourSpikesPage() {
                         )}
                         <Button
                           size="sm"
-                          variant="subtle"
+                          variant="default"
                           aria-label={`Resolve ${s.userName} on ${formatDate(s.date)}`}
                           disabled={resolvePending}
                           onClick={() => resolveSpike.mutate({ userId: s.userId, date: s.date, userName: s.userName })}
