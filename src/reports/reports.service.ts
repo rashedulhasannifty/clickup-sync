@@ -630,18 +630,44 @@ export class ReportsService {
     });
   }
 
-  async webhookEvents(limit = 50, offset = 0) {
+  async webhookEvents(limit = 50, offset = 0, status?: string, eventType?: string, search?: string) {
     const safeLimit = Math.min(limit, 200);
-    const [items, total] = await Promise.all([
+    const where: Prisma.ClickupWebhookEventWhereInput = {};
+    if (status && status !== 'all') where.status = status;
+    if (eventType && eventType !== 'all') where.eventType = eventType;
+    const q = search?.trim();
+    if (q) {
+      where.OR = [
+        { taskId: { contains: q, mode: 'insensitive' } },
+        { eventType: { contains: q, mode: 'insensitive' } },
+        // The numeric primary key is shown in the UI, so allow an exact match
+        // when the search term is all digits (contains isn't valid on BigInt).
+        ...(/^\d+$/.test(q) ? [{ id: BigInt(q) }] : []),
+      ];
+    }
+    const [items, total, eventTypeRows] = await Promise.all([
       this.prisma.clickupWebhookEvent.findMany({
+        where,
         orderBy: { receivedAt: 'desc' },
         take: safeLimit,
         skip: offset,
         select: { id: true, eventType: true, taskId: true, status: true, receivedAt: true, processedAt: true },
       }),
-      this.prisma.clickupWebhookEvent.count(),
+      this.prisma.clickupWebhookEvent.count({ where }),
+      // Distinct event types across ALL events (not the filtered set) so the
+      // filter dropdown stays stable regardless of the active filter.
+      this.prisma.clickupWebhookEvent.findMany({
+        where: { eventType: { not: null } },
+        distinct: ['eventType'],
+        select: { eventType: true },
+        orderBy: { eventType: 'asc' },
+      }),
     ]);
-    return { items: items.map(i => ({ ...i, id: i.id.toString() })), total };
+    return {
+      items: items.map(i => ({ ...i, id: i.id.toString() })),
+      total,
+      eventTypes: eventTypeRows.map(r => r.eventType).filter((e): e is string => !!e),
+    };
   }
 
   async jobLogs(queueName?: string, status?: string, limit = 50, offset = 0) {

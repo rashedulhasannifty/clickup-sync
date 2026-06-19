@@ -202,9 +202,15 @@ export class ReportsController {
   syncHealth() { return this.reports.syncHealth(); }
 
   @Get('ops/webhook-events')
-  @ApiOperation({ summary: 'Recent webhook events' })
-  webhookEvents(@Query('limit') limit?: string, @Query('offset') offset?: string) {
-    return this.reports.webhookEvents(Number(limit) || 50, Number(offset) || 0);
+  @ApiOperation({ summary: 'Recent webhook events with optional filters (status, eventType, search)' })
+  webhookEvents(
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('status') status?: string,
+    @Query('eventType') eventType?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.reports.webhookEvents(Number(limit) || 50, Number(offset) || 0, status, eventType, search);
   }
 
   @Get('ops/job-logs')

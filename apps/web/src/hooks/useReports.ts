@@ -194,7 +194,7 @@ export function useSyncHealth() {
   });
 }
 
-export function useWebhookEvents(params?: { limit?: number; offset?: number }) {
+export function useWebhookEvents(params?: { limit?: number; offset?: number; status?: string; eventType?: string; search?: string }) {
   return useQuery({
     queryKey: ['webhook-events', params],
     queryFn: () => reportsApi.webhookEvents(params),

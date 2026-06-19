@@ -379,6 +379,49 @@ describe('ReportsService', () => {
       expect(result.items[0].id).toBe('42');
       expect(result.total).toBe(1);
     });
+
+    it('builds a filtered where clause and returns distinct event types', async () => {
+      const prisma = makePrisma();
+      // First findMany = page items; second findMany = distinct event types.
+      prisma.clickupWebhookEvent.findMany
+        .mockResolvedValueOnce([{ id: BigInt(7), eventType: 'taskUpdated', taskId: 't1', status: 'failed', receivedAt: new Date(), processedAt: null }])
+        .mockResolvedValueOnce([{ eventType: 'taskCreated' }, { eventType: 'taskUpdated' }]);
+      prisma.clickupWebhookEvent.count.mockResolvedValue(1);
+
+      const result = await new ReportsService(prisma).webhookEvents(50, 0, 'failed', 'taskUpdated', '123');
+
+      // The page query (first findMany call) gets the composed where clause.
+      const pageWhere = prisma.clickupWebhookEvent.findMany.mock.calls[0][0].where;
+      expect(pageWhere.status).toBe('failed');
+      expect(pageWhere.eventType).toBe('taskUpdated');
+      // All-digit search also matches the numeric primary key exactly.
+      expect(pageWhere.OR).toEqual(
+        expect.arrayContaining([
+          { taskId: { contains: '123', mode: 'insensitive' } },
+          { eventType: { contains: '123', mode: 'insensitive' } },
+          { id: BigInt(123) },
+        ]),
+      );
+      // count() is scoped to the same filter.
+      expect(prisma.clickupWebhookEvent.count).toHaveBeenCalledWith({ where: pageWhere });
+      // Distinct list is surfaced for the filter dropdown.
+      expect(result.eventTypes).toEqual(['taskCreated', 'taskUpdated']);
+    });
+
+    it('omits the id OR-term when the search is not all digits', async () => {
+      const prisma = makePrisma();
+      prisma.clickupWebhookEvent.findMany.mockResolvedValue([]);
+      prisma.clickupWebhookEvent.count.mockResolvedValue(0);
+
+      await new ReportsService(prisma).webhookEvents(50, 0, undefined, undefined, 'task');
+
+      const pageWhere = prisma.clickupWebhookEvent.findMany.mock.calls[0][0].where;
+      expect(pageWhere.OR).toEqual([
+        { taskId: { contains: 'task', mode: 'insensitive' } },
+        { eventType: { contains: 'task', mode: 'insensitive' } },
+      ]);
+      expect(pageWhere.status).toBeUndefined();
+    });
   });
 
   describe('jobLogs', () => {

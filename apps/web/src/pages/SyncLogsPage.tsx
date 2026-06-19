@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -116,6 +116,16 @@ export function SyncLogsPage() {
   const [runsPageSize, setRunsPageSize] = useState(50);
   const [webhooksPage, setWebhooksPage] = useState(1);
   const [webhooksPageSize, setWebhooksPageSize] = useState(50);
+  // Debounce the free-text search so server-side filtering doesn't fire a
+  // request on every keystroke.
+  const [debouncedWebhookSearch, setDebouncedWebhookSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedWebhookSearch(webhookSearch.trim());
+      setWebhooksPage(1);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [webhookSearch]);
 
   const deadLetters = useDeadLetters(isAdmin);
   const retryDeadLetter = useRetryDeadLetter();
@@ -139,7 +149,14 @@ export function SyncLogsPage() {
   const webhookEvents = useWebhookEvents({
     limit: webhooksPageSize,
     offset: (webhooksPage - 1) * webhooksPageSize,
+    status: webhookStatusFilter !== 'all' ? webhookStatusFilter : undefined,
+    eventType: webhookEventFilter !== 'all' ? webhookEventFilter : undefined,
+    search: debouncedWebhookSearch || undefined,
   });
+  // Unfiltered recent sample for the health metric cards + the "total events"
+  // count and tab badge, so the table's status/event/search filter doesn't
+  // skew the at-a-glance numbers (mirrors the last-success/last-failure split).
+  const webhookStats = useWebhookEvents({ limit: 200 });
   const retryFailedWebhooks = useRetryFailedWebhooks();
 
   // Retry/resolve feedback surfaces as a toast (top-right, auto-dismiss).
@@ -160,42 +177,37 @@ export function SyncLogsPage() {
   const successRatePct =
     jobItems.length > 0 ? Math.round((jobItems.filter((j) => j.status === 'completed').length / jobItems.length) * 100) : null;
 
+  // Server-filtered + paginated slice that fills the table.
   const allWebhookItems: WebhookItem[] = Array.isArray(webhookEvents.data?.items)
     ? (webhookEvents.data!.items as WebhookItem[])
     : [];
-  const webhookTotal = webhookEvents.data?.total ?? 0;
+  const webhookTotal = webhookEvents.data?.total ?? 0; // filtered total → pager
 
-  const processedWebhooks = allWebhookItems.filter((w) => w.status === 'processed');
-  const failedWebhooks = allWebhookItems.filter((w) => w.status === 'failed');
+  // Unfiltered recent sample + total drive the health cards and tab badge.
+  const statItems: WebhookItem[] = Array.isArray(webhookStats.data?.items)
+    ? (webhookStats.data!.items as WebhookItem[])
+    : [];
+  const webhookStatsTotal = webhookStats.data?.total ?? 0;
 
-  const eventTypeOptions = useMemo(() => {
-    const types = [...new Set(allWebhookItems.map((w) => w.eventType).filter(Boolean))];
-    return [{ value: 'all', label: 'All events' }, ...types.map((e) => ({ value: e, label: e }))];
-  }, [allWebhookItems]);
+  const processedWebhooks = statItems.filter((w) => w.status === 'processed');
+  const failedWebhooks = statItems.filter((w) => w.status === 'failed');
 
-  // Webhook search/status/event filters run client-side over the current page
-  // (the endpoint only accepts limit/offset). With pagination on, surface that
-  // so an active filter showing few/no rows reads as "this page" not "ever".
-  const webhookFilterActive =
-    webhookStatusFilter !== 'all' || webhookEventFilter !== 'all' || webhookSearch.trim() !== '';
-
-  const filteredWebhooks = allWebhookItems.filter((w) => {
-    if (webhookStatusFilter !== 'all' && w.status !== webhookStatusFilter) return false;
-    if (webhookEventFilter !== 'all' && w.eventType !== webhookEventFilter) return false;
-    if (webhookSearch) {
-      const q = webhookSearch.toLowerCase();
-      const hay = `${w.eventType} ${w.taskId ?? ''} ${w.id}`.toLowerCase();
-      if (!hay.includes(q)) return false;
-    }
-    return true;
-  });
+  // Event-type options come from the server's distinct list (computed over ALL
+  // events, not the current page) so the dropdown stays stable under filtering.
+  const serverEventTypes: string[] = Array.isArray(webhookStats.data?.eventTypes)
+    ? (webhookStats.data!.eventTypes as string[])
+    : [];
+  const eventTypeOptions = useMemo(
+    () => [{ value: 'all', label: 'All events' }, ...serverEventTypes.map((e) => ({ value: e, label: e }))],
+    [serverEventTypes],
+  );
 
   const processedPct =
-    allWebhookItems.length > 0
-      ? Math.round((processedWebhooks.length / allWebhookItems.length) * 100)
+    statItems.length > 0
+      ? Math.round((processedWebhooks.length / statItems.length) * 100)
       : 0;
 
-  const latencySamples = allWebhookItems.map(webhookLatencyMs).filter((n): n is number => n != null);
+  const latencySamples = statItems.map(webhookLatencyMs).filter((n): n is number => n != null);
   const avgLatencyMs =
     latencySamples.length > 0
       ? Math.round(latencySamples.reduce((a, b) => a + b, 0) / latencySamples.length)
@@ -208,7 +220,7 @@ export function SyncLogsPage() {
 
   const tabItems = [
     { value: 'runs', label: 'Sync runs', count: jobTotal > 0 ? jobTotal : undefined },
-    { value: 'webhooks', label: 'Webhook events', count: webhookTotal > 0 ? webhookTotal : undefined },
+    { value: 'webhooks', label: 'Webhook events', count: webhookStatsTotal > 0 ? webhookStatsTotal : undefined },
     // Dead-letter management is admin-only (the API 403s for members).
     ...(isAdmin
       ? [{ value: 'dead-letters', label: 'Dead letters', count: dlTotal > 0 ? dlTotal : undefined }]
@@ -217,6 +229,7 @@ export function SyncLogsPage() {
 
   const runsLoading = jobLogs.isLoading;
   const webhooksLoading = webhookEvents.isLoading;
+  const webhookStatsLoading = webhookStats.isLoading;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -480,27 +493,27 @@ export function SyncLogsPage() {
             <MetricCard
               dense
               label="Total events (24h)"
-              value={webhooksLoading ? '—' : fmt.number(webhookTotal)}
+              value={webhookStatsLoading ? '—' : fmt.number(webhookStatsTotal)}
               icon={<Activity size={13} />}
             />
             <MetricCard
               dense
               label="Processed"
-              value={webhooksLoading ? '—' : fmt.number(processedWebhooks.length)}
-              sublabel={allWebhookItems.length > 0 ? `${processedPct}%` : undefined}
+              value={webhookStatsLoading ? '—' : fmt.number(processedWebhooks.length)}
+              sublabel={statItems.length > 0 ? `${processedPct}%` : undefined}
               icon={<CircleCheck size={13} />}
             />
             <MetricCard
               dense
               label="Failed"
-              value={webhooksLoading ? '—' : fmt.number(failedWebhooks.length)}
+              value={webhookStatsLoading ? '—' : fmt.number(failedWebhooks.length)}
               sublabel="needs retry"
               icon={<AlertTriangle size={13} />}
             />
             <MetricCard
               dense
               label="Avg latency"
-              value={webhooksLoading ? '—' : avgLatencyMs != null ? `${avgLatencyMs}ms` : '—'}
+              value={webhookStatsLoading ? '—' : avgLatencyMs != null ? `${avgLatencyMs}ms` : '—'}
               sublabel={p95LatencyMs != null ? `p95: ${p95LatencyMs}ms` : 'p95: —'}
               icon={<Clock size={13} />}
             />
@@ -522,7 +535,7 @@ export function SyncLogsPage() {
               <Input
                 icon={<Search size={14} />}
                 value={webhookSearch}
-                onChange={(e) => { setWebhookSearch(e.target.value); setWebhooksPage(1); }}
+                onChange={(e) => setWebhookSearch(e.target.value)}
                 placeholder="Search event ID, task…"
                 aria-label="Search webhook events"
               />
@@ -585,18 +598,22 @@ export function SyncLogsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredWebhooks.length === 0 ? (
+                  {allWebhookItems.length === 0 ? (
                     <tr>
                       <td colSpan={6}>
                         <EmptyState
                           icon={<Activity size={20} />}
                           title="No webhook events"
-                          body="Incoming ClickUp webhook deliveries will appear here."
+                          body={
+                            webhookStatusFilter !== 'all' || webhookEventFilter !== 'all' || debouncedWebhookSearch
+                              ? 'No webhook events match these filters.'
+                              : 'Incoming ClickUp webhook deliveries will appear here.'
+                          }
                         />
                       </td>
                     </tr>
                   ) : (
-                    filteredWebhooks.map((e, i) => {
+                    allWebhookItems.map((e, i) => {
                       const ok = e.status === 'processed';
                       return (
                         <tr
@@ -668,11 +685,6 @@ export function SyncLogsPage() {
                   )}
                 </tbody>
               </table>
-              {webhookFilterActive && (
-                <div style={{ padding: '8px 14px', borderTop: '1px solid var(--border)', fontSize: 11.5, color: 'var(--text-muted)' }}>
-                  Showing {filteredWebhooks.length} of {allWebhookItems.length} on this page · filters apply to the current page only.
-                </div>
-              )}
               <Pagination
                 page={webhooksPage}
                 pageSize={webhooksPageSize}
