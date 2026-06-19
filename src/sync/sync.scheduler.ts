@@ -13,11 +13,13 @@ export class SyncScheduler {
     private readonly settings: SettingsService,
   ) {}
 
-  // Recurring reconciliation: hourly, syncs tasks updated in the last day and
-  // scans a bounded 7-day time-entry window (rather than re-draining the full
-  // per-space window each run) — enough to recover time entries whose webhook
-  // was missed within the last week. Manual backfills still use the full window.
-  @Cron('0 0 * * * *')
+  // Recurring reconciliation: every 12 hours, syncs tasks updated in the last
+  // day and scans a bounded 7-day time-entry window (rather than re-draining the
+  // full per-space window each run) — enough to recover time entries whose
+  // webhook was missed within the last week. Manual backfills use the full
+  // window. This is only a safety net for webhooks ClickUp never delivered;
+  // real-time updates still arrive via webhooks.
+  @Cron('0 0 */12 * * *')
   async reconcileRecentUpdates() {
     const queue = this.queues.get(QUEUES.CLICKUP_BACKFILLS);
     // Skip a space whose previous backfill hasn't drained yet — under ClickUp
