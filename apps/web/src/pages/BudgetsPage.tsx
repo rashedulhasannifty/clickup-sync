@@ -193,7 +193,7 @@ export function BudgetsPage() {
           <>
             <Button
               size="md"
-              variant="default"
+              variant="subtle"
               icon={<Download size={13} />}
               disabled={isLoading || statusRows.length === 0}
               onClick={() =>
@@ -237,7 +237,7 @@ export function BudgetsPage() {
           <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Month</span>
           <input
             type="month"
-            value={rawMonth}
+            value={rawMonth || effectiveMonth}
             onChange={(e) => setRawMonth(e.target.value)}
             style={{
               fontSize: 12,
@@ -312,7 +312,7 @@ export function BudgetsPage() {
             body="Once time entries are synced, clients with spend will appear here."
             action={
               isAdmin ? (
-                <Button onClick={() => openCreate()} icon={<Plus size={12} />}>
+                <Button variant="accent" onClick={() => openCreate()} icon={<Plus size={12} />}>
                   Add budget
                 </Button>
               ) : undefined
@@ -468,7 +468,7 @@ export function BudgetsPage() {
                           {!hasBudget && isAdmin && (
                             <Button
                               size="sm"
-                              variant="default"
+                              variant="accent"
                               icon={<Plus size={12} />}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -489,7 +489,7 @@ export function BudgetsPage() {
                               />
                               <Button
                                 size="sm"
-                                variant="ghost"
+                                variant="danger"
                                 icon={<Trash2 size={12} />}
                                 onClick={(e) => handleDelete(row.client, e)}
                                 aria-label={`Delete budget for ${row.client}`}

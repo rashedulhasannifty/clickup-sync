@@ -344,7 +344,7 @@ export function OverviewPage() {
           <>
             <Button variant="default" icon={<RefreshCw size={13} strokeWidth={1.75} />}
               onClick={handleRefresh}>Refresh</Button>
-            <Button variant="accent" icon={<Download size={13} strokeWidth={1.75} />}
+            <Button variant="subtle" icon={<Download size={13} strokeWidth={1.75} />}
               onClick={handleExport}>Export</Button>
           </>
         }

@@ -6,7 +6,7 @@ export interface SettingsPreferences {
     channels: { email: boolean; slack: boolean; pagerduty: boolean };
   };
   sync: { reconcileLookbackDays: number; realtimeWebhooks: boolean; backfillOnConnect: boolean };
-  cost: { autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean };
+  cost: { autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean; excludedAssignees: { id: string; name: string | null; email: string | null }[] };
   failure: { webhookRetryAttempts: number };
   spaces: Record<string, { enabled: boolean }>;
 }

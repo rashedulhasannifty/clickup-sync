@@ -281,7 +281,7 @@ export function MemberDrawer({
         }}
       >
         {pending && (
-          <Button variant="default" icon={<Send size={13} />} onClick={onResend}>
+          <Button variant="caution" icon={<Send size={13} />} onClick={onResend}>
             Resend
           </Button>
         )}

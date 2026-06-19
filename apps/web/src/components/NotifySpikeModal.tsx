@@ -39,7 +39,7 @@ export function NotifySpikeModal({ row, onClose }: { row: HourSpikeWatchRow; onC
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
           <Button
-            variant="accent"
+            variant="caution"
             size="sm"
             loading={notify.isPending}
             disabled={preview.isLoading || preview.isError || noEmail || already}

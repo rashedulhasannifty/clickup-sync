@@ -38,6 +38,7 @@ const STATUS_OPTIONS = [
   { value: '', label: 'Any status' },
   { value: 'COST_CALCULATED', label: 'Cost calculated' },
   { value: 'NO_RATE_FOUND', label: 'No rate found' },
+  { value: 'COST_EXCLUDED', label: 'Excluded' },
 ];
 
 // Deep-link mode wants every entry for the assignee regardless of date. The
@@ -453,6 +454,9 @@ export function TimeEntriesPage() {
       align: 'right',
       render: (row) => {
         const cur = row.currency ?? 'USD';
+        if (row.status === 'COST_EXCLUDED') {
+          return <span style={{ color: 'var(--text-faint)', fontSize: 12 }}>Excluded</span>;
+        }
         return row.costAud > 0 ? (
           <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.money(row.costAud * 100, cur)}</span>
         ) : (
@@ -464,11 +468,12 @@ export function TimeEntriesPage() {
       key: 'status',
       header: 'Status',
       width: 130,
-      render: (row) => (
+      render: (row) =>
         row.status === 'COST_CALCULATED'
           ? <Pill tone="green" size="xs" icon={<CircleCheck size={10} strokeWidth={2} />}>cost calculated</Pill>
-          : <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} strokeWidth={2} />}>no rate found</Pill>
-      ),
+          : row.status === 'COST_EXCLUDED'
+            ? <Pill tone="gray" size="xs">excluded</Pill>
+            : <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} strokeWidth={2} />}>no rate found</Pill>,
     },
     {
       key: 'syncedAt',
@@ -494,7 +499,7 @@ export function TimeEntriesPage() {
           <>
             <Button
               size="md"
-              variant="default"
+              variant="subtle"
               icon={<Download size={13} strokeWidth={1.75} />}
               loading={exportCsv.isPending}
               disabled={exportCsv.isPending || isLoading}
@@ -505,7 +510,7 @@ export function TimeEntriesPage() {
             {isAdmin && (
               <Button
                 size="md"
-                variant="default"
+                variant="caution"
                 icon={<RefreshCw size={13} strokeWidth={1.75} />}
                 loading={syncAllTimeEntries.isPending}
                 onClick={() => syncAllTimeEntries.mutate(undefined, {

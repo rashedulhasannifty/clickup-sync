@@ -26,6 +26,10 @@ export class ReportsController {
   @ApiOperation({ summary: 'Distinct task assignees for the Tasks page filter dropdown. Drawn from clickup_tasks.assignees_names so assignees with zero time entries (e.g. expense-only tasks) still appear.' })
   tasksAssignees() { return this.reports.tasksAssignees(); }
 
+  @Get('time-entries/assignees')
+  @ApiOperation({ summary: 'Distinct assignees that have time entries. Feeds the exclude-from-costing picker.' })
+  timeEntriesAssignees() { return this.reports.timeEntriesAssignees(); }
+
   @Get('clients')
   @ApiOperation({ summary: 'Distinct task clients for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks.client (non-empty, non-deleted), with per-client task counts.' })
   tasksClients() { return this.reports.tasksClients(); }
@@ -222,11 +226,11 @@ export class ReportsController {
 
   @Get('ops/stats')
   @ApiOperation({ summary: 'Dashboard overview stats (failures, dead-letters, webhooks, missing rates)' })
-  stats() { return this.reports.stats(); }
+  stats() { return this.reports.stats([...this.settings.getExcludedAssigneeIds()]); }
 
   @Get('ops/missing-rates')
   @ApiOperation({ summary: 'Assignees with NO_RATE_FOUND time entries, grouped by user' })
-  missingRates() { return this.reports.missingRates(); }
+  missingRates() { return this.reports.missingRates([...this.settings.getExcludedAssigneeIds()]); }
 
   @Get('spaces')
   @ApiOperation({ summary: 'Per-space task, hour, and cost aggregates' })

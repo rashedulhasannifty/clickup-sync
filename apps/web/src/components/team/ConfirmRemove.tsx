@@ -90,11 +90,11 @@ export function ConfirmRemove({
           Cancel
         </Button>
         <Button
-          variant="accent"
+          variant="danger"
           icon={<Trash2 size={13} />}
           loading={loading}
           onClick={onConfirm}
-          style={{ background: 'var(--red)', boxShadow: 'none' }}
+          style={{ boxShadow: 'none' }}
         >
           {verb}
           {multi ? ` ${targets.length}` : ''}

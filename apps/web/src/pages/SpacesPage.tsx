@@ -316,7 +316,7 @@ function SpaceGrid({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncCon
                 {canSync && (
                   <Button
                     size="sm"
-                    variant="default"
+                    variant="caution"
                     icon={<RefreshCw size={12} />}
                     loading={isSyncing}
                     disabled={!sid || syncingId !== null || isQueued}
@@ -473,7 +473,7 @@ function WorkloadView({ spaces, controls }: { spaces: SpaceRow[]; controls: Sync
                   {canSync && (
                     <Button
                       size="sm"
-                      variant="default"
+                      variant="caution"
                       icon={isQueued ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <RefreshCw size={12} />}
                       loading={isSyncing}
                       disabled={!rowId || syncingId !== null || isQueued}
@@ -633,7 +633,7 @@ export function SpacesPage() {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {canSync && (
               <Button
-                variant="accent"
+                variant="caution"
                 size="md"
                 icon={<RefreshCw size={13} />}
                 loading={syncingId !== null}

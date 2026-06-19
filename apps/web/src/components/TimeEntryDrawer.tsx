@@ -78,6 +78,8 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
           <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {entry.status === 'COST_CALCULATED' ? (
               <Pill tone="green" size="xs" icon={<CircleCheck size={11} strokeWidth={2} />}>Cost calculated</Pill>
+            ) : entry.status === 'COST_EXCLUDED' ? (
+              <Pill tone="gray" size="xs">Excluded</Pill>
             ) : (
               <Pill tone="amber" size="xs" icon={<AlertTriangle size={11} strokeWidth={2} />}>No rate found</Pill>
             )}
@@ -136,6 +138,14 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
                 <strong style={{ fontSize: 16 }}>{fmt.money(entry.costAud * 100, currency)}</strong>
               </div>
             </div>
+          ) : entry.status === 'COST_EXCLUDED' ? (
+            <div style={{ padding: 12, background: 'var(--muted-bg)', borderRadius: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Excluded from costing</div>
+              <div style={{ fontSize: 12, color: 'var(--text)' }}>
+                {firstName} is excluded from costing, so this entry&apos;s cost is $0. Hours still count toward totals.
+                Manage exclusions on the Assignee Rates page.
+              </div>
+            </div>
           ) : (
             <div style={{ padding: 12, background: 'var(--pill-amber-bg)', borderRadius: 8 }}>
               <div style={{ fontSize: 12, color: 'var(--pill-amber-text)', fontWeight: 600, marginBottom: 4 }}>NO_RATE_FOUND</div>
@@ -144,7 +154,7 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
               </div>
               <Button
                 size="sm"
-                variant="default"
+                variant="accent"
                 style={{ marginTop: 10 }}
                 icon={<Plus size={12} strokeWidth={1.75} />}
                 onClick={() => navigate('/assignee-rates')}

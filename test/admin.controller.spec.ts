@@ -86,12 +86,12 @@ describe('AdminController', () => {
     return { findMany: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
   }
 
-  function makeSettings() {
+  function makeSettings(excludedAssignees: any[] = []) {
     return {
       getTeamId: () => '3450636',
       getMasked: jest.fn().mockReturnValue({ teamId: '3450636', encryptionEnabled: true }),
       update: jest.fn().mockResolvedValue({ teamId: '3450636' }),
-      getPreferences: () => ({ sync: { backfillOnConnect: false }, cost: { autoRecalcOnRateChange: true } }),
+      getPreferences: () => ({ sync: { backfillOnConnect: false }, cost: { autoRecalcOnRateChange: true, excludedAssignees } }),
       isSpaceEnabled: () => true,
     } as any;
   }
@@ -114,7 +114,7 @@ describe('AdminController', () => {
     } as any;
   }
 
-  function makeCtrl(queues?: any, deadLetters?: any, webhooks?: any, timeEntriesRepo?: any, webhookEvents?: any, webhookParser?: any, prisma?: any) {
+  function makeCtrl(queues?: any, deadLetters?: any, webhooks?: any, timeEntriesRepo?: any, webhookEvents?: any, webhookParser?: any, prisma?: any, settings?: any) {
     return new AdminController(
       queues ?? makeQueues(),
       deadLetters ?? makeDeadLetters(),
@@ -130,11 +130,17 @@ describe('AdminController', () => {
       webhookParser ?? makeWebhookParser(),
       prisma ?? makePrisma(),
       makeAuditLog(),
-      makeSettings(),
+      settings ?? makeSettings(),
       makeSpikeNotifications(),
       { search: jest.fn() } as any,
       { forTask: jest.fn() } as any,
     );
+  }
+
+  function makeQueuesWithAdd() {
+    const add = jest.fn().mockResolvedValue({});
+    const queues = { get: jest.fn().mockReturnValue({ add, getJobs: jest.fn().mockResolvedValue([]) }), defaultJobOptions: jest.fn().mockReturnValue({}), webhookJobOptions: jest.fn().mockReturnValue({}) } as any;
+    return { queues, add };
   }
 
   describe('syncTask', () => {
@@ -579,6 +585,51 @@ describe('AdminController', () => {
       const tagAssigneeRepo = makeTagAssigneeRepo();
       await makeCtrlWithOverride({ tagAssigneeRepo }).deleteTagAssignee('7');
       expect(tagAssigneeRepo.remove).toHaveBeenCalledWith(BigInt(7));
+    });
+  });
+
+  describe('excluded-assignees', () => {
+    const user = { email: 'admin@x.com' } as any;
+
+    it('GET returns the stored list', () => {
+      const ctrl = makeCtrl(undefined, undefined, undefined, undefined, undefined, undefined, undefined, makeSettings([{ id: 'u1', name: 'A', email: null }]));
+      expect(ctrl.listExcludedAssignees()).toEqual({ assignees: [{ id: 'u1', name: 'A', email: null }] });
+    });
+
+    it('PUT add-only enqueues the added id', async () => {
+      const { queues, add } = makeQueuesWithAdd();
+      const ctrl = makeCtrl(queues, undefined, undefined, undefined, undefined, undefined, undefined, makeSettings([]));
+      const result = await ctrl.updateExcludedAssignees({ assignees: [{ id: 'u1' }] } as any, user);
+      expect(add).toHaveBeenCalledTimes(1);
+      expect(add).toHaveBeenCalledWith(expect.any(String), { assigneeId: 'u1' }, expect.any(Object));
+      expect(result.recalculated).toContain('u1');
+    });
+
+    it('PUT remove-only enqueues the removed id', async () => {
+      const { queues, add } = makeQueuesWithAdd();
+      const ctrl = makeCtrl(queues, undefined, undefined, undefined, undefined, undefined, undefined, makeSettings([{ id: 'u1', name: 'A', email: null }]));
+      const result = await ctrl.updateExcludedAssignees({ assignees: [] } as any, user);
+      expect(add).toHaveBeenCalledTimes(1);
+      expect(add).toHaveBeenCalledWith(expect.any(String), { assigneeId: 'u1' }, expect.any(Object));
+      expect(result.recalculated).toContain('u1');
+      expect(result.assignees).toEqual([]);
+    });
+
+    it('PUT mixed enqueues only the added + removed ids, not the unchanged one', async () => {
+      const { queues, add } = makeQueuesWithAdd();
+      const ctrl = makeCtrl(queues, undefined, undefined, undefined, undefined, undefined, undefined, makeSettings([{ id: 'u1' }, { id: 'u2' }]));
+      await ctrl.updateExcludedAssignees({ assignees: [{ id: 'u2' }, { id: 'u3' }] } as any, user);
+      expect(add).toHaveBeenCalledTimes(2);
+      const enqueuedIds = new Set(add.mock.calls.map((c) => c[1].assigneeId));
+      expect(enqueuedIds).toEqual(new Set(['u1', 'u3']));
+    });
+
+    it('PUT no-op (unchanged list) enqueues nothing', async () => {
+      const { queues, add } = makeQueuesWithAdd();
+      const ctrl = makeCtrl(queues, undefined, undefined, undefined, undefined, undefined, undefined, makeSettings([{ id: 'u1', name: 'A', email: null }]));
+      const result = await ctrl.updateExcludedAssignees({ assignees: [{ id: 'u1', name: 'A', email: null }] } as any, user);
+      expect(add).not.toHaveBeenCalled();
+      expect(result.recalculated).toEqual([]);
     });
   });
 });

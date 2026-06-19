@@ -136,7 +136,7 @@ export function HourSpikesPage() {
                       <Check size={12} /> Notified
                     </span>
                   ) : (
-                    <Button size="sm" variant="subtle" aria-label={`Notify ${s.userName} about ${formatDate(s.date)}`} onClick={() => setActiveRow(s)} style={{ flexShrink: 0 }}>
+                    <Button size="sm" variant="caution" aria-label={`Notify ${s.userName} about ${formatDate(s.date)}`} onClick={() => setActiveRow(s)} style={{ flexShrink: 0 }}>
                       Notify
                     </Button>
                   )

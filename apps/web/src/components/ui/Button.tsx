@@ -1,6 +1,6 @@
 import React from 'react';
 
-type Variant = 'default' | 'primary' | 'accent' | 'ghost' | 'danger' | 'subtle';
+type Variant = 'default' | 'primary' | 'accent' | 'ghost' | 'danger' | 'success' | 'caution' | 'subtle';
 type Size = 'sm' | 'md' | 'lg' | 'icon' | 'iconSm';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -24,7 +24,11 @@ const VARIANTS: Record<Variant, { bg: string; color: string; border: string }> =
   primary: { bg: 'var(--text)',    color: 'var(--surface)', border: 'transparent'   },
   accent:  { bg: 'var(--accent)',  color: '#fff',           border: 'transparent'   },
   ghost:   { bg: 'transparent',   color: 'var(--text)',     border: 'transparent'   },
-  danger:  { bg: 'transparent',   color: 'var(--red)',      border: 'var(--border)' },
+  // Semantic variants: soft tinted fill + dark colored text from the accessible
+  // pill tokens (correct contrast in both light and dark themes).
+  danger:  { bg: 'var(--pill-red-bg)',   color: 'var(--pill-red-text)',   border: 'transparent' },
+  success: { bg: 'var(--pill-green-bg)', color: 'var(--pill-green-text)', border: 'transparent' },
+  caution: { bg: 'var(--pill-amber-bg)', color: 'var(--pill-amber-text)', border: 'transparent' },
   subtle:  { bg: 'var(--muted-bg)', color: 'var(--text)',   border: 'transparent'   },
 };
 
@@ -34,7 +38,9 @@ const HOVER_BG: Record<Variant, string> = {
   primary: 'var(--text)',
   accent: 'var(--accent-hover)',
   ghost: 'var(--hover)',
-  danger: 'rgb(239 68 68 / 0.08)',
+  danger: 'var(--btn-danger-hover)',
+  success: 'var(--btn-success-hover)',
+  caution: 'var(--btn-caution-hover)',
   subtle: 'var(--hover)',
 };
 
