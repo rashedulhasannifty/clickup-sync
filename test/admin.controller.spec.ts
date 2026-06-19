@@ -114,6 +114,13 @@ describe('AdminController', () => {
     } as any;
   }
 
+  function makeSpikeResolutions() {
+    return {
+      resolve: jest.fn().mockResolvedValue({ resolved: true, date: '2026-06-10' }),
+      unresolve: jest.fn().mockResolvedValue({ resolved: false, date: '2026-06-10' }),
+    } as any;
+  }
+
   function makeCtrl(queues?: any, deadLetters?: any, webhooks?: any, timeEntriesRepo?: any, webhookEvents?: any, webhookParser?: any, prisma?: any, settings?: any) {
     return new AdminController(
       queues ?? makeQueues(),
@@ -132,6 +139,7 @@ describe('AdminController', () => {
       makeAuditLog(),
       settings ?? makeSettings(),
       makeSpikeNotifications(),
+      makeSpikeResolutions(),
       { search: jest.fn() } as any,
       { forTask: jest.fn() } as any,
     );
@@ -397,7 +405,7 @@ describe('AdminController', () => {
   // double, all others are stock fakes. Keeps the call sites short and
   // resilient to constructor signature changes (e.g. adding webhookEvents).
   function makeCtrlWithOverride(overrides: Partial<{
-    ratesRepo: any; ratesService: any; tagAssigneeRepo: any; tasksRepo: any; queues: any;
+    ratesRepo: any; ratesService: any; tagAssigneeRepo: any; tasksRepo: any; queues: any; resolutions: any;
   }>) {
     return new AdminController(
       overrides.queues ?? makeQueues(),
@@ -416,6 +424,7 @@ describe('AdminController', () => {
       makeAuditLog(),
       makeSettings(),
       makeSpikeNotifications(),
+      overrides.resolutions ?? makeSpikeResolutions(),
       { search: jest.fn() } as any,
       { forTask: jest.fn() } as any,
     );
@@ -524,6 +533,7 @@ describe('AdminController', () => {
       makeAuditLog(),
       settings,
       makeSpikeNotifications(),
+      makeSpikeResolutions(),
       { search: jest.fn() } as any,
       { forTask: jest.fn() } as any,
     );
@@ -630,6 +640,25 @@ describe('AdminController', () => {
       const result = await ctrl.updateExcludedAssignees({ assignees: [{ id: 'u1', name: 'A', email: null }] } as any, user);
       expect(add).not.toHaveBeenCalled();
       expect(result.recalculated).toEqual([]);
+    });
+  });
+
+  describe('hour-spike resolutions', () => {
+    it('resolveSpike delegates to the service with the actor', async () => {
+      const resolutions = { resolve: jest.fn().mockResolvedValue({ resolved: true, date: '2026-06-10' }), unresolve: jest.fn() } as any;
+      const ctrl = makeCtrlWithOverride({ resolutions });
+      const user = { id: 'admin@x', email: 'admin@x', role: 'OWNER' } as any;
+      await ctrl.resolveSpike({ userId: 'u1', date: '2026-06-10', userName: 'Ann', note: 'ok' } as any, user);
+      expect(resolutions.resolve).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'u1', date: '2026-06-10', userName: 'Ann', note: 'ok' }),
+      );
+    });
+
+    it('unresolveSpike delegates to the service', async () => {
+      const resolutions = { resolve: jest.fn(), unresolve: jest.fn().mockResolvedValue({ resolved: false, date: '2026-06-10' }) } as any;
+      const ctrl = makeCtrlWithOverride({ resolutions });
+      await ctrl.unresolveSpike({ userId: 'u1', date: '2026-06-10' } as any);
+      expect(resolutions.unresolve).toHaveBeenCalledWith({ userId: 'u1', date: '2026-06-10' });
     });
   });
 });
