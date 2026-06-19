@@ -156,7 +156,7 @@ describe('AdminController', () => {
   describe('backfill', () => {
     it('uses configured lookback when lookbackDays is not provided', () => {
       const result = makeCtrl().backfill({ spaceId: '3577824' });
-      expect(result).toEqual({ queued: true, spaceId: '3577824', lookbackDays: 90 });
+      expect(result).toEqual({ queued: true, spaceId: '3577824', lookbackDays: 30 });
     });
 
     it('uses provided lookbackDays over configured default', () => {

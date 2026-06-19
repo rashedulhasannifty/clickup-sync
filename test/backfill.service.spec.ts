@@ -2,7 +2,7 @@ import { BackfillService } from '../src/sync/backfill.service';
 import { JOBS } from '../src/queues/queue.constants';
 
 describe('BackfillService.backfillSpace — time-entry lookback window', () => {
-  const RD_APPS_ID = '3589129'; // configured backfillLookbackDays = 20
+  const RD_APPS_ID = '3589129'; // configured backfillLookbackDays = 30
 
   function makeDeps() {
     const queueAdd = jest.fn().mockResolvedValue({});
@@ -64,15 +64,15 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
 
     const calls = timeEntryJobs(queueAdd);
     expect(calls).toHaveLength(1);
-    const days20Ms = 20 * 24 * 60 * 60 * 1000;
-    expect(startDateOf(calls[0])).toBeGreaterThanOrEqual(beforeMs - days20Ms);
-    expect(startDateOf(calls[0])).toBeLessThanOrEqual(afterMs - days20Ms + 5);
+    const days30Ms = 30 * 24 * 60 * 60 * 1000;
+    expect(startDateOf(calls[0])).toBeGreaterThanOrEqual(beforeMs - days30Ms);
+    expect(startDateOf(calls[0])).toBeLessThanOrEqual(afterMs - days30Ms + 5);
   });
 
   // The recurring reconciliation sweep passes an explicit time-entry window so
   // it can scan a bounded 7 days instead of re-draining the full configured
   // floor every run. An explicit window wins even when it is *shorter* than the
-  // space floor (here 7 < the R&D Apps 20-day floor).
+  // space floor (here 7 < the R&D Apps 30-day floor).
   it('uses an explicit timeEntryLookbackDays even when shorter than the space floor', async () => {
     const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
     const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636' } as any);
