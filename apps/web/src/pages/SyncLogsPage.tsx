@@ -220,7 +220,10 @@ export function SyncLogsPage() {
 
   const tabItems = [
     { value: 'runs', label: 'Sync runs', count: jobTotal > 0 ? jobTotal : undefined },
-    { value: 'webhooks', label: 'Webhook events', count: webhookStatsTotal > 0 ? webhookStatsTotal : undefined },
+    // Filtered total (matches the Sync-runs badge convention — the badge counts
+    // what the table is currently showing). The unfiltered total lives on the
+    // "Total events" health card instead.
+    { value: 'webhooks', label: 'Webhook events', count: webhookTotal > 0 ? webhookTotal : undefined },
     // Dead-letter management is admin-only (the API 403s for members).
     ...(isAdmin
       ? [{ value: 'dead-letters', label: 'Dead letters', count: dlTotal > 0 ? dlTotal : undefined }]
