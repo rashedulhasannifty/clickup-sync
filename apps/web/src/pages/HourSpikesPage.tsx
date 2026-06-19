@@ -163,7 +163,8 @@ export function HourSpikesPage() {
                           size="sm"
                           variant="ghost"
                           aria-label={`Unresolve ${s.userName} on ${formatDate(s.date)}`}
-                          disabled={unresolveSpike.isPending}
+                          // row-scoped: only the in-flight row's button disables
+                          disabled={unresolveSpike.isPending && unresolveSpike.variables?.userId === s.userId && unresolveSpike.variables?.date === s.date}
                           onClick={() => unresolveSpike.mutate({ userId: s.userId, date: s.date })}
                         >
                           Unresolve
@@ -188,7 +189,8 @@ export function HourSpikesPage() {
                           size="sm"
                           variant="ghost"
                           aria-label={`Resolve ${s.userName} on ${formatDate(s.date)}`}
-                          disabled={resolveSpike.isPending}
+                          // row-scoped: only the in-flight row's button disables
+                          disabled={resolveSpike.isPending && resolveSpike.variables?.userId === s.userId && resolveSpike.variables?.date === s.date}
                           onClick={() => resolveSpike.mutate({ userId: s.userId, date: s.date, userName: s.userName })}
                         >
                           Resolve
