@@ -316,7 +316,13 @@ export function useResolveSpike() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: { userId: string; date: string; userName?: string; note?: string }) => adminApi.resolveSpike(body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['hour-spikes'] }),
+    onSuccess: () =>
+      qc.invalidateQueries({
+        predicate: (query) => {
+          const k = query.queryKey[0];
+          return k === 'hour-spikes' || k === 'hour-spikes-watch';
+        },
+      }),
   });
 }
 
@@ -324,7 +330,13 @@ export function useUnresolveSpike() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: { userId: string; date: string }) => adminApi.unresolveSpike(body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['hour-spikes'] }),
+    onSuccess: () =>
+      qc.invalidateQueries({
+        predicate: (query) => {
+          const k = query.queryKey[0];
+          return k === 'hour-spikes' || k === 'hour-spikes-watch';
+        },
+      }),
   });
 }
 

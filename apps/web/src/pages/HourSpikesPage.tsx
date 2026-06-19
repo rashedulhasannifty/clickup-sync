@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TrendingUp, ChevronRight, Check } from 'lucide-react';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -7,6 +7,7 @@ import { Select } from '../components/ui/Select';
 import { Button } from '../components/ui/Button';
 import { BarChart, type BarData } from '../components/charts/BarChart';
 import { useHourSpikes, useResolveSpike, useUnresolveSpike, type HourSpikeWatchRow } from '../hooks/useReports';
+import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { useAuth } from '../hooks/useAuth';
 import { NotifySpikeModal } from '../components/NotifySpikeModal';
 import { ClickupAvatar } from '../components/ui/ClickupAvatar';
@@ -41,6 +42,7 @@ export function HourSpikesPage() {
   const navigate = useNavigate();
   const [limit, setLimit] = useState(20);
   const [showResolved, setShowResolved] = useState(false);
+  const { fromDate, toDate } = useGlobalFilters();
   const q = useHourSpikes(limit, showResolved);
   const data = q.data;
 
@@ -48,8 +50,11 @@ export function HourSpikesPage() {
   const unresolveSpike = useUnresolveSpike();
 
   // Reset paging when the toggle changes so totals/buttons stay consistent.
-  // (Date-range changes already remount the query via its key.)
   const onToggleResolved = (next: boolean) => { setShowResolved(next); setLimit(20); };
+
+  // Reset paging when the date range changes so a stale large limit doesn't
+  // carry over to a different window.
+  useEffect(() => { setLimit(20); }, [fromDate, toDate]);
 
   const { hasRole } = useAuth();
   const canNotify = hasRole('ADMIN');
