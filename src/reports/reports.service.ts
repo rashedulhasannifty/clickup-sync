@@ -1308,11 +1308,11 @@ export class ReportsService {
   /**
    * Per-user daily-hour spikes. SQL only aggregates hours per (user, local day);
    * detection, classification, ranking and zero-fill happen here in TS so the
-   * rule logic is unit-testable. The relative-rule median uses a FIXED trailing
-   * 30-day baseline (independent of the display window) so "2x median" stays
-   * meaningful even when the chart is zoomed to a few days.
+   * rule logic is unit-testable. The relative-rule median derives from the
+   * selected window, floored to a 14-day minimum so a short pick does not
+   * produce a noisy median that flags nearly every day.
    */
-  async hourSpikes(cap: number, fromParam?: string, toParam?: string) {
+  async hourSpikes(cap: number, fromParam?: string, toParam?: string, limit = 20, includeResolved = false) {
     const TZ = Prisma.raw(`'Asia/Dhaka'`);
     // `start_time` is `timestamp without time zone` holding a UTC instant. To
     // bucket by Dhaka calendar day we must first label it UTC, THEN convert:
@@ -1326,6 +1326,11 @@ export class ReportsService {
     const from = parseDate(fromParam, defaultFrom);
     const to = parseDate(toParam, new Date());
 
+    // Median baseline derives from the selected window, floored to 14 days so a
+    // short pick doesn't produce a noisy median that flags nearly every day.
+    const BASELINE_FLOOR_MS = 14 * 24 * 60 * 60 * 1000;
+    const baselineFrom = new Date(Math.min(from.getTime(), to.getTime() - BASELINE_FLOOR_MS));
+
     type DayRow = { user_id: string | null; user_name: string | null; day: string; hours: number };
     type BucketRow = { bucket: string };
 
@@ -1338,7 +1343,8 @@ export class ReportsService {
       FROM clickup_time_entries e
       JOIN clickup_tasks t ON e.task_id = t.task_id
       WHERE e.start_time IS NOT NULL
-        AND e.start_time >= now() - interval '30 days'
+        AND e.start_time >= ${baselineFrom}
+        AND e.start_time <= ${to}
         AND t.is_deleted = false
       GROUP BY 1, 2, 3
     `),
@@ -1435,7 +1441,21 @@ export class ReportsService {
       }
     }
     watchlist.sort((a, b) => b.hours - a.hours);
-    const top = watchlist.slice(0, 20);
+
+    // Resolved user-days drop out of the watchlist unless explicitly requested.
+    // One range query (not a big OR); recover YYYY-MM-DD from the @db.Date the
+    // same way the notified-enrichment below does.
+    const resolutions = await this.prisma.spikeResolution.findMany({
+      where: { spikeDate: { gte: new Date(`${buckets[0] ?? '1970-01-01'}T00:00:00.000Z`), lte: new Date(`${buckets[buckets.length - 1] ?? '1970-01-01'}T00:00:00.000Z`) } },
+      select: { clickupUserId: true, spikeDate: true },
+    });
+    const resolvedSet = new Set(
+      resolutions.map((r) => `${r.clickupUserId}|${r.spikeDate.toISOString().slice(0, 10)}`),
+    );
+    const withResolved = watchlist.map((w) => ({ ...w, resolved: resolvedSet.has(`${w.userId}|${w.date}`) }));
+    const filtered = includeResolved ? withResolved : withResolved.filter((w) => !w.resolved);
+    const watchlistTotal = filtered.length;
+    const top = filtered.slice(0, limit);
 
     // Flag rows the admin has already emailed about (one notice per user-day).
     // Guard the empty case: an empty `OR` would match every row.
@@ -1461,7 +1481,7 @@ export class ReportsService {
     // shape used by the watchlist.push above (which has no `notified` yet).
     const enriched = top.map((w) => ({ ...w, notified: notifiedSet.has(`${w.userId}|${w.date}`) }));
 
-    return { cap, watchlist: enriched, byUser: { buckets, users } };
+    return { cap, watchlist: enriched, watchlistTotal, byUser: { buckets, users } };
   }
 
   async anomalies() {
