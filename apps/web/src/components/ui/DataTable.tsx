@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { ChevronDown, Check } from 'lucide-react';
 import { Button } from './Button';
 import { EmptyState } from './EmptyState';
 import { Select } from './Select';
@@ -349,39 +350,81 @@ export function DataTable<T extends { [key: string]: unknown }>({
                   value={String(pageSize)}
                   onChange={v => onPageSizeChange(Number(v))}
                   options={pageSizeOptions.map(n => ({ value: String(n), label: `${n} / page` }))}
+                  menuPlacement="top"
                 />
               )}
               <div ref={colMenuRef} style={{ position: 'relative' }}>
-                <Button size="sm" variant="ghost" onClick={() => setShowColMenu(o => !o)}>Columns ▾</Button>
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => setShowColMenu(o => !o)}
+                  style={{ height: 32, fontSize: 13, fontWeight: 500 }}
+                  iconRight={
+                    <ChevronDown
+                      size={14}
+                      strokeWidth={2}
+                      style={{
+                        color: 'var(--text-muted)',
+                        transition: 'transform 120ms',
+                        transform: showColMenu ? 'rotate(180deg)' : 'none',
+                      }}
+                    />
+                  }
+                >
+                  Columns
+                </Button>
                 {showColMenu && (
                   <div style={{
-                    position: 'absolute', bottom: 'calc(100% + 6px)', left: 0, zIndex: 20,
+                    position: 'absolute', bottom: 'calc(100% + 6px)', left: 0, zIndex: 40,
                     background: 'var(--surface)', border: '1px solid var(--border)',
-                    borderRadius: 8, padding: 6, minWidth: 180,
-                    boxShadow: '0 8px 24px rgba(15, 23, 42, 0.12)',
+                    borderRadius: 10, padding: 5, minWidth: 196,
+                    boxShadow: '0 12px 32px -8px rgba(15, 23, 42, 0.22), 0 4px 10px rgba(15, 23, 42, 0.08)',
                   }}
                   >
-                    {initialColumns.map(c => (
-                      <label
-                        key={c.key}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 8,
-                          padding: '5px 8px', fontSize: 12, color: 'var(--text)',
-                          cursor: 'pointer', borderRadius: 5,
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={!hiddenKeys.has(c.key)}
-                          onChange={() => {
+                    <div style={{
+                      padding: '4px 9px 6px', fontSize: 10.5, fontWeight: 600,
+                      letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-faint)',
+                    }}>
+                      Toggle columns
+                    </div>
+                    {initialColumns.map(c => {
+                      const visible = !hiddenKeys.has(c.key);
+                      return (
+                        <button
+                          key={c.key}
+                          type="button"
+                          className="row-3d"
+                          role="menuitemcheckbox"
+                          aria-checked={visible}
+                          onClick={() => {
                             const next = new Set(hiddenKeys);
                             next.has(c.key) ? next.delete(c.key) : next.add(c.key);
                             setHiddenKeys(next);
                           }}
-                        />
-                        {c.header}
-                      </label>
-                    ))}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            width: '100%', padding: '7px 9px', fontSize: 13, fontWeight: 500,
+                            color: 'var(--text)', background: 'transparent', border: 0,
+                            borderRadius: 7, cursor: 'pointer', textAlign: 'left',
+                            fontFamily: 'inherit',
+                          }}
+                        >
+                          <span style={{
+                            width: 17, height: 17, borderRadius: 5, flexShrink: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: visible ? 'var(--accent)' : 'transparent',
+                            border: visible ? '1px solid var(--accent)' : '1.5px solid var(--border-strong)',
+                            boxShadow: visible ? '0 1px 2px rgba(123, 104, 238, 0.45)' : undefined,
+                            transition: 'background 120ms, border-color 120ms',
+                          }}>
+                            {visible && <Check size={11} strokeWidth={3.5} color="#fff" />}
+                          </span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {c.header}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>

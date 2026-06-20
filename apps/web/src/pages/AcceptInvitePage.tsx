@@ -116,7 +116,7 @@ export function AcceptInvitePage() {
           <h1 style={{ fontSize: 19, fontWeight: 600, color: 'var(--text)', margin: 0, letterSpacing: '-0.01em' }}>You've been invited</h1>
           <p style={{ fontSize: 13.5, color: 'var(--text-muted)', margin: '6px 0 0', lineHeight: 1.55, maxWidth: 340 }}>
             You've been invited to join the{' '}
-            <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{info.orgName}</strong> workspace on ClickUp Sync.
+            <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{info.orgName}</strong> workspace on Clicksy.
           </p>
           <div style={{ marginTop: 12 }}>
             <Pill tone="purple" icon={<Shield size={11} />}>Joining as {ROLE_LABEL[info.role] ?? info.role}</Pill>

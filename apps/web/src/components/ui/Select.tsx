@@ -26,6 +26,11 @@ interface SelectProps {
    *  at the right edge of its container (e.g. a card's action slot) so the menu
    *  grows inward instead of overflowing the page. Defaults to 'left'. */
   menuAlign?: 'left' | 'right';
+  /** Which way the menu opens. Use 'top' (drop-up) when the trigger sits at the
+   *  bottom of an `overflow:hidden` container (e.g. a table footer) so the menu
+   *  opens over the content above instead of being clipped below. Defaults to
+   *  'bottom'. */
+  menuPlacement?: 'bottom' | 'top';
 }
 
 export function Select({
@@ -40,6 +45,7 @@ export function Select({
   fullWidth,
   ariaLabel,
   menuAlign = 'left',
+  menuPlacement = 'bottom',
 }: SelectProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -223,7 +229,9 @@ export function Select({
           role="listbox"
           style={{
             position: 'absolute',
-            top: 'calc(100% + 4px)',
+            ...(menuPlacement === 'top'
+              ? { bottom: 'calc(100% + 4px)' }
+              : { top: 'calc(100% + 4px)' }),
             ...(menuAlign === 'right' ? { right: 0 } : { left: 0 }),
             zIndex: 40,
             minWidth: '100%',

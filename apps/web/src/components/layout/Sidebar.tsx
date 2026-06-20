@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { NavLink } from "react-router-dom";
+import { BrandIcon } from "../brand/BrandIcon";
+import { BrandWordmark } from "../brand/BrandWordmark";
 import {
   Home,
   BarChart3,
@@ -129,44 +131,18 @@ export function Sidebar({
           flexShrink: 0,
         }}
       >
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 7,
-            flexShrink: 0,
-            background: "var(--accent-grad)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "#fff",
-            fontSize: 13,
-            fontWeight: 700,
-            letterSpacing: "-0.02em",
-            boxShadow: "0 2px 6px rgba(123, 104, 238, 0.32)",
-          }}
-        >
-          C
-        </div>
+        <BrandIcon size={30} />
         {!collapsed && (
           <div
             style={{
               display: "flex",
               flexDirection: "column",
-              gap: 0,
+              gap: 1,
               minWidth: 0,
+              lineHeight: 1.15,
             }}
           >
-            <div
-              style={{
-                fontSize: 13,
-                fontWeight: 600,
-                color: "var(--text)",
-                lineHeight: 1.2,
-              }}
-            >
-              ClickUp Sync
-            </div>
+            <BrandWordmark fontSize={18} />
             <div
               style={{
                 fontSize: 10,

@@ -71,7 +71,7 @@ export function LoginPage() {
         </form>
       </AuthCard>
       <p style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-muted)', marginTop: 18 }}>
-        New to ClickUp Sync?{' '}
+        New to Clicksy?{' '}
         <button onClick={() => navigate('/signup')} style={{ background: 'none', border: 0, padding: 0, fontSize: 13, fontWeight: 600, color: 'var(--accent-strong)', cursor: 'pointer' }}>Create an account</button>
       </p>
     </AuthShell>
