@@ -69,6 +69,9 @@ export function AssigneeCostTrendCard() {
       title="Assignee cost trend"
       subtitle={`${bucket === 'day' ? 'Daily' : bucket === 'week' ? 'Weekly' : 'Monthly'} — ${windowDescription(bucket, useTopbar)} · ${moneyAud(total)} total`}
       padding={16}
+      // Let the body grow to fit the chart + legend instead of scrolling inside
+      // the card (the shared Card body defaults to overflowY:auto).
+      style={{ overflow: 'visible' }}
       action={
         <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
           {(['day', 'week', 'month'] as const).map((b) => {

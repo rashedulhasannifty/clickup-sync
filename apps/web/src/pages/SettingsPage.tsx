@@ -9,7 +9,7 @@ import {
   RefreshCw,
   Webhook,
 } from 'lucide-react';
-import { useSpaces, useSyncHealth } from '../hooks/useReports';
+import { useSpaces, useSyncHealth, useStats } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
 import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks, useReconcileActive } from '../hooks/useAdmin';
 import { useSettings, useUpdateSettings } from '../hooks/useSettings';
@@ -340,6 +340,7 @@ export function SettingsPage() {
   const { hasRole } = useAuth();
   const [activeTab, setActiveTab] = useState(() => (hasRole('OWNER') ? 'connection' : 'sync'));
   const syncHealth = useSyncHealth();
+  const stats = useStats();
   const spacesQuery = useSpaces();
   const tagAssignee = useTagAssignee();
   const createTagAssignee = useCreateTagAssignee();
@@ -470,8 +471,17 @@ export function SettingsPage() {
     deleteTagAssignee.mutate(id);
   }
 
-  const webhookEndpointLabel =
-    webhookStatus === 'Fresh' ? 'active' : webhookStatus === 'Stale' ? 'stale' : '—';
+  // Webhook delivery health, derived from actually-received webhook events
+  // (NOT sync-checkpoint freshness): "active" = events arrived in the last 24h,
+  // "idle" = events seen before but none recently, "none" = none ever received.
+  const webhookStats = stats.data as
+    | { webhooksLast24h?: number; lastWebhookEventAt?: string | null }
+    | undefined;
+  const lastWebhookEventAt = webhookStats?.lastWebhookEventAt ?? null;
+  const webhookDelivery: 'active' | 'idle' | 'none' =
+    (webhookStats?.webhooksLast24h ?? 0) > 0 ? 'active' : lastWebhookEventAt ? 'idle' : 'none';
+  const webhookDeliveryTone: 'green' | 'amber' | 'gray' =
+    webhookDelivery === 'active' ? 'green' : webhookDelivery === 'idle' ? 'amber' : 'gray';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -605,9 +615,9 @@ export function SettingsPage() {
               />
               <Stat
                 label="Webhook endpoint"
-                value={webhookEndpointLabel}
+                value={lastWebhookEventAt ? `event ${fmt.relative(lastWebhookEventAt)}` : 'no events yet'}
                 icon={<Webhook size={13} />}
-                dotTone={webhookStatus === 'Fresh' ? 'green' : webhookStatus === 'Stale' ? 'amber' : 'gray'}
+                dotTone={webhookDeliveryTone}
               />
               <Stat
                 label="Settings updated"
@@ -668,12 +678,12 @@ export function SettingsPage() {
                 </>
               }
               action={
-                webhookStatus === 'Fresh' ? (
+                webhookDelivery === 'active' ? (
                   <Pill tone="green" icon={<CircleCheck size={11} />}>Active</Pill>
-                ) : webhookStatus === 'Stale' ? (
-                  <Pill tone="amber">Stale</Pill>
+                ) : webhookDelivery === 'idle' ? (
+                  <Pill tone="amber">Idle</Pill>
                 ) : (
-                  <Pill tone="gray">Not registered</Pill>
+                  <Pill tone="gray">No events</Pill>
                 )
               }
             />

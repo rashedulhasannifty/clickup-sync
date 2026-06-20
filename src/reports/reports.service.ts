@@ -621,11 +621,16 @@ export class ReportsService {
   async syncHealth() {
     const checkpoints = await this.prisma.syncCheckpoint.findMany({ orderBy: { scopeId: 'asc' } });
     const now = Date.now();
+    // A space is "Stale" once its last successful sync is older than this. Set
+    // comfortably above the reconcile/safety-net interval so a normal quiet gap
+    // between syncs doesn't read as Stale (was 60m, which flagged Degraded on
+    // essentially every idle hour).
+    const STALE_AFTER_MINUTES = 12 * 60;
     return checkpoints.map(cp => {
       const space = CLICKUP_SPACES.find(s => s.id === cp.scopeId);
       const ageMs = cp.lastSuccessfulSyncAt ? now - cp.lastSuccessfulSyncAt.getTime() : null;
       const ageMinutes = ageMs !== null ? Math.round(ageMs / 60000) : null;
-      const status = ageMinutes === null ? 'Unknown' : ageMinutes > 60 ? 'Stale' : 'Fresh';
+      const status = ageMinutes === null ? 'Unknown' : ageMinutes > STALE_AFTER_MINUTES ? 'Stale' : 'Fresh';
       return { scopeId: cp.scopeId, spaceName: space?.name ?? cp.scopeId, lastSuccessfulSyncAt: cp.lastSuccessfulSyncAt, ageMinutes, status };
     });
   }
@@ -762,7 +767,7 @@ export class ReportsService {
 
   async stats(excludedIds: string[] = []) {
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const [failedJobsLast24h, deadLetterPending, webhooksLast24h, missingRateEntries] = await Promise.all([
+    const [failedJobsLast24h, deadLetterPending, webhooksLast24h, missingRateEntries, lastWebhookEvent] = await Promise.all([
       this.prisma.syncJobLog.count({ where: { status: 'failed', finishedAt: { gte: since24h } } }),
       this.prisma.deadLetterJob.count({ where: { retriedAt: null, resolvedAt: null } }),
       this.prisma.clickupWebhookEvent.count({ where: { receivedAt: { gte: since24h } } }),
@@ -772,8 +777,21 @@ export class ReportsService {
           ...(excludedIds.length ? { OR: [{ userId: null }, { userId: { notIn: excludedIds } }] } : {}),
         },
       }),
+      // Most recent webhook actually received — lets the UI report real webhook
+      // delivery health (last event + whether any arrived in the last 24h)
+      // instead of inferring it from sync-checkpoint freshness.
+      this.prisma.clickupWebhookEvent.findFirst({
+        orderBy: { receivedAt: 'desc' },
+        select: { receivedAt: true },
+      }),
     ]);
-    return { failedJobsLast24h, deadLetterPending, webhooksLast24h, missingRateEntries };
+    return {
+      failedJobsLast24h,
+      deadLetterPending,
+      webhooksLast24h,
+      missingRateEntries,
+      lastWebhookEventAt: lastWebhookEvent?.receivedAt ?? null,
+    };
   }
 
   async missingRates(excludedIds: string[] = []) {
