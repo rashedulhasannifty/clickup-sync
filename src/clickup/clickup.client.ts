@@ -9,11 +9,17 @@ import {
   ClickUpWebhook,
   CreateTimeEntryPayload,
 } from "./clickup.types";
-import { buildTimeEntriesQuery } from "./time-entries.util";
+import { buildTimeEntriesQuery, resolveTimeEntriesWindow } from "./time-entries.util";
 import { SettingsService } from "../settings/settings.service";
 
 const MAX_429_RETRIES = 3;
 const MAX_BACKOFF_MS = 60_000;
+// ClickUp's GET /team/{team}/time_entries has no pagination — it returns the
+// whole [start_date, end_date] window in one response. A multi-year window on a
+// busy task risks a large/truncated response, so split it into <=1-year slices
+// and concatenate. A window within a single slice issues exactly one request,
+// so existing hot paths (webhooks, hourly sweep) are unchanged.
+const TIME_ENTRIES_SLICE_MS = 365 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class ClickupClient {
@@ -129,9 +135,13 @@ export class ClickupClient {
       includeClosed?: boolean;
       subtasks?: boolean;
     },
-  ): Promise<ClickUpTask[]> {
-    const MAX_PAGES = 1000;
+  ): Promise<{ tasks: ClickUpTask[]; truncated: boolean }> {
+    // ~500k tasks (5000 * 100). High enough that a multi-year backfill of any
+    // real space stops on a short page well before the cap; the cap only exists
+    // as a runaway guard, and `truncated` makes hitting it observable.
+    const MAX_PAGES = 5000;
     const all: ClickUpTask[] = [];
+    let truncated = false;
     let page = 0;
     for (; page < MAX_PAGES; page++) {
       const res = await this.getTasksBySpace(spaceId, {
@@ -148,11 +158,12 @@ export class ClickupClient {
       // we did not fetch. Surface it instead of silently treating the truncated
       // list as complete (which would make downstream reconciliation soft-delete
       // the missing tail as "no longer in ClickUp").
+      truncated = true;
       this.logger.warn(
         `getAllTasksBySpace(${spaceId}) hit the ${MAX_PAGES}-page cap (~${all.length} tasks); results may be truncated and tasks beyond this window were not fetched`,
       );
     }
-    return all;
+    return { tasks: all, truncated };
   }
 
   async getTimeEntries(
@@ -160,12 +171,36 @@ export class ClickupClient {
     taskId: string,
     options?: { assigneeIds?: string[]; startDate?: number; endDate?: number },
   ): Promise<ClickUpTimeEntry[]> {
-    const qs = buildTimeEntriesQuery(taskId, options ?? {});
-    const res: any = await this.request(
-      "GET",
-      `/team/${teamId}/time_entries?${qs}`,
-    );
-    return res.data || res.entries || [];
+    // Resolve the window once, then fetch it in <=1-year slices (one request per
+    // slice) and concatenate. The union is still authoritative for the full
+    // window, so the caller's delete-reconciliation stays correct.
+    const { startMs, endMs } = resolveTimeEntriesWindow(options ?? {});
+    const byId = new Map<string, ClickUpTimeEntry>();
+    const out: ClickUpTimeEntry[] = [];
+    for (let sliceStart = startMs; sliceStart < endMs; sliceStart += TIME_ENTRIES_SLICE_MS) {
+      const sliceEnd = Math.min(sliceStart + TIME_ENTRIES_SLICE_MS, endMs);
+      const qs = buildTimeEntriesQuery(taskId, {
+        assigneeIds: options?.assigneeIds,
+        startDate: sliceStart,
+        endDate: sliceEnd,
+      });
+      const res: any = await this.request(
+        "GET",
+        `/team/${teamId}/time_entries?${qs}`,
+      );
+      const entries: ClickUpTimeEntry[] = res.data || res.entries || [];
+      // Dedupe by time-entry id in case an entry lands on a slice boundary.
+      for (const entry of entries) {
+        const id = (entry as { id?: string }).id;
+        if (id == null) {
+          out.push(entry);
+        } else if (!byId.has(id)) {
+          byId.set(id, entry);
+          out.push(entry);
+        }
+      }
+    }
+    return out;
   }
 
   async getTeamMembers(teamId: string): Promise<ClickUpMember[]> {

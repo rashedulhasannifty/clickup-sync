@@ -11,7 +11,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
       defaultJobOptions: jest.fn().mockReturnValue({}),
     } as any;
     const clickup = {
-      getAllTasksBySpace: jest.fn().mockResolvedValue([{ id: 'task-1' }]),
+      getAllTasksBySpace: jest.fn().mockResolvedValue({ tasks: [{ id: 'task-1' }], truncated: false }),
     } as any;
     const tasks = {
       syncTasks: jest.fn().mockResolvedValue(undefined),
@@ -94,11 +94,14 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   it('fetches parents referenced by subtasks but absent from the fetched page', async () => {
     const { queues, tasks, checkpoints } = makeDeps();
     const clickup = {
-      getAllTasksBySpace: jest.fn().mockResolvedValue([
-        { id: 'parent-A' },                      // present parent
-        { id: 'sub-1', parent: 'parent-A' },     // parent present → not missing
-        { id: 'sub-2', parent: 'parent-MISSING' }, // parent absent from page
-      ]),
+      getAllTasksBySpace: jest.fn().mockResolvedValue({
+        tasks: [
+          { id: 'parent-A' },                      // present parent
+          { id: 'sub-1', parent: 'parent-A' },     // parent present → not missing
+          { id: 'sub-2', parent: 'parent-MISSING' }, // parent absent from page
+        ],
+        truncated: false,
+      }),
     } as any;
     const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636' } as any);
 

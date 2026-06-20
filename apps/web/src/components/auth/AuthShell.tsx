@@ -1,23 +1,21 @@
 import React, { useState } from 'react';
 import { Sun, Moon, Eye, EyeOff, ArrowRight, Loader2, type LucideIcon } from 'lucide-react';
 import { currentTheme, toggleTheme as flipTheme } from '../../lib/theme';
+import { BrandIcon } from '../brand/BrandIcon';
+import { BrandWordmark } from '../brand/BrandWordmark';
 
-// ── Brand mark ────────────────────────────────────────────────────────────────
+export { BrandWordmark };
+
+// ── Brand mark (3D icon + wordmark) ──────────────────────────────────────────────
 export function BrandMark({ size = 34, showText = true, sub = 'operations console' }: {
   size?: number; showText?: boolean; sub?: string;
 }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
-      <div style={{
-        width: size, height: size, borderRadius: size * 0.26, flexShrink: 0,
-        background: 'var(--accent-grad)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: '#fff', fontSize: size * 0.46, fontWeight: 700, letterSpacing: '-0.02em',
-        boxShadow: '0 3px 10px rgba(123, 104, 238, 0.34)',
-      }}>C</div>
+      <BrandIcon size={size} />
       {showText && (
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
-          <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.01em' }}>ClickUp Sync</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 1, lineHeight: 1.15 }}>
+          <BrandWordmark fontSize={Math.round(size * 0.62)} />
           <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)' }}>{sub}</span>
         </div>
       )}

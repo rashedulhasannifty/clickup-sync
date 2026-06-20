@@ -25,7 +25,7 @@ export class BackfillService {
     const teamId = this.settings.getTeamId();
     await this.checkpoints.markAttempt('clickup', 'space', spaceId);
 
-    const rawTasks = await this.clickup.getAllTasksBySpace(spaceId, {
+    const { tasks: rawTasks, truncated } = await this.clickup.getAllTasksBySpace(spaceId, {
       teamId,
       dateUpdatedGt: subtractDays(days).getTime(),
       includeClosed: true,
@@ -89,7 +89,10 @@ export class BackfillService {
     }
 
     await this.checkpoints.markSuccess('clickup', 'space', spaceId);
+    if (truncated) {
+      this.logger.warn(`Backfill of ${space?.name || spaceId} hit the task pagination cap — the result is incomplete and tasks beyond the cap were not synced`);
+    }
     this.logger.log(`Backfilled ${rawTasks.length} tasks + enqueued ${rawTasks.length} time-entry jobs for ${space?.name || spaceId}`);
-    return { total: rawTasks.length, parents: parentTasks.length, subtasks: subtasks.length };
+    return { total: rawTasks.length, parents: parentTasks.length, subtasks: subtasks.length, truncated };
   }
 }
