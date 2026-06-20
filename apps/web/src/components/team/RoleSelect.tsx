@@ -131,9 +131,13 @@ export function RoleSelect({
       ) : (
         <button
           type="button"
+          className="btn-3d"
           onClick={() => !disabled && setOpen((o) => !o)}
           disabled={disabled}
           style={{
+            ['--b-edge' as string]: 'var(--border-strong)',
+            ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+            ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
             display: 'inline-flex',
             alignItems: 'center',
             gap: 8,
@@ -184,6 +188,7 @@ export function RoleSelect({
             return (
               <button
                 type="button"
+                className="row-3d"
                 key={r}
                 onClick={() => {
                   onChange(r);

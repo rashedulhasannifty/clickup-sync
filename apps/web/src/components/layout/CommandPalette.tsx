@@ -142,16 +142,29 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           animation: 'modalIn 180ms ease-out',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
-          <Search size={16} strokeWidth={1.75} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={e => { setQuery(e.target.value); setActive(0); }}
-            placeholder="Search tasks, assignees, navigate…"
-            style={{ flex: 1, border: 0, outline: 0, fontSize: 14, background: 'transparent', color: 'var(--text)', fontFamily: 'inherit' }}
-          />
-          <Kbd>esc</Kbd>
+        <div style={{ padding: 12, borderBottom: '1px solid var(--border)' }}>
+          {/* Recessed inset search field — matches the app's inset field language
+              instead of a bare borderless input. */}
+          <div
+            className="input-3d"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '9px 12px',
+              background: 'var(--muted-bg)',
+              border: '1px solid var(--border)',
+              borderRadius: 9,
+            }}
+          >
+            <Search size={16} strokeWidth={1.75} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={e => { setQuery(e.target.value); setActive(0); }}
+              placeholder="Search tasks, assignees, navigate…"
+              style={{ flex: 1, border: 0, outline: 0, fontSize: 14, background: 'transparent', color: 'var(--text)', fontFamily: 'inherit' }}
+            />
+            <Kbd>esc</Kbd>
+          </div>
         </div>
         <div ref={listRef} role="listbox" aria-label="Results" style={{ maxHeight: 360, overflowY: 'auto', padding: 6 }}>
           {filtered.length === 0 ? (
@@ -166,6 +179,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 <button
                   key={item.key}
                   type="button"
+                  className="row-3d"
                   role="option"
                   aria-selected={isActive}
                   onClick={item.run}

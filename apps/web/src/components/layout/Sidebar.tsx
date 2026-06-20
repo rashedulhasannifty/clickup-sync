@@ -232,6 +232,7 @@ export function Sidebar({
             <NavLink
               key={item.to}
               to={item.to}
+              className="nav-3d"
               style={({ isActive }) => ({
                 display: "flex",
                 alignItems: "center",

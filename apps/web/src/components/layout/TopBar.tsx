@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Search, Moon, Sun, Bell, Calendar, Layers, Menu } from 'lucide-react';
+import { Search, Moon, Sun, Calendar, Layers, Menu } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Kbd } from '../ui/Kbd';
+import { Select } from '../ui/Select';
 import { UserMenu } from './UserMenu';
+import { NotificationCenter } from './NotificationCenter';
 import { useGlobalFilters, type DateRange } from '../../hooks/useGlobalFilters';
 import { useSpaces, useSyncHealth } from '../../hooks/useReports';
 import { fmt } from '../../lib/formatters';
@@ -26,37 +28,26 @@ const DATE_RANGES = [
   { value: 'custom', label: 'Custom range…' },
 ];
 
-function IconSelect({ icon: Icon, options, value, onChange }: {
+// The top-bar date/space filters use the SAME shared <Select> as every other
+// dropdown in the app (custom 3D menu, row-3d options, check marks, lucide
+// chevron) — not a native <select>. This keeps them visually identical to
+// dropdowns elsewhere; only difference is the leading icon.
+function IconSelect({ icon: Icon, options, value, onChange, ariaLabel }: {
   icon: React.ComponentType<{ size?: number; strokeWidth?: number; style?: React.CSSProperties }>;
   options: { value: string; label: string }[];
   value: string;
   onChange: (v: string) => void;
+  ariaLabel?: string;
 }) {
   return (
-    <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-      <Icon size={13} strokeWidth={1.75} style={{ position: 'absolute', left: 8, pointerEvents: 'none', color: 'var(--text-muted)', zIndex: 1 }} />
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        style={{
-          appearance: 'none',
-          paddingLeft: 26,
-          paddingRight: 28,
-          height: 28,
-          fontSize: 12,
-          fontWeight: 500,
-          background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          borderRadius: 7,
-          color: 'var(--text)',
-          cursor: 'pointer',
-          fontFamily: 'inherit',
-        }}
-      >
-        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-      <svg style={{ position: 'absolute', right: 8, pointerEvents: 'none', color: 'var(--text-muted)', display: 'flex' }} width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="m6 9 6 6 6-6"/></svg>
-    </div>
+    <Select
+      size="sm"
+      icon={<Icon size={13} strokeWidth={1.75} />}
+      options={options}
+      value={value}
+      onChange={onChange}
+      ariaLabel={ariaLabel}
+    />
   );
 }
 
@@ -67,6 +58,7 @@ function DateInput({ value, onChange, placeholder }: { value: string; onChange: 
       value={value}
       onChange={e => onChange(e.target.value)}
       placeholder={placeholder}
+      className="btn-3d"
       style={{
         height: 28,
         fontSize: 12,
@@ -74,11 +66,14 @@ function DateInput({ value, onChange, placeholder }: { value: string; onChange: 
         padding: '0 8px',
         background: 'var(--surface)',
         border: '1px solid var(--border)',
-        borderRadius: 7,
+        borderRadius: 9,
         color: 'var(--text)',
         fontFamily: 'inherit',
         cursor: 'pointer',
         width: 140,
+        ['--b-edge' as string]: 'var(--border-strong)',
+        ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+        ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
       }}
     />
   );
@@ -152,11 +147,15 @@ export function TopBar({ onSearchClick, isMobile = false, onMenuClick }: {
           type="button"
           onClick={onMenuClick}
           aria-label="Open navigation"
+          className="btn-3d"
           style={{
             width: 32, height: 32, border: '1px solid var(--border)',
             background: 'var(--surface)', color: 'var(--text)',
-            borderRadius: 7, cursor: 'pointer', flexShrink: 0,
+            borderRadius: 9, cursor: 'pointer', flexShrink: 0,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
+            ['--b-edge' as string]: 'var(--border-strong)',
+            ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+            ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
           }}
         >
           <Menu size={16} strokeWidth={1.75} />
@@ -167,14 +166,18 @@ export function TopBar({ onSearchClick, isMobile = false, onMenuClick }: {
       <button
         type="button"
         onClick={onSearchClick}
+        className="btn-3d"
         style={{
           display: 'flex', alignItems: 'center', gap: 8,
           height: 32, padding: '0 10px',
           minWidth: isMobile ? 0 : 280,
           flex: isMobile ? '1 1 140px' : '0 0 auto',
           background: 'var(--muted-bg)', color: 'var(--text-muted)',
-          border: '1px solid var(--border)', borderRadius: 7,
+          border: '1px solid var(--border)', borderRadius: 9,
           cursor: 'pointer', fontSize: 13, fontFamily: 'inherit',
+          ['--b-edge' as string]: 'var(--border-strong)',
+          ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+          ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
         }}
       >
         <Search size={14} strokeWidth={1.75} />
@@ -188,7 +191,7 @@ export function TopBar({ onSearchClick, isMobile = false, onMenuClick }: {
           wrap onto their own row below the search field. */}
       <div style={{ flex: isMobile ? '1 1 100%' : 1 }} />
 
-      <IconSelect icon={Calendar} options={DATE_RANGES} value={dateRange} onChange={v => setDateRange(v as DateRange)} />
+      <IconSelect icon={Calendar} options={DATE_RANGES} value={dateRange} onChange={v => setDateRange(v as DateRange)} ariaLabel="Date range" />
 
       {/* Custom date range inputs */}
       {dateRange === 'custom' && (
@@ -199,7 +202,7 @@ export function TopBar({ onSearchClick, isMobile = false, onMenuClick }: {
         </div>
       )}
 
-      <IconSelect icon={Layers} options={spaceOptions} value={space} onChange={setSpace} />
+      <IconSelect icon={Layers} options={spaceOptions} value={space} onChange={setSpace} ariaLabel="Space" />
 
       {/* Divider */}
       <div style={{ height: 20, width: 1, background: 'var(--border)', flexShrink: 0 }} />
@@ -208,12 +211,16 @@ export function TopBar({ onSearchClick, isMobile = false, onMenuClick }: {
       <button
         type="button"
         onClick={() => navigate('/sync-logs')}
+        className="btn-3d"
         style={{
           display: 'flex', alignItems: 'center', gap: 6,
-          padding: '5px 10px', borderRadius: 7,
+          padding: '5px 10px', borderRadius: 9,
           background: 'var(--pill-green-bg)', color: 'var(--pill-green-text)',
           border: 0, cursor: 'pointer', fontSize: 12, fontWeight: 600,
-          fontFamily: 'inherit',
+          fontFamily: 'inherit', flexShrink: 0,
+          ['--b-edge' as string]: 'var(--border-strong)',
+          ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+          ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
         }}
       >
         <span style={{
@@ -229,35 +236,25 @@ export function TopBar({ onSearchClick, isMobile = false, onMenuClick }: {
       <button
         type="button"
         onClick={toggleTheme}
+        className="btn-3d"
         style={{
           width: 32, height: 32, border: '1px solid var(--border)',
           background: 'var(--surface)', color: 'var(--text)',
-          borderRadius: 7, cursor: 'pointer',
+          borderRadius: 9, cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexShrink: 0,
+          ['--b-edge' as string]: 'var(--border-strong)',
+          ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+          ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
         }}
         title={isDark ? 'Light mode' : 'Dark mode'}
       >
         {isDark ? <Sun size={14} strokeWidth={1.75} /> : <Moon size={14} strokeWidth={1.75} />}
       </button>
 
-      {/* Bell — placeholder until a notifications feed exists; no fake unread
-          badge (it previously showed a permanent amber dot implying unread
-          items that never existed). */}
-      <button
-        style={{
-          width: 32, height: 32, border: '1px solid var(--border)',
-          background: 'var(--surface)', color: 'var(--text-muted)',
-          borderRadius: 7, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          flexShrink: 0,
-        }}
-        title="Notifications (coming soon)"
-        aria-label="Notifications (coming soon)"
-        type="button"
-      >
-        <Bell size={14} strokeWidth={1.75} />
-      </button>
+      {/* Notification center — real feed of failed jobs, budget overruns, cost
+          anomalies, and un-notified hour spikes, with a persisted unread badge. */}
+      <NotificationCenter />
 
       {/* Divider */}
       <div style={{ height: 20, width: 1, background: 'var(--border)', flexShrink: 0 }} />

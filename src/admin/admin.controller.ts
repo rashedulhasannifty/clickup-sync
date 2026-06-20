@@ -18,7 +18,9 @@ import { UpdateClientBudgetDto } from './dto/update-client-budget.dto';
 import { BudgetsRepository } from '../budgets/budgets.repository';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { NotifySpikeDto } from './dto/notify-spike.dto';
+import { ResolveSpikeDto, UnresolveSpikeDto } from './dto/resolve-spike.dto';
 import { SpikeNotificationService } from './spike-notification.service';
+import { SpikeResolutionService } from './spike-resolution.service';
 import { SearchRepository } from './search.repository';
 import { TaskHistoryRepository } from './task-history.repository';
 import { SettingsService } from '../settings/settings.service';
@@ -78,6 +80,7 @@ export class AdminController {
     private readonly auditLog: AuditLogRepository,
     private readonly settings: SettingsService,
     private readonly spikeNotifications: SpikeNotificationService,
+    private readonly spikeResolutions: SpikeResolutionService,
     private readonly searchRepo: SearchRepository,
     private readonly taskHistoryRepo: TaskHistoryRepository,
   ) {}
@@ -127,6 +130,26 @@ export class AdminController {
       note: dto.note,
       sentBy: actorLabel(user),
     });
+  }
+
+  @Post('hour-spikes/resolve')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Mark a flagged spike day as resolved so it drops out of the watchlist. Idempotent.' })
+  resolveSpike(@Body() dto: ResolveSpikeDto, @CurrentUser() user: AuthPrincipal) {
+    return this.spikeResolutions.resolve({
+      userId: dto.userId,
+      date: dto.date,
+      userName: dto.userName,
+      note: dto.note,
+      resolvedBy: actorLabel(user),
+    });
+  }
+
+  @Delete('hour-spikes/resolve')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Un-resolve a spike day so it reappears in the watchlist. No-op if not resolved.' })
+  unresolveSpike(@Body() dto: UnresolveSpikeDto) {
+    return this.spikeResolutions.unresolve({ userId: dto.userId, date: dto.date });
   }
 
   @Post('tasks/sync')

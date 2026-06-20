@@ -14,9 +14,18 @@ export function DonutChart({ data, size = 160, thickness = 14, centerLabel, cent
   const c = 2 * Math.PI * r;
   let offset = 0;
 
+  // The ring is aria-hidden and the legend below is real text, but lead with a
+  // one-line summary so screen-reader users get the whole picture at once.
+  const a11ySummary = `Donut chart, ${centerLabel ? `${centerLabel} ` : ''}total ${centerValue ?? total}. ${data
+    .map((d) => `${d.label} ${d.value}`)
+    .join(', ')}.`;
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-      <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+      {/* position:relative contains the position:absolute .sr-only summary below
+          so it can't escape to the document and stretch the page scroll. */}
+      <p className="sr-only">{a11ySummary}</p>
+      <div aria-hidden="true" style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
         {/* Decorative — the adjacent legend conveys the same data as readable
             text, so hide the raw SVG circles from screen readers. */}
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">

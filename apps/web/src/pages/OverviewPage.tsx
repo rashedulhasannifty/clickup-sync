@@ -22,10 +22,12 @@ import { Pill } from '../components/ui/Pill';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { AnomaliesPanel } from '../components/AnomaliesPanel';
+import { Onboarding } from '../components/Onboarding';
 import { fmt } from '../lib/formatters';
 import { toCsv, downloadCsv, csvFilename } from '../lib/csv';
 import { onActivate } from '../lib/a11y';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
+import { useAuth } from '../hooks/useAuth';
 import { useQueryClient } from '@tanstack/react-query';
 
 // Backend returns dollars; fmt.money expects cents. USD is the project currency
@@ -203,6 +205,7 @@ function BudgetAlertCard() {
 export function OverviewPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { hasRole } = useAuth();
   // `dateRangeLabel` mirrors the topbar selection ("last 24h", "last 30d", or
   // a custom-range pair). The time/cost cards' sublabels used to hardcode
   // "last 30d" regardless of what the user picked — values were correct but
@@ -334,6 +337,33 @@ export function OverviewPage() {
     void queryClient.invalidateQueries();
   }
 
+  // First-run detection: nothing has synced yet. Gated on the two driving
+  // queries having loaded so the hero doesn't flash before counts arrive.
+  // When true we show a guided setup checklist instead of a dashboard of zeros.
+  const firstRun =
+    !stats.isLoading && !tasksSummary.isLoading &&
+    totalTasks === 0 && webhooks24h === 0 && latestEvent === '—';
+
+  if (firstRun) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <PageHeader
+          title="Overview"
+          description="System health, sync activity, and operational metrics for your ClickUp pipeline."
+        />
+        <QueryError queries={[stats, tasksSummary, syncHealth]} what="dashboard data" />
+        <Onboarding
+          canSetup={hasRole('ADMIN')}
+          steps={{
+            webhook: webhooks24h > 0 || latestEvent !== '—',
+            backfill: totalTasks > 0,
+            rates: missingRates === 0 && totalHours > 0,
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
 
@@ -362,14 +392,16 @@ export function OverviewPage() {
         <MetricCard
           accent
           label="Total tasks"
-          value={tasksSummary.isLoading ? '—' : fmt.number(totalTasks)}
+          value={fmt.number(totalTasks)}
+          loading={tasksSummary.isLoading}
           sublabel="all spaces"
           icon={<CheckSquare size={14} strokeWidth={1.75} />}
           onClick={() => navigate('/tasks')}
         />
         <MetricCard
           label="Open"
-          value={tasksSummary.isLoading ? '—' : fmt.number(openTasks)}
+          value={fmt.number(openTasks)}
+          loading={tasksSummary.isLoading}
           sublabel={totalTasks ? `${Math.round(openTasks / totalTasks * 100)}%` : undefined}
           delta={openTasks > closedTasks ? `${openTasks - closedTasks} more open than closed` : undefined}
           icon={<Inbox size={14} strokeWidth={1.75} />}
@@ -377,28 +409,32 @@ export function OverviewPage() {
         />
         <MetricCard
           label="Closed"
-          value={tasksSummary.isLoading ? '—' : fmt.number(closedTasks)}
+          value={fmt.number(closedTasks)}
+          loading={tasksSummary.isLoading}
           sublabel={totalTasks ? `${Math.round(closedTasks / totalTasks * 100)}%` : undefined}
           icon={<CircleCheck size={14} strokeWidth={1.75} />}
         />
         <MetricCard
           label="Time tracked"
-          value={timeByUser.isLoading ? '—' : fmt.hours(totalHours)}
-          sublabel={dateRangeLabel}
+          value={fmt.hours(totalHours)}
+          loading={timeByUser.isLoading}
+          caption={dateRangeLabel}
           delta={deltas && <Delta current={deltas.current.totalHours} prior={deltas.prior.totalHours} rangeLabel={rangeShort} />}
           icon={<Clock size={14} strokeWidth={1.75} />}
           onClick={() => navigate('/time-entries')}
         />
         <MetricCard
           label="Calculated cost"
-          value={timeByUser.isLoading ? '—' : moneyAud(totalCost)}
-          sublabel={dateRangeLabel}
+          value={moneyAud(totalCost)}
+          loading={timeByUser.isLoading}
+          caption={dateRangeLabel}
           delta={deltas && <Delta current={deltas.current.totalCostAud} prior={deltas.prior.totalCostAud} rangeLabel={rangeShort} />}
           icon={<DollarSign size={14} strokeWidth={1.75} />}
         />
         <MetricCard
           label="Missing rates"
-          value={stats.isLoading ? '—' : fmt.number(missingRates)}
+          value={fmt.number(missingRates)}
+          loading={stats.isLoading}
           sublabel={missingRates > 0 ? 'needs review' : undefined}
           delta={missingRates > 0 ? 'needs review' : undefined}
           deltaTone={missingRates > 0 ? 'down' : undefined}
@@ -500,6 +536,7 @@ export function OverviewPage() {
                 return (
                   <tr
                     key={e.id}
+                    className="row-3d"
                     onClick={() => navigate('/sync-logs')}
                     tabIndex={0}
                     onKeyDown={onActivate(() => navigate('/sync-logs'))}

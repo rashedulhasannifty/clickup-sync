@@ -91,14 +91,22 @@ describe('ReportsController', () => {
   });
 
   describe('hourSpikes', () => {
-    it('passes the settings cap + from/to into the service', async () => {
-      const svc = { hourSpikes: jest.fn().mockResolvedValue({ cap: 10, watchlist: [], byUser: { buckets: [], users: [] } }) } as any;
+    it('passes the settings cap + from/to into the service with default limit/includeResolved', async () => {
+      const svc = { hourSpikes: jest.fn().mockResolvedValue({ cap: 10, watchlist: [], watchlistTotal: 0, byUser: { buckets: [], users: [] } }) } as any;
       const settings = makeSettings(10);
       const ctrl = new ReportsController(svc, settings, makeBudgets());
       const result = await ctrl.hourSpikes('2026-06-01', '2026-06-10');
       expect(settings.getSpikeHoursCap).toHaveBeenCalledTimes(1);
-      expect(svc.hourSpikes).toHaveBeenCalledWith(10, '2026-06-01', '2026-06-10');
+      expect(svc.hourSpikes).toHaveBeenCalledWith(10, '2026-06-01', '2026-06-10', 20, false);
       expect(result.cap).toBe(10);
+    });
+
+    it('passes the cap, range, limit and includeResolved through', async () => {
+      const svc = { hourSpikes: jest.fn().mockResolvedValue({ cap: 10, watchlist: [], watchlistTotal: 0, byUser: { buckets: [], users: [] } }) } as any;
+      const settings = { getSpikeHoursCap: () => 10 } as any;
+      const ctrl = new ReportsController(svc, settings, makeBudgets());
+      await ctrl.hourSpikes('2026-06-01', '2026-06-10', '40', 'true');
+      expect(svc.hourSpikes).toHaveBeenCalledWith(10, '2026-06-01', '2026-06-10', 40, true);
     });
   });
 

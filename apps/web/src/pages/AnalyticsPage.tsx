@@ -31,6 +31,11 @@ function moneyAud(dollars: number) {
   return fmt.money(Math.round(dollars * 100));
 }
 
+// Breakdown bar charts show only the top contributors (bars are sorted high→low)
+// so each card stays a sensible height and flows in the page — no inner card
+// scrollbar, which previously stacked a second scrollbar next to the page's.
+const TOP_BREAKDOWN = 15;
+
 const STATUS_COLORS: Record<string, string> = {
   open: '#94a3b8',
   'in progress': '#3b82f6',
@@ -219,7 +224,7 @@ export function AnalyticsPage() {
           accent
           label="Time tracked"
           value={timeByUser.isLoading ? '—' : fmt.hours(totalHours)}
-          sublabel={dateRangeLabel}
+          caption={dateRangeLabel}
           delta={deltas && <Delta current={deltas.current.totalHours} prior={deltas.prior.totalHours} rangeLabel={rangeShort} />}
           icon={<Clock size={14} strokeWidth={1.75} />}
           onClick={() => navigate('/time-entries')}
@@ -227,7 +232,7 @@ export function AnalyticsPage() {
         <MetricCard
           label="Calculated cost"
           value={timeByUser.isLoading ? '—' : moneyAud(totalCost)}
-          sublabel={dateRangeLabel}
+          caption={dateRangeLabel}
           delta={deltas && <Delta current={deltas.current.totalCostAud} prior={deltas.prior.totalCostAud} rangeLabel={rangeShort} />}
           icon={<DollarSign size={14} strokeWidth={1.75} />}
         />
@@ -251,32 +256,34 @@ export function AnalyticsPage() {
       {/* Cycle time */}
       <CycleTimeCard />
 
-      {/* Breakdown charts. Fixed-height rows (gridAutoRows) + default stretch
-          alignment make every card the same size regardless of content; the
-          Card body scrolls any overflow (e.g. long assignee/status lists). */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12, gridAutoRows: 320 }}>
+      {/* Breakdown charts. Cards size to their own content (top-aligned), so a
+          short chart (the donut) stays compact and a long list grows naturally —
+          rather than every card being forced to a fixed 320px with an inner
+          scrollbar, which trapped page-scroll and padded short cards with empty
+          space. Long bar lists are capped + scrolled by BarChart's own maxHeight. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12, alignItems: 'start' }}>
         <Card title="Tasks by status" subtitle={`${fmt.number(totalTasks)} total tasks tracked`} padding={16}>
           <DonutChart data={tasksByStatusData} size={140} thickness={14} centerLabel="Total" centerValue={totalTasks} />
         </Card>
 
-        <Card title="Cost by client" subtitle={`By spend · ${costByClientData.length} clients`} padding={16}>
-          <BarChart data={costByClientData} direction="horizontal" formatValue={(v) => moneyAud(v / 100)} />
+        <Card title="Cost by client" subtitle={costByClientData.length > TOP_BREAKDOWN ? `Top ${TOP_BREAKDOWN} of ${costByClientData.length} by spend` : `By spend · ${costByClientData.length} clients`} padding={16}>
+          <BarChart data={costByClientData.slice(0, TOP_BREAKDOWN)} direction="horizontal" formatValue={(v) => moneyAud(v / 100)} />
         </Card>
 
-        <Card title="Time tracked by assignee" subtitle={`Hours logged in ${dateRangeLabel} · ${timeByUserData.length} assignees`} padding={16}>
-          <BarChart data={timeByUserData} direction="horizontal" formatValue={fmt.hours} />
+        <Card title="Time tracked by assignee" subtitle={timeByUserData.length > TOP_BREAKDOWN ? `Top ${TOP_BREAKDOWN} of ${timeByUserData.length} · ${dateRangeLabel}` : `Hours logged in ${dateRangeLabel} · ${timeByUserData.length} assignees`} padding={16}>
+          <BarChart data={timeByUserData.slice(0, TOP_BREAKDOWN)} direction="horizontal" formatValue={fmt.hours} />
         </Card>
 
-        <Card title="Cost by assignee" subtitle={`Calculated labor cost · ${costByUserData.length} assignees`} padding={16}>
-          <BarChart data={costByUserData} direction="horizontal" formatValue={(v) => moneyAud(v)} />
+        <Card title="Cost by assignee" subtitle={costByUserData.length > TOP_BREAKDOWN ? `Top ${TOP_BREAKDOWN} of ${costByUserData.length} by cost` : `Calculated labor cost · ${costByUserData.length} assignees`} padding={16}>
+          <BarChart data={costByUserData.slice(0, TOP_BREAKDOWN)} direction="horizontal" formatValue={(v) => moneyAud(v)} />
         </Card>
 
         <Card title="Cost by department" subtitle="Calculated labor cost" padding={16}>
-          <BarChart data={costByDeptData} direction="horizontal" formatValue={v => moneyAud(v)} />
+          <BarChart data={costByDeptData.slice(0, TOP_BREAKDOWN)} direction="horizontal" formatValue={v => moneyAud(v)} />
         </Card>
 
         <Card title="Tasks by space" subtitle="Distribution across workspaces" padding={16}>
-          <BarChart data={tasksBySpaceData} direction="horizontal" formatValue={fmt.number} />
+          <BarChart data={tasksBySpaceData.slice(0, TOP_BREAKDOWN)} direction="horizontal" formatValue={fmt.number} />
         </Card>
       </div>
 

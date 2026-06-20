@@ -167,6 +167,7 @@ function WebhookEventsField({ value, onChange }: { value: string; onChange: (v: 
               type="button"
               onClick={() => toggle(e)}
               title="Remove this custom event"
+              className="btn-3d"
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -179,6 +180,9 @@ function WebhookEventsField({ value, onChange }: { value: string; onChange: (v: 
                 border: '1px solid var(--border)',
                 borderRadius: 999,
                 cursor: 'pointer',
+                ['--b-edge' as string]: 'var(--border-strong)',
+                ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+                ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
               }}
             >
               {e} ×
@@ -479,13 +483,13 @@ export function SettingsPage() {
         items={ALL_TAB_ITEMS.filter((t) => !t.ownerOnly || hasRole('OWNER')).map((t) => ({ value: t.value, label: t.label }))}
         value={activeTab}
         onChange={setActiveTab}
-        variant="underline"
+        variant="segmented"
       />
 
 
       {activeTab === 'connection' && (
         <RequireRole min="OWNER">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {settingsQuery.data && !settingsQuery.data.encryptionEnabled && (
             <Callout tone="amber" icon={<AlertTriangle size={13} />}>
               Secret storage is disabled — <code style={{ fontFamily: 'ui-monospace, monospace' }}>APP_ENCRYPTION_KEY</code> isn't set on
@@ -566,7 +570,7 @@ export function SettingsPage() {
               </Pill>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14, maxWidth: 560 }}>
               <Field label="Team / Workspace ID">
                 <Input
                   value={connForm.teamId}
@@ -673,7 +677,7 @@ export function SettingsPage() {
                 )
               }
             />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 560 }}>
               <Field label="Endpoint URL" hint="Public HTTPS URL ClickUp posts events to. Ends with /api/webhooks/clickup.">
                 <Input
                   value={connForm.webhookEndpoint}
@@ -770,7 +774,7 @@ export function SettingsPage() {
       )}
 
       {activeTab === 'sync' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Callout tone="amber" icon={<Info size={13} />}>
             Most settings here are live: changes persist and take effect. The
             exceptions still in preview are <strong>Default currency</strong> and{' '}
@@ -1014,6 +1018,7 @@ export function SettingsPage() {
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 10,
+                  maxWidth: 620,
                 }}
               >
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -1141,7 +1146,7 @@ export function SettingsPage() {
       )}
 
       {activeTab === 'scopes' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Callout tone="blue" icon={<Info size={13} />}>
             Toggling a space off pauses its <strong>scheduled</strong> hourly sync. Manual backfills and existing reports are unaffected. The set of spaces still comes from{' '}
             <code style={{ fontFamily: 'ui-monospace, monospace' }}>src/config/clickup-spaces.config.ts</code>; add or remove a space there and restart.
@@ -1200,7 +1205,7 @@ export function SettingsPage() {
       )}
 
       {activeTab === 'notifications' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 760 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Callout tone="amber" icon={<AlertTriangle size={13} />}>
             Preview only — no notifications are actually delivered yet.
             Toggle preferences are persisted, but outbound delivery (email, Slack, PagerDuty) is on the roadmap.

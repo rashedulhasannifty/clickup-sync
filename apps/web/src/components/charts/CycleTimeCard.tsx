@@ -36,7 +36,7 @@ export function CycleTimeCard() {
       title="Cycle time & time in status"
       subtitle={sinceLabel}
       padding={16}
-      action={<Tabs items={tabItems} value={tab} onChange={setTab} variant="underline" />}
+      action={<Tabs items={tabItems} value={tab} onChange={setTab} variant="segmented" />}
     >
       {tab === 'cycle' ? (
         lineData.length === 0 ? (

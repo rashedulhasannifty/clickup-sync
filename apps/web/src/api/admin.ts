@@ -84,6 +84,10 @@ export const adminApi = {
     apiClient
       .post('/admin/hour-spikes/notify', body)
       .then((r) => r.data as { sent: boolean; recipientEmail: string; date: string; totalHours: number }),
+  resolveSpike: (body: { userId: string; date: string; userName?: string; note?: string }) =>
+    apiClient.post('/admin/hour-spikes/resolve', body).then((r) => r.data as { resolved: boolean; date: string }),
+  unresolveSpike: (body: { userId: string; date: string }) =>
+    apiClient.delete('/admin/hour-spikes/resolve', { data: body }).then((r) => r.data as { resolved: boolean; date: string }),
   excludedAssignees: {
     get: (): Promise<ExcludedAssignee[]> =>
       apiClient.get('/admin/excluded-assignees').then((r) => (Array.isArray(r.data?.assignees) ? r.data.assignees : [])),

@@ -208,6 +208,7 @@ export function BudgetModal({
 						onChange={(e) => setNotes(e.target.value)}
 						placeholder="Optional notes"
 						rows={3}
+						className="input-3d"
 						style={{
 							width: '100%',
 							boxSizing: 'border-box',

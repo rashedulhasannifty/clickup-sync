@@ -41,7 +41,7 @@ export const reportsApi = {
   stats: () => apiClient.get('/reports/ops/stats').then(r => r.data),
   missingRates: () => apiClient.get('/reports/ops/missing-rates').then(r => r.data),
   anomalies: () => apiClient.get('/reports/anomalies').then(r => r.data),
-  hourSpikes: (params?: { from?: string; to?: string }) =>
+  hourSpikes: (params?: { from?: string; to?: string; limit?: number; includeResolved?: boolean }) =>
     apiClient.get('/reports/time-entries/hour-spikes', { params }).then(r => r.data),
   spaces: () => apiClient.get('/reports/spaces').then(r => r.data),
 };

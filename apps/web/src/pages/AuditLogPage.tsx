@@ -88,6 +88,7 @@ export function AuditLogPage() {
                 items.map((row, i) => (
                   <tr
                     key={row.id}
+                    className="row-3d"
                     onClick={() => setSelected(row)}
                     tabIndex={0}
                     onKeyDown={onActivate(() => setSelected(row))}

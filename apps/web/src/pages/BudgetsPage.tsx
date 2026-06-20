@@ -239,15 +239,20 @@ export function BudgetsPage() {
             type="month"
             value={rawMonth || effectiveMonth}
             onChange={(e) => setRawMonth(e.target.value)}
+            className="btn-3d"
             style={{
               fontSize: 12,
               padding: '5px 8px',
               border: '1px solid var(--border)',
-              borderRadius: 6,
+              borderRadius: 9,
               background: 'var(--input-bg, var(--surface))',
               color: 'var(--text)',
               fontFamily: 'inherit',
               outline: 'none',
+              cursor: 'pointer',
+              ['--b-edge' as string]: 'var(--border-strong)',
+              ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+              ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
             }}
           />
           {rawMonth && (
@@ -269,8 +274,10 @@ export function BudgetsPage() {
           )}
         </div>
 
-        {/* Forecast toggle */}
-        <div style={{ display: 'inline-flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+        {/* Forecast toggle — 3D segmented control: recessed track, raised active
+            pill (accent). Matches the Tabs segmented variant + the app's filter
+            language. */}
+        <div className="seg-track" style={{ display: 'inline-flex', gap: 2, background: 'var(--muted-bg)', borderRadius: 8, padding: 3 }}>
           {(['runrate', 'trailing'] as const).map((m) => {
             const active = forecastMode === m;
             return (
@@ -278,15 +285,23 @@ export function BudgetsPage() {
                 key={m}
                 type="button"
                 onClick={() => setForecastMode(m)}
+                className="btn-3d"
                 style={{
                   padding: '4px 12px',
                   fontSize: 11,
                   fontWeight: 600,
-                  background: active ? 'var(--accent)' : 'var(--surface)',
+                  borderRadius: 6,
+                  background: active ? 'var(--accent)' : 'transparent',
                   color: active ? '#fff' : 'var(--text-muted)',
                   border: 0,
                   cursor: 'pointer',
-                  borderLeft: m === 'runrate' ? 0 : '1px solid var(--border)',
+                  fontFamily: 'inherit',
+                  // Only the active pill carries a visible raised edge; the
+                  // inactive segment stays flat (transparent edge/glow) but keeps
+                  // the press feel.
+                  ['--b-edge' as string]: active ? 'var(--accent-strong)' : 'transparent',
+                  ['--b-glow' as string]: active ? 'rgba(123,104,238,.32)' : 'transparent',
+                  ['--b-glow-strong' as string]: active ? 'rgba(123,104,238,.46)' : 'transparent',
                 }}
                 aria-pressed={active}
               >
@@ -366,6 +381,7 @@ export function BudgetsPage() {
                 return (
                   <Fragment key={row.client}>
                     <tr
+                      className="row-3d"
                       onClick={() => toggleExpand(row.client)}
                       style={{
                         borderTop: i > 0 ? '1px solid var(--border-soft)' : undefined,

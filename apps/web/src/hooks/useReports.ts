@@ -256,6 +256,7 @@ export interface HourSpikeWatchRow {
   multiplier: number | null;
   rule: 'absolute' | 'relative' | 'both';
   notified: boolean;
+  resolved: boolean;
 }
 
 export interface HourSpikeUserPoint { date: string; hours: number; isSpike: boolean; }
@@ -264,15 +265,33 @@ export interface HourSpikeUser { userId: string; userName: string; points: HourS
 export interface HourSpikes {
   cap: number;
   watchlist: HourSpikeWatchRow[];
+  watchlistTotal: number;
   byUser: { buckets: string[]; users: HourSpikeUser[] };
 }
 
-export function useHourSpikes() {
+export function useHourSpikes(limit: number, includeResolved: boolean) {
   const { fromDate, toDate } = useGlobalFilters();
   return useQuery<HourSpikes>({
-    queryKey: ['hour-spikes', fromDate, toDate],
-    queryFn: () => reportsApi.hourSpikes({ from: fromDate, to: toDate }),
+    queryKey: ['hour-spikes', fromDate, toDate, limit, includeResolved],
+    queryFn: () => reportsApi.hourSpikes({ from: fromDate, to: toDate, limit, includeResolved }),
     placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * Hour-spike watchlist over a fixed trailing 7-day window, independent of the
+ * topbar date filter. Used by the notification center so the spike feed is
+ * stable regardless of what range the user is currently viewing. Keyed by the
+ * day (not the exact timestamp) so it doesn't refetch on every render.
+ */
+export function useHourSpikeWatch() {
+  const now = Date.now();
+  const to = new Date(now).toISOString();
+  const from = new Date(now - 7 * 86_400_000).toISOString();
+  return useQuery<HourSpikes>({
+    queryKey: ['hour-spikes-watch', from.slice(0, 10), to.slice(0, 10)],
+    queryFn: () => reportsApi.hourSpikes({ from, to }),
+    staleTime: 60_000,
   });
 }
 
@@ -290,6 +309,34 @@ export function useNotifySpike() {
     mutationFn: (body: { userId: string; date: string; rule?: 'absolute' | 'relative' | 'both'; median?: number; note?: string }) =>
       adminApi.notifySpike(body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['hour-spikes'] }),
+  });
+}
+
+export function useResolveSpike() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { userId: string; date: string; userName?: string; note?: string }) => adminApi.resolveSpike(body),
+    onSuccess: () =>
+      qc.invalidateQueries({
+        predicate: (query) => {
+          const k = query.queryKey[0];
+          return k === 'hour-spikes' || k === 'hour-spikes-watch';
+        },
+      }),
+  });
+}
+
+export function useUnresolveSpike() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { userId: string; date: string }) => adminApi.unresolveSpike(body),
+    onSuccess: () =>
+      qc.invalidateQueries({
+        predicate: (query) => {
+          const k = query.queryKey[0];
+          return k === 'hour-spikes' || k === 'hour-spikes-watch';
+        },
+      }),
   });
 }
 

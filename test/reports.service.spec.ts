@@ -29,6 +29,7 @@ describe('ReportsService', () => {
       $transaction: jest.fn().mockImplementation((arr: Promise<unknown>[]) => Promise.all(arr)),
       $queryRaw: jest.fn().mockResolvedValue([]),
       spikeNotification: { findMany: jest.fn().mockResolvedValue([]) },
+      spikeResolution: { findMany: jest.fn().mockResolvedValue([]) },
     };
     return { ...base, ...overrides } as any;
   }
@@ -1241,6 +1242,63 @@ describe('ReportsService', () => {
       const r = await new ReportsService(prisma).hourSpikes(4, '2026-06-10', '2026-06-10');
       expect(r.watchlist).toHaveLength(1);
       expect(r.watchlist[0]).toMatchObject({ rule: 'absolute', median: 0, multiplier: null });
+    });
+
+    it('returns watchlistTotal and respects the limit', async () => {
+      const prisma = makePrisma();
+      const display: any[] = [];
+      const axis: string[] = [];
+      for (let i = 0; i < 25; i++) {
+        const day = `2026-06-${String(i + 1).padStart(2, '0')}`;
+        display.push({ user_id: `u${i}`, user_name: `U${i}`, day, hours: 100 - i });
+        axis.push(day);
+      }
+      stub(prisma, [], display, axis);
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-01', '2026-06-25', 5);
+      expect(r.watchlist).toHaveLength(5);
+      expect(r.watchlistTotal).toBe(25);
+      expect(r.watchlist[0].hours).toBe(100);
+    });
+
+    it('excludes resolved days by default and marks resolved=false on the rest', async () => {
+      const prisma = makePrisma();
+      stub(
+        prisma,
+        [],
+        [
+          { user_id: 'u1', user_name: 'Ann', day: '2026-06-10', hours: 20 },
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-11', hours: 18 },
+        ],
+        ['2026-06-10', '2026-06-11'],
+      );
+      prisma.spikeResolution.findMany.mockResolvedValue([
+        { clickupUserId: 'u1', spikeDate: new Date('2026-06-10T00:00:00.000Z') },
+      ]);
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-01', '2026-06-30');
+      expect(r.watchlist).toHaveLength(1);
+      expect(r.watchlist[0]).toMatchObject({ userId: 'u2', resolved: false });
+      expect(r.watchlistTotal).toBe(1);
+    });
+
+    it('includes resolved days (resolved=true) when includeResolved is set', async () => {
+      const prisma = makePrisma();
+      stub(
+        prisma,
+        [],
+        [
+          { user_id: 'u1', user_name: 'Ann', day: '2026-06-10', hours: 20 },
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-11', hours: 18 },
+        ],
+        ['2026-06-10', '2026-06-11'],
+      );
+      prisma.spikeResolution.findMany.mockResolvedValue([
+        { clickupUserId: 'u1', spikeDate: new Date('2026-06-10T00:00:00.000Z') },
+      ]);
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-01', '2026-06-30', 20, true);
+      expect(r.watchlist).toHaveLength(2);
+      expect(r.watchlist.find((w: any) => w.userId === 'u1')!.resolved).toBe(true);
+      expect(r.watchlist.find((w: any) => w.userId === 'u2')!.resolved).toBe(false);
+      expect(r.watchlistTotal).toBe(2);
     });
   });
 

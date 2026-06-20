@@ -124,6 +124,7 @@ export function InviteMembersModal({
                     aria-invalid={err && err !== 'empty' ? true : undefined}
                     onChange={(e) => setRow(i, { email: e.target.value })}
                     placeholder="name@company.com"
+                    className="input-3d"
                     style={{
                       width: '100%',
                       height: 40,
@@ -144,6 +145,7 @@ export function InviteMembersModal({
                 <button
                   type="button"
                   aria-label={`Remove email ${i + 1}`}
+                  className="btn-3d"
                   onClick={() => removeRow(i)}
                   disabled={rows.length === 1}
                   style={{
@@ -153,11 +155,14 @@ export function InviteMembersModal({
                     border: 0,
                     background: 'transparent',
                     color: rows.length === 1 ? 'var(--border-strong)' : 'var(--text-faint)',
-                    borderRadius: 7,
+                    borderRadius: 9,
                     cursor: rows.length === 1 ? 'default' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    ['--b-edge' as string]: 'transparent',
+                    ['--b-glow' as string]: 'transparent',
+                    ['--b-glow-strong' as string]: 'transparent',
                   }}
                   onMouseEnter={(e) => {
                     if (rows.length > 1) e.currentTarget.style.background = 'var(--hover)';
@@ -179,6 +184,7 @@ export function InviteMembersModal({
         <div>
           <button
             type="button"
+            className="btn-3d"
             onClick={addRow}
             style={{
               display: 'inline-flex',
@@ -191,6 +197,9 @@ export function InviteMembersModal({
               fontSize: 13,
               fontWeight: 600,
               cursor: 'pointer',
+              ['--b-edge' as string]: 'transparent',
+              ['--b-glow' as string]: 'transparent',
+              ['--b-glow-strong' as string]: 'transparent',
             }}
           >
             <Plus size={14} /> Add another

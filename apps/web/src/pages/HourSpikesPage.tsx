@@ -1,18 +1,23 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TrendingUp, ChevronRight, Check } from 'lucide-react';
+import { TrendingUp, ChevronRight, Check, Eye, EyeOff } from 'lucide-react';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Card } from '../components/ui/Card';
 import { Select } from '../components/ui/Select';
 import { Button } from '../components/ui/Button';
 import { BarChart, type BarData } from '../components/charts/BarChart';
-import { useHourSpikes, type HourSpikeWatchRow } from '../hooks/useReports';
+import { useHourSpikes, useResolveSpike, useUnresolveSpike, type HourSpikeWatchRow } from '../hooks/useReports';
+import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { useAuth } from '../hooks/useAuth';
 import { NotifySpikeModal } from '../components/NotifySpikeModal';
 import { ClickupAvatar } from '../components/ui/ClickupAvatar';
 
 const SPIKE_COLOR = '#f59e0b'; // amber, matches the anomalies styling
 const BASE_COLOR = '#7B68EE';
+
+// Shared height for every control in a watchlist row's right-hand cluster, so
+// pills, action buttons, and the open-chevron all line up on one baseline.
+const CONTROL_H = 28;
 
 function formatDate(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number);
@@ -37,10 +42,41 @@ function watchSubtitle(s: HourSpikeWatchRow, cap: number): string {
   return `${mult} · over the ${cap}h/day cap`;
 }
 
+/** A soft status pill sized to match the row's action buttons exactly. */
+function StatusPill({ tone, icon, children }: { tone: 'amber' | 'muted'; icon: ReactNode; children: ReactNode }) {
+  const bg = tone === 'amber' ? 'var(--pill-amber-bg)' : 'var(--muted-bg)';
+  const color = tone === 'amber' ? 'var(--pill-amber-text)' : 'var(--text-muted)';
+  return (
+    <span
+      style={{
+        height: CONTROL_H, display: 'inline-flex', alignItems: 'center', gap: 5,
+        padding: '0 10px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+        background: bg, color, whiteSpace: 'nowrap',
+      }}
+    >
+      {icon}
+      {children}
+    </span>
+  );
+}
+
 export function HourSpikesPage() {
   const navigate = useNavigate();
-  const q = useHourSpikes();
+  const [limit, setLimit] = useState(20);
+  const [showResolved, setShowResolved] = useState(false);
+  const { fromDate, toDate } = useGlobalFilters();
+  const q = useHourSpikes(limit, showResolved);
   const data = q.data;
+
+  const resolveSpike = useResolveSpike();
+  const unresolveSpike = useUnresolveSpike();
+
+  // Reset paging when the toggle changes so totals/buttons stay consistent.
+  const onToggleResolved = (next: boolean) => { setShowResolved(next); setLimit(20); };
+
+  // Reset paging when the date range changes so a stale large limit doesn't
+  // carry over to a different window.
+  useEffect(() => { setLimit(20); }, [fromDate, toDate]);
 
   const { hasRole } = useAuth();
   const canNotify = hasRole('ADMIN');
@@ -70,7 +106,24 @@ export function HourSpikesPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <PageHeader title="Time Spikes" />
 
-      <Card padding={0} title="Spike watchlist" subtitle="Days a user logged unusually high hours">
+      <Card
+        padding={0}
+        title="Spike watchlist"
+        subtitle="Days a user logged unusually high hours"
+        action={
+          canNotify ? (
+            <Button
+              size="sm"
+              variant={showResolved ? 'subtle' : 'default'}
+              icon={showResolved ? <Eye size={14} /> : <EyeOff size={14} />}
+              aria-pressed={showResolved}
+              onClick={() => onToggleResolved(!showResolved)}
+            >
+              Show resolved
+            </Button>
+          ) : undefined
+        }
+      >
         {q.isLoading && (
           <div style={{ padding: 16 }}>
             {[0, 1, 2].map((i) => (
@@ -88,61 +141,113 @@ export function HourSpikesPage() {
         )}
         {data && data.watchlist.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {data.watchlist.map((s, i) => (
+            {data.watchlist.map((s, i) => {
+              const resolvePending = resolveSpike.isPending && resolveSpike.variables?.userId === s.userId && resolveSpike.variables?.date === s.date;
+              const unresolvePending = unresolveSpike.isPending && unresolveSpike.variables?.userId === s.userId && unresolveSpike.variables?.date === s.date;
+              return (
               <div
                 key={`${s.userId}-${s.date}`}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px',
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
                   borderBottom: i < data.watchlist.length - 1 ? '1px solid var(--border-soft)' : 0,
+                  background: s.resolved ? 'var(--muted-bg)' : 'transparent',
                 }}
               >
+                {/* Left: clickable navigation target (big hit area). Content is
+                    muted when resolved; the controls stay crisp. */}
                 <button
                   type="button"
                   onClick={() => navigate(dayLink(s.userId, s.date))}
                   onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = 'var(--hover)')}
                   onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = 'transparent')}
                   style={{
-                    flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: 10,
-                    background: 'transparent', border: 0, cursor: 'pointer', textAlign: 'left', color: 'inherit', padding: 0,
+                    flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 11,
+                    background: 'transparent', border: 0, cursor: 'pointer', textAlign: 'left',
+                    color: 'inherit', padding: '4px 6px', margin: '-4px -6px', borderRadius: 8,
+                    opacity: s.resolved ? 0.7 : 1, transition: 'background 100ms, opacity 100ms',
                   }}
                 >
                   <span style={{
-                    width: 26, height: 26, borderRadius: 7, flexShrink: 0,
-                    background: 'var(--pill-amber-bg)', color: 'var(--pill-amber-text)',
+                    width: CONTROL_H, height: CONTROL_H, borderRadius: 8, flexShrink: 0,
+                    background: s.resolved ? 'var(--muted-bg)' : 'var(--pill-amber-bg)',
+                    color: s.resolved ? 'var(--text-muted)' : 'var(--pill-amber-text)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    border: s.resolved ? '1px solid var(--border-soft)' : '1px solid transparent',
                   }}>
-                    <TrendingUp size={13} />
+                    <TrendingUp size={14} />
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <ClickupAvatar userId={s.userId} name={s.userName} size={22} />
-                        <span>{s.userName} logged {s.hours.toFixed(1)}h on {formatDate(s.date)}</span>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: s.resolved ? 'var(--text-muted)' : 'var(--text)', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 7 }}>
+                      <ClickupAvatar userId={s.userId} name={s.userName} size={22} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {s.userName} logged {s.hours.toFixed(1)}h on {formatDate(s.date)}
                       </span>
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{watchSubtitle(s, data.cap)}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', paddingLeft: 29 }}>{watchSubtitle(s, data.cap)}</div>
                   </div>
-                  <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-                    view <ChevronRight size={12} />
-                  </span>
                 </button>
-                {canNotify && (
-                  s.notified ? (
-                    <span style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0,
-                      fontSize: 12, fontWeight: 600, padding: '4px 8px', borderRadius: 7,
-                      background: 'var(--pill-amber-bg)', color: 'var(--pill-amber-text)',
-                    }}>
-                      <Check size={12} /> Notified
-                    </span>
-                  ) : (
-                    <Button size="sm" variant="caution" aria-label={`Notify ${s.userName} about ${formatDate(s.date)}`} onClick={() => setActiveRow(s)} style={{ flexShrink: 0 }}>
-                      Notify
-                    </Button>
-                  )
-                )}
+
+                {/* Right: one aligned control cluster — status, actions, open. */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  {canNotify && (
+                    s.resolved ? (
+                      <>
+                        <StatusPill tone="muted" icon={<Check size={13} />}>Resolved</StatusPill>
+                        <Button
+                          size="sm"
+                          variant="default"
+                          aria-label={`Unresolve ${s.userName} on ${formatDate(s.date)}`}
+                          disabled={unresolvePending}
+                          onClick={() => unresolveSpike.mutate({ userId: s.userId, date: s.date })}
+                        >
+                          Unresolve
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        {s.notified ? (
+                          <StatusPill tone="amber" icon={<Check size={13} />}>Notified</StatusPill>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="caution"
+                            aria-label={`Notify ${s.userName} about ${formatDate(s.date)}`}
+                            onClick={() => setActiveRow(s)}
+                          >
+                            Notify
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="default"
+                          aria-label={`Resolve ${s.userName} on ${formatDate(s.date)}`}
+                          disabled={resolvePending}
+                          onClick={() => resolveSpike.mutate({ userId: s.userId, date: s.date, userName: s.userName })}
+                        >
+                          Resolve
+                        </Button>
+                      </>
+                    )
+                  )}
+                  <Button
+                    size="iconSm"
+                    variant="ghost"
+                    aria-label={`View time entries for ${s.userName} on ${formatDate(s.date)}`}
+                    onClick={() => navigate(dayLink(s.userId, s.date))}
+                  >
+                    <ChevronRight size={16} />
+                  </Button>
+                </div>
               </div>
-            ))}
+              );
+            })}
+          </div>
+        )}
+        {data && data.watchlist.length < data.watchlistTotal && (
+          <div style={{ padding: 12, borderTop: '1px solid var(--border-soft)', display: 'flex', justifyContent: 'center' }}>
+            <Button size="sm" variant="default" disabled={q.isFetching} onClick={() => setLimit((n) => n + 20)}>
+              Load 20 more · {data.watchlist.length} of {data.watchlistTotal}
+            </Button>
           </div>
         )}
       </Card>

@@ -141,6 +141,7 @@ export function MemberDrawer({
         </div>
         <button
           type="button"
+          className="btn-3d"
           onClick={onClose}
           aria-label="Close"
           style={{
@@ -152,6 +153,9 @@ export function MemberDrawer({
             borderRadius: 6,
             display: 'flex',
             flexShrink: 0,
+            ['--b-edge' as string]: 'var(--border-strong)',
+            ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+            ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
           }}
         >
           <X size={17} />

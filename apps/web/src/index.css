@@ -49,11 +49,25 @@
   --pill-purple-bg: #ede9fe;
   --pill-purple-text: #5b21b6;
 
-  /* Semantic button hover backgrounds (soft fills; base bg/text reuse the
-     accessible pill tokens above). */
+  /* Semantic button hover backgrounds (soft pale fills; base bg/text reuse the
+     accessible --pill-* tokens above). */
   --btn-success-hover: #b7f0d8;
   --btn-danger-hover: #fdcfcf;
   --btn-caution-hover: #fde9a8;
+
+  /* Neutral button hovers — stronger than the global --hover so the feedback
+     reads clearly. primary/subtle are solid fills, so they get full colors. */
+  --btn-neutral-hover: rgba(15, 23, 42, 0.07);
+  --btn-subtle-hover: #e7e5e3;
+  --btn-primary-hover: #1e293b;
+
+  /* 3D pressable buttons: the dark bottom "edge" each variant sits on. Solid
+     intents (accent/danger/etc.) carry their own edge inline; only the theme-
+     adaptive faces (primary = --text, default/subtle = surface/muted) need a
+     token so the edge inverts with the theme. */
+  --btn-primary-edge: #00030a;
+  --btn-neutral-glow: rgba(15, 23, 42, 0.12);
+  --btn-neutral-glow-strong: rgba(15, 23, 42, 0.20);
 
   /* Soft amber fill for inline warning banners (deep-link notices, etc.).
      Tracks the per-theme pill token so it tints correctly in dark mode. */
@@ -103,10 +117,21 @@
   --table-zebra: rgba(255, 255, 255, 0.02);
   --code-bg: #0f0f11;
 
-  /* Semantic button hover backgrounds — dark */
+  /* Semantic button hover backgrounds — dark (soft pale tints). */
   --btn-success-hover: rgba(16, 185, 129, 0.25);
   --btn-danger-hover: rgba(239, 68, 68, 0.25);
   --btn-caution-hover: rgba(245, 158, 11, 0.25);
+
+  /* Neutral button hovers — dark (theme-relative). */
+  --btn-neutral-hover: rgba(255, 255, 255, 0.09);
+  --btn-subtle-hover: #2a2a30;
+  --btn-primary-hover: #e4e4e7;
+
+  /* 3D edge / glow — dark. Primary face is near-white here, so its edge is a
+     mid-grey; neutral glows lean on a darker, slightly stronger shadow. */
+  --btn-primary-edge: #b8b8bd;
+  --btn-neutral-glow: rgba(0, 0, 0, 0.45);
+  --btn-neutral-glow-strong: rgba(0, 0, 0, 0.60);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -137,6 +162,139 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 button { cursor: pointer; font-family: var(--font-sans); }
+
+/* ── 3D · pressable buttons ───────────────────────────────────────────────────
+   The button face sits on a darker bottom "edge" (box-shadow #1) lifted by a
+   soft colored glow (#2). Hover raises the face 2px and deepens both; pressing
+   sinks the face 3px down onto its edge. Per-button colors are supplied inline
+   via the --b-edge / --b-glow / --b-glow-strong custom properties, so one class
+   serves every variant. See components/ui/Button.tsx. */
+.btn-3d {
+  transform: translateY(0);
+  box-shadow: 0 4px 0 0 var(--b-edge), 0 7px 12px var(--b-glow);
+  transition: transform 90ms ease, box-shadow 90ms ease, background 100ms;
+}
+.btn-3d:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 0 var(--b-edge), 0 13px 22px var(--b-glow-strong);
+}
+.btn-3d:not(:disabled):active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 0 var(--b-edge), 0 2px 5px var(--b-glow);
+}
+/* Keep the resting depth while disabled (no hover/active), just dimmed by the
+   inline opacity the component already applies. */
+.btn-3d:disabled {
+  box-shadow: 0 4px 0 0 var(--b-edge), 0 7px 12px var(--b-glow);
+}
+/* The global :focus-visible rule below sets box-shadow to the accent ring only,
+   which would erase the 3D depth. Re-state both so a keyboard-focused 3D button
+   shows the ring AND keeps its edge. Class+pseudo outranks the element rule. */
+.btn-3d:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent),
+              0 4px 0 0 var(--b-edge), 0 7px 12px var(--b-glow);
+}
+
+/* ── 3D · inset fields ────────────────────────────────────────────────────────
+   The depth counterpart to .btn-3d: where buttons pop OUT, inputs/search fields
+   press IN. A soft inner shadow recesses the field; a top inset line reads as
+   the lip of the well. Focus keeps the recess and stacks the accent ring on top
+   (class+pseudo outranks the global input:focus-visible rule, which would
+   otherwise replace the shadow and flatten the field). */
+.input-3d {
+  box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.16), inset 0 1px 1px rgba(15, 23, 42, 0.10);
+  transition: box-shadow 120ms, border-color 120ms;
+}
+[data-theme="dark"] .input-3d {
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.55), inset 0 1px 1px rgba(0, 0, 0, 0.40);
+}
+.input-3d:focus,
+.input-3d:focus-visible {
+  outline: none;
+  box-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.16), inset 0 1px 1px rgba(15, 23, 42, 0.10),
+              0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
+[data-theme="dark"] .input-3d:focus,
+[data-theme="dark"] .input-3d:focus-visible {
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.55), inset 0 1px 1px rgba(0, 0, 0, 0.40),
+              0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
+
+/* ── 3D · liftable rows ───────────────────────────────────────────────────────
+   Table rows lift on hover with a soft elevation shadow so the focused row pops
+   off the sheet. Deliberately NO transform: a transformed <tr> becomes the
+   containing block for its position:sticky cells and breaks frozen columns.
+   position:relative + z-index lets the shadow paint over adjacent rows. The row
+   background is still driven by each table's own hover handler / utility. */
+.row-3d { transition: box-shadow 120ms, background 120ms; }
+.row-3d:hover {
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.22), 0 2px 0 0 var(--border-strong);
+}
+[data-theme="dark"] .row-3d:hover {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.65), 0 2px 0 0 #000000;
+}
+
+/* ── 3D · elevated cards ──────────────────────────────────────────────────────
+   Cards float off the page on a soft two-layer drop shadow (tight contact
+   shadow + a wider ambient one). Interactive cards (.card-3d-interactive, set
+   when the card has an onClick) lift further on hover. The element's own
+   overflow:hidden doesn't clip its outgoing box-shadow, so accent-gradient
+   cards keep their depth. */
+.card-3d {
+  box-shadow: 0 3px 0 0 var(--border-strong), 0 9px 20px rgba(15, 23, 42, 0.13);
+  transition: box-shadow 140ms ease, transform 140ms ease;
+}
+[data-theme="dark"] .card-3d {
+  box-shadow: 0 3px 0 0 #000000, 0 9px 22px rgba(0, 0, 0, 0.60);
+}
+.card-3d-interactive:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 0 0 var(--border-strong), 0 18px 32px rgba(15, 23, 42, 0.18);
+}
+[data-theme="dark"] .card-3d-interactive:hover {
+  box-shadow: 0 6px 0 0 #000000, 0 20px 36px rgba(0, 0, 0, 0.65);
+}
+
+/* ── 3D · segmented tabs ──────────────────────────────────────────────────────
+   The segmented control reads as a recessed track (.seg-track inner shadow)
+   with the selected tab raised out of it as a pressable pill (.seg-tab when
+   aria-selected). Unselected tabs sink slightly on press. */
+.seg-track { box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.13); }
+[data-theme="dark"] .seg-track { box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.55); }
+.seg-tab { transition: transform 90ms ease, box-shadow 90ms ease, background 100ms, color 100ms; }
+.seg-tab:not([aria-selected="true"]):active { transform: translateY(1px); }
+.seg-tab[aria-selected="true"] {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 0 0 var(--border-strong), 0 4px 8px rgba(15, 23, 42, 0.16);
+}
+[data-theme="dark"] .seg-tab[aria-selected="true"] {
+  box-shadow: 0 2px 0 0 #000, 0 4px 10px rgba(0, 0, 0, 0.55);
+}
+
+/* Underline / plain tabs can't carry a raised edge (they're flush to a border
+   or text-only), so they get a tactile press instead of a lift. */
+.tab-press { transition: transform 90ms ease, color 100ms, border-color 100ms; }
+.tab-press:active { transform: translateY(1px); }
+
+/* ── 3D · toggle switch ───────────────────────────────────────────────────────
+   Recessed track, raised knob — the physical-toggle reading. */
+.switch-3d { box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.28); }
+.switch-3d > span { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 2px 5px rgba(0, 0, 0, 0.22); }
+
+/* ── 3D · sidebar nav ─────────────────────────────────────────────────────────
+   Nav items lift a hair on hover; the active route sits on a soft raised shadow
+   (accent-tinted in light) so the current page reads as pressed forward. */
+.nav-3d { transition: transform 100ms ease, box-shadow 100ms ease, background 100ms; }
+.nav-3d:hover { transform: translateY(-1px); }
+.nav-3d[aria-current="page"] {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 3px 9px rgba(123, 104, 238, 0.20);
+}
+[data-theme="dark"] .nav-3d[aria-current="page"] {
+  box-shadow: 0 2px 9px rgba(0, 0, 0, 0.55);
+}
 
 input, select, textarea {
   font-family: var(--font-sans);
@@ -230,3 +388,18 @@ tr[tabindex="0"]:focus-visible {
 /* Shared loading-spinner animation (so the reduced-motion exemption can
    re-enable it by class). */
 .cc-spin { animation: spin 0.7s linear infinite; }
+
+/* Visually-hidden but available to assistive tech. Used for chart data-table
+   fallbacks and other screen-reader-only summaries. Standard clip-rect recipe
+   so the element takes no layout space and can't be tabbed-into accidentally. */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}

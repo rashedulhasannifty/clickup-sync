@@ -273,6 +273,7 @@ export function DataTable<T extends { [key: string]: unknown }>({
                 sorted.map((row, idx) => (
                   <tr
                     key={String(rowId(row, idx))}
+                    className={onRowClick ? 'row-3d' : undefined}
                     onClick={() => onRowClick?.(row)}
                     tabIndex={onRowClick ? 0 : undefined}
                     onKeyDown={onRowClick ? onActivate(() => onRowClick(row)) : undefined}
@@ -477,7 +478,7 @@ export function DataTable<T extends { [key: string]: unknown }>({
               sorted.map((row, i) => (
                 <tr
                   key={String(rowId(row, i))}
-                  className={`border-b border-(--border-soft) last:border-0 ${i % 2 === 1 ? 'bg-(--surface-alt)' : 'bg-(--surface)'} ${onRowClick ? 'cursor-pointer hover:bg-(--hover)' : ''} transition-colors`}
+                  className={`border-b border-(--border-soft) last:border-0 ${i % 2 === 1 ? 'bg-(--surface-alt)' : 'bg-(--surface)'} ${onRowClick ? 'row-3d cursor-pointer hover:bg-(--hover)' : ''} transition-colors`}
                   onClick={() => onRowClick?.(row)}
                   tabIndex={onRowClick ? 0 : undefined}
                   onKeyDown={onRowClick ? onActivate(() => onRowClick(row)) : undefined}
