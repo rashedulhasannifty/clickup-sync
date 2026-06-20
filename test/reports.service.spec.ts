@@ -17,6 +17,7 @@ describe('ReportsService', () => {
       clickupWebhookEvent: {
         findMany: jest.fn().mockResolvedValue([]),
         count: jest.fn().mockResolvedValue(0),
+        findFirst: jest.fn().mockResolvedValue(null),
       },
       syncJobLog: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -330,20 +331,20 @@ describe('ReportsService', () => {
   });
 
   describe('syncHealth', () => {
-    it('marks Stale when lastSuccessfulSyncAt is > 60 min ago', async () => {
+    it('marks Stale when lastSuccessfulSyncAt is older than 12h', async () => {
       const prisma = makePrisma();
       prisma.syncCheckpoint.findMany.mockResolvedValue([
-        { scopeId: '3577824', lastSuccessfulSyncAt: new Date(Date.now() - 90 * 60_000) },
+        { scopeId: '3577824', lastSuccessfulSyncAt: new Date(Date.now() - 13 * 60 * 60_000) },
       ]);
       const result = await new ReportsService(prisma).syncHealth();
       expect(result[0].spaceName).toBe('Digital Marketing');
       expect(result[0].status).toBe('Stale');
     });
 
-    it('marks Fresh when lastSuccessfulSyncAt is < 60 min ago', async () => {
+    it('marks Fresh when lastSuccessfulSyncAt is within 12h (90 min, previously Stale)', async () => {
       const prisma = makePrisma();
       prisma.syncCheckpoint.findMany.mockResolvedValue([
-        { scopeId: '3589129', lastSuccessfulSyncAt: new Date(Date.now() - 10 * 60_000) },
+        { scopeId: '3589129', lastSuccessfulSyncAt: new Date(Date.now() - 90 * 60_000) },
       ]);
       const result = await new ReportsService(prisma).syncHealth();
       expect(result[0].spaceName).toBe('R&D Apps');
@@ -474,7 +475,7 @@ describe('ReportsService', () => {
       prisma.clickupWebhookEvent.count.mockResolvedValue(150);
       prisma.clickupTimeEntry.count.mockResolvedValue(7);
       const result = await new ReportsService(prisma).stats();
-      expect(result).toEqual({ failedJobsLast24h: 3, deadLetterPending: 2, webhooksLast24h: 150, missingRateEntries: 7 });
+      expect(result).toEqual({ failedJobsLast24h: 3, deadLetterPending: 2, webhooksLast24h: 150, missingRateEntries: 7, lastWebhookEventAt: null });
     });
   });
 
