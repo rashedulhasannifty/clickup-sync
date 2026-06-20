@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { ChartEmpty } from './ChartEmpty';
+import { ChartDataTable } from './ChartDataTable';
 
 export interface StackedSeries {
   key: string;
@@ -55,8 +56,22 @@ export function StackedBarChart({ labels, series, values, height = 220, formatVa
   // Thin x labels so they don't collide when there are many buckets.
   const labelStep = Math.ceil(labels.length / 12);
 
+  // Accessible alternative: the divs above are opaque to screen readers, so the
+  // visual is aria-hidden and this summary + data table carry the same data.
+  const a11ySummary = `Stacked bar chart across ${labels.length} periods and ${series.length} series. Peak period total ${fv(maxTotal)}.`;
+  const a11yColumns = ['Period', ...series.map((s) => s.key), 'Total'];
+  const a11yRows: (string | number)[][] = labels.map((label, i) => [
+    label,
+    ...series.map((s) => fv(values[i]?.[s.key] ?? 0)),
+    fv(totals[i]),
+  ]);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div>
+      {/* The table's <caption> already announces this summary — no separate
+          sr-only <p>, which would make AT read the same sentence twice. */}
+      <ChartDataTable caption={a11ySummary} columns={a11yColumns} rows={a11yRows} />
+      <div aria-hidden="true" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {/* Legend */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', fontSize: 11 }}>
         {series.map(s => (
@@ -166,6 +181,7 @@ export function StackedBarChart({ labels, series, values, height = 220, formatVa
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

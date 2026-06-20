@@ -5,6 +5,7 @@ import {
 	Route,
 	Navigate,
 	Outlet,
+	useLocation,
 } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/queryClient';
@@ -14,9 +15,12 @@ import { AppLayout } from './components/layout/AppLayout';
 import { LoginPage } from './pages/LoginPage';
 import { useAuth } from './hooks/useAuth';
 import { RequireRole } from './components/RequireRole';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { PageSkeleton } from './components/ui/PageSkeleton';
 import './index.css';
 
-// Lazy page imports (real pages will replace stubs in later tasks)
+// Lazy page imports — each route's code is split into its own chunk and loaded
+// on demand behind <SuspenseRoute>.
 const OverviewPage = React.lazy(() =>
 	import('./pages/OverviewPage').then((m) => ({ default: m.OverviewPage })),
 );
@@ -62,6 +66,9 @@ const AuditLogPage = React.lazy(() =>
 const TeamPage = React.lazy(() =>
 	import('./pages/TeamPage').then((m) => ({ default: m.TeamPage })),
 );
+const NotFoundPage = React.lazy(() =>
+	import('./pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })),
+);
 const SignupPage = React.lazy(() =>
 	import('./pages/SignupPage').then((m) => ({ default: m.SignupPage })),
 );
@@ -99,6 +106,26 @@ function PageLoader() {
 	);
 }
 
+/**
+ * Wraps a routed page in a per-route error boundary + Suspense. The boundary is
+ * keyed by pathname so navigating to a different route mounts a fresh boundary
+ * (a crash on one page never sticks to the next), while the sidebar/topbar in
+ * AppLayout stay mounted and usable. The Suspense fallback is a page-shaped
+ * skeleton rather than a bare spinner.
+ */
+function SuspenseRoute({ children }: { children: React.ReactNode }) {
+	const { pathname } = useLocation();
+	return (
+		<ErrorBoundary key={pathname}>
+			<React.Suspense fallback={<PageSkeleton />}>{children}</React.Suspense>
+		</ErrorBoundary>
+	);
+}
+
+// Public (pre-auth) routes can't show the app skeleton meaningfully, so they
+// keep the lightweight centered spinner.
+const PublicFallback = <PageLoader />;
+
 function ProtectedRoute() {
 	const { loading, user } = useAuth();
 	if (loading) return <PageLoader />;
@@ -106,160 +133,79 @@ function ProtectedRoute() {
 	return <Outlet />;
 }
 
-const Fallback = <PageLoader />;
-
 export default function App() {
 	return (
-		<QueryClientProvider client={queryClient}>
-			<ToastProvider>
-			<FilterProvider>
-				<BrowserRouter>
-					<Routes>
-						<Route path="/login" element={<LoginPage />} />
-						<Route
-							path="/signup"
-							element={
-								<React.Suspense fallback={Fallback}>
-									<SignupPage />
-								</React.Suspense>
-							}
-						/>
-						<Route
-							path="/invite/:token"
-							element={
-								<React.Suspense fallback={Fallback}>
-									<AcceptInvitePage />
-								</React.Suspense>
-							}
-						/>
-						<Route element={<ProtectedRoute />}>
-							<Route element={<AppLayout />}>
-								<Route index element={<Navigate to="/overview" replace />} />
+		<ErrorBoundary>
+			<QueryClientProvider client={queryClient}>
+				<ToastProvider>
+					<FilterProvider>
+						<BrowserRouter>
+							<Routes>
+								<Route path="/login" element={<LoginPage />} />
 								<Route
-									path="/overview"
+									path="/signup"
 									element={
-										<React.Suspense fallback={Fallback}>
-											<OverviewPage />
+										<React.Suspense fallback={PublicFallback}>
+											<SignupPage />
 										</React.Suspense>
 									}
 								/>
 								<Route
-									path="/analytics"
+									path="/invite/:token"
 									element={
-										<React.Suspense fallback={Fallback}>
-											<AnalyticsPage />
+										<React.Suspense fallback={PublicFallback}>
+											<AcceptInvitePage />
 										</React.Suspense>
 									}
 								/>
-								<Route
-									path="/time-spikes"
-									element={
-										<React.Suspense fallback={Fallback}>
-											<HourSpikesPage />
-										</React.Suspense>
-									}
-								/>
-								<Route
-									path="/tasks"
-									element={
-										<React.Suspense fallback={Fallback}>
-											<TasksPage />
-										</React.Suspense>
-									}
-								/>
-								<Route
-									path="/tasks/:taskId"
-									element={
-										<React.Suspense fallback={Fallback}>
-											<TasksPage />
-										</React.Suspense>
-									}
-								/>
-								<Route
-									path="/time-entries"
-									element={
-										<React.Suspense fallback={Fallback}>
-											<TimeEntriesPage />
-										</React.Suspense>
-									}
-								/>
-								<Route
-									path="/missing-rates"
-									element={
-										<React.Suspense fallback={Fallback}>
-											<MissingRatesPage />
-										</React.Suspense>
-									}
-								/>
-								<Route
-									path="/assignee-rates"
-									element={
-										<React.Suspense fallback={Fallback}>
-											<AssigneeRatesPage />
-										</React.Suspense>
-									}
-								/>
-								<Route
-									path="/budgets"
-									element={
-										<React.Suspense fallback={Fallback}>
-											<BudgetsPage />
-										</React.Suspense>
-									}
-								/>
-								<Route
-									path="/spaces"
-									element={
-										<React.Suspense fallback={Fallback}>
-											<SpacesPage />
-										</React.Suspense>
-									}
-								/>
-								<Route
-									path="/sync-logs"
-									element={
-										<React.Suspense fallback={Fallback}>
-											<SyncLogsPage />
-										</React.Suspense>
-									}
-								/>
-								<Route
-									path="/team"
-									element={
-										<RequireRole min="ADMIN" redirect="/overview">
-											<React.Suspense fallback={Fallback}>
-												<TeamPage />
-											</React.Suspense>
-										</RequireRole>
-									}
-								/>
-								<Route
-									path="/audit-log"
-									element={
-										<RequireRole min="ADMIN" redirect="/overview">
-											<React.Suspense fallback={Fallback}>
-												<AuditLogPage />
-											</React.Suspense>
-										</RequireRole>
-									}
-								/>
-								<Route
-									path="/settings"
-									element={
-										<RequireRole min="ADMIN" redirect="/overview">
-											<React.Suspense fallback={Fallback}>
-												<SettingsPage />
-											</React.Suspense>
-										</RequireRole>
-									}
-								/>
-							</Route>
-						</Route>
-						<Route path="*" element={<Navigate to="/overview" replace />} />
-					</Routes>
-				</BrowserRouter>
-			</FilterProvider>
-			</ToastProvider>
-		</QueryClientProvider>
+								<Route element={<ProtectedRoute />}>
+									<Route element={<AppLayout />}>
+										<Route index element={<Navigate to="/overview" replace />} />
+										<Route path="/overview" element={<SuspenseRoute><OverviewPage /></SuspenseRoute>} />
+										<Route path="/analytics" element={<SuspenseRoute><AnalyticsPage /></SuspenseRoute>} />
+										<Route path="/time-spikes" element={<SuspenseRoute><HourSpikesPage /></SuspenseRoute>} />
+										<Route path="/tasks" element={<SuspenseRoute><TasksPage /></SuspenseRoute>} />
+										<Route path="/tasks/:taskId" element={<SuspenseRoute><TasksPage /></SuspenseRoute>} />
+										<Route path="/time-entries" element={<SuspenseRoute><TimeEntriesPage /></SuspenseRoute>} />
+										<Route path="/missing-rates" element={<SuspenseRoute><MissingRatesPage /></SuspenseRoute>} />
+										<Route path="/assignee-rates" element={<SuspenseRoute><AssigneeRatesPage /></SuspenseRoute>} />
+										<Route path="/budgets" element={<SuspenseRoute><BudgetsPage /></SuspenseRoute>} />
+										<Route path="/spaces" element={<SuspenseRoute><SpacesPage /></SuspenseRoute>} />
+										<Route path="/sync-logs" element={<SuspenseRoute><SyncLogsPage /></SuspenseRoute>} />
+										<Route
+											path="/team"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><TeamPage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										<Route
+											path="/audit-log"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><AuditLogPage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										<Route
+											path="/settings"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><SettingsPage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										{/* Unknown in-app path: show a real 404 (with nav chrome)
+										    instead of silently bouncing to /overview. */}
+										<Route path="*" element={<SuspenseRoute><NotFoundPage /></SuspenseRoute>} />
+									</Route>
+								</Route>
+							</Routes>
+						</BrowserRouter>
+					</FilterProvider>
+				</ToastProvider>
+			</QueryClientProvider>
+		</ErrorBoundary>
 	);
 }

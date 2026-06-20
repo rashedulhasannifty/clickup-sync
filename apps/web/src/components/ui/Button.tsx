@@ -11,38 +11,70 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   iconRight?: React.ReactNode;
 }
 
+// 3D pressable buttons need a little vertical room for the raised edge and the
+// hover-lift, so each size is a touch taller than the old flat heights.
 const SIZES: Record<Size, React.CSSProperties> = {
-  sm:     { padding: '5px 9px',   fontSize: 12, gap: 5, height: 28 },
-  md:     { padding: '7px 12px',  fontSize: 13, gap: 6, height: 32 },
-  lg:     { padding: '9px 16px',  fontSize: 13, gap: 6, height: 36 },
-  icon:   { padding: 0, width: 32, height: 32, justifyContent: 'center' },
-  iconSm: { padding: 0, width: 28, height: 28, justifyContent: 'center' },
+  sm:     { padding: '6px 11px',  fontSize: 12, gap: 6, height: 30 },
+  md:     { padding: '8px 14px',  fontSize: 13, gap: 7, height: 34 },
+  lg:     { padding: '10px 18px', fontSize: 13, gap: 7, height: 38 },
+  icon:   { padding: 0, width: 34, height: 34, justifyContent: 'center' },
+  iconSm: { padding: 0, width: 30, height: 30, justifyContent: 'center' },
 };
 
-const VARIANTS: Record<Variant, { bg: string; color: string; border: string }> = {
-  default: { bg: 'var(--surface)', color: 'var(--text)',    border: 'var(--border)' },
-  primary: { bg: 'var(--text)',    color: 'var(--surface)', border: 'transparent'   },
-  accent:  { bg: 'var(--accent)',  color: '#fff',           border: 'transparent'   },
-  ghost:   { bg: 'transparent',   color: 'var(--text)',     border: 'transparent'   },
-  // Semantic variants: soft tinted fill + dark colored text from the accessible
-  // pill tokens (correct contrast in both light and dark themes).
-  danger:  { bg: 'var(--pill-red-bg)',   color: 'var(--pill-red-text)',   border: 'transparent' },
-  success: { bg: 'var(--pill-green-bg)', color: 'var(--pill-green-text)', border: 'transparent' },
-  caution: { bg: 'var(--pill-amber-bg)', color: 'var(--pill-amber-text)', border: 'transparent' },
-  subtle:  { bg: 'var(--muted-bg)', color: 'var(--text)',   border: 'transparent'   },
-};
+// Each variant maps to a solid (or surface) face, a darker bottom "edge" the
+// face sits on, and two glow strengths (rest / hover). Solid intents are theme-
+// independent on purpose — bold red/green/amber/accent read on both themes. The
+// theme-adaptive faces (primary/default/subtle) pull their edge + glow from CSS
+// tokens so they invert with the theme.
+interface V {
+  bg: string;
+  color: string;
+  border: string;
+  edge: string;
+  glow: string;
+  glowStrong: string;
+  /** Optional hover background (neutral variants only); solids just lift. */
+  hover?: string;
+}
 
-/** Per-variant hover backgrounds. Neutral variants use theme-relative tokens
- *  (stronger than the global --hover); filled variants darken to a solid. */
-const HOVER_BG: Record<Variant, string> = {
-  default: 'var(--btn-neutral-hover)',
-  primary: 'var(--btn-primary-hover)',
-  accent: 'var(--accent-hover)',
-  ghost: 'var(--btn-neutral-hover)',
-  danger: 'var(--btn-danger-hover)',
-  success: 'var(--btn-success-hover)',
-  caution: 'var(--btn-caution-hover)',
-  subtle: 'var(--btn-subtle-hover)',
+const VARIANTS: Record<Variant, V> = {
+  default: {
+    bg: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)',
+    edge: 'var(--border-strong)', glow: 'var(--btn-neutral-glow)', glowStrong: 'var(--btn-neutral-glow-strong)',
+    hover: 'var(--btn-neutral-hover)',
+  },
+  primary: {
+    bg: 'var(--text)', color: 'var(--surface)', border: '1px solid transparent',
+    edge: 'var(--btn-primary-edge)', glow: 'rgba(15,23,42,.34)', glowStrong: 'rgba(15,23,42,.48)',
+  },
+  accent: {
+    bg: 'var(--accent)', color: '#fff', border: '1px solid transparent',
+    edge: 'var(--accent-strong)', glow: 'rgba(123,104,238,.32)', glowStrong: 'rgba(123,104,238,.46)',
+  },
+  ghost: {
+    // Transparent face has nothing to raise — it stays flat but still presses
+    // (translateY on :active) and tints on hover.
+    bg: 'transparent', color: 'var(--text)', border: '1px solid transparent',
+    edge: 'transparent', glow: 'transparent', glowStrong: 'transparent',
+    hover: 'var(--btn-neutral-hover)',
+  },
+  danger: {
+    bg: '#ef4444', color: '#fff', border: '1px solid transparent',
+    edge: '#c33333', glow: 'rgba(239,68,68,.3)', glowStrong: 'rgba(239,68,68,.46)',
+  },
+  success: {
+    bg: '#10b981', color: '#fff', border: '1px solid transparent',
+    edge: '#0a8f63', glow: 'rgba(16,185,129,.3)', glowStrong: 'rgba(16,185,129,.46)',
+  },
+  caution: {
+    bg: '#f59e0b', color: '#fff', border: '1px solid transparent',
+    edge: '#c47d08', glow: 'rgba(245,158,11,.3)', glowStrong: 'rgba(245,158,11,.46)',
+  },
+  subtle: {
+    bg: 'var(--muted-bg)', color: 'var(--text)', border: '1px solid transparent',
+    edge: 'var(--border-strong)', glow: 'rgba(15,23,42,.10)', glowStrong: 'rgba(15,23,42,.18)',
+    hover: 'var(--btn-subtle-hover)',
+  },
 };
 
 export function Button({
@@ -54,40 +86,47 @@ export function Button({
   children,
   disabled,
   style,
+  className,
   onMouseEnter: userMouseEnter,
   onMouseLeave: userMouseLeave,
   ...props
 }: ButtonProps) {
   const s = SIZES[size] ?? SIZES.md;
   const v = VARIANTS[variant] ?? VARIANTS.default;
-  const hoverBg = HOVER_BG[variant];
+  const isDisabled = disabled || loading;
 
   return (
     <button
       {...props}
-      disabled={disabled || loading}
+      disabled={isDisabled}
+      className={['btn-3d', className].filter(Boolean).join(' ')}
+      // Neutral variants tint on hover (solids just lift via the .btn-3d class).
       onMouseEnter={(e) => {
         userMouseEnter?.(e);
-        if (disabled || loading) return;
-        (e.currentTarget as HTMLButtonElement).style.background = hoverBg;
+        if (isDisabled || !v.hover) return;
+        (e.currentTarget as HTMLButtonElement).style.background = v.hover;
       }}
       onMouseLeave={(e) => {
         userMouseLeave?.(e);
+        if (!v.hover) return;
         (e.currentTarget as HTMLButtonElement).style.background = v.bg;
       }}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
         fontFamily: 'inherit',
-        fontWeight: 500,
-        borderRadius: 7,
-        border: `1px solid ${v.border}`,
+        fontWeight: 600,
+        borderRadius: 9,
+        border: v.border,
         background: v.bg,
         color: v.color,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.5 : 1,
-        transition: 'background 100ms, border-color 100ms, opacity 100ms',
+        cursor: isDisabled ? 'not-allowed' : 'pointer',
+        opacity: isDisabled ? 0.5 : 1,
         whiteSpace: 'nowrap',
+        // Per-button 3D colors consumed by the .btn-3d class.
+        ['--b-edge' as string]: v.edge,
+        ['--b-glow' as string]: v.glow,
+        ['--b-glow-strong' as string]: v.glowStrong,
         ...s,
         ...style,
       }}

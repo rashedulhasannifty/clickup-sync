@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
 import { fmt } from '../../lib/formatters';
+import { ChartDataTable } from './ChartDataTable';
 
 /**
  * Cumulative month-to-date spend ("burn-down") for one client, with the budget
@@ -107,6 +108,16 @@ export function BudgetBurnDownChart({
   const overBudget = monthlyAmount != null && (lastActual?.value ?? 0) > monthlyAmount;
   const actualColor = overBudget ? 'var(--pill-red-text)' : ACCENT;
 
+  // Accessible alternative — the svg + HTML overlays are aria-hidden, so this
+  // summary and the cumulative-spend table carry the same information to AT.
+  const money = (v: number) => fmt.money(Math.round(v * 100));
+  const monthLabel = new Date(Date.UTC(year, mon - 1, 1)).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const a11ySummary =
+    `Budget burn-down for ${monthLabel}. Spent ${money(lastActual?.value ?? 0)}` +
+    (monthlyAmount != null ? ` of a ${money(monthlyAmount)} budget` : ' (no budget set)') +
+    `, projected ${money(forecast)} by month end.` +
+    (overBudget ? ' Currently over budget.' : '');
+
   const legend: { label: string; color: string; dashed?: boolean; show: boolean }[] = [
     { label: 'Actual', color: actualColor, show: !!actualPath },
     { label: 'Projection', color: PROJECTION, dashed: true, show: !!projection },
@@ -116,6 +127,13 @@ export function BudgetBurnDownChart({
 
   return (
     <div style={{ padding: '14px 18px 6px' }}>
+      {/* The table's <caption> announces this summary; a separate sr-only <p>
+          would make AT read the same sentence twice. */}
+      <ChartDataTable
+        caption={a11ySummary}
+        columns={['Date', 'Cumulative spend']}
+        rows={points.map((p) => [p.date, money(p.value)])}
+      />
       {/* Legend */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 8, fontSize: 11, color: 'var(--text-muted)' }}>
         {legend.filter((l) => l.show).map((l) => (
@@ -160,6 +178,7 @@ export function BudgetBurnDownChart({
         <svg
           viewBox={`0 0 ${W} ${height}`}
           preserveAspectRatio="none"
+          aria-hidden="true"
           style={{ width: '100%', height, display: 'block', overflow: 'visible' }}
         >
           <defs>

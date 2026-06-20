@@ -67,11 +67,15 @@ export function CostBucketDrawer({ open, bucket, bucketType, onClose }: CostBuck
             </div>
             <button
               type="button"
+              className="btn-3d"
               onClick={() => q.refetch()}
               style={{
                 padding: '6px 12px', fontSize: 12, fontWeight: 600,
                 background: 'var(--surface)', color: 'var(--text)',
                 border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer',
+                ['--b-edge' as string]: 'var(--border-strong)',
+                ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+                ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
               }}
             >
               Retry
@@ -105,6 +109,7 @@ export function CostBucketDrawer({ open, bucket, bucketType, onClose }: CostBuck
                 return (
                   <tr
                     key={r.client}
+                    className="row-3d"
                     onClick={() => {
                       if (!bucketRange) return;
                       navigate(`/time-entries?from=${encodeURIComponent(bucketRange.from)}&to=${encodeURIComponent(bucketRange.to)}&search=${encodeURIComponent(r.client)}`);

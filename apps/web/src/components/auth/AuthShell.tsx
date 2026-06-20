@@ -43,12 +43,15 @@ export function AuthShell({ children, maxWidth = 416 }: {
         : 'radial-gradient(900px 480px at 50% -8%, rgba(123,104,238,0.10), transparent 70%)',
       padding: 24, position: 'relative',
     }}>
-      <button onClick={toggleTheme} title={isDark ? 'Light mode' : 'Dark mode'} style={{
+      <button onClick={toggleTheme} title={isDark ? 'Light mode' : 'Dark mode'} className="btn-3d" style={{
         position: 'absolute', top: 20, right: 22,
         width: 34, height: 34, border: '1px solid var(--border)',
         background: 'var(--surface)', color: 'var(--text)',
-        borderRadius: 8, cursor: 'pointer',
+        borderRadius: 9, cursor: 'pointer',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
+        ['--b-edge' as string]: 'var(--border-strong)',
+        ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+        ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
       }}>
         {isDark ? <Sun size={15} /> : <Moon size={15} />}
       </button>
@@ -136,6 +139,7 @@ export function AuthField({
           autoComplete={autoComplete}
           aria-label={label}
           aria-invalid={error ? true : undefined}
+          className="input-3d"
           style={{
             width: '100%', height: 42,
             padding: `0 ${isPw ? 40 : 12}px 0 ${Icon ? 38 : 12}px`,
@@ -146,8 +150,12 @@ export function AuthField({
             borderRadius: 9, outline: 'none',
             transition: 'border-color 120ms, box-shadow 120ms',
           }}
-          onFocus={(e) => { if (!readOnly && !error) { e.target.style.borderColor = 'var(--accent)'; e.target.style.boxShadow = '0 0 0 3px var(--accent-soft)'; } }}
-          onBlur={(e) => { e.target.style.borderColor = error ? 'var(--red)' : 'var(--border-strong)'; e.target.style.boxShadow = 'none'; }}
+          // Border color is the only inline focus tweak now; the recess + accent
+          // focus ring come from the .input-3d class (which composes both), so we
+          // must NOT set an inline box-shadow here — it would override the class
+          // and flatten the field after the first blur.
+          onFocus={(e) => { if (!readOnly && !error) { e.target.style.borderColor = 'var(--accent)'; } }}
+          onBlur={(e) => { e.target.style.borderColor = error ? 'var(--red)' : 'var(--border-strong)'; }}
         />
         {isPw && (
           <button type="button" onClick={() => setReveal((r) => !r)} tabIndex={-1} aria-label={reveal ? 'Hide password' : 'Show password'} style={{
@@ -173,14 +181,16 @@ export function AuthSubmit({ children, loading, disabled }: {
 }) {
   const off = loading || disabled;
   return (
-    <button type="submit" disabled={off} style={{
+    <button type="submit" disabled={off} className="btn-3d" style={{
       width: '100%', height: 44, marginTop: 2,
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
       background: disabled ? 'var(--border-strong)' : 'var(--accent)', color: '#fff',
       border: 0, borderRadius: 9, fontSize: 14, fontWeight: 600,
       cursor: off ? 'default' : 'pointer',
-      boxShadow: disabled ? 'none' : '0 2px 8px rgba(123,104,238,0.32)',
-      transition: 'background 120ms, opacity 120ms', opacity: loading ? 0.85 : 1,
+      transition: 'background 120ms, opacity 120ms, transform 90ms ease, box-shadow 90ms ease', opacity: loading ? 0.85 : 1,
+      ['--b-edge' as string]: 'var(--accent-strong)',
+      ['--b-glow' as string]: 'rgba(123,104,238,.32)',
+      ['--b-glow-strong' as string]: 'rgba(123,104,238,.46)',
     }}
       onMouseEnter={(e) => { if (!off) e.currentTarget.style.background = 'var(--accent-hover)'; }}
       onMouseLeave={(e) => { if (!off) e.currentTarget.style.background = 'var(--accent)'; }}>
@@ -200,12 +210,15 @@ function GoogleGlyph() {
 
 export function SSOButton({ children }: { children: React.ReactNode }) {
   return (
-    <button type="button" disabled title="Single sign-on is coming soon" style={{
+    <button type="button" disabled title="Single sign-on is coming soon" className="btn-3d" style={{
       width: '100%', height: 42, position: 'relative',
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 9,
       background: 'var(--surface)', color: 'var(--text-muted)',
       border: '1px solid var(--border-strong)', borderRadius: 9,
       fontSize: 13.5, fontWeight: 600, cursor: 'not-allowed', opacity: 0.7,
+      ['--b-edge' as string]: 'var(--border-strong)',
+      ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+      ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
     }}>
       <GoogleGlyph />{children}
       <span style={{

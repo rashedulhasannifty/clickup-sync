@@ -1,11 +1,16 @@
 import React from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { Sparkline } from './Sparkline';
+import { Skeleton } from './Skeleton';
 
 interface MetricCardProps {
   label: string;
   value: string | number;
   sublabel?: string;
+  /** Secondary line rendered on its OWN row below the value (not crammed beside
+   *  it like `sublabel`). Use for longer context — e.g. a date-range label that
+   *  would otherwise wrap awkwardly next to the value. */
+  caption?: string;
   delta?: React.ReactNode;
   deltaTone?: 'up' | 'down' | 'neutral';
   trend?: number[];
@@ -13,9 +18,15 @@ interface MetricCardProps {
   accent?: boolean;
   dense?: boolean;
   onClick?: () => void;
+  /**
+   * When true the value renders as a shimmer placeholder instead of the
+   * (usually dashed) value. Lets the card paint its frame/label immediately
+   * while the metric query resolves, instead of flashing a lone "—".
+   */
+  loading?: boolean;
 }
 
-export function MetricCard({ label, value, sublabel, delta, deltaTone, trend, icon, accent, dense, onClick }: MetricCardProps) {
+export function MetricCard({ label, value, sublabel, caption, delta, deltaTone, trend, icon, accent, dense, onClick, loading }: MetricCardProps) {
   const deltaColor = deltaTone === 'up' ? 'var(--green)' : deltaTone === 'down' ? 'var(--red)' : 'var(--text-muted)';
   const Tag = (onClick ? 'button' : 'div') as React.ElementType;
   const valueFontSize = dense ? 22 : 26;
@@ -23,6 +34,7 @@ export function MetricCard({ label, value, sublabel, delta, deltaTone, trend, ic
     <Tag
       onClick={onClick}
       type={onClick ? 'button' : undefined}
+      className={onClick ? 'card-3d card-3d-interactive' : 'card-3d'}
       style={{
         textAlign: 'left',
         cursor: onClick ? 'pointer' : 'default',
@@ -52,12 +64,36 @@ export function MetricCard({ label, value, sublabel, delta, deltaTone, trend, ic
         </span>
         {icon && <span style={{ color: 'var(--text-muted)', display: 'flex' }}>{icon}</span>}
       </div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, position: 'relative' }}>
-        <span style={{ fontSize: valueFontSize, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
-          {value}
-        </span>
-        {sublabel && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{sublabel}</span>}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, position: 'relative', minHeight: valueFontSize }}>
+        {loading ? (
+          <span style={{ display: 'block', alignSelf: 'center' }}>
+            <Skeleton width={dense ? 64 : 84} height={valueFontSize - 6} />
+          </span>
+        ) : (
+          <>
+            <span style={{ fontSize: valueFontSize, fontWeight: 600, color: 'var(--text)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
+              {value}
+            </span>
+            {sublabel && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{sublabel}</span>}
+          </>
+        )}
       </div>
+      {caption && (
+        <div
+          title={caption}
+          style={{
+            fontSize: 12,
+            color: 'var(--text-muted)',
+            position: 'relative',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            maxWidth: '100%',
+          }}
+        >
+          {caption}
+        </div>
+      )}
       {(delta || trend) && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, position: 'relative' }}>
           {delta && (

@@ -139,6 +139,7 @@ export function Select({
       <button
         type="button"
         id={triggerId}
+        className="btn-3d"
         disabled={disabled}
         aria-label={ariaLabel}
         aria-describedby={field?.descriptionId}
@@ -152,6 +153,9 @@ export function Select({
         onClick={(e) => { if (e.detail !== 0) !disabled && setOpen((o) => !o); }}
         onKeyDown={onKeyDown}
         style={{
+          ['--b-edge' as string]: 'var(--border-strong)',
+          ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+          ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
           display: 'inline-flex',
           alignItems: 'center',
           gap: 6,
@@ -162,7 +166,7 @@ export function Select({
           background: 'var(--surface)',
           color: 'var(--text)',
           border: '1px solid var(--border)',
-          borderRadius: 7,
+          borderRadius: 9,
           cursor: disabled ? 'not-allowed' : 'pointer',
           opacity: disabled ? 0.55 : 1,
           fontFamily: 'inherit',
@@ -235,6 +239,7 @@ export function Select({
           {options.map((opt, idx) => (
             <button
               key={opt.value}
+              className="row-3d"
               id={`${listboxId}-opt-${idx}`}
               role="option"
               aria-selected={opt.value === value}

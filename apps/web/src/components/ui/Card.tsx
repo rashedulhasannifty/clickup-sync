@@ -20,7 +20,7 @@ export function Card({ children, title, subtitle, action, className = '', paddin
   const bodyOverflowY = style?.overflow === 'visible' ? 'visible' : 'auto';
   return (
     <div
-      className={className}
+      className={['card-3d', onClick ? 'card-3d-interactive' : '', className].filter(Boolean).join(' ')}
       onClick={onClick}
       style={{
         background: 'var(--surface)',

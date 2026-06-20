@@ -80,6 +80,7 @@ function ToastRegion({
             <button
               type="button"
               aria-label="Dismiss"
+              className="btn-3d"
               onClick={() => onDismiss(t.id)}
               style={{
                 flexShrink: 0,
@@ -90,6 +91,9 @@ function ToastRegion({
                 display: 'flex',
                 padding: 2,
                 marginTop: 1,
+                ['--b-edge' as string]: 'transparent',
+                ['--b-glow' as string]: 'transparent',
+                ['--b-glow-strong' as string]: 'transparent',
               }}
             >
               <X size={14} strokeWidth={2} />

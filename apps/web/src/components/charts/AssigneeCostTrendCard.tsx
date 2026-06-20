@@ -77,6 +77,7 @@ export function AssigneeCostTrendCard() {
               <button
                 key={b}
                 type="button"
+                className="btn-3d"
                 onClick={() => setBucket(b)}
                 style={{
                   padding: '4px 10px', fontSize: 11, fontWeight: 600,
@@ -84,6 +85,9 @@ export function AssigneeCostTrendCard() {
                   color: active ? '#fff' : 'var(--text-muted)',
                   border: 0, cursor: 'pointer',
                   borderLeft: b === 'day' ? 0 : '1px solid var(--border)',
+                  ['--b-edge' as string]: 'var(--border-strong)',
+                  ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+                  ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
                 }}
                 aria-pressed={active}
                 aria-label={`Switch to ${BUCKET_ARIA[b]} granularity`}

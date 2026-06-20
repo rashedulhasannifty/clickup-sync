@@ -255,7 +255,7 @@ export function SyncLogsPage() {
       />
 
 
-      <Tabs items={tabItems} value={activeTab} onChange={setActiveTab} variant="underline" />
+      <Tabs items={tabItems} value={activeTab} onChange={setActiveTab} variant="segmented" />
 
       {activeTab === 'runs' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -381,6 +381,7 @@ export function SyncLogsPage() {
                       return (
                         <tr
                           key={r.id}
+                          className="row-3d"
                           onClick={() => setSelectedJob(r)}
                           tabIndex={0}
                           onKeyDown={onActivate(() => setSelectedJob(r))}
@@ -621,6 +622,7 @@ export function SyncLogsPage() {
                       return (
                         <tr
                           key={e.id}
+                          className="row-3d"
                           onClick={() => setSelectedWebhook(e)}
                           tabIndex={0}
                           onKeyDown={onActivate(() => setSelectedWebhook(e))}

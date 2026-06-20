@@ -92,6 +92,7 @@ export function NotifySpikeModal({ row, onClose }: { row: HourSpikeWatchRow; onC
               maxLength={2000}
               rows={3}
               placeholder="Add context for the member…"
+              className="input-3d"
               style={{
                 fontFamily: 'inherit', fontSize: 13, padding: '8px 10px', borderRadius: 8,
                 border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', resize: 'vertical',

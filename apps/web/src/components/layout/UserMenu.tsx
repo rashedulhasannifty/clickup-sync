@@ -27,9 +27,13 @@ export function UserMenu() {
     <span ref={ref} style={{ position: 'relative', display: 'inline-flex', flexShrink: 0 }}>
       <button
         type="button"
+        className="btn-3d"
         onClick={() => setOpen((o) => !o)}
         title={user.email}
         style={{
+          ['--b-edge' as string]: 'var(--border-strong)',
+          ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+          ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
           display: 'flex', alignItems: 'center', gap: 6, height: 32, padding: '0 4px 0 2px',
           border: '1px solid transparent', background: 'transparent', borderRadius: 999, cursor: 'pointer',
         }}
@@ -59,6 +63,7 @@ export function UserMenu() {
           {hasRole('ADMIN') && (
             <button
               type="button"
+              className="row-3d"
               onClick={() => { setOpen(false); navigate('/team'); }}
               style={menuItemStyle}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
@@ -72,6 +77,7 @@ export function UserMenu() {
 
           <button
             type="button"
+            className="row-3d"
             onClick={() => { setOpen(false); void logout(); }}
             style={menuItemStyle}
             onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}

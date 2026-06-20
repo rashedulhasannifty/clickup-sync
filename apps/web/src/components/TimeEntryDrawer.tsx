@@ -90,10 +90,14 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
         </div>
         <button
           type="button"
+          className="btn-3d"
           onClick={onClose}
           style={{
             width: 28, height: 28, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)',
             borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+            ['--b-edge' as string]: 'var(--border-strong)',
+            ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+            ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
           }}
         >
           <X size={14} strokeWidth={1.75} />

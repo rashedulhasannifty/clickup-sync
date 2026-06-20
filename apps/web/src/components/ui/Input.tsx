@@ -23,7 +23,7 @@ export function Input({ icon, error, className = '', id, ...props }: InputProps)
         id={inputId}
         aria-invalid={error || field?.invalid ? true : undefined}
         aria-describedby={describedBy}
-        className={`w-full bg-[var(--surface)] border ${error ? 'border-[var(--red)]' : 'border-[var(--border)]'} text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] transition-colors ${className}`}
+        className={`input-3d w-full bg-[var(--surface)] border ${error ? 'border-[var(--red)]' : 'border-[var(--border)]'} text-[var(--text)] placeholder:text-[var(--text-faint)] focus:outline-none focus:border-[var(--accent)] transition-colors ${className}`}
         style={{
           height: 32,
           fontSize: 13,

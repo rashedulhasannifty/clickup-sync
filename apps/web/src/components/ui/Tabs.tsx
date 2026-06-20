@@ -15,7 +15,7 @@ interface TabsProps {
   ariaLabel?: string;
 }
 
-export function Tabs({ items, value, onChange, variant = 'underline', ariaLabel }: TabsProps) {
+export function Tabs({ items, value, onChange, variant = 'segmented', ariaLabel }: TabsProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   // Roving-tabindex keyboard model: ArrowLeft/Right (and Home/End) move between
@@ -66,6 +66,7 @@ export function Tabs({ items, value, onChange, variant = 'underline', ariaLabel 
           <button
             key={item.value}
             {...tabProps(item)}
+            className="tab-press"
             style={{
               fontSize: 13,
               fontWeight: value === item.value ? 600 : 400,
@@ -73,7 +74,6 @@ export function Tabs({ items, value, onChange, variant = 'underline', ariaLabel 
               background: 'transparent', border: 0,
               cursor: 'pointer', fontFamily: 'inherit',
               padding: 0,
-              transition: 'color 100ms',
             }}
           >
             {item.label}
@@ -85,7 +85,7 @@ export function Tabs({ items, value, onChange, variant = 'underline', ariaLabel 
 
   if (variant === 'segmented') {
     return (
-      <div ref={ref} role="tablist" aria-label={ariaLabel} style={{
+      <div ref={ref} role="tablist" aria-label={ariaLabel} className="seg-track" style={{
         display: 'inline-flex', background: 'var(--muted-bg)',
         borderRadius: 8, padding: 3,
       }}>
@@ -93,14 +93,13 @@ export function Tabs({ items, value, onChange, variant = 'underline', ariaLabel 
           <button
             key={item.value}
             {...tabProps(item)}
+            className="seg-tab"
             style={{
               padding: '5px 12px', fontSize: 13, fontWeight: 500,
               borderRadius: 6, border: 0, cursor: 'pointer',
               fontFamily: 'inherit',
               background: value === item.value ? 'var(--surface)' : 'transparent',
               color: value === item.value ? 'var(--text)' : 'var(--text-muted)',
-              boxShadow: value === item.value ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-              transition: 'all 100ms',
             }}
           >
             {item.label}
@@ -125,6 +124,7 @@ export function Tabs({ items, value, onChange, variant = 'underline', ariaLabel 
         <button
           key={item.value}
           {...tabProps(item)}
+          className="tab-press"
           style={{
             padding: '8px 16px', fontSize: 13, fontWeight: 500,
             borderBottom: `2px solid ${value === item.value ? 'var(--accent)' : 'transparent'}`,

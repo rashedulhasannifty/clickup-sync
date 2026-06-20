@@ -140,9 +140,13 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
             <button
               type="button"
               onClick={onClose}
+              className="btn-3d"
               style={{
                 width: 28, height: 28, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', borderRadius: 6,
                 cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                ['--b-edge' as string]: 'var(--border-strong)',
+                ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+                ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
               }}
             >
               <X size={14} strokeWidth={1.75} />

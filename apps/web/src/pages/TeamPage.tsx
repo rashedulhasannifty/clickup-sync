@@ -651,6 +651,7 @@ export function TeamPage() {
                     return (
                       <tr
                         key={u.id}
+                        className="row-3d"
                         onClick={() => setDetailId(u.id)}
                         tabIndex={0}
                         onKeyDown={onActivate(() => setDetailId(u.id))}
@@ -754,6 +755,7 @@ export function TeamPage() {
                 : pendingRows.map((inv) => (
                     <tr
                       key={inv.id}
+                      className="row-3d"
                       onClick={() => setDetailId(inv.id)}
                       tabIndex={0}
                       onKeyDown={onActivate(() => setDetailId(inv.id))}

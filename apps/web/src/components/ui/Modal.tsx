@@ -127,6 +127,7 @@ export function Modal({ open = true, onClose, title, subtitle, children, footer,
             </div>
             <button
               type="button"
+              className="btn-3d"
               onClick={onClose}
               aria-label="Close"
               style={{
@@ -138,6 +139,9 @@ export function Modal({ open = true, onClose, title, subtitle, children, footer,
                 padding: 4,
                 borderRadius: 6,
                 flexShrink: 0,
+                ['--b-edge' as string]: 'var(--border-strong)',
+                ['--b-glow' as string]: 'var(--btn-neutral-glow)',
+                ['--b-glow-strong' as string]: 'var(--btn-neutral-glow-strong)',
               }}
             >
               <X size={16} strokeWidth={1.75} />
