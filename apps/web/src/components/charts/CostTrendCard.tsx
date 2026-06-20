@@ -132,6 +132,9 @@ export function CostTrendCard() {
         title="Client cost trend"
         subtitle={`${bucket === 'day' ? 'Daily' : bucket === 'week' ? 'Weekly' : 'Monthly'} — ${windowDescription(bucket, useTopbar)} · ${moneyAud(totalCostAud)} total`}
         padding={16}
+        // Let the body grow to fit the chart + legend instead of scrolling
+        // inside the card (the shared Card body defaults to overflowY:auto).
+        style={{ overflow: 'visible' }}
         action={
           <div style={{ display: 'inline-flex', gap: 8 }}>
             {/* Line / bar toggle */}
