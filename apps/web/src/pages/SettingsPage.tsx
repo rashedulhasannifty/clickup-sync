@@ -310,7 +310,7 @@ function Stat({
             }}
           />
         )}
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>
+        <span title={value} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>
       </div>
     </div>
   );
@@ -1081,6 +1081,7 @@ export function SettingsPage() {
               <EmptyState title="No mappings" body="Add tag-to-assignee mappings to enable tracked-time replacement." />
             ) : (
               <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+                <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr
@@ -1132,6 +1133,7 @@ export function SettingsPage() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
           </Card>

@@ -119,9 +119,9 @@ These values came from the source workflows and are currently encoded in `src/co
 
 | Space | ID | Lookback |
 |---|---:|---:|
-| Digital Marketing | `3577824` | 90 days |
-| R&D Apps | `3589129` | 20 days |
-| Projects | `3525433` | 35 days |
+| Digital Marketing | `3577824` | 30 days |
+| R&D Apps | `3589129` | 30 days |
+| Projects | `3525433` | 30 days |
 
 Team ID: `3450636`.
 

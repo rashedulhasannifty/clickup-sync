@@ -34,7 +34,7 @@ export const reportsApi = {
   sprintPoints: (params?: { spaceId?: string }) =>
     apiClient.get('/reports/sprint-points', { params }).then(r => r.data),
   syncHealth: () => apiClient.get('/reports/ops/sync-health').then(r => r.data),
-  webhookEvents: (params?: { limit?: number; offset?: number }) =>
+  webhookEvents: (params?: { limit?: number; offset?: number; status?: string; eventType?: string; search?: string }) =>
     apiClient.get('/reports/ops/webhook-events', { params }).then(r => r.data),
   jobLogs: (params?: { queueName?: string; status?: string; limit?: number; offset?: number }) =>
     apiClient.get('/reports/ops/job-logs', { params }).then(r => r.data),

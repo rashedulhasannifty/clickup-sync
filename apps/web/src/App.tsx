@@ -71,14 +71,42 @@ const AcceptInvitePage = React.lazy(() =>
 	})),
 );
 
+function PageLoader() {
+	return (
+		<div
+			role="status"
+			aria-label="Loading"
+			style={{
+				display: 'flex',
+				alignItems: 'center',
+				justifyContent: 'center',
+				minHeight: '60vh',
+				width: '100%',
+			}}
+		>
+			<span
+				className="cc-spin"
+				style={{
+					width: 28,
+					height: 28,
+					borderRadius: '50%',
+					border: '2.5px solid var(--border)',
+					borderTopColor: 'var(--accent)',
+					display: 'inline-block',
+				}}
+			/>
+		</div>
+	);
+}
+
 function ProtectedRoute() {
 	const { loading, user } = useAuth();
-	if (loading) return <div className="p-6 text-(--text-muted)">Loading…</div>;
+	if (loading) return <PageLoader />;
 	if (!user) return <Navigate to="/login" replace />;
 	return <Outlet />;
 }
 
-const Fallback = <div className="p-6 text-(--text-muted)">Loading…</div>;
+const Fallback = <PageLoader />;
 
 export default function App() {
 	return (

@@ -98,7 +98,7 @@ export function NotifySpikeModal({ row, onClose }: { row: HourSpikeWatchRow; onC
               }}
             />
           </label>
-          {error && <div style={{ fontSize: 12, color: 'var(--red)' }}>{error}</div>}
+          {error && <div role="alert" style={{ fontSize: 12, color: 'var(--red)' }}>{error}</div>}
         </div>
       )}
     </Modal>

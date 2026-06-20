@@ -100,6 +100,12 @@ export function LineChart({
   const hovered = hoverIdx != null ? data[hoverIdx] : null;
   const hoveredPt = hoverIdx != null ? points[hoverIdx] : null;
 
+  // Screen-reader summary of the series (the SVG is otherwise opaque to AT).
+  const fmtV = formatMax ?? String;
+  const firstLabel = data[0].label ?? data[0].date ?? 'start';
+  const lastLabel = data[data.length - 1].label ?? data[data.length - 1].date ?? 'end';
+  const chartLabel = `Line chart, ${data.length} points from ${firstLabel} to ${lastLabel}. Minimum ${fmtV(dataMin)}, maximum ${fmtV(dataMax)}, latest ${fmtV(data[data.length - 1].value)}.`;
+
   // Single full-chart overlay rect drives hover + click via the nearest-X
   // point. Avoids the mouseleave/mouseenter flicker that per-point hit
   // circles produce on dense charts where targets overlap.
@@ -179,6 +185,8 @@ export function LineChart({
       <svg
         viewBox={`0 0 ${w} ${height}`}
         preserveAspectRatio="none"
+        role="img"
+        aria-label={chartLabel}
         style={{
           width: '100%',
           height,

@@ -2,12 +2,13 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Home, BarChart3, Activity, CheckSquare, Clock, AlertTriangle, DollarSign,
-  Layers, Webhook, Settings, Search, Wallet,
+  Layers, Webhook, Settings, Search, Wallet, Users, ScrollText,
 } from 'lucide-react';
 import { Kbd } from '../ui/Kbd';
 import { useSearch } from '../../hooks/useSearch';
+import { useAuth } from '../../hooks/useAuth';
 
-const NAV_ITEMS: { label: string; to: string; sub: string; icon: typeof Home }[] = [
+const NAV_ITEMS: { label: string; to: string; sub: string; icon: typeof Home; adminOnly?: boolean }[] = [
   { label: 'Overview', to: '/overview', sub: '/overview', icon: Home },
   { label: 'Analytics', to: '/analytics', sub: '/analytics', icon: BarChart3 },
   { label: 'Time Spikes', to: '/time-spikes', sub: '/time-spikes', icon: Activity },
@@ -18,7 +19,9 @@ const NAV_ITEMS: { label: string; to: string; sub: string; icon: typeof Home }[]
   { label: 'Budgets', to: '/budgets', sub: '/budgets', icon: Wallet },
   { label: 'Spaces', to: '/spaces', sub: '/spaces', icon: Layers },
   { label: 'Sync Logs', to: '/sync-logs', sub: '/sync-logs', icon: Webhook },
-  { label: 'Settings', to: '/settings', sub: '/settings', icon: Settings },
+  { label: 'Team', to: '/team', sub: '/team', icon: Users, adminOnly: true },
+  { label: 'Audit Log', to: '/audit-log', sub: '/audit-log', icon: ScrollText, adminOnly: true },
+  { label: 'Settings', to: '/settings', sub: '/settings', icon: Settings, adminOnly: true },
 ];
 
 interface CommandPaletteProps {
@@ -33,7 +36,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [active, setActive] = useState(0);
   const [debounced, setDebounced] = useState('');
   const navigate = useNavigate();
+  const { hasRole } = useAuth();
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query), 200);
@@ -51,6 +56,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const filtered = useMemo<Action[]>(() => {
     const q = query.trim().toLowerCase();
     const nav: Action[] = NAV_ITEMS
+      .filter((r) => !r.adminOnly || hasRole('ADMIN'))
       .filter((r) => !q || (r.label + ' ' + r.sub).toLowerCase().includes(q))
       .map((r) => ({ key: 'nav:' + r.to, label: `Go to ${r.label}`, sub: r.sub, icon: r.icon, run: () => select(r.to) }));
 
@@ -72,7 +78,13 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     }));
 
     return [...taskActions, ...assigneeActions, ...nav].slice(0, 20);
-  }, [query, results, select]);
+  }, [query, results, select, hasRole]);
+
+  // Keep the active item visible when keyboard nav moves it past the fold.
+  useEffect(() => {
+    const node = listRef.current?.children[active] as HTMLElement | undefined;
+    node?.scrollIntoView({ block: 'nearest' });
+  }, [active]);
 
   useEffect(() => {
     if (open) {
@@ -141,7 +153,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
           />
           <Kbd>esc</Kbd>
         </div>
-        <div style={{ maxHeight: 360, overflowY: 'auto', padding: 6 }}>
+        <div ref={listRef} role="listbox" aria-label="Results" style={{ maxHeight: 360, overflowY: 'auto', padding: 6 }}>
           {filtered.length === 0 ? (
             <div style={{ padding: '24px 16px', textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>
               No matches for &quot;{query}&quot;
@@ -154,6 +166,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 <button
                   key={item.key}
                   type="button"
+                  role="option"
+                  aria-selected={isActive}
                   onClick={item.run}
                   onMouseEnter={() => setActive(i)}
                   style={{

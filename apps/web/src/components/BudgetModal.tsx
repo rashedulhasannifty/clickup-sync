@@ -109,12 +109,12 @@ export function BudgetModal({
 					{formError}
 				</span>
 			)}
-			<Button variant="default" onClick={onClose}>
+			<Button type="button" variant="default" onClick={onClose}>
 				Cancel
 			</Button>
 			<Button
+				type="submit"
 				variant="accent"
-				onClick={handleSave}
 				loading={submitting}
 				icon={<Check size={13} strokeWidth={2} />}
 			>
@@ -135,6 +135,7 @@ export function BudgetModal({
 			}
 			width={480}
 			footer={footer}
+			onSubmit={handleSave}
 		>
 			<div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 				<Field label="Client" required>

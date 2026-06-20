@@ -54,6 +54,10 @@
   --btn-success-hover: #b7f0d8;
   --btn-danger-hover: #fdcfcf;
   --btn-caution-hover: #fde9a8;
+
+  /* Soft amber fill for inline warning banners (deep-link notices, etc.).
+     Tracks the per-theme pill token so it tints correctly in dark mode. */
+  --amber-bg: var(--pill-amber-bg);
 }
 
 [data-density="compact"] {

@@ -16,10 +16,12 @@ import { Input } from '../components/ui/Input';
 import { Skeleton } from '../components/ui/Skeleton';
 import { fmt } from '../lib/formatters';
 
+// Mirrors the backend CLICKUP_SPACES config (src/config/clickup-spaces.config.ts).
+// Keep the lookbackDays here in sync with that file.
 const CONFIGURED_SPACES = [
-  { id: '3577824', name: 'Digital Marketing', lookbackDays: 90 },
-  { id: '3589129', name: 'R&D Apps', lookbackDays: 20 },
-  { id: '3525433', name: 'Projects', lookbackDays: 35 },
+  { id: '3577824', name: 'Digital Marketing', lookbackDays: 30 },
+  { id: '3589129', name: 'R&D Apps', lookbackDays: 30 },
+  { id: '3525433', name: 'Projects', lookbackDays: 30 },
 ];
 
 const DEFAULT_LOOKBACK = 30;

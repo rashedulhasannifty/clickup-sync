@@ -321,6 +321,7 @@ export function RateModal({
 		>
 			{rate && (
 				<Button
+					type="button"
 					variant="danger"
 					size="sm"
 					icon={<Trash2 size={13} strokeWidth={2} />}
@@ -336,12 +337,12 @@ export function RateModal({
 					{formError}
 				</span>
 			)}
-			<Button variant="default" onClick={onClose}>
+			<Button type="button" variant="default" onClick={onClose}>
 				Cancel
 			</Button>
 			<Button
+				type="submit"
 				variant="accent"
-				onClick={handleSave}
 				loading={isPending}
 				icon={<Check size={13} strokeWidth={2} />}
 			>
@@ -362,6 +363,7 @@ export function RateModal({
 			}
 			width={480}
 			footer={footer}
+			onSubmit={handleSave}
 		>
 			<div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 				{rate ? (

@@ -9,6 +9,12 @@ interface ModalProps {
   children: React.ReactNode;
   footer?: React.ReactNode;
   width?: number;
+  /**
+   * When provided, the body + footer are wrapped in a <form> so pressing Enter
+   * in a field (or a footer button with type="submit") submits the dialog.
+   * The handler should preventDefault internally is unnecessary — we already do.
+   */
+  onSubmit?: () => void;
 }
 
 // Same focusable-element contract the Drawer uses for its trap.
@@ -26,7 +32,7 @@ function getFocusable(root: HTMLElement): HTMLElement[] {
     .filter((el) => !el.hasAttribute('inert') && el.offsetParent !== null);
 }
 
-export function Modal({ open = true, onClose, title, subtitle, children, footer, width = 480 }: ModalProps) {
+export function Modal({ open = true, onClose, title, subtitle, children, footer, width = 480, onSubmit }: ModalProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
@@ -137,9 +143,24 @@ export function Modal({ open = true, onClose, title, subtitle, children, footer,
               <X size={16} strokeWidth={1.75} />
             </button>
         </div>
-        <div style={{ padding: '14px 18px 18px', overflowY: 'auto', flex: 1 }}>{children}</div>
-        {footer && (
-          <div style={{ borderTop: '1px solid var(--border-soft)', padding: '12px 18px 16px' }}>{footer}</div>
+        {onSubmit ? (
+          <form
+            noValidate
+            onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
+            style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}
+          >
+            <div style={{ padding: '14px 18px 18px', overflowY: 'auto', flex: 1 }}>{children}</div>
+            {footer && (
+              <div style={{ borderTop: '1px solid var(--border-soft)', padding: '12px 18px 16px' }}>{footer}</div>
+            )}
+          </form>
+        ) : (
+          <>
+            <div style={{ padding: '14px 18px 18px', overflowY: 'auto', flex: 1 }}>{children}</div>
+            {footer && (
+              <div style={{ borderTop: '1px solid var(--border-soft)', padding: '12px 18px 16px' }}>{footer}</div>
+            )}
+          </>
         )}
       </div>
     </div>
