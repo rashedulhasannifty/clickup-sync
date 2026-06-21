@@ -5,6 +5,8 @@ import { SettingsRepository } from './settings.repository';
 
 const DEFAULT_TEAM_ID = '3450636';
 const DEFAULT_SPIKE_HOURS_CAP = 12;
+const DEFAULT_MAX_BACKFILL_LOOKBACK = 1095; // 3 years
+const MAX_BACKFILL_LOOKBACK_BACKSTOP = 3650; // 10 years — absolute upper bound
 const DEFAULT_EVENTS = 'taskCreated,taskUpdated,taskDeleted,taskTimeTrackedUpdated,taskStatusUpdated';
 
 export interface SettingsPreferences {
@@ -12,7 +14,7 @@ export interface SettingsPreferences {
     alerts: { syncFail: boolean; webhookSpike: boolean; missingRate: boolean; tokenExpiring: boolean };
     channels: { email: boolean; slack: boolean; pagerduty: boolean };
   };
-  sync: { reconcileLookbackDays: number; realtimeWebhooks: boolean; backfillOnConnect: boolean };
+  sync: { reconcileLookbackDays: number; realtimeWebhooks: boolean; backfillOnConnect: boolean; maxBackfillLookbackDays: number };
   cost: { autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean; excludedAssignees: { id: string; name: string | null; email: string | null }[] };
   failure: { webhookRetryAttempts: number };
   spaces: Record<string, { enabled: boolean }>;
@@ -23,7 +25,7 @@ export const DEFAULT_PREFERENCES: SettingsPreferences = {
     alerts: { syncFail: true, webhookSpike: true, missingRate: true, tokenExpiring: true },
     channels: { email: true, slack: true, pagerduty: false },
   },
-  sync: { reconcileLookbackDays: 365, realtimeWebhooks: true, backfillOnConnect: true },
+  sync: { reconcileLookbackDays: 365, realtimeWebhooks: true, backfillOnConnect: true, maxBackfillLookbackDays: DEFAULT_MAX_BACKFILL_LOOKBACK },
   cost: { autoRecalcOnRateChange: true, rateMatching: 'start', nonBillableZero: false, excludedAssignees: [] },
   failure: { webhookRetryAttempts: 5 },
   spaces: {},
@@ -173,6 +175,15 @@ export class SettingsService implements OnModuleInit {
 
   getPreferences(): SettingsPreferences {
     return this.cache.preferences;
+  }
+
+  /** Configurable upper bound for a manual backfill's lookbackDays, read by the
+   *  backfill controller and surfaced to the UI. Authoritative source of truth:
+   *  a missing or out-of-range stored value can never leak through — it falls
+   *  back to the 3-year default and is clamped to [1, 3650] (10-year backstop). */
+  getBackfillMaxLookbackDays(): number {
+    const v = this.cache.preferences.sync.maxBackfillLookbackDays ?? DEFAULT_MAX_BACKFILL_LOOKBACK;
+    return Math.min(MAX_BACKFILL_LOOKBACK_BACKSTOP, Math.max(1, Math.round(v)));
   }
 
   /** Sync set of assignee ids excluded from costing. Read on the per-entry cost

@@ -8,11 +8,11 @@ export class BackfillDto {
   @MinLength(1)
   spaceId!: string;
 
-  @ApiPropertyOptional({ example: 90, minimum: 1, maximum: 1095, description: 'Days to look back. Up to 1095 (3 years) for multi-year backfills. Defaults to the configured lookback for the space (or 30 days for unknown spaces)' })
+  @ApiPropertyOptional({ example: 90, minimum: 1, maximum: 3650, description: 'Days to look back. The effective cap is the configurable Settings → Sync value (default 1095 / 3 years); 3650 (10 years) is the absolute backstop. Defaults to the configured lookback for the space (or 30 days for unknown spaces)' })
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(1095)
+  @Max(3650)
   @Type(() => Number)
   lookbackDays?: number;
 
