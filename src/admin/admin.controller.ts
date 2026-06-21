@@ -178,6 +178,12 @@ export class AdminController {
   backfill(@Body() dto: BackfillDto) {
     const space = CLICKUP_SPACES.find((s) => s.id === dto.spaceId);
     if (!space && !dto.allowUnknownSpaces) throw new BadRequestException(`Unknown spaceId: ${dto.spaceId}. Valid: ${CLICKUP_SPACES.map((s) => s.id).join(', ')}. Pass allowUnknownSpaces: true to override.`);
+    // The DTO only enforces the absolute 3650-day backstop; the effective cap is
+    // the configurable Settings → Sync value, enforced here at request time.
+    const cap = this.settings.getBackfillMaxLookbackDays();
+    if (dto.lookbackDays != null && dto.lookbackDays > cap) {
+      throw new BadRequestException(`lookbackDays ${dto.lookbackDays} exceeds the configured maximum ${cap}. Raise it in Settings → Sync.`);
+    }
     const lookbackDays = dto.lookbackDays ?? space?.backfillLookbackDays ?? 30;
     this.queues.get(QUEUES.CLICKUP_BACKFILLS).add(JOBS.BACKFILL_CLICKUP_SPACE, { spaceId: dto.spaceId, lookbackDays }, this.queues.defaultJobOptions());
     return { queued: true, spaceId: dto.spaceId, lookbackDays };

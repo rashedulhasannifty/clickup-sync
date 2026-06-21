@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, CircleCheck, CircleDashed, Loader2, RefreshCw, Settings } from 'lucide-react';
 import { useSpaces } from '../hooks/useReports';
 import { useActiveBackfills, useBackfill } from '../hooks/useAdmin';
+import { useSettings } from '../hooks/useSettings';
 import { useAuth } from '../hooks/useAuth';
 import type { ActiveBackfill } from '../api/admin';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -26,9 +27,10 @@ const CONFIGURED_SPACES = [
 
 const DEFAULT_LOOKBACK = 30;
 const MIN_LOOKBACK = 1;
-// Matches the backend cap in BackfillDto (@Max). Up to ~3 years for multi-year
-// backfills; the input silently clamps to this, so keep the two in sync.
-const MAX_LOOKBACK = 1095;
+// Fallback when the settings query hasn't loaded yet. The real cap is the
+// configurable Settings → Sync value (preferences.sync.maxBackfillLookbackDays),
+// read at runtime so backend and frontend share one source of truth.
+const MAX_LOOKBACK_FALLBACK = 1095;
 
 function defaultLookbackFor(spaceId: string): number {
   return CONFIGURED_SPACES.find((s) => s.id === spaceId)?.lookbackDays ?? DEFAULT_LOOKBACK;
@@ -519,6 +521,8 @@ export function SpacesPage() {
   const backfill = useBackfill();
   const queryClient = useQueryClient();
   const activeBackfills = useActiveBackfills(canSync);
+  const settingsQuery = useSettings();
+  const maxLookback = settingsQuery.data?.preferences.sync.maxBackfillLookbackDays ?? MAX_LOOKBACK_FALLBACK;
 
   const apiRows: Omit<SpaceRow, 'synced'>[] = Array.isArray(spacesQuery.data) ? spacesQuery.data : [];
   const mergedSpaces = useMemo(() => buildMergedSpaces(apiRows), [apiRows]);
@@ -572,8 +576,9 @@ export function SpacesPage() {
   }
 
   function onLookbackChange(spaceId: string, value: string) {
-    // Keep only digits while typing; clamping to [1,365] happens at sync time.
-    const digits = value.replace(/[^0-9]/g, '').slice(0, 3);
+    // Keep only digits while typing (up to 4 → 3650 backstop); clamping to the
+    // configured cap happens at sync time in effectiveLookback().
+    const digits = value.replace(/[^0-9]/g, '').slice(0, 4);
     setLookbackInput((cur) => ({ ...cur, [spaceId]: digits }));
   }
 
@@ -582,7 +587,7 @@ export function SpacesPage() {
     if (raw === undefined || raw.trim() === '') return defaultLookbackFor(spaceId);
     const n = Number(raw);
     if (!Number.isFinite(n) || n <= 0) return defaultLookbackFor(spaceId);
-    return Math.max(MIN_LOOKBACK, Math.min(MAX_LOOKBACK, Math.round(n)));
+    return Math.max(MIN_LOOKBACK, Math.min(maxLookback, Math.round(n)));
   }
 
   function markQueued(spaceId: string) {

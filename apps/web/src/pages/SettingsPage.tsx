@@ -414,6 +414,10 @@ export function SettingsPage() {
   useEffect(() => {
     if (prefs?.sync.reconcileLookbackDays != null) setReconcileDays(String(prefs.sync.reconcileLookbackDays));
   }, [prefs?.sync.reconcileLookbackDays]);
+  const [maxBackfillDays, setMaxBackfillDays] = useState('1095');
+  useEffect(() => {
+    if (prefs?.sync.maxBackfillLookbackDays != null) setMaxBackfillDays(String(prefs.sync.maxBackfillLookbackDays));
+  }, [prefs?.sync.maxBackfillLookbackDays]);
   const [defaultCurrency, setDefaultCurrency] = useState('USD');
   const [capInput, setCapInput] = useState('');
   useEffect(() => {
@@ -878,6 +882,50 @@ export function SettingsPage() {
                     disabled={!isOwner || updateSettings.isPending}
                     onChange={(v) => patchPrefs({ sync: { backfillOnConnect: v } })}
                   />
+                }
+              />
+              <SettingRow
+                label="Backfill maximum lookback"
+                desc="Upper limit for a manual space backfill's “days back” (1–3650). Applies to both the Spaces input and the API."
+                control={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={3650}
+                      value={maxBackfillDays}
+                      disabled={!isOwner}
+                      onChange={(e) => setMaxBackfillDays(e.target.value)}
+                      style={{ width: 88 }}
+                      aria-label="Backfill maximum lookback in days"
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>days back</span>
+                    <Button
+                      size="sm"
+                      disabled={!isOwner}
+                      loading={updateSettings.isPending}
+                      onClick={() => {
+                        const days = Number(maxBackfillDays);
+                        if (!Number.isFinite(days) || days < 1 || days > 3650) {
+                          showBanner('Enter a maximum lookback between 1 and 3650 days.', 'red');
+                          return;
+                        }
+                        const rounded = Math.round(days);
+                        // Direct mutate (not patchPrefs) so the save gets explicit
+                        // success feedback — unlike the toggles, a number input shows
+                        // no visible state change on its own.
+                        updateSettings.mutate(
+                          { preferences: { sync: { maxBackfillLookbackDays: rounded } } },
+                          {
+                            onSuccess: () => showBanner(`Backfill maximum lookback saved (${rounded} days).`, 'blue'),
+                            onError: (err) => showBanner(`Save failed: ${(err as Error).message}`, 'red'),
+                          },
+                        );
+                      }}
+                    >
+                      Save
+                    </Button>
+                  </div>
                 }
               />
             </div>

@@ -86,12 +86,13 @@ describe('AdminController', () => {
     return { findMany: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
   }
 
-  function makeSettings(excludedAssignees: any[] = []) {
+  function makeSettings(excludedAssignees: any[] = [], maxBackfillLookbackDays = 1095) {
     return {
       getTeamId: () => '3450636',
       getMasked: jest.fn().mockReturnValue({ teamId: '3450636', encryptionEnabled: true }),
       update: jest.fn().mockResolvedValue({ teamId: '3450636' }),
       getPreferences: () => ({ sync: { backfillOnConnect: false }, cost: { autoRecalcOnRateChange: true, excludedAssignees } }),
+      getBackfillMaxLookbackDays: () => maxBackfillLookbackDays,
       isSpaceEnabled: () => true,
     } as any;
   }
@@ -190,6 +191,17 @@ describe('AdminController', () => {
     it('uses provided lookbackDays for unknown space instead of default 30', () => {
       const result = makeCtrl().backfill({ spaceId: 'test-space-999', allowUnknownSpaces: true, lookbackDays: 7 });
       expect(result).toEqual({ queued: true, spaceId: 'test-space-999', lookbackDays: 7 });
+    });
+
+    it('rejects lookbackDays above the configured cap', () => {
+      const ctrl = makeCtrl(undefined, undefined, undefined, undefined, undefined, undefined, undefined, makeSettings([], 1095));
+      expect(() => ctrl.backfill({ spaceId: '3589129', lookbackDays: 2000 })).toThrow(BadRequestException);
+    });
+
+    it('accepts lookbackDays at or below the configured cap', () => {
+      const ctrl = makeCtrl(undefined, undefined, undefined, undefined, undefined, undefined, undefined, makeSettings([], 3650));
+      const result = ctrl.backfill({ spaceId: '3589129', lookbackDays: 2000 });
+      expect(result).toEqual({ queued: true, spaceId: '3589129', lookbackDays: 2000 });
     });
   });
 

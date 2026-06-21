@@ -5,7 +5,7 @@ export interface SettingsPreferences {
     alerts: { syncFail: boolean; webhookSpike: boolean; missingRate: boolean; tokenExpiring: boolean };
     channels: { email: boolean; slack: boolean; pagerduty: boolean };
   };
-  sync: { reconcileLookbackDays: number; realtimeWebhooks: boolean; backfillOnConnect: boolean };
+  sync: { reconcileLookbackDays: number; realtimeWebhooks: boolean; backfillOnConnect: boolean; maxBackfillLookbackDays: number };
   cost: { autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean; excludedAssignees: { id: string; name: string | null; email: string | null }[] };
   failure: { webhookRetryAttempts: number };
   spaces: Record<string, { enabled: boolean }>;

@@ -121,4 +121,42 @@ describe('SettingsService', () => {
       expect.objectContaining({ spikeHoursCap: 16, updatedBy: 'tester' }),
     );
   });
+
+  describe('getBackfillMaxLookbackDays', () => {
+    it('defaults to 1095 when no DB row exists', async () => {
+      const svc = new SettingsService(makeRepo(null), makeCrypto());
+      await svc.onModuleInit();
+      expect(svc.getBackfillMaxLookbackDays()).toBe(1095);
+    });
+
+    it('reads the configured value from preferences', async () => {
+      const repo = makeRepo({ id: 'singleton', preferences: { sync: { maxBackfillLookbackDays: 1825 } }, updatedAt: new Date() });
+      const svc = new SettingsService(repo, makeCrypto());
+      await svc.onModuleInit();
+      expect(svc.getBackfillMaxLookbackDays()).toBe(1825);
+    });
+
+    it('clamps a stored value above the 3650-day backstop', async () => {
+      const repo = makeRepo({ id: 'singleton', preferences: { sync: { maxBackfillLookbackDays: 5000 } }, updatedAt: new Date() });
+      const svc = new SettingsService(repo, makeCrypto());
+      await svc.onModuleInit();
+      expect(svc.getBackfillMaxLookbackDays()).toBe(3650);
+    });
+
+    it('clamps a stored value below 1 up to the floor', async () => {
+      const repo = makeRepo({ id: 'singleton', preferences: { sync: { maxBackfillLookbackDays: 0 } }, updatedAt: new Date() });
+      const svc = new SettingsService(repo, makeCrypto());
+      await svc.onModuleInit();
+      expect(svc.getBackfillMaxLookbackDays()).toBe(1);
+    });
+
+    it('round-trips through update()', async () => {
+      const repo = makeRepo(null);
+      const svc = new SettingsService(repo, makeCrypto());
+      await svc.onModuleInit();
+      await svc.update({ preferences: { sync: { maxBackfillLookbackDays: 1460 } } }, 'tester');
+      expect(svc.getBackfillMaxLookbackDays()).toBe(1460);
+      expect(svc.getPreferences().sync.maxBackfillLookbackDays).toBe(1460);
+    });
+  });
 });
