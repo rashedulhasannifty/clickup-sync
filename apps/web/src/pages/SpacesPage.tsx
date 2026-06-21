@@ -26,7 +26,9 @@ const CONFIGURED_SPACES = [
 
 const DEFAULT_LOOKBACK = 30;
 const MIN_LOOKBACK = 1;
-const MAX_LOOKBACK = 365;
+// Matches the backend cap in BackfillDto (@Max). Up to ~3 years for multi-year
+// backfills; the input silently clamps to this, so keep the two in sync.
+const MAX_LOOKBACK = 1095;
 
 function defaultLookbackFor(spaceId: string): number {
   return CONFIGURED_SPACES.find((s) => s.id === spaceId)?.lookbackDays ?? DEFAULT_LOOKBACK;
