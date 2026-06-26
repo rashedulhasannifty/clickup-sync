@@ -9,3 +9,6 @@ coverage
 .DS_Store
 tsconfig.build.tsbuildinfo
 # /design
+
+# Local database backup dumps (e.g. pre-migration pg_dump snapshots)
+/clickup_sync_backup_*.sql
