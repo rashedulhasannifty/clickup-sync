@@ -912,11 +912,32 @@ describe('ReportsService', () => {
       }]);
     });
 
+    it('strips median fields and sets medianEnabled false when disabled', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw
+        .mockResolvedValueOnce([{
+          date: '2026-05-04',
+          total_cost_cents: BigInt(192000),
+          median_cost_cents: 45600,
+          multiplier: 4.21,
+        }])
+        .mockResolvedValueOnce([{
+          client: 'Acme',
+          week_cost_cents: BigInt(210000),
+          baseline_median_cents: 67000,
+          multiplier: 3.13,
+        }]);
+      const result = await new ReportsService(prisma).anomalies(false);
+      expect(result.medianEnabled).toBe(false);
+      expect(result.dailySpikes).toEqual([{ date: '2026-05-04', totalCostAud: 1920, medianAud: null, multiplier: null }]);
+      expect(result.clientSpikes).toEqual([{ client: 'Acme', lastWeekCostAud: 2100, baselineMedianAud: null, multiplier: null }]);
+    });
+
     it('returns empty arrays when no spikes', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([]);
       const result = await new ReportsService(prisma).anomalies();
-      expect(result).toEqual({ dailySpikes: [], clientSpikes: [] });
+      expect(result).toEqual({ medianEnabled: true, dailySpikes: [], clientSpikes: [] });
     });
 
     it("daily query uses Asia/Dhaka, percentile_cont(0.5), $50 floor, 2x median, soft-delete filter", async () => {
@@ -1300,6 +1321,43 @@ describe('ReportsService', () => {
       expect(r.watchlist.find((w: any) => w.userId === 'u1')!.resolved).toBe(true);
       expect(r.watchlist.find((w: any) => w.userId === 'u2')!.resolved).toBe(false);
       expect(r.watchlistTotal).toBe(2);
+    });
+
+    it('keeps rows but strips median fields when medianEnabled is false', async () => {
+      const prisma = makePrisma();
+      // relative-only spike: median(3,3,3)=3 → 2x=6; 7h > 6, >= 4, < cap(12).
+      stub(
+        prisma,
+        [
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-01', hours: 3 },
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-02', hours: 3 },
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-03', hours: 3 },
+        ],
+        [{ user_id: 'u2', user_name: 'Bob', day: '2026-06-10', hours: 7 }],
+        ['2026-06-10'],
+      );
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-10', '2026-06-10', 20, false, false);
+      expect(r.medianEnabled).toBe(false);
+      expect(r.watchlist).toHaveLength(1); // detection unchanged — row kept
+      expect(r.watchlist[0]).toMatchObject({ rule: 'relative', median: 0, multiplier: null });
+    });
+
+    it('defaults medianEnabled true and preserves median fields', async () => {
+      const prisma = makePrisma();
+      stub(
+        prisma,
+        [
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-01', hours: 3 },
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-02', hours: 3 },
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-03', hours: 3 },
+        ],
+        [{ user_id: 'u2', user_name: 'Bob', day: '2026-06-10', hours: 7 }],
+        ['2026-06-10'],
+      );
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-10', '2026-06-10');
+      expect(r.medianEnabled).toBe(true);
+      expect(r.watchlist[0]).toMatchObject({ rule: 'relative', median: 3 });
+      expect(r.watchlist[0].multiplier).toBeCloseTo(7 / 3, 4);
     });
   });
 

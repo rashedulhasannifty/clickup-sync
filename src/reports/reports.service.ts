@@ -1330,7 +1330,7 @@ export class ReportsService {
    * selected window, floored to a 14-day minimum so a short pick does not
    * produce a noisy median that flags nearly every day.
    */
-  async hourSpikes(cap: number, fromParam?: string, toParam?: string, limit = 20, includeResolved = false) {
+  async hourSpikes(cap: number, fromParam?: string, toParam?: string, limit = 20, includeResolved = false, medianEnabled = true) {
     const TZ = Prisma.raw(`'Asia/Dhaka'`);
     // `start_time` is `timestamp without time zone` holding a UTC instant. To
     // bucket by Dhaka calendar day we must first label it UTC, THEN convert:
@@ -1454,7 +1454,9 @@ export class ReportsService {
         if (!rule) continue;
         watchlist.push({
           userId: id, userName: e.name, date: day, hours,
-          median: med, multiplier: med > 0 ? hours / med : null, rule,
+          median: medianEnabled ? med : 0,
+          multiplier: medianEnabled && med > 0 ? hours / med : null,
+          rule,
         });
       }
     }
@@ -1499,10 +1501,10 @@ export class ReportsService {
     // shape used by the watchlist.push above (which has no `notified` yet).
     const enriched = top.map((w) => ({ ...w, notified: notifiedSet.has(`${w.userId}|${w.date}`) }));
 
-    return { cap, watchlist: enriched, watchlistTotal, byUser: { buckets, users } };
+    return { cap, medianEnabled, watchlist: enriched, watchlistTotal, byUser: { buckets, users } };
   }
 
-  async anomalies() {
+  async anomalies(medianEnabled = true) {
     const TZ = Prisma.raw("'Asia/Dhaka'");
     type DailyRow = {
       date: string;
@@ -1593,17 +1595,18 @@ export class ReportsService {
     ]);
 
     return {
+      medianEnabled,
       dailySpikes: dailyRows.map(r => ({
         date: r.date,
         totalCostAud: Number(r.total_cost_cents) / 100,
-        medianAud: Number(r.median_cost_cents) / 100,
-        multiplier: Number(r.multiplier),
+        medianAud: medianEnabled ? Number(r.median_cost_cents) / 100 : null,
+        multiplier: medianEnabled ? Number(r.multiplier) : null,
       })),
       clientSpikes: clientRows.map(r => ({
         client: r.client,
         lastWeekCostAud: Number(r.week_cost_cents) / 100,
-        baselineMedianAud: Number(r.baseline_median_cents) / 100,
-        multiplier: Number(r.multiplier),
+        baselineMedianAud: medianEnabled ? Number(r.baseline_median_cents) / 100 : null,
+        multiplier: medianEnabled ? Number(r.multiplier) : null,
       })),
     };
   }
