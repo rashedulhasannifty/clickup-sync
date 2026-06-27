@@ -39,7 +39,7 @@ export function TimesheetPage() {
   const exportExcel = useMutation({
     mutationFn: async () => {
       if (!sheet) return;
-      await exportTimesheetXlsx({ assigneeName: assigneeName || 'assignee', sheet, includeCost: showCost });
+      await exportTimesheetXlsx({ assigneeName: sheet.userName ?? assigneeName ?? 'assignee', sheet, includeCost: showCost });
     },
   });
 
