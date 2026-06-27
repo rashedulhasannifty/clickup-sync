@@ -8,6 +8,7 @@ export interface SettingsPreferences {
   sync: { reconcileLookbackDays: number; realtimeWebhooks: boolean; backfillOnConnect: boolean; maxBackfillLookbackDays: number };
   cost: { autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean; excludedAssignees: { id: string; name: string | null; email: string | null }[] };
   failure: { webhookRetryAttempts: number };
+  spike: { medianEnabled: boolean };
   spaces: Record<string, { enabled: boolean }>;
 }
 
