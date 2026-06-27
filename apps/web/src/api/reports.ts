@@ -44,6 +44,8 @@ export const reportsApi = {
   hourSpikes: (params?: { from?: string; to?: string; limit?: number; includeResolved?: boolean }) =>
     apiClient.get('/reports/time-entries/hour-spikes', { params }).then(r => r.data),
   spaces: () => apiClient.get('/reports/spaces').then(r => r.data),
+  timesheet: (params: { userId: string; from?: string; to?: string }) =>
+    apiClient.get('/reports/timesheet', { params }).then(r => r.data),
 };
 
 export interface CycleTimeItem { bucket: string; meanHours: number; medianHours: number; p90Hours: number; taskCount: number; }

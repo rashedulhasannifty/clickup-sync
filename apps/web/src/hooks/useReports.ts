@@ -378,3 +378,46 @@ export function useTimeInStatus(params: { from?: string; to?: string } = {}) {
     refetchInterval: 60_000,
   });
 }
+
+export interface TimesheetTask {
+  taskId: string;
+  taskName: string | null;
+  hours: number;
+  costAud: number | null;
+  entryCount: number;
+  missingRateCount: number;
+}
+
+export interface TimesheetDay {
+  date: string;        // 'YYYY-MM-DD'
+  weekday: string;     // 'Mon'..'Sun'
+  isWeekend: boolean;
+  tasks: TimesheetTask[];
+  subtotalHours: number;
+  subtotalCostAud: number | null;
+  missingRateCount: number;
+}
+
+export interface Timesheet {
+  userId: string;
+  userName: string | null;
+  from: string;
+  to: string;
+  days: TimesheetDay[];
+  totalHours: number;
+  totalCostAud: number | null;
+  missingRateCount: number;
+}
+
+/**
+ * Single-assignee timesheet. `enabled` only fires once an assignee is chosen so
+ * the page can show a "select an assignee" empty state without a wasted request.
+ */
+export function useTimesheet(params: { userId: string; from?: string; to?: string }) {
+  return useQuery<Timesheet>({
+    queryKey: ['timesheet', params.userId, params.from || null, params.to || null],
+    queryFn: () => reportsApi.timesheet(params),
+    enabled: !!params.userId,
+    placeholderData: keepPreviousData,
+  });
+}
