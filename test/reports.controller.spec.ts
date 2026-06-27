@@ -8,8 +8,11 @@ describe('ReportsController', () => {
     } as any;
   }
 
-  function makeSettings(cap = 12) {
-    return { getSpikeHoursCap: jest.fn().mockReturnValue(cap) } as any;
+  function makeSettings(cap = 12, medianEnabled = true) {
+    return {
+      getSpikeHoursCap: jest.fn().mockReturnValue(cap),
+      isSpikeMedianEnabled: jest.fn().mockReturnValue(medianEnabled),
+    } as any;
   }
 
   function makeBudgets() {
@@ -58,6 +61,13 @@ describe('ReportsController', () => {
       expect(result.dailySpikes).toHaveLength(1);
       expect(result.clientSpikes).toEqual([]);
     });
+
+    it('forwards medianEnabled from settings into the service', async () => {
+      const svc = { anomalies: jest.fn().mockResolvedValue({ medianEnabled: false, dailySpikes: [], clientSpikes: [] }) } as any;
+      const ctrl = new ReportsController(svc, makeSettings(12, false), makeBudgets());
+      await ctrl.anomalies();
+      expect(svc.anomalies).toHaveBeenCalledWith(false);
+    });
   });
 
   describe('costTrend', () => {
@@ -97,16 +107,23 @@ describe('ReportsController', () => {
       const ctrl = new ReportsController(svc, settings, makeBudgets());
       const result = await ctrl.hourSpikes('2026-06-01', '2026-06-10');
       expect(settings.getSpikeHoursCap).toHaveBeenCalledTimes(1);
-      expect(svc.hourSpikes).toHaveBeenCalledWith(10, '2026-06-01', '2026-06-10', 20, false);
+      expect(svc.hourSpikes).toHaveBeenCalledWith(10, '2026-06-01', '2026-06-10', 20, false, true);
       expect(result.cap).toBe(10);
     });
 
     it('passes the cap, range, limit and includeResolved through', async () => {
       const svc = { hourSpikes: jest.fn().mockResolvedValue({ cap: 10, watchlist: [], watchlistTotal: 0, byUser: { buckets: [], users: [] } }) } as any;
-      const settings = { getSpikeHoursCap: () => 10 } as any;
+      const settings = makeSettings(10);
       const ctrl = new ReportsController(svc, settings, makeBudgets());
       await ctrl.hourSpikes('2026-06-01', '2026-06-10', '40', 'true');
-      expect(svc.hourSpikes).toHaveBeenCalledWith(10, '2026-06-01', '2026-06-10', 40, true);
+      expect(svc.hourSpikes).toHaveBeenCalledWith(10, '2026-06-01', '2026-06-10', 40, true, true);
+    });
+
+    it('forwards medianEnabled=false from settings into the service', async () => {
+      const svc = { hourSpikes: jest.fn().mockResolvedValue({ cap: 10, watchlist: [], watchlistTotal: 0, byUser: { buckets: [], users: [] } }) } as any;
+      const ctrl = new ReportsController(svc, makeSettings(10, false), makeBudgets());
+      await ctrl.hourSpikes('2026-06-01', '2026-06-10');
+      expect(svc.hourSpikes).toHaveBeenCalledWith(10, '2026-06-01', '2026-06-10', 20, false, false);
     });
   });
 
