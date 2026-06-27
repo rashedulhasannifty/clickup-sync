@@ -164,7 +164,9 @@ export function NotificationCenter() {
           id: `hourspike-${w.userId}-${w.date}`,
           severity: 'amber',
           title: `${w.userName} logged ${fmt.hours(w.hours)} on ${w.date}`,
-          subtitle: w.multiplier != null ? `${w.multiplier.toFixed(1)}× their median day` : 'Unusually high day',
+          subtitle: hourSpikes.data.medianEnabled && w.multiplier != null
+            ? `${w.multiplier.toFixed(1)}× their median day`
+            : 'Unusually high day',
           target: '/time-spikes',
           icon: <Clock size={14} strokeWidth={1.75} />,
         });
