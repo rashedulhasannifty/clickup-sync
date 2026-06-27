@@ -127,12 +127,17 @@ export function NotificationCenter() {
 
     // Cost anomalies
     if (anomalies.data) {
+      const med = anomalies.data.medianEnabled;
       for (const d of anomalies.data.dailySpikes) {
         out.push({
           id: `anomaly-daily-${d.date}`,
           severity: 'amber',
-          title: `${d.date} cost was ${d.multiplier.toFixed(1)}× typical`,
-          subtitle: `${moneyAud(d.totalCostAud)} vs ${moneyAud(d.medianAud)} median`,
+          title: med && d.multiplier != null
+            ? `${d.date} cost was ${d.multiplier.toFixed(1)}× typical`
+            : `${d.date} had an unusually high cost day`,
+          subtitle: med && d.medianAud != null
+            ? `${moneyAud(d.totalCostAud)} vs ${moneyAud(d.medianAud)} median`
+            : `${moneyAud(d.totalCostAud)} total`,
           target: '/overview',
           icon: <TrendingUp size={14} strokeWidth={1.75} />,
         });
@@ -141,7 +146,9 @@ export function NotificationCenter() {
         out.push({
           id: `anomaly-client-${c.client}`,
           severity: 'amber',
-          title: `${c.client} up ${c.multiplier.toFixed(1)}× vs baseline`,
+          title: med && c.multiplier != null
+            ? `${c.client} up ${c.multiplier.toFixed(1)}× vs baseline`
+            : `${c.client} had unusually high spend last week`,
           subtitle: `${moneyAud(c.lastWeekCostAud)} last 7d`,
           target: '/overview',
           icon: <TrendingUp size={14} strokeWidth={1.75} />,
@@ -157,7 +164,7 @@ export function NotificationCenter() {
           id: `hourspike-${w.userId}-${w.date}`,
           severity: 'amber',
           title: `${w.userName} logged ${fmt.hours(w.hours)} on ${w.date}`,
-          subtitle: w.multiplier != null ? `${w.multiplier.toFixed(1)}× their median day` : 'Above the daily cap',
+          subtitle: w.multiplier != null ? `${w.multiplier.toFixed(1)}× their median day` : 'Unusually high day',
           target: '/time-spikes',
           icon: <Clock size={14} strokeWidth={1.75} />,
         });

@@ -15,19 +15,28 @@ export function AnomaliesPanel() {
   const rows: { key: string; title: string; subtitle: string; onClick: () => void }[] = [];
 
   if (data) {
+    const med = data.medianEnabled;
     for (const s of data.dailySpikes) {
       rows.push({
         key: `daily-${s.date}`,
-        title: `${formatDate(s.date)} was ${s.multiplier.toFixed(1)}× the 30-day median`,
-        subtitle: `${moneyAud(s.totalCostAud)} vs ${moneyAud(s.medianAud)} typical`,
+        title: med && s.multiplier != null
+          ? `${formatDate(s.date)} was ${s.multiplier.toFixed(1)}× the 30-day median`
+          : `${formatDate(s.date)} had an unusually high cost day`,
+        subtitle: med && s.medianAud != null
+          ? `${moneyAud(s.totalCostAud)} vs ${moneyAud(s.medianAud)} typical`
+          : `${moneyAud(s.totalCostAud)} total`,
         onClick: () => navigate(dailyLink(s.date)),
       });
     }
     for (const s of data.clientSpikes) {
       rows.push({
         key: `client-${s.client}`,
-        title: `${s.client} is up ${s.multiplier.toFixed(1)}× vs their 90-day baseline`,
-        subtitle: `${moneyAud(s.lastWeekCostAud)} last 7d, ${moneyAud(s.baselineMedianAud)} typical weekly`,
+        title: med && s.multiplier != null
+          ? `${s.client} is up ${s.multiplier.toFixed(1)}× vs their 90-day baseline`
+          : `${s.client} had unusually high spend last week`,
+        subtitle: med && s.baselineMedianAud != null
+          ? `${moneyAud(s.lastWeekCostAud)} last 7d, ${moneyAud(s.baselineMedianAud)} typical weekly`
+          : `${moneyAud(s.lastWeekCostAud)} last 7d`,
         onClick: () => navigate(clientLink(s.client)),
       });
     }

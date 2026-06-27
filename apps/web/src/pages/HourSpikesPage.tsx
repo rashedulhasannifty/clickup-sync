@@ -35,11 +35,16 @@ function dayLink(userId: string, iso: string): string {
   return `/time-entries?userId=${encodeURIComponent(userId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&spaceScope=all`;
 }
 
-function watchSubtitle(s: HourSpikeWatchRow, cap: number): string {
-  if (s.rule === 'absolute') return `over the ${cap}h/day cap`;
-  const mult = s.multiplier != null ? `${s.multiplier.toFixed(1)}× their ${s.median.toFixed(1)}h median` : 'above their median';
+function watchSubtitle(s: HourSpikeWatchRow, cap: number, medianEnabled: boolean): string {
+  const capText = `over the ${cap}h/day cap`;
+  if (s.rule === 'absolute') return capText;
+  if (!medianEnabled || s.multiplier == null) {
+    // Median display is off (or unavailable): keep the row, drop median wording.
+    return s.rule === 'both' ? capText : 'unusually high for this person';
+  }
+  const mult = `${s.multiplier.toFixed(1)}× their ${s.median.toFixed(1)}h median`;
   if (s.rule === 'relative') return mult;
-  return `${mult} · over the ${cap}h/day cap`;
+  return `${mult} · ${capText}`;
 }
 
 /** A soft status pill sized to match the row's action buttons exactly. */
@@ -183,7 +188,7 @@ export function HourSpikesPage() {
                         {s.userName} logged {s.hours.toFixed(1)}h on {formatDate(s.date)}
                       </span>
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', paddingLeft: 29 }}>{watchSubtitle(s, data.cap)}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', paddingLeft: 29 }}>{watchSubtitle(s, data.cap, data.medianEnabled)}</div>
                   </div>
                 </button>
 
