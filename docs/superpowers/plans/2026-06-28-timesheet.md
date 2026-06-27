@@ -366,7 +366,7 @@ Then add this method inside the `ReportsService` class (e.g. right after `timeEn
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT to_char((e.start_time AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS day,
              e.task_id                                                         AS task_id,
-             MAX(t.name)                                                       AS task_name,
+             MAX(t.task_name)                                                  AS task_name,
              MAX(e.user_name)                                                  AS user_name,
              COALESCE(SUM(e.duration_hours), 0)::float                         AS hours,
              COALESCE(SUM(CASE WHEN e.status <> 'NO_RATE_FOUND' THEN e.cost_cents ELSE 0 END), 0)::bigint AS valid_cost_cents,
