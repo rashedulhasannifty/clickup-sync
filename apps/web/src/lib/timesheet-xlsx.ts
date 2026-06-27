@@ -39,7 +39,10 @@ export async function exportTimesheetXlsx(opts: {
   ws.columns = [
     { key: 'c0', width: 16 },                                  // Date / label
     { key: 'c1', width: 48 },                                  // Task
-    { key: 'c2', width: 12, style: { numFmt: '#,##0.##' } },   // Hours
+    // Fixed 2 decimals (not '#,##0.##'): the optional-digit form renders whole
+    // numbers with a dangling decimal point — 0 → "0.", 1 → "1." — in Excel /
+    // Sheets / LibreOffice. '#,##0.00' shows "0.00" / "1.00" / "5.25" cleanly.
+    { key: 'c2', width: 12, style: { numFmt: '#,##0.00' } },   // Hours
     ...(includeCost ? [{ key: 'c3', width: 14, style: { numFmt: '#,##0.00' } }] : []),
   ];
 
