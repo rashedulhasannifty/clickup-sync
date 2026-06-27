@@ -221,19 +221,18 @@ export function useSpaces() {
 export interface DailySpike {
   date: string;
   totalCostAud: number;
-  medianAud: number | null;
-  multiplier: number | null;
+  medianAud: number;
+  multiplier: number;
 }
 
 export interface ClientSpike {
   client: string;
   lastWeekCostAud: number;
-  baselineMedianAud: number | null;
-  multiplier: number | null;
+  baselineMedianAud: number;
+  multiplier: number;
 }
 
 export interface Anomalies {
-  medianEnabled: boolean;
   dailySpikes: DailySpike[];
   clientSpikes: ClientSpike[];
 }
@@ -265,7 +264,6 @@ export interface HourSpikeUser { userId: string; userName: string; points: HourS
 
 export interface HourSpikes {
   cap: number;
-  medianEnabled: boolean;
   watchlist: HourSpikeWatchRow[];
   watchlistTotal: number;
   byUser: { buckets: string[]; users: HourSpikeUser[] };

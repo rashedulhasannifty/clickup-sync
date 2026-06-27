@@ -67,7 +67,7 @@ export class ReportsController {
   @Get('anomalies')
   @ApiOperation({ summary: 'Spend-spike anomalies for the Overview panel — daily totals and per-client weekly totals exceeding their median baselines.' })
   anomalies() {
-    return this.reports.anomalies(this.settings.isSpikeMedianEnabled());
+    return this.reports.anomalies();
   }
 
   @Get('time-entries/hour-spikes')

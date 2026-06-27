@@ -61,13 +61,6 @@ describe('ReportsController', () => {
       expect(result.dailySpikes).toHaveLength(1);
       expect(result.clientSpikes).toEqual([]);
     });
-
-    it('forwards medianEnabled from settings into the service', async () => {
-      const svc = { anomalies: jest.fn().mockResolvedValue({ medianEnabled: false, dailySpikes: [], clientSpikes: [] }) } as any;
-      const ctrl = new ReportsController(svc, makeSettings(12, false), makeBudgets());
-      await ctrl.anomalies();
-      expect(svc.anomalies).toHaveBeenCalledWith(false);
-    });
   });
 
   describe('costTrend', () => {

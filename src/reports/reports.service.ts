@@ -1420,9 +1420,12 @@ export class ReportsService {
     }
 
     type Rule = 'absolute' | 'relative' | 'both';
+    // When the median rule is disabled, only the absolute cap flags a day; a
+    // day flagged purely by 2× median (under the cap) drops out of detection
+    // entirely — out of the watchlist, the chart, and the notifications.
     const classify = (hours: number, med: number): Rule | null => {
       const abs = hours > cap;
-      const rel = med > 0 && hours > 2 * med && hours >= 4;
+      const rel = medianEnabled && med > 0 && hours > 2 * med && hours >= 4;
       if (abs && rel) return 'both';
       if (abs) return 'absolute';
       if (rel) return 'relative';
@@ -1501,10 +1504,10 @@ export class ReportsService {
     // shape used by the watchlist.push above (which has no `notified` yet).
     const enriched = top.map((w) => ({ ...w, notified: notifiedSet.has(`${w.userId}|${w.date}`) }));
 
-    return { cap, medianEnabled, watchlist: enriched, watchlistTotal, byUser: { buckets, users } };
+    return { cap, watchlist: enriched, watchlistTotal, byUser: { buckets, users } };
   }
 
-  async anomalies(medianEnabled = true) {
+  async anomalies() {
     const TZ = Prisma.raw("'Asia/Dhaka'");
     type DailyRow = {
       date: string;
@@ -1595,18 +1598,17 @@ export class ReportsService {
     ]);
 
     return {
-      medianEnabled,
       dailySpikes: dailyRows.map(r => ({
         date: r.date,
         totalCostAud: Number(r.total_cost_cents) / 100,
-        medianAud: medianEnabled ? Number(r.median_cost_cents) / 100 : null,
-        multiplier: medianEnabled ? Number(r.multiplier) : null,
+        medianAud: Number(r.median_cost_cents) / 100,
+        multiplier: Number(r.multiplier),
       })),
       clientSpikes: clientRows.map(r => ({
         client: r.client,
         lastWeekCostAud: Number(r.week_cost_cents) / 100,
-        baselineMedianAud: medianEnabled ? Number(r.baseline_median_cents) / 100 : null,
-        multiplier: medianEnabled ? Number(r.multiplier) : null,
+        baselineMedianAud: Number(r.baseline_median_cents) / 100,
+        multiplier: Number(r.multiplier),
       })),
     };
   }

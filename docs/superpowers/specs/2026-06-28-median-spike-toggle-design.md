@@ -2,6 +2,15 @@
 
 Date: 2026-06-28
 
+> **Revision (2026-06-28, post-review).** The original design ("keep rows, hide
+> median text" across both the Time Spikes page and the Overview Anomalies
+> panel) was changed after the product owner saw it in action. Two corrections:
+> (1) the toggle now **disables the median rule entirely** — median-only days
+> are *removed* from detection rather than kept-with-neutral-wording; (2) the
+> toggle's **scope is the Time Spikes page only** — the Overview Anomalies panel
+> is no longer affected and always shows its median-based cost spikes. The
+> sections below describe the corrected design.
+
 ## Problem
 
 The Time Spikes feature flags a user-day as a spike under two rules:
@@ -11,39 +20,42 @@ The Time Spikes feature flags a user-day as a spike under two rules:
 
 The hour cap is already configurable from Settings. The team wants the **median
 rule to be toggleable too** — an Owner switch in Settings that turns the median
-behaviour on or off. When **off**, the Time Spikes page, the Overview Anomalies
-panel, the in-app NotificationCenter, and spike notification emails must not
-surface any median-derived numbers or wording.
+rule on or off. When **off**, the Time Spikes page (watchlist + chart) and its
+spike notifications must behave as if the median rule does not exist: days
+flagged *only* by the median rule disappear, and no median numbers/wording
+appear anywhere on that surface.
 
 ## Decisions (confirmed with product owner)
 
-- **Keep rows, hide median text.** Turning median off does **not** change which
-  rows are detected/returned. Detection is unchanged; only the median-derived
-  *display* (the median value, the multiplier, and any "× median" / "vs typical"
-  wording) is removed. Relative-only rows still appear, relabelled neutrally.
-- **Scope = both surfaces.** The toggle gates both the per-user **Time Spikes
-  (hours)** page and the Overview **cost-anomaly** panel (daily + per-client).
-  The Anomalies rows stay visible when median is off — they are just relabelled
-  to neutral "unusually high" wording (no multiplier, no median-dollar compare).
-- **Default = on.** `medianEnabled` defaults to `true` so existing behaviour is
+- **Off = disable the median rule.** When off, a day flagged *only* by the
+  relative rule (over `2×` median but under the cap) is no longer detected at
+  all — it drops out of the watchlist, the chart, and the notifications. A day
+  over the cap (with or without the median rule) still shows as a cap spike.
+- **Scope = Time Spikes page only.** The toggle gates only the per-user **Time
+  Spikes (hours)** surface and its NotificationCenter entries. The Overview
+  **cost-anomaly** panel is a separate, always-on feature and is **not** gated
+  by this toggle.
+- **Default = on.** `medianEnabled` defaults to `true`, so existing behaviour is
   preserved until an Owner turns it off.
 
-## Approach: strip server-side + carry a `medianEnabled` flag
+## Approach: gate detection server-side; strip residual median numbers
 
-The controller reads the setting once and passes it into both report queries.
-When the flag is **off**, the service:
+The reports controller reads the setting and passes it into `hourSpikes()` only
+(the `anomalies()` query is untouched). When the flag is **off**, the service:
 
-- leaves detection/row selection **unchanged**, and
-- **nulls out** the median-derived numeric fields on every returned row
-  (`median`, `multiplier` for hour spikes; `medianAud`, `baselineMedianAud`,
-  `multiplier` for anomalies), and
-- includes `medianEnabled: false` in the response payload.
+- gates the relative rule inside `classify()` so median-only days are never
+  flagged (`rel = medianEnabled && med > 0 && hours > 2*med && hours >= 4`);
+  this removes those rows from the watchlist *and* the chart's `isSpike` series;
+- still strips the residual median numbers (`median: 0`, `multiplier: null`) on
+  the cap spikes that remain, so a cap spike's incidental multiplier cannot leak
+  into the notification wording.
 
-Stripping the numbers in one place guarantees no median value can leak through
-any consumer. The `medianEnabled` flag lets each UI surface choose neutral
-wording. The email path needs no change: `NotifySpikeModal` sends `row.median`,
-which is now null, and `SpikeNotificationService.reasonText()` already falls
-back to median-free wording when `median` is falsy.
+The watchlist rows that survive when off are all cap spikes, which the existing
+frontend already renders with cap-only wording ("over the Nh/day cap" /
+"Above the daily cap") — so no frontend changes are needed for the off-state.
+The email path needs no change: a removed median-only day generates no
+notification, and a surviving cap spike sends `median: 0`, which
+`SpikeNotificationService.reasonText()` treats as falsy → cap-only wording.
 
 ## Changes
 
@@ -58,39 +70,33 @@ back to median-free wording when `median` is falsy.
 ### Reports controller
 
 - `hourSpikes(...)` passes `this.settings.isSpikeMedianEnabled()` to the service.
-- `anomalies()` passes the same flag.
+- `anomalies()` takes **no** flag — it is not gated by the toggle.
 
 ### Reports service
 
 - `hourSpikes(cap, from, to, limit, includeResolved, medianEnabled = true)`:
-  - detection unchanged;
-  - when `!medianEnabled`, map watchlist rows to `median: 0`, `multiplier: null`;
-  - return `medianEnabled` in the payload.
-- `anomalies(medianEnabled = true)`:
-  - detection unchanged;
-  - when `!medianEnabled`, set `medianAud`/`baselineMedianAud`/`multiplier` to
-    `null` on each row;
-  - return `medianEnabled` in the payload.
+  - `classify()` gates the relative rule on `medianEnabled`, so median-only days
+    are not flagged when off (removed from both the watchlist and the chart's
+    `isSpike` series);
+  - the surviving cap-spike rows still get `median: 0`, `multiplier: null` when
+    off, so an incidental multiplier can't leak into notification wording;
+  - the return shape is unchanged (no `medianEnabled` field in the payload).
+- `anomalies()`: **unchanged** — no flag, no stripping; always returns its
+  median-based cost spikes.
 
 ### Frontend types (`useReports.ts`)
 
-- `HourSpikes` += `medianEnabled: boolean`.
-- `Anomalies` += `medianEnabled: boolean`.
-- `DailySpike.medianAud`, `DailySpike.multiplier`, `ClientSpike.baselineMedianAud`,
-  `ClientSpike.multiplier` become `number | null`.
+- Unchanged from the pre-feature shape: `Anomalies` / `DailySpike` / `ClientSpike`
+  keep non-null median fields; `HourSpikes` gains no flag. (Only the `spike`
+  preference is added to `SettingsPreferences` in `apps/web/src/api/settings.ts`.)
 
 ### Frontend rendering
 
-- **HourSpikesPage** `watchSubtitle(s, cap, medianEnabled)`:
-  - `medianEnabled` off (or `multiplier == null`): `absolute` → "over the {cap}h/day
-    cap"; `relative`/`both` → neutral "unusually high for this person".
-  - on: existing behaviour.
-- **AnomaliesPanel**: when `medianEnabled` off, neutral titles/subtitles:
-  - daily → "{date} had an unusually high cost day" / "{money} total".
-  - client → "{client} had unusually high spend last week" / "{money} last 7d".
-- **NotificationCenter**:
-  - hour-spike fallback (when `multiplier == null`) → "Unusually high day".
-  - anomaly lines → neutral wording when median figures are null.
+- **No changes.** When the toggle is off, the only surviving Time-Spikes rows are
+  cap spikes, which the existing `watchSubtitle` ("over the {cap}h/day cap") and
+  NotificationCenter fallback ("Above the daily cap") already render without any
+  median wording. The AnomaliesPanel and the NotificationCenter anomaly lines are
+  untouched (the panel is no longer gated by the toggle).
 
 ### Settings UI (`SettingsPage.tsx`)
 
@@ -104,9 +110,12 @@ back to median-free wording when `median` is falsy.
 
 - `settings.service.spec.ts`: `isSpikeMedianEnabled()` defaults true; reflects a
   stored `preferences.spike.medianEnabled = false`.
-- `reports.service.spec.ts`: `hourSpikes(..., medianEnabled=false)` keeps the same
-  rows but returns `multiplier: null` and `medianEnabled: false`; default call is
-  unchanged. Anomalies analog if feasible with the existing test harness.
+- `reports.service.spec.ts`: `hourSpikes(..., medianEnabled=false)` **removes** a
+  median-only day (empty watchlist + `isSpike: false`), **keeps** a cap spike with
+  `median: 0`/`multiplier: null`, and the default call still flags the median-only
+  day with its median fields. `anomalies()` is unchanged.
+- `reports.controller.spec.ts`: `hourSpikes` forwards the flag (true + false);
+  `anomalies()` is called with no argument.
 - Existing spike/notification specs continue to pass (median-free email wording
   already covered by `reasonText` fallback).
 
