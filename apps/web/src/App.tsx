@@ -38,6 +38,9 @@ const TimeEntriesPage = React.lazy(() =>
 		default: m.TimeEntriesPage,
 	})),
 );
+const TimesheetPage = React.lazy(() =>
+	import('./pages/TimesheetPage').then((m) => ({ default: m.TimesheetPage })),
+);
 const MissingRatesPage = React.lazy(() =>
 	import('./pages/MissingRatesPage').then((m) => ({
 		default: m.MissingRatesPage,
@@ -166,6 +169,7 @@ export default function App() {
 										<Route path="/time-spikes" element={<SuspenseRoute><HourSpikesPage /></SuspenseRoute>} />
 										<Route path="/tasks" element={<SuspenseRoute><TasksPage /></SuspenseRoute>} />
 										<Route path="/time-entries" element={<SuspenseRoute><TimeEntriesPage /></SuspenseRoute>} />
+										<Route path="/timesheet" element={<SuspenseRoute><TimesheetPage /></SuspenseRoute>} />
 										<Route path="/missing-rates" element={<SuspenseRoute><MissingRatesPage /></SuspenseRoute>} />
 										<Route path="/assignee-rates" element={<SuspenseRoute><AssigneeRatesPage /></SuspenseRoute>} />
 										<Route path="/budgets" element={<SuspenseRoute><BudgetsPage /></SuspenseRoute>} />
