@@ -497,7 +497,7 @@ export function TasksPage() {
         { header: 'Client',        value: 'client', key: 'client' },
         { header: 'Department',    value: 'department', key: 'department' },
         { header: 'Sprint',        value: (r) => r.sprintName ?? r.sprint_name, key: 'sprint_name' },
-        { header: 'Sprint points', value: (r) => r.sprintPoints ?? r.sprint_points, key: 'sprint_points', type: 'number' },
+        { header: 'Sprint points', value: (r) => r.sprintPoints ?? r.sprint_points, key: 'sprint_points', type: 'integer' },
         { header: 'Est. hours',    value: (r) => r.timeEstimateHours ?? r.time_estimate_hours, key: 'time_estimate', type: 'number' },
         { header: 'Spent hours',   value: (r) => r.timeSpentHours ?? r.time_spent_hours, key: 'time_spent', type: 'number' },
         { header: 'Created',       value: (r) => r.createdDate ?? r.created_date, type: 'date' },
