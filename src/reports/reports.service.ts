@@ -1330,7 +1330,7 @@ export class ReportsService {
    * selected window, floored to a 14-day minimum so a short pick does not
    * produce a noisy median that flags nearly every day.
    */
-  async hourSpikes(cap: number, fromParam?: string, toParam?: string, limit = 20, includeResolved = false) {
+  async hourSpikes(cap: number, fromParam?: string, toParam?: string, limit = 20, includeResolved = false, medianEnabled = true) {
     const TZ = Prisma.raw(`'Asia/Dhaka'`);
     // `start_time` is `timestamp without time zone` holding a UTC instant. To
     // bucket by Dhaka calendar day we must first label it UTC, THEN convert:
@@ -1420,9 +1420,12 @@ export class ReportsService {
     }
 
     type Rule = 'absolute' | 'relative' | 'both';
+    // When the median rule is disabled, only the absolute cap flags a day; a
+    // day flagged purely by 2× median (under the cap) drops out of detection
+    // entirely — out of the watchlist, the chart, and the notifications.
     const classify = (hours: number, med: number): Rule | null => {
       const abs = hours > cap;
-      const rel = med > 0 && hours > 2 * med && hours >= 4;
+      const rel = medianEnabled && med > 0 && hours > 2 * med && hours >= 4;
       if (abs && rel) return 'both';
       if (abs) return 'absolute';
       if (rel) return 'relative';
@@ -1454,7 +1457,9 @@ export class ReportsService {
         if (!rule) continue;
         watchlist.push({
           userId: id, userName: e.name, date: day, hours,
-          median: med, multiplier: med > 0 ? hours / med : null, rule,
+          median: medianEnabled ? med : 0,
+          multiplier: medianEnabled && med > 0 ? hours / med : null,
+          rule,
         });
       }
     }

@@ -159,4 +159,28 @@ describe('SettingsService', () => {
       expect(svc.getPreferences().sync.maxBackfillLookbackDays).toBe(1460);
     });
   });
+
+  describe('isSpikeMedianEnabled', () => {
+    it('defaults to true when no DB row exists', async () => {
+      const svc = new SettingsService(makeRepo(null), makeCrypto());
+      await svc.onModuleInit();
+      expect(svc.isSpikeMedianEnabled()).toBe(true);
+    });
+
+    it('reflects a stored false preference', async () => {
+      const repo = makeRepo({ id: 'singleton', preferences: { spike: { medianEnabled: false } }, updatedAt: new Date() });
+      const svc = new SettingsService(repo, makeCrypto());
+      await svc.onModuleInit();
+      expect(svc.isSpikeMedianEnabled()).toBe(false);
+    });
+
+    it('round-trips through update()', async () => {
+      const repo = makeRepo(null);
+      const svc = new SettingsService(repo, makeCrypto());
+      await svc.onModuleInit();
+      await svc.update({ preferences: { spike: { medianEnabled: false } } }, 'tester');
+      expect(svc.isSpikeMedianEnabled()).toBe(false);
+      expect(svc.getPreferences().spike.medianEnabled).toBe(false);
+    });
+  });
 });

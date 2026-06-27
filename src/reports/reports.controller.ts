@@ -78,7 +78,7 @@ export class ReportsController {
     @Query('limit') limit?: string,
     @Query('includeResolved') includeResolved?: string,
   ) {
-    return this.reports.hourSpikes(this.settings.getSpikeHoursCap(), from, to, Number(limit) || 20, includeResolved === 'true');
+    return this.reports.hourSpikes(this.settings.getSpikeHoursCap(), from, to, Number(limit) || 20, includeResolved === 'true', this.settings.isSpikeMedianEnabled());
   }
 
   @Get('time-entries/by-user')

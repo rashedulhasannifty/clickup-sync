@@ -1301,6 +1301,62 @@ describe('ReportsService', () => {
       expect(r.watchlist.find((w: any) => w.userId === 'u2')!.resolved).toBe(false);
       expect(r.watchlistTotal).toBe(2);
     });
+
+    it('removes a median-only spike when the median rule is disabled', async () => {
+      const prisma = makePrisma();
+      // relative-only spike: median(3,3,3)=3 → 2x=6; 7h > 6, >= 4, < cap(12).
+      // With the median rule off, this day is no longer flagged at all.
+      stub(
+        prisma,
+        [
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-01', hours: 3 },
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-02', hours: 3 },
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-03', hours: 3 },
+        ],
+        [{ user_id: 'u2', user_name: 'Bob', day: '2026-06-10', hours: 7 }],
+        ['2026-06-10'],
+      );
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-10', '2026-06-10', 20, false, false);
+      expect(r.watchlist).toHaveLength(0); // median-only day dropped from detection
+      expect(r.byUser.users[0].points[0].isSpike).toBe(false); // and from the chart
+    });
+
+    it('keeps cap spikes when the median rule is disabled and strips their median fields', async () => {
+      const prisma = makePrisma();
+      // median(3,3,3)=3 → 2x=6; 7h is over 2x median AND over cap(4) → 'both' normally;
+      // with the median rule off, the relative half drops and it is a plain cap spike.
+      stub(
+        prisma,
+        [
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-01', hours: 3 },
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-02', hours: 3 },
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-03', hours: 3 },
+        ],
+        [{ user_id: 'u2', user_name: 'Bob', day: '2026-06-10', hours: 7 }],
+        ['2026-06-10'],
+      );
+      const r = await new ReportsService(prisma).hourSpikes(4, '2026-06-10', '2026-06-10', 20, false, false);
+      expect(r.watchlist).toHaveLength(1);
+      expect(r.watchlist[0]).toMatchObject({ rule: 'absolute', median: 0, multiplier: null });
+    });
+
+    it('flags a median-only spike with median fields when the rule is enabled (default)', async () => {
+      const prisma = makePrisma();
+      stub(
+        prisma,
+        [
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-01', hours: 3 },
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-02', hours: 3 },
+          { user_id: 'u2', user_name: 'Bob', day: '2026-06-03', hours: 3 },
+        ],
+        [{ user_id: 'u2', user_name: 'Bob', day: '2026-06-10', hours: 7 }],
+        ['2026-06-10'],
+      );
+      const r = await new ReportsService(prisma).hourSpikes(12, '2026-06-10', '2026-06-10');
+      expect(r.watchlist).toHaveLength(1);
+      expect(r.watchlist[0]).toMatchObject({ rule: 'relative', median: 3 });
+      expect(r.watchlist[0].multiplier).toBeCloseTo(7 / 3, 4);
+    });
   });
 
   describe('stats excludedIds filtering', () => {

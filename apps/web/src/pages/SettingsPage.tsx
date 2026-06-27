@@ -992,7 +992,7 @@ export function SettingsPage() {
               <RequireRole min="OWNER">
                 <SettingRow
                   label="Daily-hour spike cap"
-                  desc="Flag a user-day as a spike when logged hours exceed this absolute cap (also flags > 2× the user's 30-day median). 1–24 hours."
+                  desc="Flag a user-day as a spike when logged hours exceed this absolute cap. 1–24 hours."
                   control={
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <Input
@@ -1020,6 +1020,17 @@ export function SettingsPage() {
                         Save
                       </Button>
                     </div>
+                  }
+                />
+                <SettingRow
+                  label="Median spike rule"
+                  desc="When on, also flag a day as a spike at > 2× the user's median and show median context across Time Spikes, Anomalies, and notifications. When off, those median numbers are hidden."
+                  control={
+                    <Switch
+                      checked={prefs?.spike?.medianEnabled ?? true}
+                      disabled={!isOwner || updateSettings.isPending}
+                      onChange={(v) => patchPrefs({ spike: { medianEnabled: v } })}
+                    />
                   }
                 />
               </RequireRole>
