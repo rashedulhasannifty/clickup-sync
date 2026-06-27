@@ -202,3 +202,13 @@ guarantees.
 - Per-ORG isolation (tracked separately as Spec 2).
 - Currency rename (`*Aud` fields hold USD in practice; not touched here — see
   `currency-aud-usd-debt`).
+
+## Known limitations
+
+- The missing-rate `—` rule keys only on `status = 'NO_RATE_FOUND'`. A task whose
+  only entries are still in the default `SYNCED` state (synced but not yet
+  cost-calculated) has `missingRateCount = 0`, so its cost renders as a real
+  `$0.00` against logged hours until the cost-calc job runs. This is a transient
+  pre-cost-calc state for a status outside this spec's defined scope; tracked as a
+  follow-up rather than handled here. (`COST_EXCLUDED` → `$0` is correct and
+  intentional.)
