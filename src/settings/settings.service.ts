@@ -17,6 +17,7 @@ export interface SettingsPreferences {
   sync: { reconcileLookbackDays: number; realtimeWebhooks: boolean; backfillOnConnect: boolean; maxBackfillLookbackDays: number };
   cost: { autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean; excludedAssignees: { id: string; name: string | null; email: string | null }[] };
   failure: { webhookRetryAttempts: number };
+  spike: { medianEnabled: boolean };
   spaces: Record<string, { enabled: boolean }>;
 }
 
@@ -28,6 +29,7 @@ export const DEFAULT_PREFERENCES: SettingsPreferences = {
   sync: { reconcileLookbackDays: 365, realtimeWebhooks: true, backfillOnConnect: true, maxBackfillLookbackDays: DEFAULT_MAX_BACKFILL_LOOKBACK },
   cost: { autoRecalcOnRateChange: true, rateMatching: 'start', nonBillableZero: false, excludedAssignees: [] },
   failure: { webhookRetryAttempts: 5 },
+  spike: { medianEnabled: true },
   spaces: {},
 };
 
@@ -184,6 +186,13 @@ export class SettingsService implements OnModuleInit {
   getBackfillMaxLookbackDays(): number {
     const v = this.cache.preferences.sync.maxBackfillLookbackDays ?? DEFAULT_MAX_BACKFILL_LOOKBACK;
     return Math.min(MAX_BACKFILL_LOOKBACK_BACKSTOP, Math.max(1, Math.round(v)));
+  }
+
+  /** Whether the median ("relative") spike rule contributes median numbers and
+   *  wording to spike surfaces. Detection is unaffected; this only controls
+   *  whether median-derived display is shown. Defaults to true. */
+  isSpikeMedianEnabled(): boolean {
+    return this.cache.preferences.spike?.medianEnabled ?? true;
   }
 
   /** Sync set of assignee ids excluded from costing. Read on the per-entry cost
