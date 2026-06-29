@@ -18,8 +18,13 @@ export interface XlsxColumn<T> {
    * `key` are export-only and always included.
    */
   key?: string;
-  /** Cell type — drives Excel formatting. Defaults to 'text'. */
-  type?: 'text' | 'number' | 'money' | 'date';
+  /**
+   * Cell type — drives Excel formatting. Defaults to 'text'.
+   * - `number`: fixed 2 decimals (`#,##0.00`) — for fractional values like hours.
+   * - `integer`: no decimals (`#,##0`) — for whole-number counts like points.
+   *   Avoid `number` for counts: a 2-decimal format shows "3.00".
+   */
+  type?: 'text' | 'number' | 'integer' | 'money' | 'date';
   /** Column width in Excel units. Defaults to a header-length heuristic. */
   width?: number;
 }
@@ -32,7 +37,7 @@ function readValue<T>(col: XlsxColumn<T>, row: T): unknown {
 
 function coerce(type: XlsxColumn<unknown>['type'], v: unknown): string | number | boolean | Date | null {
   if (v == null || v === '') return null;
-  if (type === 'number' || type === 'money') {
+  if (type === 'number' || type === 'integer' || type === 'money') {
     const n = typeof v === 'number' ? v : Number(v);
     return Number.isFinite(n) ? n : null;
   }
@@ -82,8 +87,13 @@ export async function exportXlsx<T>(opts: {
         : c.type === 'money'
           ? { numFmt: '#,##0.00' }
           : c.type === 'number'
-            ? { numFmt: '#,##0.##' }
-            : {},
+            // Fixed 2 decimals, not '#,##0.##': the optional-digit form renders
+            // whole numbers with a dangling decimal point (1 -> "1.", 0 -> "0.")
+            // in Excel / Sheets / LibreOffice.
+            ? { numFmt: '#,##0.00' }
+            : c.type === 'integer'
+              ? { numFmt: '#,##0' }
+              : {},
   }));
 
   // Header row styling — bold white text on the accent fill, frozen + filtered.

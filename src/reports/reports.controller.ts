@@ -30,6 +30,19 @@ export class ReportsController {
   @ApiOperation({ summary: 'Distinct assignees that have time entries. Feeds the exclude-from-costing picker.' })
   timeEntriesAssignees() { return this.reports.timeEntriesAssignees(); }
 
+  @Get('timesheet')
+  @ApiOperation({ summary: 'Single-assignee timesheet: per-day, per-task hours + cost over [from, to]. userId is required; from/to default to the last 30 days.' })
+  timesheet(
+    @Query('userId') userId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    if (!userId) {
+      throw new BadRequestException('userId is required');
+    }
+    return this.reports.timesheet(userId, from, to);
+  }
+
   @Get('clients')
   @ApiOperation({ summary: 'Distinct task clients for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks.client (non-empty, non-deleted), with per-client task counts.' })
   tasksClients() { return this.reports.tasksClients(); }

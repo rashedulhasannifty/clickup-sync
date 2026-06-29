@@ -8,6 +8,7 @@ import {
   Activity,
   CheckSquare,
   Clock,
+  CalendarClock,
   AlertTriangle,
   DollarSign,
   Layers,
@@ -64,6 +65,7 @@ export function Sidebar({
     { to: "/time-spikes", label: "Time Spikes", icon: Activity },
     { to: "/tasks", label: "Tasks", icon: CheckSquare },
     { to: "/time-entries", label: "Time Entries", icon: Clock },
+    { to: "/timesheet", label: "Timesheet", icon: CalendarClock },
     {
       to: "/missing-rates",
       label: "Missing Rates",

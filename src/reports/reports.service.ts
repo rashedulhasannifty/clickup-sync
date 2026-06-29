@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
+import { assembleTimesheet, dhakaDate, type TimesheetAggRow } from './timesheet.assemble';
 
 function defaultFrom(): Date {
   const d = new Date();
@@ -123,6 +124,70 @@ export class ReportsService {
       ORDER BY MAX(user_name) NULLS LAST
     `);
     return rows.map((r) => ({ id: r.user_id, name: r.user_name, email: r.user_email }));
+  }
+
+  /**
+   * Single-assignee timesheet: per-Dhaka-day, per-task hours + cost for one user
+   * over [from, to]. The SQL buckets by Dhaka day (start_time is UTC-naive — label
+   * UTC first, exactly like costTrend) and aggregates per (day, task). The pure
+   * `assembleTimesheet` then builds the weekday skeleton, unions worked days, and
+   * applies the missing-rate cost rule. cost_cents for NO_RATE_FOUND entries is
+   * never summed as valid (see data-model rule).
+   */
+  async timesheet(userId: string, fromParam?: string, toParam?: string) {
+    const from = parseDate(fromParam, defaultFrom());
+    const to = parseDate(toParam, new Date());
+    const TZ = Prisma.raw(`'Asia/Dhaka'`);
+
+    type Row = {
+      day: string;
+      task_id: string;
+      task_name: string | null;
+      user_name: string | null;
+      hours: number;
+      valid_cost_cents: bigint;
+      entry_count: number;
+      missing_rate_count: number;
+    };
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      SELECT to_char((e.start_time AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS day,
+             e.task_id                                                         AS task_id,
+             MAX(t.task_name)                                                  AS task_name,
+             MAX(e.user_name)                                                  AS user_name,
+             COALESCE(SUM(e.duration_hours), 0)::float                         AS hours,
+             COALESCE(SUM(CASE WHEN e.status <> 'NO_RATE_FOUND' THEN e.cost_cents ELSE 0 END), 0)::bigint AS valid_cost_cents,
+             COUNT(*)::int                                                     AS entry_count,
+             SUM(CASE WHEN e.status = 'NO_RATE_FOUND' THEN 1 ELSE 0 END)::int  AS missing_rate_count
+      FROM clickup_time_entries e
+      LEFT JOIN clickup_tasks t ON t.task_id = e.task_id
+      WHERE e.user_id = ${userId}
+        AND e.start_time IS NOT NULL
+        AND e.start_time >= ${from}
+        AND e.start_time <= ${to}
+      GROUP BY day, e.task_id
+      ORDER BY day, task_name
+    `);
+
+    const aggRows: TimesheetAggRow[] = rows.map((r) => ({
+      day: r.day,
+      taskId: r.task_id,
+      taskName: r.task_name,
+      hours: Number(r.hours),
+      validCostCents: Number(r.valid_cost_cents),
+      entryCount: Number(r.entry_count),
+      missingRateCount: Number(r.missing_rate_count),
+    }));
+
+    const sheet = assembleTimesheet(aggRows, dhakaDate(from), dhakaDate(to));
+    const userName = rows.find((r) => r.user_name)?.user_name ?? null;
+
+    return {
+      userId,
+      userName,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      ...sheet,
+    };
   }
 
   async tasksClients() {
