@@ -690,6 +690,34 @@ describe('ReportsService', () => {
     });
   });
 
+  // Regression: `clickup_time_entries.start_time` is a `timestamptz` in the
+  // deployed schema. Bucketing it into a Dhaka calendar day needs a SINGLE
+  // `AT TIME ZONE 'Asia/Dhaka'`. The old double form
+  // `start_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Dhaka'` collapses a
+  // timestamptz to the UTC date, mis-assigning early-Dhaka-morning entries to
+  // the previous day (the ClickUp-vs-app timesheet mismatch). Guard every report
+  // that buckets the raw start_time column.
+  describe('start_time Dhaka-day bucketing (timestamptz, single conversion)', () => {
+    const sqlOf = (call: any): string => call.sql ?? call.text ?? String(call);
+    const cases: Array<[string, (s: ReportsService) => Promise<unknown>]> = [
+      ['timesheet', (s) => s.timesheet('u1')],
+      ['costTrend', (s) => s.costTrend('day')],
+      ['costTrendByAssignee', (s) => s.costTrendByAssignee('day')],
+      ['hourSpikes', (s) => s.hourSpikes(8)],
+      ['anomalies', (s) => s.anomalies()],
+    ];
+    it.each(cases)('%s buckets start_time with single Asia/Dhaka conversion', async (_name, run) => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await run(new ReportsService(prisma));
+      const allSql = prisma.$queryRaw.mock.calls.map((c: any[]) => sqlOf(c[0])).join('\n---\n');
+      // The buggy double conversion of the raw column must not appear.
+      expect(allSql).not.toMatch(/start_time\s+AT TIME ZONE 'UTC'/);
+      // The correct single conversion must be present.
+      expect(allSql).toMatch(/start_time\s+AT TIME ZONE 'Asia\/Dhaka'/);
+    });
+  });
+
   describe('costTrendByAssignee', () => {
     // The method issues two $queryRaw calls in order: (1) the bucket axis via
     // generate_series, (2) the per-(bucket, assignee) cost aggregate.

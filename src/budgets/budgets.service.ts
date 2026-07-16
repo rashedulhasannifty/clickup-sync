@@ -68,10 +68,13 @@ export class BudgetsService {
       todayIso;
 
     const TZ = Prisma.raw(`'Asia/Dhaka'`);
-    const dhakaDay = Prisma.sql`((e.start_time AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date)`;
+    // `start_time` is a `timestamptz`; a single `AT TIME ZONE 'Asia/Dhaka'` gives
+    // the Dhaka calendar day. (The old double `AT TIME ZONE 'UTC' AT TIME ZONE …`
+    // collapsed it to the UTC date and shifted early-morning entries back a day.)
+    const dhakaDay = Prisma.sql`((e.start_time AT TIME ZONE ${TZ})::date)`;
 
-    // Index-friendly superset range on the raw start_time column (timestamp-without-tz
-    // holding UTC). Postgres can use the start_time index for this range; the exact
+    // Index-friendly superset range on the raw start_time column. Postgres can use
+    // the start_time index for this range; the exact
     // dhakaDay predicates below then trim to the precise Dhaka calendar window. Pad by a
     // day on each side so the raw range is a guaranteed superset regardless of session TZ.
     const rawLower = new Date(`${addDaysIso(bounds.start, -1)}T00:00:00Z`);

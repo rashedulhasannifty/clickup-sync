@@ -112,10 +112,16 @@ export function TimesheetPage() {
   const [showCost, setShowCost] = useState(true);
 
   const assigneeOptions = useMemo(() => {
-    const opts = [{ value: '', label: 'Select a teammate…' }];
+    const opts: { value: string; label: string; icon?: ReactNode }[] = [
+      { value: '', label: 'Select a teammate…' },
+    ];
     for (const a of assignees ?? []) {
       if (!a.id) continue;
-      opts.push({ value: a.id, label: a.name ?? a.id });
+      opts.push({
+        value: a.id,
+        label: a.name ?? a.id,
+        icon: <ClickupAvatar userId={a.id} email={a.email} name={a.name} size={18} />,
+      });
     }
     return opts;
   }, [assignees]);
