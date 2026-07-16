@@ -52,7 +52,7 @@ export class SpikeNotificationService {
       WHERE e.start_time IS NOT NULL
         AND t.is_deleted = false
         AND COALESCE(e.user_id, 'unknown') = ${userId}
-        AND to_char(date_trunc('day', e.start_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Dhaka'), 'YYYY-MM-DD') = ${date}
+        AND to_char(date_trunc('day', e.start_time AT TIME ZONE 'Asia/Dhaka'), 'YYYY-MM-DD') = ${date}
       GROUP BY e.task_id
       ORDER BY hours DESC
     `);
