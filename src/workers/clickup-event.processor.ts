@@ -22,6 +22,16 @@ const HISTORY_FIELDS: Record<string, string[]> = {
   taskMoved: ['section_moved'],
 };
 
+// Events after which a task's tracked time may have changed, so we re-sync its
+// time entries. `taskTimeTrackedUpdated` is the intended signal but fires
+// unreliably on ClickUp; `taskCreated`/`taskUpdated` are the reliable fallback
+// because logging time bumps the task's `date_updated`. See process().
+const TIME_ENTRY_SYNC_EVENTS = new Set([
+  'taskTimeTrackedUpdated',
+  'taskUpdated',
+  'taskCreated',
+]);
+
 @Injectable()
 @Processor(QUEUES.CLICKUP_WEBHOOKS)
 export class ClickupEventProcessor extends WorkerHost {
@@ -82,16 +92,28 @@ export class ClickupEventProcessor extends WorkerHost {
     }
     if (eventType === 'taskDeleted') {
       await this.queues.get(QUEUES.CLICKUP_TASKS).add(JOBS.DELETE_CLICKUP_TASK, { taskId }, this.queues.defaultJobOptions());
-    } else if (eventType === 'taskTimeTrackedUpdated') {
-      // Belt-and-braces: also enqueue a task sync so the parent task row is
-      // present before the time-entry worker tries to upsert FKs against it.
-      // The time-entry worker itself also self-heals (see TimeEntriesService),
-      // but enqueueing both decouples the two paths and makes either able to
-      // recover on its own. Both jobs are idempotent.
-      await this.queues.get(QUEUES.CLICKUP_TASKS).add(JOBS.SYNC_CLICKUP_TASK, { taskId }, this.queues.defaultJobOptions());
-      await this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES).add(JOBS.SYNC_TASK_TIME_ENTRIES, { taskId, assigneeIds: loggedUserId ? [loggedUserId] : undefined }, this.queues.defaultJobOptions());
     } else {
+      // Always re-sync the task's current state. This also guarantees the parent
+      // task row exists before the time-entry worker upserts FKs against it (the
+      // time-entry worker self-heals too — see TimeEntriesService — but
+      // enqueueing both decouples the paths so either can recover alone). All
+      // jobs are idempotent.
       await this.queues.get(QUEUES.CLICKUP_TASKS).add(JOBS.SYNC_CLICKUP_TASK, { taskId }, this.queues.defaultJobOptions());
+
+      // Re-sync tracked time whenever it may have changed. ClickUp's
+      // `taskTimeTrackedUpdated` webhook is unreliable — it frequently does NOT
+      // fire for manually added/edited time entries (only for timer start/stop),
+      // so relying on it alone leaves tracked time invisible in reporting. But
+      // logging time bumps the task's `date_updated`, which DOES reliably fire
+      // `taskUpdated`. So we also sync time entries on taskCreated/taskUpdated,
+      // making tracked time reflect in near real time regardless of whether the
+      // time-tracking event fires. When that event itself fires we know the
+      // logger and scope to them (cheaper); otherwise (taskCreated/taskUpdated)
+      // we sync all workspace members' entries on the task.
+      if (TIME_ENTRY_SYNC_EVENTS.has(eventType)) {
+        const assigneeIds = eventType === 'taskTimeTrackedUpdated' && loggedUserId ? [loggedUserId] : undefined;
+        await this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES).add(JOBS.SYNC_TASK_TIME_ENTRIES, { taskId, assigneeIds }, this.queues.defaultJobOptions());
+      }
     }
     await this.events.markProcessed(fingerprint).catch((e) => this.logger.warn(e.message));
   }
