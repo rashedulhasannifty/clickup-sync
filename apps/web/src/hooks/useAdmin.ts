@@ -38,6 +38,27 @@ export function useSyncTask() {
   return useMutation({ mutationFn: (taskId: string) => adminApi.syncTask(taskId) });
 }
 
+export function useWebhooks(enabled = true) {
+  return useQuery({
+    queryKey: ['registered-webhooks'],
+    queryFn: adminApi.listWebhooks,
+    enabled,
+  });
+}
+
+/**
+ * Force-sync a single task from the UI: enqueues BOTH the task sync and its
+ * time-entry sync (both idempotent job enqueues). Resolves once both are queued.
+ */
+export function useSyncTaskFull() {
+  return useMutation({
+    mutationFn: async (taskId: string) => {
+      await Promise.all([adminApi.syncTask(taskId), adminApi.syncTaskTimeEntries(taskId)]);
+      return { taskId };
+    },
+  });
+}
+
 export function useBackfill() {
   return useMutation({
     mutationFn: ({ spaceId, lookbackDays }: { spaceId: string; lookbackDays?: number }) =>

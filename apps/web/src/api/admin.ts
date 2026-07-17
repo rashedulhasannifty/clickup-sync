@@ -35,6 +35,20 @@ export type DeadLetterJob = {
 
 export type ExcludedAssignee = { id: string; name: string | null; email: string | null };
 
+export interface RegisteredWebhookDto {
+  id: string;
+  endpoint: string | null;
+  events: string[];
+  health: { status: string; failCount: number } | null;
+  missingEvents: string[];
+  extraEvents: string[];
+}
+export interface WebhooksListDto {
+  desiredEvents: string[];
+  configuredEndpoint: string;
+  webhooks: RegisteredWebhookDto[];
+}
+
 export type SpikeNoticePreview = {
   date: string;
   recipientEmail: string | null;
@@ -61,6 +75,10 @@ export const adminApi = {
   reconcileActive: (): Promise<ReconcileProgress> =>
     apiClient.get('/admin/tasks/reconcile/active').then(r => r.data as ReconcileProgress),
   registerWebhook: () => apiClient.post('/admin/webhooks/register').then(r => r.data),
+  listWebhooks: (): Promise<WebhooksListDto> =>
+    apiClient.get('/admin/webhooks').then((r) => r.data),
+  syncTaskTimeEntries: (taskId: string) =>
+    apiClient.post('/admin/time-entries/sync-task', { taskId }).then((r) => r.data),
   retryFailedWebhooks: () =>
     apiClient
       .post('/admin/webhooks/retry-failed')
