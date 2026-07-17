@@ -777,7 +777,9 @@ export function SettingsPage() {
               }
             />
             <div style={{ padding: '4px 0' }}>
-              {webhooksList.isError ? (
+              {webhooksList.isLoading ? (
+                <p style={{ fontSize: 13, color: 'var(--text-muted)', padding: '8px 0' }}>Loading…</p>
+              ) : webhooksList.isError ? (
                 <Callout tone="red">
                   Couldn’t read webhooks from ClickUp: {(webhooksList.error as Error)?.message ?? 'unknown error'}. Check the API token.
                 </Callout>
@@ -801,11 +803,25 @@ export function SettingsPage() {
                           w.events.map((e) => <Pill key={e} tone="gray">{e}</Pill>)
                         )}
                       </div>
+                      {w.endpoint !== webhooksList.data.configuredEndpoint && (
+                        <div style={{ marginTop: 8 }}>
+                          <Callout tone="amber">
+                            Endpoint differs from configured — this webhook posts elsewhere.
+                          </Callout>
+                        </div>
+                      )}
                       {w.missingEvents.length > 0 && (
                         <div style={{ marginTop: 8 }}>
                           <Callout tone="amber">
                             Not registered for: {w.missingEvents.join(', ')}. Click Register Webhook to sync these.
                           </Callout>
+                        </div>
+                      )}
+                      {w.extraEvents.length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                            Extra (not in your configured list): {w.extraEvents.join(', ')}
+                          </span>
                         </div>
                       )}
                     </div>
