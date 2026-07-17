@@ -85,4 +85,47 @@ describe('ClickupWebhooksService', () => {
     await svc.register();
     expect(client.createWebhook).toHaveBeenCalledWith(TEAM_ID, ENDPOINT, ['taskCreated', 'taskDeleted']);
   });
+
+  describe('listRegistered', () => {
+    it('maps webhooks and computes drift vs the configured events', async () => {
+      // Configured (desired) = 4 default events. Registered webhook is missing
+      // taskTimeTrackedUpdated and has an extra taskCommentPosted.
+      const registered = [
+        {
+          id: 'wh-1',
+          endpoint: ENDPOINT,
+          events: ['taskCreated', 'taskUpdated', 'taskDeleted', 'taskCommentPosted'],
+          health: { status: 'active', fail_count: 0 },
+        },
+      ];
+      const { svc } = makeService(registered);
+      const result = await svc.listRegistered();
+
+      expect(result.configuredEndpoint).toBe(ENDPOINT);
+      expect(result.desiredEvents).toEqual(DEFAULT_EVENTS);
+      expect(result.webhooks).toHaveLength(1);
+      const w = result.webhooks[0];
+      expect(w.id).toBe('wh-1');
+      expect(w.endpoint).toBe(ENDPOINT);
+      expect(w.health).toEqual({ status: 'active', failCount: 0 });
+      expect(w.missingEvents).toEqual(['taskTimeTrackedUpdated']);
+      expect(w.extraEvents).toEqual(['taskCommentPosted']);
+    });
+
+    it('returns an empty list (no throw) when no webhooks are registered', async () => {
+      const { svc } = makeService([]);
+      const result = await svc.listRegistered();
+      expect(result.webhooks).toEqual([]);
+      expect(result.desiredEvents).toEqual(DEFAULT_EVENTS);
+    });
+
+    it('normalizes a webhook with missing events/health to empty array / null', async () => {
+      const { svc } = makeService([{ id: 'wh-2', endpoint: undefined }]);
+      const [w] = (await svc.listRegistered()).webhooks;
+      expect(w.endpoint).toBeNull();
+      expect(w.events).toEqual([]);
+      expect(w.health).toBeNull();
+      expect(w.missingEvents).toEqual(DEFAULT_EVENTS); // nothing registered → all desired missing
+    });
+  });
 });

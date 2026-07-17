@@ -306,6 +306,12 @@ export class AdminController {
     return result;
   }
 
+  @Get('webhooks')
+  @ApiOperation({ summary: 'List ClickUp webhooks actually registered for this team, with drift vs the configured event list.' })
+  listWebhooks() {
+    return this.webhooks.listRegistered();
+  }
+
   // ── ClickUp connection settings ─────────────────────────────────────────────
 
   @Get('settings')

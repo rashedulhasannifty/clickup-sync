@@ -124,6 +124,28 @@ describe('ClickupEventProcessor — event dispatch', () => {
     expect(events.markProcessed).toHaveBeenCalledWith('fp');
   });
 
+  // ClickUp's taskTimeTrackedUpdated webhook is unreliable (often only fires for
+  // timer start/stop, not manual entries). Logging time DOES bump the task's
+  // date_updated → a reliable taskUpdated. So taskCreated/taskUpdated also
+  // re-sync time entries (all members, since we don't know the logger here).
+  for (const eventType of ['taskUpdated', 'taskCreated']) {
+    it(`${eventType} → ALSO enqueues an all-members time-entry sync`, async () => {
+      const { queues, done } = run({ eventType, taskId: 't5', fingerprint: 'fp', loggedUserId: null });
+      await done;
+      const calls = queues._queue.add.mock.calls;
+      expect(calls).toContainEqual([JOBS.SYNC_CLICKUP_TASK, { taskId: 't5' }, {}]);
+      expect(calls).toContainEqual([JOBS.SYNC_TASK_TIME_ENTRIES, { taskId: 't5', assigneeIds: undefined }, {}]);
+    });
+  }
+
+  it('taskMoved → task sync only, NOT a time-entry sync (no tracked-time implication)', async () => {
+    const { queues, done } = run({ eventType: 'taskMoved', taskId: 't6', fingerprint: 'fp', loggedUserId: null });
+    await done;
+    const names = queues._queue.add.mock.calls.map((c: any[]) => c[0]);
+    expect(names).toContain(JOBS.SYNC_CLICKUP_TASK);
+    expect(names).not.toContain(JOBS.SYNC_TASK_TIME_ENTRIES);
+  });
+
   it('event with no taskId → no enqueue, but IS marked processed (so it cannot sit in `received` limbo)', async () => {
     const { queues, events, done } = run({ eventType: 'taskUpdated', taskId: null, fingerprint: 'fp', loggedUserId: null });
     await done;
