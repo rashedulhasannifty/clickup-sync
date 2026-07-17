@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useSpaces, useSyncHealth, useStats } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
-import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks, useReconcileActive, useWebhooks, useSyncTaskFull } from '../hooks/useAdmin';
+import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks, useReconcileActive, useWebhooks, useSyncTaskFull, useDeleteWebhook, usePruneStaleWebhooks } from '../hooks/useAdmin';
 import { useSettings, useUpdateSettings } from '../hooks/useSettings';
 import { useAuth } from '../hooks/useAuth';
 import { RequireRole } from '../components/RequireRole';
@@ -355,6 +355,31 @@ export function SettingsPage() {
   const toast = useToast();
   const webhooksList = useWebhooks();
   const syncTaskFull = useSyncTaskFull();
+  const deleteWebhook = useDeleteWebhook();
+  const pruneStaleWebhooks = usePruneStaleWebhooks();
+  const staleWebhookCount = webhooksList.data
+    ? webhooksList.data.webhooks.filter((w) => w.endpoint !== webhooksList.data!.configuredEndpoint).length
+    : 0;
+
+  function confirmDeleteWebhook(id: string, endpoint: string | null, isConfigured: boolean) {
+    const msg = isConfigured
+      ? `Delete the CONFIGURED webhook?\n\n${endpoint}\n\nThis is your live endpoint — deleting it STOPS all ClickUp sync until you click Register Webhook again (which re-issues a fresh signing secret). Continue?`
+      : `Delete this webhook? This cannot be undone.\n\n${endpoint ?? id}`;
+    if (!window.confirm(msg)) return;
+    deleteWebhook.mutate(id, {
+      onSuccess: () => showBanner(`Deleted webhook ${id}.`, 'blue'),
+      onError: (err) => showBanner(`Delete failed: ${(err as Error).message}`, 'red'),
+    });
+  }
+
+  function pruneStale() {
+    if (staleWebhookCount === 0) return;
+    if (!window.confirm(`Delete ${staleWebhookCount} stale webhook(s) — every registered endpoint that isn't your configured one? This cannot be undone. Your configured webhook is left untouched.`)) return;
+    pruneStaleWebhooks.mutate(undefined, {
+      onSuccess: (res) => showBanner(`Pruned ${res.deleted.length} stale webhook(s).`, 'blue'),
+      onError: (err) => showBanner(`Prune failed: ${(err as Error).message}`, 'red'),
+    });
+  }
   const [manualTaskId, setManualTaskId] = useState('');
 
   // Editable ClickUp connection form. API token + webhook secret are write-only:
@@ -771,9 +796,16 @@ export function SettingsPage() {
               title="Registered on ClickUp"
               subtitle="What ClickUp actually delivers to. Differs from the checkboxes above until you Register."
               action={
-                <Button variant="ghost" onClick={() => webhooksList.refetch()} loading={webhooksList.isFetching}>
-                  Refresh
-                </Button>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {staleWebhookCount > 0 && (
+                    <Button variant="danger" size="sm" loading={pruneStaleWebhooks.isPending} onClick={pruneStale}>
+                      Prune stale ({staleWebhookCount})
+                    </Button>
+                  )}
+                  <Button variant="ghost" onClick={() => webhooksList.refetch()} loading={webhooksList.isFetching}>
+                    Refresh
+                  </Button>
+                </div>
               }
             />
             <div style={{ padding: '4px 0' }}>
@@ -795,6 +827,18 @@ export function SettingsPage() {
                         </Pill>
                         <span style={{ fontSize: 12, color: 'var(--text-muted)', wordBreak: 'break-all' }}>{w.endpoint ?? '(no endpoint)'}</span>
                         <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>id {w.id}</span>
+                        {w.endpoint === webhooksList.data.configuredEndpoint && (
+                          <Pill tone="blue">configured</Pill>
+                        )}
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          style={{ marginLeft: 'auto' }}
+                          loading={deleteWebhook.isPending && deleteWebhook.variables === w.id}
+                          onClick={() => confirmDeleteWebhook(w.id, w.endpoint, w.endpoint === webhooksList.data!.configuredEndpoint)}
+                        >
+                          Delete
+                        </Button>
                       </div>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
                         {w.events.length === 0 ? (

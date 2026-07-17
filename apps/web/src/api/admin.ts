@@ -77,6 +77,10 @@ export const adminApi = {
   registerWebhook: () => apiClient.post('/admin/webhooks/register').then(r => r.data),
   listWebhooks: (): Promise<WebhooksListDto> =>
     apiClient.get('/admin/webhooks').then((r) => r.data),
+  deleteWebhook: (id: string): Promise<{ deleted: true; id: string }> =>
+    apiClient.delete(`/admin/webhooks/${id}`).then((r) => r.data),
+  pruneStaleWebhooks: (): Promise<{ deleted: { id: string; endpoint: string | null }[] }> =>
+    apiClient.post('/admin/webhooks/prune-stale').then((r) => r.data),
   syncTaskTimeEntries: (taskId: string) =>
     apiClient.post('/admin/time-entries/sync-task', { taskId }).then((r) => r.data),
   retryFailedWebhooks: () =>

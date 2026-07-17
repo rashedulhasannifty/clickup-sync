@@ -46,6 +46,22 @@ export function useWebhooks(enabled = true) {
   });
 }
 
+export function useDeleteWebhook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => adminApi.deleteWebhook(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['registered-webhooks'] }),
+  });
+}
+
+export function usePruneStaleWebhooks() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: adminApi.pruneStaleWebhooks,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['registered-webhooks'] }),
+  });
+}
+
 /**
  * Force-sync a single task from the UI: enqueues BOTH the task sync and its
  * time-entry sync (both idempotent job enqueues). Resolves once both are queued.
