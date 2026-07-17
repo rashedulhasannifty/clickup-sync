@@ -312,6 +312,21 @@ export class AdminController {
     return this.webhooks.listRegistered();
   }
 
+  @Post('webhooks/prune-stale')
+  @Roles(Role.OWNER)
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Delete every registered webhook whose endpoint differs from the configured one (stale/duplicate leftovers).' })
+  pruneStaleWebhooks() {
+    return this.webhooks.pruneStale();
+  }
+
+  @Delete('webhooks/:id')
+  @Roles(Role.OWNER)
+  @ApiOperation({ summary: 'Delete a single ClickUp webhook by id.' })
+  deleteWebhook(@Param('id') id: string) {
+    return this.webhooks.deleteById(id);
+  }
+
   // ── ClickUp connection settings ─────────────────────────────────────────────
 
   @Get('settings')

@@ -25,6 +25,7 @@ describe('ClickupWebhooksService', () => {
       getWebhooks: jest.fn().mockResolvedValue(webhooks),
       createWebhook: jest.fn().mockResolvedValue(createResult),
       updateWebhook: jest.fn().mockResolvedValue(undefined),
+      deleteWebhook: jest.fn().mockResolvedValue(undefined),
     } as any;
     return { svc: new ClickupWebhooksService(client, settings), client, settings };
   }
@@ -84,6 +85,46 @@ describe('ClickupWebhooksService', () => {
     const { svc, client } = makeService([], { id: 'x', secret: 'y' }, makeSettings('taskCreated,taskDeleted'));
     await svc.register();
     expect(client.createWebhook).toHaveBeenCalledWith(TEAM_ID, ENDPOINT, ['taskCreated', 'taskDeleted']);
+  });
+
+  describe('deleteById', () => {
+    it('deletes the given webhook by id and echoes it back', async () => {
+      const { svc, client } = makeService([]);
+      const result = await svc.deleteById('wh-9');
+      expect(client.deleteWebhook).toHaveBeenCalledWith('wh-9');
+      expect(result).toEqual({ deleted: true, id: 'wh-9' });
+    });
+  });
+
+  describe('pruneStale', () => {
+    it('deletes every webhook whose endpoint differs from the configured one, keeps the matching one', async () => {
+      const webhooks = [
+        { id: 'keep', endpoint: ENDPOINT, events: [] },
+        { id: 'stale-1', endpoint: 'https://old.ngrok.app/api/webhooks/clickup', events: [] },
+        { id: 'stale-2', endpoint: 'https://agent.example.com/webhook/clickup-sync', events: [] },
+        { id: 'stale-3', endpoint: undefined, events: [] }, // no endpoint → not the configured one
+      ];
+      const { svc, client } = makeService(webhooks);
+      const result = await svc.pruneStale();
+
+      expect(client.deleteWebhook).toHaveBeenCalledTimes(3);
+      expect(client.deleteWebhook).toHaveBeenCalledWith('stale-1');
+      expect(client.deleteWebhook).toHaveBeenCalledWith('stale-2');
+      expect(client.deleteWebhook).toHaveBeenCalledWith('stale-3');
+      expect(client.deleteWebhook).not.toHaveBeenCalledWith('keep');
+      expect(result.deleted).toEqual([
+        { id: 'stale-1', endpoint: 'https://old.ngrok.app/api/webhooks/clickup' },
+        { id: 'stale-2', endpoint: 'https://agent.example.com/webhook/clickup-sync' },
+        { id: 'stale-3', endpoint: null },
+      ]);
+    });
+
+    it('deletes nothing and returns an empty list when every webhook matches the configured endpoint', async () => {
+      const { svc, client } = makeService([{ id: 'keep', endpoint: ENDPOINT, events: [] }]);
+      const result = await svc.pruneStale();
+      expect(client.deleteWebhook).not.toHaveBeenCalled();
+      expect(result.deleted).toEqual([]);
+    });
   });
 
   describe('listRegistered', () => {

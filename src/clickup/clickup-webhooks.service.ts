@@ -120,4 +120,31 @@ export class ClickupWebhooksService {
       }),
     };
   }
+
+  /** Delete a single ClickUp webhook by id. */
+  async deleteById(id: string): Promise<{ deleted: true; id: string }> {
+    await this.client.deleteWebhook(id);
+    this.logger.log(`Deleted ClickUp webhook ${id}`);
+    return { deleted: true, id };
+  }
+
+  /**
+   * Delete every registered webhook whose endpoint does NOT match the
+   * configured one — i.e. stale/duplicate leftovers (dead tunnels, old
+   * subdomains) that ClickUp still fan-outs every event to. Leaves the
+   * configured webhook untouched. Returns the deleted webhooks.
+   */
+  async pruneStale(): Promise<{ deleted: { id: string; endpoint: string | null }[] }> {
+    const teamId = this.settings.getTeamId();
+    const configuredEndpoint = this.settings.getWebhookEndpoint();
+    const webhooks = await this.client.getWebhooks(teamId);
+    const stale = webhooks.filter((w) => (w.endpoint ?? null) !== configuredEndpoint);
+    for (const w of stale) {
+      await this.client.deleteWebhook(w.id);
+    }
+    if (stale.length) {
+      this.logger.log(`Pruned ${stale.length} stale webhook(s): ${stale.map((w) => w.id).join(', ')}`);
+    }
+    return { deleted: stale.map((w) => ({ id: w.id, endpoint: w.endpoint ?? null })) };
+  }
 }
