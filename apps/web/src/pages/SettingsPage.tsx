@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useSpaces, useSyncHealth, useStats } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
-import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks, useReconcileActive } from '../hooks/useAdmin';
+import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks, useReconcileActive, useWebhooks, useSyncTaskFull } from '../hooks/useAdmin';
 import { useSettings, useUpdateSettings } from '../hooks/useSettings';
 import { useAuth } from '../hooks/useAuth';
 import { RequireRole } from '../components/RequireRole';
@@ -353,6 +353,9 @@ export function SettingsPage() {
   const settingsQuery = useSettings();
   const updateSettings = useUpdateSettings();
   const toast = useToast();
+  const webhooksList = useWebhooks();
+  const syncTaskFull = useSyncTaskFull();
+  const [manualTaskId, setManualTaskId] = useState('');
 
   // Editable ClickUp connection form. API token + webhook secret are write-only:
   // empty means "leave unchanged"; the masked status comes from the query.
@@ -761,6 +764,89 @@ export function SettingsPage() {
                 </Button>
               </div>
             </div>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Registered on ClickUp"
+              subtitle="What ClickUp actually delivers to. Differs from the checkboxes above until you Register."
+              action={
+                <Button variant="ghost" onClick={() => webhooksList.refetch()} loading={webhooksList.isFetching}>
+                  Refresh
+                </Button>
+              }
+            />
+            <div style={{ padding: '4px 0' }}>
+              {webhooksList.isError ? (
+                <Callout tone="red">
+                  Couldn’t read webhooks from ClickUp: {(webhooksList.error as Error)?.message ?? 'unknown error'}. Check the API token.
+                </Callout>
+              ) : !webhooksList.data || webhooksList.data.webhooks.length === 0 ? (
+                <EmptyState title="No webhook registered" body="Click Register Webhook above to create one." />
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {webhooksList.data.webhooks.map((w) => (
+                    <div key={w.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <Pill tone={w.health?.status === 'active' ? 'green' : 'amber'}>
+                          {w.health?.status ?? 'unknown'}
+                        </Pill>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)', wordBreak: 'break-all' }}>{w.endpoint ?? '(no endpoint)'}</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>id {w.id}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                        {w.events.length === 0 ? (
+                          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No events subscribed.</span>
+                        ) : (
+                          w.events.map((e) => <Pill key={e} tone="gray">{e}</Pill>)
+                        )}
+                      </div>
+                      {w.missingEvents.length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                          <Callout tone="amber">
+                            Not registered for: {w.missingEvents.join(', ')}. Click Register Webhook to sync these.
+                          </Callout>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Manual task sync"
+              subtitle="Force a re-pull of one task and its time entries by ClickUp task ID."
+            />
+            <Field label="Task ID" hint="e.g. 86eyajwq8. Runs in the background — watch Sync Logs for results.">
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Input
+                  value={manualTaskId}
+                  placeholder="86eyajwq8"
+                  onChange={(e) => setManualTaskId(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                />
+                <Button
+                  loading={syncTaskFull.isPending}
+                  disabled={!manualTaskId.trim()}
+                  onClick={() => {
+                    const id = manualTaskId.trim();
+                    if (!id) return;
+                    syncTaskFull.mutate(id, {
+                      onSuccess: () => {
+                        showBanner(`Queued sync for ${id} (task + time entries). Check Sync Logs shortly.`, 'blue');
+                        setManualTaskId('');
+                      },
+                      onError: (err) => showBanner(`Sync failed to queue: ${(err as Error).message}`, 'red'),
+                    });
+                  }}
+                >
+                  Sync task
+                </Button>
+              </div>
+            </Field>
           </Card>
 
           <div
