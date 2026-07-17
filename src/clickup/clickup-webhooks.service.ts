@@ -7,6 +7,21 @@ export type RegisterWebhookResult =
   | { action: 'updated'; webhookId: string; endpoint: string; events: string[]; addedEvents: string[] }
   | { action: 'created'; webhookId: string; endpoint: string; secretStored: boolean };
 
+export interface RegisteredWebhook {
+  id: string;
+  endpoint: string | null;
+  events: string[];
+  health: { status: string; failCount: number } | null;
+  missingEvents: string[];
+  extraEvents: string[];
+}
+
+export interface ListRegisteredResult {
+  desiredEvents: string[];
+  configuredEndpoint: string;
+  webhooks: RegisteredWebhook[];
+}
+
 @Injectable()
 export class ClickupWebhooksService {
   private readonly logger = new Logger(ClickupWebhooksService.name);
@@ -69,5 +84,40 @@ export class ClickupWebhooksService {
 
     this.logger.log(`New webhook registered: ${created.id}. Secret stored: ${secretStored}.`);
     return { action: 'created', webhookId: created.id, endpoint, secretStored };
+  }
+
+  /**
+   * Read-only view of the webhooks ClickUp actually has registered for this
+   * team, plus drift against the configured (desired) event list. The Settings
+   * "desired events" checkboxes only take effect once `register()` pushes them
+   * to ClickUp, so this surfaces the gap between intent and live registration.
+   */
+  async listRegistered(): Promise<ListRegisteredResult> {
+    const teamId = this.settings.getTeamId();
+    const configuredEndpoint = this.settings.getWebhookEndpoint();
+    const desiredEvents = this.settings
+      .getWebhookEvents()
+      .split(',')
+      .map((e) => e.trim())
+      .filter(Boolean);
+    const desiredSet = new Set(desiredEvents);
+
+    const webhooks = await this.client.getWebhooks(teamId);
+    return {
+      desiredEvents,
+      configuredEndpoint,
+      webhooks: webhooks.map((w) => {
+        const events = w.events ?? [];
+        const eventSet = new Set(events);
+        return {
+          id: w.id,
+          endpoint: w.endpoint ?? null,
+          events,
+          health: w.health ? { status: w.health.status, failCount: w.health.fail_count } : null,
+          missingEvents: desiredEvents.filter((e) => !eventSet.has(e)),
+          extraEvents: events.filter((e) => !desiredSet.has(e)),
+        };
+      }),
+    };
   }
 }
