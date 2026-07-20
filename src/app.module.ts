@@ -19,6 +19,7 @@ import { RatesModule } from './rates/rates.module';
 import { SyncModule } from './sync/sync.module';
 import { WorkersModule } from './workers/workers.module';
 import { AdminModule } from './admin/admin.module';
+import { WebhookHealthModule } from './clickup/webhook-health.module';
 import { BudgetsModule } from './budgets/budgets.module';
 import { ReportsModule } from './reports/reports.module';
 import { AuthModule } from './auth/auth.module';
@@ -57,6 +58,7 @@ const worker = isWorker();
     SyncModule,
     ...(worker ? [WorkersModule] : []),
     AdminModule,
+    WebhookHealthModule,
     BudgetsModule,
     ReportsModule,
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 5 }]),
