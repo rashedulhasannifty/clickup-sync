@@ -79,6 +79,27 @@ describe('WebhookHealthService', () => {
     expect(auditLog.create).not.toHaveBeenCalled();
   });
 
+  it('does not heal a "failing" webhook (it still receives events and self-recovers)', async () => {
+    const listResult = {
+      configuredEndpoint: ENDPOINT,
+      webhooks: [
+        {
+          id: 'wh1',
+          endpoint: ENDPOINT,
+          events: [],
+          health: { status: 'failing', failCount: 12 },
+          missingEvents: [],
+          extraEvents: [],
+        },
+      ],
+    };
+    const { svc, webhooks, auditLog, probe } = make({ listResult });
+    await svc.checkAndHeal();
+    expect(probe.probe).not.toHaveBeenCalled();
+    expect(webhooks.register).not.toHaveBeenCalled();
+    expect(auditLog.create).not.toHaveBeenCalled();
+  });
+
   it('does not heal when no webhook matches the configured endpoint', async () => {
     const listResult = {
       configuredEndpoint: ENDPOINT,

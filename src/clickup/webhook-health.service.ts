@@ -33,16 +33,23 @@ export class WebhookHealthService {
 
       const { configuredEndpoint, webhooks } = await this.webhooks.listRegistered();
       const target = webhooks.find((w) => w.endpoint === configuredEndpoint);
-      if (!target || !target.health || target.health.status === 'active') {
-        this.logger.debug('Configured webhook is healthy or absent; nothing to heal');
+      // Only 'suspended' needs us: ClickUp stops delivering to a suspended webhook
+      // and it will NOT self-recover (reactivation requires PUT status:active). A
+      // 'failing' webhook still receives events and auto-returns to 'active' once a
+      // delivery succeeds, so leave it alone.
+      // https://developer.clickup.com/docs/webhookhealth
+      if (!target || target.health?.status !== 'suspended') {
+        this.logger.debug('Configured webhook is not suspended; nothing to heal');
         return;
       }
 
-      const { status, failCount } = target.health;
+      const failCount = target.health.failCount;
 
       if (this.attemptsInLastHour(target.id) >= WebhookHealthService.MAX_HEALS_PER_HOUR) {
         this.logger.error(
-          `Auto-heal not sticking for webhook ${target.id} (status ${status}); manual intervention needed`,
+          `Auto-heal not sticking for webhook ${target.id}: it keeps re-suspending after reactivation. ` +
+            'Likely the endpoint returns 401 to ClickUp (bad/rotated signing secret → immediate re-suspend). ' +
+            'Manual intervention needed — re-register the webhook to refresh the stored secret.',
         );
         return;
       }
@@ -60,7 +67,7 @@ export class WebhookHealthService {
       }
 
       this.recordAttempt(target.id);
-      this.logger.log(`Auto-healed webhook ${target.id} (was ${status}, failCount ${failCount})`);
+      this.logger.log(`Auto-healed suspended webhook ${target.id} (failCount ${failCount})`);
       await this.auditLog.create({
         actor: 'system:webhook-autoheal',
         method: 'CRON',
@@ -70,7 +77,7 @@ export class WebhookHealthService {
         durationMs: null,
         ip: null,
         userAgent: null,
-        requestBody: { webhookId: target.id, previousStatus: status, failCount },
+        requestBody: { webhookId: target.id, previousStatus: 'suspended', failCount },
         errorMessage: null,
       });
     } catch (err) {
