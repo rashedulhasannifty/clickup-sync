@@ -1,5 +1,5 @@
 /**
- * Pure assembly for the Timesheet report. The SQL layer (reports.service.ts)
+ * Pure assembly for the Timesheet report. The SQL layer (TimeEntriesReportService)
  * does the Dhaka-day bucketing and per-(day,task) aggregation; this module turns
  * those flat rows into the grouped, weekday-zero-filled, missing-rate-aware shape
  * the API returns. Kept pure (no Prisma/DB) so it is unit-tested directly.
