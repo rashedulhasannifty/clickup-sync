@@ -47,9 +47,10 @@ export class WebhookHealthService {
 
       if (this.attemptsInLastHour(target.id) >= WebhookHealthService.MAX_HEALS_PER_HOUR) {
         this.logger.error(
-          `Auto-heal not sticking for webhook ${target.id}: it keeps re-suspending after reactivation. ` +
-            'Likely the endpoint returns 401 to ClickUp (bad/rotated signing secret → immediate re-suspend). ' +
-            'Manual intervention needed — re-register the webhook to refresh the stored secret.',
+          `Auto-heal not sticking for webhook ${target.id}: it keeps re-suspending after reactivation — ` +
+            'ClickUp is rejecting our deliveries (likely a 401 signing-secret mismatch, or a persistent 5xx/410). ' +
+            'Reactivation keeps the existing secret (PUT never rotates it), so a stale secret cannot be fixed this way: ' +
+            'delete + re-create the webhook (prune-stale, then register) to issue a fresh secret.',
         );
         return;
       }
