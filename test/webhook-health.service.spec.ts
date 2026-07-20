@@ -7,16 +7,32 @@ describe('WebhookHealthService', () => {
     return {
       configuredEndpoint: ENDPOINT,
       webhooks: [
-        { id: 'wh1', endpoint: ENDPOINT, events: [], health: { status: 'suspended', failCount: 7 }, missingEvents: [], extraEvents: [] },
+        {
+          id: 'wh1',
+          endpoint: ENDPOINT,
+          events: [],
+          health: { status: 'suspended', failCount: 7 },
+          missingEvents: [],
+          extraEvents: [],
+        },
       ],
     };
   }
 
-  function make(opts: { listResult?: any; configValue?: any; probeResult?: boolean } = {}) {
+  function make(
+    opts: { listResult?: any; configValue?: any; probeResult?: boolean; registerResult?: any } = {},
+  ) {
     const listResult = opts.listResult ?? suspendedList();
+    const registerResult = opts.registerResult ?? {
+      action: 'updated',
+      webhookId: 'wh1',
+      endpoint: ENDPOINT,
+      events: [],
+      addedEvents: [],
+    };
     const webhooks = {
       listRegistered: jest.fn().mockResolvedValue(listResult),
-      register: jest.fn().mockResolvedValue({ action: 'updated', webhookId: 'wh1', endpoint: ENDPOINT, events: [], addedEvents: [] }),
+      register: jest.fn().mockResolvedValue(registerResult),
     } as any;
     const auditLog = { create: jest.fn().mockResolvedValue(undefined) } as any;
     const config = { get: jest.fn().mockReturnValue(opts.configValue ?? true) } as any;
@@ -46,7 +62,16 @@ describe('WebhookHealthService', () => {
   it('does not heal when the configured webhook is active', async () => {
     const listResult = {
       configuredEndpoint: ENDPOINT,
-      webhooks: [{ id: 'wh1', endpoint: ENDPOINT, events: [], health: { status: 'active', failCount: 0 }, missingEvents: [], extraEvents: [] }],
+      webhooks: [
+        {
+          id: 'wh1',
+          endpoint: ENDPOINT,
+          events: [],
+          health: { status: 'active', failCount: 0 },
+          missingEvents: [],
+          extraEvents: [],
+        },
+      ],
     };
     const { svc, webhooks, auditLog } = make({ listResult });
     await svc.checkAndHeal();
@@ -57,7 +82,16 @@ describe('WebhookHealthService', () => {
   it('does not heal when no webhook matches the configured endpoint', async () => {
     const listResult = {
       configuredEndpoint: ENDPOINT,
-      webhooks: [{ id: 'stale', endpoint: 'https://old.example.com/webhooks/clickup', events: [], health: { status: 'suspended', failCount: 3 }, missingEvents: [], extraEvents: [] }],
+      webhooks: [
+        {
+          id: 'stale',
+          endpoint: 'https://old.example.com/webhooks/clickup',
+          events: [],
+          health: { status: 'suspended', failCount: 3 },
+          missingEvents: [],
+          extraEvents: [],
+        },
+      ],
     };
     const { svc, webhooks, auditLog } = make({ listResult });
     await svc.checkAndHeal();
@@ -94,8 +128,22 @@ describe('WebhookHealthService', () => {
     const listResult = {
       configuredEndpoint: ENDPOINT,
       webhooks: [
-        { id: 'stale', endpoint: 'https://old.example.com/webhooks/clickup', events: [], health: { status: 'suspended', failCount: 9 }, missingEvents: [], extraEvents: [] },
-        { id: 'wh1', endpoint: ENDPOINT, events: [], health: { status: 'suspended', failCount: 2 }, missingEvents: [], extraEvents: [] },
+        {
+          id: 'stale',
+          endpoint: 'https://old.example.com/webhooks/clickup',
+          events: [],
+          health: { status: 'suspended', failCount: 9 },
+          missingEvents: [],
+          extraEvents: [],
+        },
+        {
+          id: 'wh1',
+          endpoint: ENDPOINT,
+          events: [],
+          health: { status: 'suspended', failCount: 2 },
+          missingEvents: [],
+          extraEvents: [],
+        },
       ],
     };
     const { svc, webhooks, auditLog, probe } = make({ listResult });
@@ -103,7 +151,9 @@ describe('WebhookHealthService', () => {
     expect(probe.probe).toHaveBeenCalledWith(ENDPOINT);
     expect(webhooks.register).toHaveBeenCalledTimes(1);
     expect(auditLog.create).toHaveBeenCalledWith(
-      expect.objectContaining({ requestBody: { webhookId: 'wh1', previousStatus: 'suspended', failCount: 2 } }),
+      expect.objectContaining({
+        requestBody: { webhookId: 'wh1', previousStatus: 'suspended', failCount: 2 },
+      }),
     );
   });
 
@@ -115,5 +165,21 @@ describe('WebhookHealthService', () => {
     await svc.checkAndHeal();
     expect(webhooks.register).toHaveBeenCalledTimes(3);
     expect(auditLog.create).toHaveBeenCalledTimes(3);
+  });
+
+  it('resolves without throwing when register() rejects, and does not write an audit row', async () => {
+    const { svc, webhooks, auditLog } = make();
+    webhooks.register.mockRejectedValue(new Error('boom'));
+    await expect(svc.checkAndHeal()).resolves.toBeUndefined();
+    expect(auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('skips the audit when register() reports the webhook already self-recovered', async () => {
+    const { svc, webhooks, auditLog } = make({
+      registerResult: { action: 'existing', webhookId: 'wh1', endpoint: ENDPOINT },
+    });
+    await svc.checkAndHeal();
+    expect(webhooks.register).toHaveBeenCalledTimes(1);
+    expect(auditLog.create).not.toHaveBeenCalled();
   });
 });

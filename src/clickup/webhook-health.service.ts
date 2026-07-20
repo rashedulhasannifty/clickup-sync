@@ -24,49 +24,58 @@ export class WebhookHealthService {
   // 6-field, seconds-first: sec=0, min=*/15 → fires at :00 :15 :30 :45.
   @Cron('0 */15 * * * *')
   async checkAndHeal(): Promise<void> {
-    // ConfigService may hand back the raw env string ("false" is truthy), so
-    // normalize both representations rather than trusting a boolean.
-    const raw = this.config.get('WEBHOOK_AUTOHEAL_ENABLED', true);
-    const enabled = raw === true || raw === 'true';
-    if (!enabled) return;
+    try {
+      // ConfigService may hand back the raw env string ("false" is truthy), so
+      // normalize both representations rather than trusting a boolean.
+      const raw = this.config.get('WEBHOOK_AUTOHEAL_ENABLED', true);
+      const enabled = raw === true || raw === 'true';
+      if (!enabled) return;
 
-    const { configuredEndpoint, webhooks } = await this.webhooks.listRegistered();
-    const target = webhooks.find((w) => w.endpoint === configuredEndpoint);
-    if (!target || !target.health || target.health.status === 'active') {
-      this.logger.debug('Configured webhook is healthy or absent; nothing to heal');
-      return;
+      const { configuredEndpoint, webhooks } = await this.webhooks.listRegistered();
+      const target = webhooks.find((w) => w.endpoint === configuredEndpoint);
+      if (!target || !target.health || target.health.status === 'active') {
+        this.logger.debug('Configured webhook is healthy or absent; nothing to heal');
+        return;
+      }
+
+      const { status, failCount } = target.health;
+
+      if (this.attemptsInLastHour(target.id) >= WebhookHealthService.MAX_HEALS_PER_HOUR) {
+        this.logger.error(
+          `Auto-heal not sticking for webhook ${target.id} (status ${status}); manual intervention needed`,
+        );
+        return;
+      }
+
+      const reachable = await this.probe.probe(configuredEndpoint);
+      if (!reachable) {
+        this.logger.warn(`Skipping heal for webhook ${target.id}; endpoint still unreachable`);
+        return;
+      }
+
+      const result = await this.webhooks.register();
+      if (result.action === 'existing') {
+        this.logger.debug(`Webhook ${target.id} self-recovered before heal; skipping audit`);
+        return;
+      }
+
+      this.recordAttempt(target.id);
+      this.logger.log(`Auto-healed webhook ${target.id} (was ${status}, failCount ${failCount})`);
+      await this.auditLog.create({
+        actor: 'system:webhook-autoheal',
+        method: 'CRON',
+        path: '/system/webhook-autoheal',
+        routePattern: '/system/webhook-autoheal',
+        statusCode: 200,
+        durationMs: null,
+        ip: null,
+        userAgent: null,
+        requestBody: { webhookId: target.id, previousStatus: status, failCount },
+        errorMessage: null,
+      });
+    } catch (err) {
+      this.logger.error(`Webhook auto-heal run failed: ${(err as Error).message}`);
     }
-
-    const { status, failCount } = target.health;
-
-    if (this.attemptsInLastHour(target.id) >= WebhookHealthService.MAX_HEALS_PER_HOUR) {
-      this.logger.error(
-        `Auto-heal not sticking for webhook ${target.id} (status ${status}); manual intervention needed`,
-      );
-      return;
-    }
-
-    const reachable = await this.probe.probe(configuredEndpoint);
-    if (!reachable) {
-      this.logger.warn(`Skipping heal for webhook ${target.id}; endpoint still unreachable`);
-      return;
-    }
-
-    await this.webhooks.register();
-    this.recordAttempt(target.id);
-    this.logger.log(`Auto-healed webhook ${target.id} (was ${status}, failCount ${failCount})`);
-    await this.auditLog.create({
-      actor: 'system:webhook-autoheal',
-      method: 'CRON',
-      path: '/system/webhook-autoheal',
-      routePattern: '/system/webhook-autoheal',
-      statusCode: 200,
-      durationMs: null,
-      ip: null,
-      userAgent: null,
-      requestBody: { webhookId: target.id, previousStatus: status, failCount },
-      errorMessage: null,
-    });
   }
 
   private attemptsInLastHour(id: string): number {
