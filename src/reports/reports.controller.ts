@@ -2,33 +2,43 @@ import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { BudgetsService } from '../budgets/budgets.service';
 import { SettingsService } from '../settings/settings.service';
-import { ReportsService } from './reports.service';
+import { TasksReportService } from './tasks-report.service';
+import { TimeEntriesReportService } from './time-entries-report.service';
+import { CostTrendReportService } from './cost-trend-report.service';
+import { CycleTimeReportService } from './cycle-time-report.service';
+import { AnomalyReportService } from './anomaly-report.service';
+import { OpsReportService } from './ops-report.service';
 
 @ApiTags('reports')
 @ApiSecurity('x-admin-key')
 @Controller('reports')
 export class ReportsController {
   constructor(
-    private readonly reports: ReportsService,
+    private readonly tasksReports: TasksReportService,
+    private readonly timeEntriesReports: TimeEntriesReportService,
+    private readonly costTrendReports: CostTrendReportService,
+    private readonly cycleTimeReports: CycleTimeReportService,
+    private readonly anomalyReports: AnomalyReportService,
+    private readonly opsReports: OpsReportService,
     private readonly settings: SettingsService,
     private readonly budgets: BudgetsService,
   ) {}
 
   @Get('tasks/summary')
   @ApiOperation({ summary: 'Task count summary by space and status' })
-  tasksSummary() { return this.reports.tasksSummary(); }
+  tasksSummary() { return this.tasksReports.tasksSummary(); }
 
   @Get('tasks/by-space-status')
   @ApiOperation({ summary: 'Task counts grouped by space+status for stacked bar chart' })
-  tasksBySpaceStatus() { return this.reports.tasksBySpaceStatus(); }
+  tasksBySpaceStatus() { return this.tasksReports.tasksBySpaceStatus(); }
 
   @Get('tasks/assignees')
   @ApiOperation({ summary: 'Distinct task assignees for the Tasks page filter dropdown. Drawn from clickup_tasks.assignees_names so assignees with zero time entries (e.g. expense-only tasks) still appear.' })
-  tasksAssignees() { return this.reports.tasksAssignees(); }
+  tasksAssignees() { return this.tasksReports.tasksAssignees(); }
 
   @Get('time-entries/assignees')
   @ApiOperation({ summary: 'Distinct assignees that have time entries. Feeds the exclude-from-costing picker.' })
-  timeEntriesAssignees() { return this.reports.timeEntriesAssignees(); }
+  timeEntriesAssignees() { return this.timeEntriesReports.timeEntriesAssignees(); }
 
   @Get('timesheet')
   @ApiOperation({ summary: 'Single-assignee timesheet: per-day, per-task hours + cost over [from, to]. userId is required; from/to default to the last 30 days.' })
@@ -40,20 +50,20 @@ export class ReportsController {
     if (!userId) {
       throw new BadRequestException('userId is required');
     }
-    return this.reports.timesheet(userId, from, to);
+    return this.timeEntriesReports.timesheet(userId, from, to);
   }
 
   @Get('clients')
   @ApiOperation({ summary: 'Distinct task clients for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks.client (non-empty, non-deleted), with per-client task counts.' })
-  tasksClients() { return this.reports.tasksClients(); }
+  tasksClients() { return this.tasksReports.tasksClients(); }
 
   @Get('lists')
   @ApiOperation({ summary: 'Distinct ClickUp lists for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks (list_id/list_name, non-empty, non-deleted) with per-list task counts. Pass spaceId to scope to one space.' })
-  tasksLists(@Query('spaceId') spaceId?: string) { return this.reports.tasksLists(spaceId); }
+  tasksLists(@Query('spaceId') spaceId?: string) { return this.tasksReports.tasksLists(spaceId); }
 
   @Get('folders')
   @ApiOperation({ summary: 'Distinct ClickUp folders for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks (folder_id/folder_name, non-empty, non-deleted) with per-folder task counts. Pass spaceId to scope to one space.' })
-  tasksFolders(@Query('spaceId') spaceId?: string) { return this.reports.tasksFolders(spaceId); }
+  tasksFolders(@Query('spaceId') spaceId?: string) { return this.tasksReports.tasksFolders(spaceId); }
 
   @Get('tasks')
   @ApiOperation({ summary: 'Paginated task list with filters. `archived`: exclude (default, hide archived) | include | only (archived tasks). Soft-deleted rows are always excluded.' })
@@ -74,13 +84,13 @@ export class ReportsController {
     @Query('listId') listId?: string,
     @Query('folderId') folderId?: string,
   ) {
-    return this.reports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId);
+    return this.tasksReports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId);
   }
 
   @Get('anomalies')
   @ApiOperation({ summary: 'Spend-spike anomalies for the Overview panel — daily totals and per-client weekly totals exceeding their median baselines.' })
   anomalies() {
-    return this.reports.anomalies();
+    return this.anomalyReports.anomalies();
   }
 
   @Get('time-entries/hour-spikes')
@@ -91,31 +101,31 @@ export class ReportsController {
     @Query('limit') limit?: string,
     @Query('includeResolved') includeResolved?: string,
   ) {
-    return this.reports.hourSpikes(this.settings.getSpikeHoursCap(), from, to, Number(limit) || 20, includeResolved === 'true', this.settings.isSpikeMedianEnabled());
+    return this.anomalyReports.hourSpikes(this.settings.getSpikeHoursCap(), from, to, Number(limit) || 20, includeResolved === 'true', this.settings.isSpikeMedianEnabled());
   }
 
   @Get('time-entries/by-user')
   @ApiOperation({ summary: 'Total hours and cost per assignee' })
   timeEntriesByUser(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.reports.timeEntriesByUser(from, to);
+    return this.timeEntriesReports.timeEntriesByUser(from, to);
   }
 
   @Get('time-entries/by-client')
   @ApiOperation({ summary: 'Total hours and cost per client' })
   timeEntriesByClient(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.reports.timeEntriesByClient(from, to);
+    return this.timeEntriesReports.timeEntriesByClient(from, to);
   }
 
   @Get('time-entries/by-department')
   @ApiOperation({ summary: 'Total hours and cost per department' })
   timeEntriesByDepartment(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.reports.timeEntriesByDepartment(from, to);
+    return this.timeEntriesReports.timeEntriesByDepartment(from, to);
   }
 
   @Get('time-entries/billable-summary')
   @ApiOperation({ summary: 'Billable vs non-billable hours and cost' })
   timeEntriesBillableSummary(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.reports.timeEntriesBillableSummary(from, to);
+    return this.timeEntriesReports.timeEntriesBillableSummary(from, to);
   }
 
   @Get('time-entries/aggregates')
@@ -133,7 +143,7 @@ export class ReportsController {
     @Query('listId') listId?: string,
     @Query('folderId') folderId?: string,
   ) {
-    return this.reports.timeEntriesAggregates(userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId);
+    return this.timeEntriesReports.timeEntriesAggregates(userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId);
   }
 
   @Get('time-entries/cost-trend')
@@ -146,7 +156,7 @@ export class ReportsController {
     if (bucket !== 'day' && bucket !== 'week' && bucket !== 'month') {
       throw new BadRequestException(`Invalid bucket "${bucket ?? ''}" (expected day|week|month)`);
     }
-    return this.reports.costTrend(bucket, from, to);
+    return this.costTrendReports.costTrend(bucket, from, to);
   }
 
   @Get('time-entries/cost-trend-by-assignee')
@@ -159,7 +169,7 @@ export class ReportsController {
     if (bucket !== 'day' && bucket !== 'week' && bucket !== 'month') {
       throw new BadRequestException(`Invalid bucket "${bucket ?? ''}" (expected day|week|month)`);
     }
-    return this.reports.costTrendByAssignee(bucket, from, to);
+    return this.costTrendReports.costTrendByAssignee(bucket, from, to);
   }
 
   @Get('time-entries/cost-trend-by-client')
@@ -172,7 +182,7 @@ export class ReportsController {
     if (bucket !== 'day' && bucket !== 'week' && bucket !== 'month') {
       throw new BadRequestException(`Invalid bucket "${bucket ?? ''}" (expected day|week|month)`);
     }
-    return this.reports.costTrendByClient(bucket, from, to);
+    return this.costTrendReports.costTrendByClient(bucket, from, to);
   }
 
   @Get('budgets/status')
@@ -184,7 +194,7 @@ export class ReportsController {
   @Get('overview-deltas')
   @ApiOperation({ summary: 'Current-period totals (hours, cost) and equal-length prior-period totals for the Overview KPI deltas.' })
   overviewDeltas(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.reports.overviewDeltas(from, to);
+    return this.timeEntriesReports.overviewDeltas(from, to);
   }
 
   @Get('time-entries')
@@ -204,7 +214,7 @@ export class ReportsController {
     @Query('listId') listId?: string,
     @Query('folderId') folderId?: string,
   ) {
-    return this.reports.timeEntriesList(
+    return this.timeEntriesReports.timeEntriesList(
       userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly, client, listId, folderId,
     );
   }
@@ -212,12 +222,12 @@ export class ReportsController {
   @Get('sprint-points')
   @ApiOperation({ summary: 'Sprint points by space and status' })
   sprintPoints(@Query('spaceId') spaceId?: string) {
-    return this.reports.sprintPoints(spaceId);
+    return this.tasksReports.sprintPoints(spaceId);
   }
 
   @Get('ops/sync-health')
   @ApiOperation({ summary: 'Sync checkpoint freshness per space (Fresh / Stale / Unknown)' })
-  syncHealth() { return this.reports.syncHealth(); }
+  syncHealth() { return this.opsReports.syncHealth(); }
 
   @Get('ops/webhook-events')
   @ApiOperation({ summary: 'Recent webhook events with optional filters (status, eventType, search)' })
@@ -228,7 +238,7 @@ export class ReportsController {
     @Query('eventType') eventType?: string,
     @Query('search') search?: string,
   ) {
-    return this.reports.webhookEvents(Number(limit) || 50, Number(offset) || 0, status, eventType, search);
+    return this.opsReports.webhookEvents(Number(limit) || 50, Number(offset) || 0, status, eventType, search);
   }
 
   @Get('ops/job-logs')
@@ -239,26 +249,26 @@ export class ReportsController {
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
-    return this.reports.jobLogs(queueName, status, Number(limit) || 50, Number(offset) || 0);
+    return this.opsReports.jobLogs(queueName, status, Number(limit) || 50, Number(offset) || 0);
   }
 
   @Get('ops/dead-letters')
   @ApiOperation({ summary: 'Pending dead-letter jobs' })
   deadLetters(@Query('limit') limit?: string, @Query('offset') offset?: string) {
-    return this.reports.deadLetters(Number(limit) || 50, Number(offset) || 0);
+    return this.opsReports.deadLetters(Number(limit) || 50, Number(offset) || 0);
   }
 
   @Get('ops/stats')
   @ApiOperation({ summary: 'Dashboard overview stats (failures, dead-letters, webhooks, missing rates)' })
-  stats() { return this.reports.stats([...this.settings.getExcludedAssigneeIds()]); }
+  stats() { return this.opsReports.stats([...this.settings.getExcludedAssigneeIds()]); }
 
   @Get('ops/missing-rates')
   @ApiOperation({ summary: 'Assignees with NO_RATE_FOUND time entries, grouped by user' })
-  missingRates() { return this.reports.missingRates([...this.settings.getExcludedAssigneeIds()]); }
+  missingRates() { return this.opsReports.missingRates([...this.settings.getExcludedAssigneeIds()]); }
 
   @Get('spaces')
   @ApiOperation({ summary: 'Per-space task, hour, and cost aggregates' })
-  spaces() { return this.reports.spaces(); }
+  spaces() { return this.tasksReports.spaces(); }
 
   @Get('cycle-time')
   @ApiOperation({ summary: 'Cycle-time aggregates (first open → last done) bucketed by week, client, or department.' })
@@ -270,7 +280,7 @@ export class ReportsController {
     const groupByVal = groupBy === 'client' || groupBy === 'department' ? groupBy : 'week';
     const fromDate = from ? new Date(from) : new Date(Date.now() - 90 * 86400000);
     const toDate = to ? new Date(to) : new Date();
-    return this.reports.cycleTime({ from: fromDate, to: toDate, groupBy: groupByVal });
+    return this.cycleTimeReports.cycleTime({ from: fromDate, to: toDate, groupBy: groupByVal });
   }
 
   @Get('time-in-status')
@@ -278,6 +288,6 @@ export class ReportsController {
   timeInStatus(@Query('from') from?: string, @Query('to') to?: string) {
     const fromDate = from ? new Date(from) : new Date(Date.now() - 90 * 86400000);
     const toDate = to ? new Date(to) : new Date();
-    return this.reports.timeInStatus({ from: fromDate, to: toDate });
+    return this.cycleTimeReports.timeInStatus({ from: fromDate, to: toDate });
   }
 }
