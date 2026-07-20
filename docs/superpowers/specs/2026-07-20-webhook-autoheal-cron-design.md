@@ -243,3 +243,14 @@ error/timeout → false.
 - `.env.example` (document flag)
 - `test/webhook-health.service.spec.ts` (new)
 - `test/endpoint-probe.spec.ts` (new)
+
+---
+
+## Post-implementation update — ClickUp webhook health docs verified (2026-07-20)
+
+Verified the design against https://developer.clickup.com/docs/webhookhealth after implementation. Outcomes:
+
+- **Core assumption CONFIRMED.** The docs state: "To reactivate it, change the webhook's status back to active using the `PUT /api/v2/webhook/{webhook_id}` request." So `register()`'s `PUT status:active` reactivates a suspended webhook — no delete+recreate needed. The Task 4 verification gate's central risk is resolved.
+- **Refinement APPLIED (commit efed672): heal only `suspended`, not any non-active.** ClickUp has three states — Active, Failing, Suspended. A `failing` webhook "still receives events" and "will automatically return to the active state" once a delivery succeeds; only `suspended` stops delivery ("We will stop sending events to that webhook") and requires manual reactivation. So the cron now heals `status === 'suspended'` only, leaving `failing` to self-recover (avoids audit noise and fighting ClickUp's own recovery).
+- **Suspension triggers (informs the anti-flap cap):** `fail_count` reaching 100 (after up to 5 retries/event), OR an **immediate** suspend on a `401` or `410` response. `fail_count` resets automatically on recovery. Failed events are NOT resent (the 12h backfill remains the recovery net).
+- **Likely root cause + flap risk identified.** Our `WebhookSignatureGuard` throws `UnauthorizedException` (**401**) on a missing/invalid signature (`src/webhooks/webhook-signature.guard.ts:33,36,43`). Per the docs a 401 causes **immediate** suspension. If the stored signing secret is stale/rotated, every ClickUp POST → 401 → immediate re-suspend. Auto-heal would then reactivate → next POST 401 → re-suspend, until the backoff cap stops it. The cap's error message now names this cause and the fix (re-register to refresh the stored secret). Whether to return 403 instead of 401 on bad signatures (403 is NOT an immediate-suspend trigger) is a separate security decision, deliberately NOT changed here.
