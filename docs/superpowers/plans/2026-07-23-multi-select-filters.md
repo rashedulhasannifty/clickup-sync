@@ -1274,8 +1274,8 @@ Unlike the repo root, `apps/web` has a working ESLint config, and `react-hooks/s
 
 Run: `cd apps/web && npx eslint src/components/ui/MultiSelect.tsx`
 
-- If it reports **zero errors**, change nothing and move on.
 - If it flags `react-hooks/set-state-in-effect` on a line, add `// eslint-disable-next-line react-hooks/set-state-in-effect` immediately above **that specific line** — the same convention `TasksPage.tsx` and `TimeEntriesPage.tsx` already use.
+- One error will remain and is **expected**: `@typescript-eslint/no-unused-expressions` on the `onClick={(e) => { if (e.detail !== 0) !disabled && setOpen((o) => !o); }}` line. That line is copied verbatim from `Select.tsx`, which carries the identical unsuppressed error at its own `onClick`. Matching the established pattern is correct here — do not suppress it and do not rewrite the expression.
 
 Do **not** add the directives pre-emptively to lines the rule does not flag: ESLint then reports them back as `Unused eslint-disable directive` warnings. `warning`-level output (e.g. `react-hooks/exhaustive-deps`) needs no action — those already exist throughout this codebase.
 
@@ -1459,6 +1459,8 @@ Replace the eight `<Select>` lines in the filter bar (lines 773–780) with:
 Run: `cd apps/web && npx tsc -b`
 
 Expected: exits 0. A `Type 'string' is not assignable to type 'string[]'` error means a call site from steps 3–8 was missed — fix it before continuing.
+
+If instead you see `Cannot find module 'exceljs'` errors in `src/lib/xlsx.ts` / `src/lib/timesheet-xlsx.ts`, dependencies were never installed for the workspace. Run `npm install` from the repo root, then `git checkout -- package-lock.json` (the install rewrites lockfile metadata that is unrelated to this feature and must not be committed). Do **not** edit `xlsx.ts` or `timesheet-xlsx.ts` — they are outside this task.
 
 - [ ] **Step 10: Commit**
 
