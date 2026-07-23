@@ -57,6 +57,11 @@ export function MultiSelect({
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const listboxId = useId();
+  // Ref, not state: flips on arrow/Home/End so the option row's onMouseEnter
+  // can tell "the mouse actually moved here" apart from "scrollIntoView slid
+  // this row under a stationary cursor". A ref avoids a re-render on every
+  // keystroke; only mousemove (below) clears it back to "mouse mode".
+  const keyboardNavRef = useRef(false);
 
   const selectedSet = useMemo(() => new Set(value), [value]);
 
@@ -69,19 +74,29 @@ export function MultiSelect({
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      // Inlined rather than calling close(): close is a plain function
+      // (re-created each render), and adding it to this effect's deps would
+      // re-attach the document listener on every render instead of only
+      // when `open` changes. setOpen/setQuery are the stable setters.
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery('');
+      }
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
 
-  // Each time the menu opens, clear the previous search and drop focus into the
-  // search box so typing narrows the list immediately.
+  // Each time the menu opens, drop focus into the search box so typing
+  // narrows the list immediately. The query itself is reset by close() below
+  // (not here) — clearing it on open would still leave the previous search's
+  // narrowed list on screen for the one frame between this render and the
+  // effect running.
   useEffect(() => {
     if (open) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setQuery('');
       setActiveIndex(0);
+      keyboardNavRef.current = false;
       if (searchable) searchRef.current?.focus();
     } else {
       setActiveIndex(-1);
@@ -105,6 +120,20 @@ export function MultiSelect({
     onChange(selectedSet.has(optValue) ? value.filter((v) => v !== optValue) : [...value, optValue]);
   }
 
+  // Every path that closes the menu (outside click, Escape, Tab, Clear
+  // selection, and the trigger's own toggle) routes through here so the
+  // query is always reset at the moment we close, not asynchronously in the
+  // open-effect above — see that effect's comment for why the timing matters.
+  function close() {
+    setOpen(false);
+    setQuery('');
+  }
+
+  function toggleOpen() {
+    if (open) close();
+    else setOpen(true);
+  }
+
   // Attached to the wrapper, not the trigger: once the menu is open focus lives
   // in the search input, so the arrow keys have to be caught as they bubble.
   function onKeyDown(e: React.KeyboardEvent) {
@@ -119,18 +148,25 @@ export function MultiSelect({
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
+        // Mark "keyboard mode" so the scrollIntoView effect below sliding a
+        // row under the (stationary) cursor doesn't fire onMouseEnter and
+        // steal the highlight back — cleared on the next real mousemove.
+        keyboardNavRef.current = true;
         setActiveIndex((i) => Math.min(filtered.length - 1, i + 1));
         break;
       case 'ArrowUp':
         e.preventDefault();
+        keyboardNavRef.current = true;
         setActiveIndex((i) => Math.max(0, i - 1));
         break;
       case 'Home':
         e.preventDefault();
+        keyboardNavRef.current = true;
         setActiveIndex(0);
         break;
       case 'End':
         e.preventDefault();
+        keyboardNavRef.current = true;
         setActiveIndex(filtered.length - 1);
         break;
       case ' ':
@@ -146,10 +182,10 @@ export function MultiSelect({
         break;
       case 'Escape':
         e.preventDefault();
-        setOpen(false);
+        close();
         break;
       case 'Tab':
-        setOpen(false);
+        close();
         break;
     }
   }
@@ -168,6 +204,13 @@ export function MultiSelect({
           : `${firstSelected.label} +${value.length - 1}`;
   const hasSelection = value.length > 0;
 
+  // Focus lives on the search input while it's rendered (searchable, menu
+  // open), so that's the element a screen reader tracks — aria-activedescendant
+  // and aria-controls must sit there, not on the still-focused-looking trigger,
+  // or the highlighted option is never announced. Falls back to the trigger
+  // when there's no search box to hold focus instead.
+  const activeDescendantId = open && activeIndex >= 0 ? `${listboxId}-opt-${activeIndex}` : undefined;
+
   const h = size === 'sm' ? 28 : 32;
   const fs = size === 'sm' ? 12 : 13;
 
@@ -185,12 +228,17 @@ export function MultiSelect({
         aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-controls={open ? listboxId : undefined}
-        aria-activedescendant={open && activeIndex >= 0 ? `${listboxId}-opt-${activeIndex}` : undefined}
+        // When searchable, focus moves into the search input on open (see
+        // that input's own aria-controls/aria-activedescendant below) — a
+        // screen reader tracks activedescendant on the focused element, so
+        // putting it here too would point at an option from an unfocused
+        // node. Only wired here when there's no search box to hold focus.
+        aria-controls={!searchable && open ? listboxId : undefined}
+        aria-activedescendant={!searchable ? activeDescendantId : undefined}
         // Ignore keyboard-synthesized clicks (detail === 0) — Enter/Space are
         // fully handled in onKeyDown, and letting the click through would
         // immediately toggle the menu a second time.
-        onClick={(e) => { if (e.detail !== 0) !disabled && setOpen((o) => !o); }}
+        onClick={(e) => { if (e.detail !== 0) !disabled && toggleOpen(); }}
         style={{
           ['--b-edge' as string]: 'var(--border-strong)',
           ['--b-glow' as string]: 'var(--btn-neutral-glow)',
@@ -279,6 +327,14 @@ export function MultiSelect({
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search…"
                 aria-label="Filter options"
+                // This input holds focus while the menu is open (see the
+                // open-effect above), so it — not the trigger button — is the
+                // combobox a screen reader tracks activedescendant on.
+                role="combobox"
+                aria-expanded={open}
+                aria-controls={listboxId}
+                aria-activedescendant={activeDescendantId}
+                aria-autocomplete="list"
                 style={{
                   width: '100%',
                   height: 28,
@@ -301,6 +357,10 @@ export function MultiSelect({
             id={listboxId}
             role="listbox"
             aria-multiselectable="true"
+            // A real mouse movement (as opposed to a row sliding under a
+            // stationary cursor via scrollIntoView) ends keyboard mode, so
+            // hovering resumes control of the highlight.
+            onMouseMove={() => { keyboardNavRef.current = false; }}
             style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}
           >
             {filtered.length === 0 ? (
@@ -317,7 +377,11 @@ export function MultiSelect({
                     aria-selected={checked}
                     type="button"
                     tabIndex={-1}
-                    onMouseEnter={() => setActiveIndex(idx)}
+                    // Ignored while keyboard nav is in control (see
+                    // keyboardNavRef) so arrow-key scrolling doesn't get its
+                    // highlight immediately stolen by the row that slides
+                    // under an unmoving cursor.
+                    onMouseEnter={() => { if (!keyboardNavRef.current) setActiveIndex(idx); }}
                     // Note: no setOpen(false) — the menu stays open so several
                     // options can be ticked in one visit.
                     onClick={() => toggle(opt.value)}
@@ -356,7 +420,7 @@ export function MultiSelect({
             <button
               type="button"
               tabIndex={-1}
-              onClick={() => { onChange([]); setOpen(false); }}
+              onClick={() => { onChange([]); close(); }}
               style={{
                 flexShrink: 0,
                 marginTop: 4,
