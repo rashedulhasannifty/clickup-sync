@@ -740,7 +740,11 @@ import { defaultFrom, parseDate } from './report-date.util';
 import { csvList } from './report-filter.util';
 ```
 
-Then, in **`timeEntriesAggregates()`**, replace this block (currently lines 244–257):
+Now the where-clause itself. **The block below appears byte-identically in both `timeEntriesAggregates()` (lines 244–257) and `timeEntriesList()` (lines 341–354)** — verified with `diff`. Both need the *same* replacement, so do this as **one `Edit` call with `replace_all: true`**, not two sequential edits. Two sequential edits fail: the first one errors with "found multiple times" because the quoted text is not unique.
+
+**Expect exactly 2 occurrences replaced. If the count is not 2, stop and re-read the file** — it means one of the methods has drifted and the two where-clauses are no longer in lockstep, which is the exact bug this plan exists to avoid.
+
+Replace this block:
 
 ```ts
     if (spaceId) and.push({ task: { spaceId, isDeleted: false } });
@@ -787,9 +791,17 @@ with:
     }
 ```
 
-Then apply the **identical** replacement in **`timeEntriesList()`** (the same block, currently lines 341–354). The two blocks are byte-identical before and after; this duplication is intentional and documented above `timeEntriesAggregates`.
+After the `replace_all` edit, both methods carry the identical new block. That duplication is intentional and documented in the comment above `timeEntriesAggregates` — do not extract it into a shared helper.
 
 Leave `billable`, `search`, `spaceId` and the `from`/`to` window alone in both methods.
+
+Confirm both landed:
+
+```bash
+grep -c "where.userId = { in: userIds }" src/reports/time-entries-report.service.ts
+```
+
+Expected output: `2`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -1703,6 +1715,7 @@ Open the Tasks page. Confirm each of the following, and note the row count in th
 5. `Clear selection` empties the filter, closes the menu, and restores the full row count.
 6. Type and Archived are still single-select dropdowns that close on pick.
 7. `Reset` clears every filter at once.
+8. Open the **rightmost** dropdowns (List, Type) and check the menu does not clip past the right edge of the filter-bar card. `MultiSelect`'s menu is `minWidth: 220` — wider than the old `Select` menu, which sized to its trigger — so the last dropdown in the row is the one at risk. If it clips, add `menuAlign="right"` to that dropdown so the menu grows inward, and commit the fix.
 
 - [ ] **Step 4: Verify Time-Entries multi-select and the metric cards**
 
@@ -1721,6 +1734,8 @@ Open the Time Entries page. Select two clients and confirm:
 - [ ] **Step 6: Verify Excel export respects the multi-selection**
 
 On the Tasks page with two clients selected, click **Export Excel**. Open the file and confirm the Client column contains rows for **both** selected clients and nothing else.
+
+Repeat on the **Time Entries** page with two assignees selected: the exported User name column must contain both, and nothing else. Both pages spread the same params object into the export request, so a failure here means the params serialization in Task 5 Step 6 / Task 6 Step 7 is wrong, not the export code.
 
 - [ ] **Step 7: Commit anything outstanding**
 
