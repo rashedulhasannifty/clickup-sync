@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { assembleTimesheet, dhakaDate, type TimesheetAggRow } from './timesheet.assemble';
 import { defaultFrom, parseDate } from './report-date.util';
+import { csvList } from './report-filter.util';
 
 /** Time-entry report queries (timesheets, per-user/client/department rollups, list + aggregates). */
 @Injectable()
@@ -242,18 +243,27 @@ export class TimeEntriesReportService {
     const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: from, lte: to } };
     const and: Prisma.ClickupTimeEntryWhereInput[] = [];
     if (spaceId) and.push({ task: { spaceId, isDeleted: false } });
+    // The categorical filters are multi-select in the dashboard and arrive as a
+    // comma-separated list. A single value parses as a one-element list, so
+    // pre-existing deep-links (e.g. `?userId=u1&status=NO_RATE_FOUND`) behave
+    // exactly as before.
+    const clients = csvList(client);
+    const listIds = csvList(listId);
+    const folderIds = csvList(folderId);
+    const userIds = csvList(userId);
+    const statuses = csvList(status);
     // Intentionally no `isDeleted: false` here (unlike the spaceId clause):
     // the base list shows entries regardless of task soft-deletion, so the
     // client filter stays consistent with that. Don't "fix" this to exclude
     // deleted tasks — it would make client-only vs client+space disagree.
-    if (client) and.push({ task: { client } });
-    if (listId) and.push({ task: { listId } });
-    if (folderId) and.push({ task: { folderId } });
-    if (userId) where.userId = userId;
+    if (clients) and.push({ task: { client: { in: clients } } });
+    if (listIds) and.push({ task: { listId: { in: listIds } } });
+    if (folderIds) and.push({ task: { folderId: { in: folderIds } } });
+    if (userIds) where.userId = { in: userIds };
     if (missingOnly === 'true') {
       where.status = 'NO_RATE_FOUND';
-    } else if (status) {
-      where.status = status;
+    } else if (statuses) {
+      where.status = { in: statuses };
     }
     if (billable === 'true') where.billable = true;
     else if (billable === 'false') where.billable = false;
@@ -339,18 +349,27 @@ export class TimeEntriesReportService {
     const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: from, lte: to } };
     const and: Prisma.ClickupTimeEntryWhereInput[] = [];
     if (spaceId) and.push({ task: { spaceId, isDeleted: false } });
+    // The categorical filters are multi-select in the dashboard and arrive as a
+    // comma-separated list. A single value parses as a one-element list, so
+    // pre-existing deep-links (e.g. `?userId=u1&status=NO_RATE_FOUND`) behave
+    // exactly as before.
+    const clients = csvList(client);
+    const listIds = csvList(listId);
+    const folderIds = csvList(folderId);
+    const userIds = csvList(userId);
+    const statuses = csvList(status);
     // Intentionally no `isDeleted: false` here (unlike the spaceId clause):
     // the base list shows entries regardless of task soft-deletion, so the
     // client filter stays consistent with that. Don't "fix" this to exclude
     // deleted tasks — it would make client-only vs client+space disagree.
-    if (client) and.push({ task: { client } });
-    if (listId) and.push({ task: { listId } });
-    if (folderId) and.push({ task: { folderId } });
-    if (userId) where.userId = userId;
+    if (clients) and.push({ task: { client: { in: clients } } });
+    if (listIds) and.push({ task: { listId: { in: listIds } } });
+    if (folderIds) and.push({ task: { folderId: { in: folderIds } } });
+    if (userIds) where.userId = { in: userIds };
     if (missingOnly === 'true') {
       where.status = 'NO_RATE_FOUND';
-    } else if (status) {
-      where.status = status;
+    } else if (statuses) {
+      where.status = { in: statuses };
     }
     if (billable === 'true') where.billable = true;
     else if (billable === 'false') where.billable = false;
