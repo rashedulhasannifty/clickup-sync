@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, CircleCheck, CircleDashed, Loader2, RefreshCw, Settings } from 'lucide-react';
-import { useSpaces } from '../hooks/useReports';
+import { useSpaces, useSyncHealth } from '../hooks/useReports';
 import { useActiveBackfills, useBackfill } from '../hooks/useAdmin';
 import { useSettings } from '../hooks/useSettings';
 import { useAuth } from '../hooks/useAuth';
@@ -49,23 +49,39 @@ type SpaceRow = {
   costAud: number;
   /** false = configured space that has never produced any synced data yet */
   synced: boolean;
+  /** Last successful sync time (from the sync checkpoint), or null. */
+  lastSyncedAt: string | null;
+  /** Longest backfill lookback (days) recorded for this space, or null. */
+  maxLookbackTried: number | null;
 };
+
+/** Per-space sync metadata pulled from /reports/ops/sync-health. */
+type SpaceHealth = { lastSyncedAt: string | null; maxLookbackDays: number | null };
+
+/** Fields that come from the /reports/spaces rollup, before health is layered on. */
+type SpaceStats = Omit<SpaceRow, 'synced' | 'lastSyncedAt' | 'maxLookbackTried'>;
 
 /**
  * Always show every configured space (even if it has never synced), merged
- * with whatever the backend reports from synced data. Any synced space that
- * isn't in the configured list is appended so nothing is hidden.
+ * with whatever the backend reports from synced data, then decorated with the
+ * per-space sync-health metadata (last-sync time + longest backfill window).
+ * Any synced space that isn't in the configured list is appended so nothing is
+ * hidden.
  */
-function buildMergedSpaces(apiRows: Omit<SpaceRow, 'synced'>[]): SpaceRow[] {
-  const byId = new Map<string, Omit<SpaceRow, 'synced'>>();
+function buildMergedSpaces(apiRows: SpaceStats[], healthById: Map<string, SpaceHealth>): SpaceRow[] {
+  const byId = new Map<string, SpaceStats>();
   for (const r of apiRows) {
     const id = r.spaceId?.trim();
     if (id) byId.set(id, r);
   }
+  const decorate = (id: string | null): Pick<SpaceRow, 'lastSyncedAt' | 'maxLookbackTried'> => {
+    const h = id ? healthById.get(id) : undefined;
+    return { lastSyncedAt: h?.lastSyncedAt ?? null, maxLookbackTried: h?.maxLookbackDays ?? null };
+  };
   const merged: SpaceRow[] = CONFIGURED_SPACES.map((cfg) => {
     const hit = byId.get(cfg.id);
     byId.delete(cfg.id);
-    if (hit) return { ...hit, spaceName: hit.spaceName ?? cfg.name, synced: true };
+    if (hit) return { ...hit, spaceName: hit.spaceName ?? cfg.name, synced: true, ...decorate(cfg.id) };
     return {
       spaceId: cfg.id,
       spaceName: cfg.name,
@@ -75,10 +91,11 @@ function buildMergedSpaces(apiRows: Omit<SpaceRow, 'synced'>[]): SpaceRow[] {
       hoursLogged: 0,
       costAud: 0,
       synced: false,
+      ...decorate(cfg.id),
     };
   });
   // Any remaining synced spaces not in the configured list.
-  for (const r of byId.values()) merged.push({ ...r, synced: true });
+  for (const r of byId.values()) merged.push({ ...r, synced: true, ...decorate(r.spaceId) });
   return merged;
 }
 
@@ -283,7 +300,19 @@ function SpaceGrid({ spaces, controls }: { spaces: SpaceRow[]; controls: SyncCon
                   syncing…
                 </Pill>
               ) : space.synced ? (
-                <Pill tone="green" size="xs" icon={<CircleCheck size={10} />}>synced</Pill>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <Pill tone="green" size="xs" icon={<CircleCheck size={10} />}>synced</Pill>
+                  {space.lastSyncedAt && (
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }} title={new Date(space.lastSyncedAt).toLocaleString()}>
+                      {fmt.relative(space.lastSyncedAt)}
+                    </span>
+                  )}
+                  {space.maxLookbackTried != null && (
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }} title="Longest backfill window run for this space">
+                      · up to {space.maxLookbackTried}d
+                    </span>
+                  )}
+                </div>
               ) : (
                 <Pill tone="amber" size="xs" icon={<CircleDashed size={10} />}>Never synced</Pill>
               )}
@@ -459,6 +488,11 @@ function WorkloadView({ spaces, controls }: { spaces: SpaceRow[]; controls: Sync
                     {!sp.synced && !progress && (
                       <Pill tone="amber" size="xs" icon={<CircleDashed size={10} />}>Never synced</Pill>
                     )}
+                    {sp.synced && !progress && sp.lastSyncedAt && (
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }} title={new Date(sp.lastSyncedAt).toLocaleString()}>
+                        synced {fmt.relative(sp.lastSyncedAt)}{sp.maxLookbackTried != null ? ` · up to ${sp.maxLookbackTried}d` : ''}
+                      </span>
+                    )}
                   </div>
                   {progress && <div style={{ maxWidth: 260 }}><SyncProgress progress={progress} /></div>}
                 </div>
@@ -518,14 +552,26 @@ export function SpacesPage() {
   const { hasRole } = useAuth();
   const canSync = hasRole('ADMIN');
   const spacesQuery = useSpaces();
+  const syncHealthQuery = useSyncHealth();
   const backfill = useBackfill();
   const queryClient = useQueryClient();
   const activeBackfills = useActiveBackfills(canSync);
   const settingsQuery = useSettings();
   const maxLookback = settingsQuery.data?.preferences.sync.maxBackfillLookbackDays ?? MAX_LOOKBACK_FALLBACK;
 
-  const apiRows: Omit<SpaceRow, 'synced'>[] = Array.isArray(spacesQuery.data) ? spacesQuery.data : [];
-  const mergedSpaces = useMemo(() => buildMergedSpaces(apiRows), [apiRows]);
+  const apiRows: SpaceStats[] = Array.isArray(spacesQuery.data) ? spacesQuery.data : [];
+  // spaceId → { last successful sync time, longest backfill lookback } from
+  // /reports/ops/sync-health, keyed by scopeId (which is the ClickUp space id).
+  const healthById = useMemo(() => {
+    type HealthRow = { scopeId?: string; lastSuccessfulSyncAt?: string | null; maxLookbackDays?: number | null };
+    const rows: HealthRow[] = Array.isArray(syncHealthQuery.data) ? syncHealthQuery.data : [];
+    const m = new Map<string, SpaceHealth>();
+    for (const h of rows) {
+      if (h.scopeId) m.set(h.scopeId, { lastSyncedAt: h.lastSuccessfulSyncAt ?? null, maxLookbackDays: h.maxLookbackDays ?? null });
+    }
+    return m;
+  }, [syncHealthQuery.data]);
+  const mergedSpaces = useMemo(() => buildMergedSpaces(apiRows, healthById), [apiRows, healthById]);
 
   const progressBySpace = useMemo(() => {
     const map = new Map<string, ActiveBackfill>();
@@ -594,6 +640,9 @@ export function SpacesPage() {
     setOptimisticQueued((cur) => new Set(cur).add(spaceId));
     // Force an immediate poll instead of waiting up to 30s for the next tick.
     void queryClient.invalidateQueries({ queryKey: ['backfill-active'] });
+    // Refresh the last-synced time / lookback badge once the job drains, rather
+    // than waiting up to 60s for sync-health's own refetch interval.
+    void queryClient.invalidateQueries({ queryKey: ['sync-health'] });
   }
 
   function handleSync(spaceId: string) {

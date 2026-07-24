@@ -21,7 +21,16 @@ export class BackfillProcessor extends WorkerHost {
   }
 
   async process(job: Job<{ spaceId: string; lookbackDays?: number; timeEntryLookbackDays?: number }>) {
-    const log = await this.jobLogs.started({ jobId: job.id?.toString(), queueName: QUEUES.CLICKUP_BACKFILLS, jobName: job.name, entityType: 'space', entityId: job.data.spaceId });
+    const log = await this.jobLogs.started({
+      jobId: job.id?.toString(),
+      queueName: QUEUES.CLICKUP_BACKFILLS,
+      jobName: job.name,
+      entityType: 'space',
+      entityId: job.data.spaceId,
+      // Recorded so /reports/ops/sync-health can roll up the longest backfill
+      // window per space for the Spaces page "up to Nd" badge.
+      payload: job.data.lookbackDays != null ? { lookbackDays: job.data.lookbackDays } : undefined,
+    });
     try {
       const result = await this.backfills.backfillSpace(job.data.spaceId, job.data.lookbackDays, job.data.timeEntryLookbackDays);
       // `tasksSynced` is used by /admin/backfill/active to compute progress bar
