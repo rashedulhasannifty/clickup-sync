@@ -111,6 +111,7 @@ export class ClickupClient {
       includeClosed?: boolean;
       subtasks?: boolean;
       limit?: number;
+      archived?: boolean;
     },
   ): Promise<ClickUpTaskPage> {
     const params = new URLSearchParams();
@@ -119,6 +120,7 @@ export class ClickupClient {
       params.append("date_updated_gt", String(options.dateUpdatedGt));
     params.append("include_closed", String(options.includeClosed ?? true));
     params.append("subtasks", String(options.subtasks ?? true));
+    params.append("archived", String(options.archived ?? false));
     params.append("page", String(options.page ?? 0));
     params.append("limit", String(options.limit ?? 100));
     return this.request(
