@@ -8,10 +8,20 @@ export class TasksRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   upsert(task: NormalizedTask) {
+    const shared = { ...task, raw: task.raw as Prisma.InputJsonValue, isDeleted: false };
+    const update: Prisma.ClickupTaskUpdateInput = { ...shared, deletedAt: null, syncCount: { increment: 1 } };
+    // The single-task fetch (GET /task/{id}, used by webhooks and manual sync)
+    // returns space.id but no space.name, so the normalizer yields spaceName=null.
+    // That path has no patchSpaceNames follow-up (unlike backfill), so an
+    // unconditional overwrite would blank a name a prior backfill already
+    // resolved — splitting the space into a named + null bucket in reports.
+    // On UPDATE, keep the existing value when the incoming space fields are null.
+    if (task.spaceName == null) delete (update as Record<string, unknown>).spaceName;
+    if (task.spaceId == null) delete (update as Record<string, unknown>).spaceId;
     return this.prisma.clickupTask.upsert({
       where: { taskId: task.taskId },
-      create: { ...task, raw: task.raw as Prisma.InputJsonValue, isDeleted: false, syncCount: 1 },
-      update: { ...task, raw: task.raw as Prisma.InputJsonValue, isDeleted: false, deletedAt: null, syncCount: { increment: 1 } },
+      create: { ...shared, syncCount: 1 },
+      update,
     });
   }
 
