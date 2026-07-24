@@ -14,7 +14,7 @@ export interface SettingsPreferences {
     alerts: { syncFail: boolean; webhookSpike: boolean; missingRate: boolean; tokenExpiring: boolean };
     channels: { email: boolean; slack: boolean; pagerduty: boolean };
   };
-  sync: { reconcileLookbackDays: number; realtimeWebhooks: boolean; backfillOnConnect: boolean; maxBackfillLookbackDays: number };
+  sync: { reconcileLookbackDays: number; realtimeWebhooks: boolean; backfillOnConnect: boolean; maxBackfillLookbackDays: number; includeArchived: boolean };
   cost: { autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean; excludedAssignees: { id: string; name: string | null; email: string | null }[] };
   failure: { webhookRetryAttempts: number };
   spike: { medianEnabled: boolean };
@@ -26,7 +26,7 @@ export const DEFAULT_PREFERENCES: SettingsPreferences = {
     alerts: { syncFail: true, webhookSpike: true, missingRate: true, tokenExpiring: true },
     channels: { email: true, slack: true, pagerduty: false },
   },
-  sync: { reconcileLookbackDays: 365, realtimeWebhooks: true, backfillOnConnect: true, maxBackfillLookbackDays: DEFAULT_MAX_BACKFILL_LOOKBACK },
+  sync: { reconcileLookbackDays: 365, realtimeWebhooks: true, backfillOnConnect: true, maxBackfillLookbackDays: DEFAULT_MAX_BACKFILL_LOOKBACK, includeArchived: true },
   cost: { autoRecalcOnRateChange: true, rateMatching: 'start', nonBillableZero: false, excludedAssignees: [] },
   failure: { webhookRetryAttempts: 5 },
   spike: { medianEnabled: true },
@@ -186,6 +186,12 @@ export class SettingsService implements OnModuleInit {
   getBackfillMaxLookbackDays(): number {
     const v = this.cache.preferences.sync.maxBackfillLookbackDays ?? DEFAULT_MAX_BACKFILL_LOOKBACK;
     return Math.min(MAX_BACKFILL_LOOKBACK_BACKSTOP, Math.max(1, Math.round(v)));
+  }
+
+  /** Whether a space backfill runs a second pass to pull archived tasks (and
+   *  their tracked time). Defaults to true; runtime-toggleable via Settings. */
+  getIncludeArchived(): boolean {
+    return this.cache.preferences.sync?.includeArchived ?? true;
   }
 
   /** Whether the median ("relative") spike rule contributes median numbers and
