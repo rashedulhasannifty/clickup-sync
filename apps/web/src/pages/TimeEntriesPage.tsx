@@ -17,6 +17,7 @@ import { MetricCard } from '../components/ui/MetricCard';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
+import { MultiSelect } from '../components/ui/MultiSelect';
 import { Switch } from '../components/ui/Switch';
 import type { Column } from '../components/ui/DataTable';
 import { DataTable } from '../components/ui/DataTable';
@@ -35,7 +36,6 @@ const BILLABLE_OPTIONS = [
 ];
 
 const STATUS_OPTIONS = [
-  { value: '', label: 'Any status' },
   { value: 'COST_CALCULATED', label: 'Cost calculated' },
   { value: 'NO_RATE_FOUND', label: 'No rate found' },
   { value: 'COST_EXCLUDED', label: 'Excluded' },
@@ -73,13 +73,13 @@ export function TimeEntriesPage() {
   const [searchRaw, setSearchRaw] = useState('');
   const [search, setSearch] = useState('');
 
-  const [userId, setUserId] = useState('');
+  const [userId, setUserId] = useState<string[]>([]);
   const [billable, setBillable] = useState('');
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState<string[]>([]);
   const [missingOnly, setMissingOnly] = useState(false);
-  const [clientFilter, setClientFilter] = useState('');
-  const [listFilter, setListFilter] = useState('');
-  const [folderFilter, setFolderFilter] = useState('');
+  const [clientFilter, setClientFilter] = useState<string[]>([]);
+  const [listFilter, setListFilter] = useState<string[]>([]);
+  const [folderFilter, setFolderFilter] = useState<string[]>([]);
   const [selectedEntry, setSelectedEntry] = useState<TimeEntryItem | null>(null);
   // Mirror the DataTable's column show/hide state so CSV export drops the same
   // hidden columns (keys match the `columns` defs below).
@@ -131,9 +131,9 @@ export function TimeEntriesPage() {
       setLinkTo(urlTo);
     }
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (urlUserId) setUserId(urlUserId);
+    if (urlUserId) setUserId([urlUserId]);
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (urlClient) setClientFilter(urlClient);
+    if (urlClient) setClientFilter([urlClient]);
     // Anomaly "view" links pass spaceScope=all — drop the topbar space filter
     // (anomalies are cross-space) while still honoring the explicit date window.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -149,7 +149,7 @@ export function TimeEntriesPage() {
       setMissingOnly(true);
     } else if (urlStatus) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setStatus(urlStatus);
+      setStatus([urlStatus]);
     }
     // Deep-link mode: arrived from MissingRates with userId + missingOnly. The
     // user expects the full set for that assignee, not whatever the topbar
@@ -182,21 +182,21 @@ export function TimeEntriesPage() {
   }, [searchRaw]);
 
   useEffect(() => {
-    if (missingOnly) setStatus('');
+    if (missingOnly) setStatus([]);
   }, [missingOnly]);
 
   // A ClickUp list belongs to a single space — clear the selection when the
   // topbar space changes so a stale list ID doesn't filter to zero rows.
   useEffect(() => {
-    setListFilter('');
-    setFolderFilter('');
+    setListFilter([]);
+    setFolderFilter([]);
     setPage(1);
   }, [space]);
 
   const assigneeOptions = useMemo(() => {
     const rows = (byUser ?? []) as { userId?: string; userName: string }[];
     const seen = new Set<string>();
-    const opts: { value: string; label: string; icon?: ReactNode }[] = [{ value: '', label: 'Any assignee' }];
+    const opts: { value: string; label: string; icon?: ReactNode }[] = [];
     for (const r of rows) {
       const id = r.userId ?? r.userName;
       if (!id || seen.has(id)) continue;
@@ -208,7 +208,7 @@ export function TimeEntriesPage() {
 
   const clientOptions = useMemo(() => {
     const rows = (Array.isArray(clientsData) ? clientsData : []) as { client: string; taskCount?: number }[];
-    const opts = [{ value: '', label: 'Any client' }];
+    const opts: { value: string; label: string }[] = [];
     for (const r of rows) {
       if (!r.client) continue;
       opts.push({ value: r.client, label: r.client });
@@ -219,7 +219,7 @@ export function TimeEntriesPage() {
   const listOptions = useMemo(() => {
     const rows = (Array.isArray(listsData) ? listsData : []) as { listId: string; listName: string; spaceName?: string | null; taskCount?: number }[];
     const showSpace = space === 'all';
-    const opts = [{ value: '', label: 'Any list' }];
+    const opts: { value: string; label: string }[] = [];
     for (const r of rows) {
       if (!r.listId) continue;
       const count = typeof r.taskCount === 'number' ? ` (${r.taskCount})` : '';
@@ -232,7 +232,7 @@ export function TimeEntriesPage() {
   const folderOptions = useMemo(() => {
     const rows = (Array.isArray(foldersData) ? foldersData : []) as { folderId: string; folderName: string; spaceName?: string | null; taskCount?: number }[];
     const showSpace = space === 'all';
-    const opts = [{ value: '', label: 'Any folder' }];
+    const opts: { value: string; label: string }[] = [];
     for (const r of rows) {
       if (!r.folderId) continue;
       const count = typeof r.taskCount === 'number' ? ` (${r.taskCount})` : '';
@@ -246,12 +246,14 @@ export function TimeEntriesPage() {
     limit: pageSize,
     offset: (page - 1) * pageSize,
     search: search || undefined,
-    userId: userId || undefined,
-    client: clientFilter || undefined,
-    listId: listFilter || undefined,
-    folderId: folderFilter || undefined,
+    // Multi-select filters go over the wire comma-separated; an empty selection
+    // omits the param entirely, which the backend reads as "no constraint".
+    userId: userId.length ? userId.join(',') : undefined,
+    client: clientFilter.length ? clientFilter.join(',') : undefined,
+    listId: listFilter.length ? listFilter.join(',') : undefined,
+    folderId: folderFilter.length ? folderFilter.join(',') : undefined,
     billable: billable === 'true' || billable === 'false' ? billable : undefined,
-    status: missingOnly ? undefined : (status || undefined),
+    status: missingOnly ? undefined : (status.length ? status.join(',') : undefined),
     missingOnly: missingOnly ? 'true' : undefined,
     // Topbar space/date globals are bypassed in deep-link mode (arrived from
     // Missing Rates). bypassSpace (from an Anomalies "view") drops only the
@@ -329,18 +331,19 @@ export function TimeEntriesPage() {
   const calculatedCount = agg?.costCalculatedCount ?? 0;
 
   const hasFilters = !!(
-    search || userId || clientFilter || listFilter || folderFilter || billable || status || missingOnly
+    search || userId.length || clientFilter.length || listFilter.length
+    || folderFilter.length || billable || status.length || missingOnly
   );
 
   const reset = useCallback(() => {
     setSearchRaw('');
     setSearch('');
-    setUserId('');
-    setClientFilter('');
-    setListFilter('');
-    setFolderFilter('');
+    setUserId([]);
+    setClientFilter([]);
+    setListFilter([]);
+    setFolderFilter([]);
     setBillable('');
-    setStatus('');
+    setStatus([]);
     setMissingOnly(false);
     setDeepLinkActive(false);
     setBypassSpace(false);
@@ -658,12 +661,12 @@ export function TimeEntriesPage() {
             aria-label="Search time entries"
           />
         </div>
-        <Select ariaLabel="Filter by assignee" size="md" options={assigneeOptions} value={userId} onChange={(v) => { setUserId(v); setPage(1); }} />
-        <Select ariaLabel="Filter by client" size="md" options={clientOptions} value={clientFilter} onChange={(v) => { setClientFilter(v); setPage(1); }} />
-        <Select ariaLabel="Filter by folder" size="md" options={folderOptions} value={folderFilter} onChange={(v) => { setFolderFilter(v); setPage(1); }} />
-        <Select ariaLabel="Filter by list" size="md" options={listOptions} value={listFilter} onChange={(v) => { setListFilter(v); setPage(1); }} />
+        <MultiSelect ariaLabel="Filter by assignee" size="md" allLabel="Any assignee" options={assigneeOptions} value={userId} onChange={(v) => { setUserId(v); setPage(1); }} />
+        <MultiSelect ariaLabel="Filter by client" size="md" allLabel="Any client" options={clientOptions} value={clientFilter} onChange={(v) => { setClientFilter(v); setPage(1); }} />
+        <MultiSelect ariaLabel="Filter by folder" size="md" allLabel="Any folder" options={folderOptions} value={folderFilter} onChange={(v) => { setFolderFilter(v); setPage(1); }} />
+        <MultiSelect ariaLabel="Filter by list" size="md" allLabel="Any list" options={listOptions} value={listFilter} onChange={(v) => { setListFilter(v); setPage(1); }} />
         <Select ariaLabel="Filter by billable state" size="md" options={BILLABLE_OPTIONS} value={billable} onChange={(v) => { setBillable(v); setPage(1); }} />
-        <Select ariaLabel="Filter by cost status" size="md" options={STATUS_OPTIONS} value={status} onChange={(v) => { setStatus(v); setPage(1); }} disabled={missingOnly} />
+        <MultiSelect ariaLabel="Filter by cost status" size="md" allLabel="Any status" options={STATUS_OPTIONS} value={status} onChange={(v) => { setStatus(v); setPage(1); }} disabled={missingOnly} />
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' }}>
           <Switch ariaLabel="Show only entries missing a rate" checked={missingOnly} onChange={(v) => { setMissingOnly(v); setPage(1); }} />
           <span>Missing rate only</span>

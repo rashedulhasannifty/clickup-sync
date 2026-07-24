@@ -139,14 +139,24 @@ describe('TasksReportService', () => {
   });
 
   describe('tasks (client filter)', () => {
-    it('adds an exact client equality to the where clause when client is given', async () => {
+    it('wraps a single client in an IN clause (the deep-link path)', async () => {
       const prisma = makePrisma();
       await new TasksReportService(prisma).tasks(
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, 'Acme Corp',
       );
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
-      expect(arg.where.client).toBe('Acme Corp');
+      expect(arg.where.client).toEqual({ in: ['Acme Corp'] });
+    });
+
+    it('splits a comma-separated client list into an IN clause', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, 'Acme Corp,Globex',
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.client).toEqual({ in: ['Acme Corp', 'Globex'] });
     });
 
     it('omits the client clause when client is undefined', async () => {
@@ -155,17 +165,37 @@ describe('TasksReportService', () => {
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
       expect(arg.where.client).toBeUndefined();
     });
+
+    it('omits the client clause when client is commas only', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, ' , ',
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.client).toBeUndefined();
+    });
   });
 
   describe('tasks (list filter)', () => {
-    it('adds an exact listId equality to the where clause when listId is given', async () => {
+    it('wraps a single listId in an IN clause', async () => {
       const prisma = makePrisma();
       await new TasksReportService(prisma).tasks(
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined, 'L1',
       );
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
-      expect(arg.where.listId).toBe('L1');
+      expect(arg.where.listId).toEqual({ in: ['L1'] });
+    });
+
+    it('splits a comma-separated listId list into an IN clause', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, 'L1,L2',
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.listId).toEqual({ in: ['L1', 'L2'] });
     });
 
     it('omits the listId clause when listId is undefined', async () => {
@@ -177,14 +207,24 @@ describe('TasksReportService', () => {
   });
 
   describe('tasks (folder filter)', () => {
-    it('adds an exact folderId equality to the where clause when folderId is given', async () => {
+    it('wraps a single folderId in an IN clause', async () => {
       const prisma = makePrisma();
       await new TasksReportService(prisma).tasks(
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'F1',
       );
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
-      expect(arg.where.folderId).toBe('F1');
+      expect(arg.where.folderId).toEqual({ in: ['F1'] });
+    });
+
+    it('splits a comma-separated folderId list into an IN clause', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'F1,F2',
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.folderId).toEqual({ in: ['F1', 'F2'] });
     });
 
     it('omits the folderId clause when folderId is undefined', async () => {
@@ -192,6 +232,110 @@ describe('TasksReportService', () => {
       await new TasksReportService(prisma).tasks();
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
       expect(arg.where.folderId).toBeUndefined();
+    });
+  });
+
+  describe('tasks (status filter)', () => {
+    it('wraps a single status in an IN clause', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks(undefined, 'in progress');
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.status).toEqual({ in: ['in progress'] });
+    });
+
+    it('splits a comma-separated status list into an IN clause', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks(undefined, 'in progress,in review');
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.status).toEqual({ in: ['in progress', 'in review'] });
+    });
+
+    it('omits the status clause when status is undefined', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks();
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.status).toBeUndefined();
+    });
+  });
+
+  describe('tasks (priority filter)', () => {
+    it('splits a comma-separated priority list into an IN clause', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0, 'urgent,high',
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.priority).toEqual({ in: ['urgent', 'high'] });
+    });
+
+    it('omits the priority clause when priority is undefined', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks();
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.priority).toBeUndefined();
+    });
+  });
+
+  describe('tasks (assignee filter)', () => {
+    it('pushes a single-name OR group onto where.AND', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, 'Alice',
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({
+        OR: [{ assigneesNames: { contains: 'Alice', mode: 'insensitive' } }],
+      });
+      // The bare key must be gone — it would collide with the search OR below.
+      expect(arg.where.assigneesNames).toBeUndefined();
+    });
+
+    it('ORs every selected assignee name inside one AND entry', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, 'Alice,Bob',
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({
+        OR: [
+          { assigneesNames: { contains: 'Alice', mode: 'insensitive' } },
+          { assigneesNames: { contains: 'Bob', mode: 'insensitive' } },
+        ],
+      });
+    });
+
+    it('keeps the assignee OR and the search OR as separate AND entries', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks(
+        undefined, undefined, 'launch', undefined, undefined, 50, 0,
+        undefined, 'Alice,Bob',
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toHaveLength(2);
+      expect(and).toContainEqual({
+        OR: [
+          { assigneesNames: { contains: 'Alice', mode: 'insensitive' } },
+          { assigneesNames: { contains: 'Bob', mode: 'insensitive' } },
+        ],
+      });
+      // The search group is the other entry — identified by a field only it uses.
+      const searchGroup = and.find((g) =>
+        g.OR?.some((c: any) => c.taskName?.contains === 'launch'),
+      );
+      expect(searchGroup).toBeDefined();
+    });
+
+    it('omits the assignee clause when assigneeId is undefined', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks();
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.AND).toBeUndefined();
+      expect(arg.where.assigneesNames).toBeUndefined();
     });
   });
 
