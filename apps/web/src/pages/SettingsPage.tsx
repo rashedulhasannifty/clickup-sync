@@ -1031,6 +1031,17 @@ export function SettingsPage() {
                 }
               />
               <SettingRow
+                label="Include archived tasks"
+                desc="When on, space syncs also pull archived tasks (and their tracked time). Archived tasks count toward space totals."
+                control={
+                  <Switch
+                    checked={prefs?.sync.includeArchived ?? true}
+                    disabled={!isOwner || updateSettings.isPending}
+                    onChange={(v) => patchPrefs({ sync: { includeArchived: v } })}
+                  />
+                }
+              />
+              <SettingRow
                 label="Backfill maximum lookback"
                 desc="Upper limit for a manual space backfill's “days back” (1–3650). Applies to both the Spaces input and the API."
                 control={

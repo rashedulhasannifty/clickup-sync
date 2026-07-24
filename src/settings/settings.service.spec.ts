@@ -22,3 +22,17 @@ describe('SettingsService.getExcludedAssigneeIds', () => {
     expect(ids.size).toBe(2);
   });
 });
+
+describe('SettingsService.getIncludeArchived', () => {
+  it('defaults to true when unset', async () => {
+    const svc = makeService({});
+    await svc.refresh();
+    expect(svc.getIncludeArchived()).toBe(true);
+  });
+
+  it('reflects the stored value', async () => {
+    const svc = makeService({ sync: { includeArchived: false } });
+    await svc.refresh();
+    expect(svc.getIncludeArchived()).toBe(false);
+  });
+});

@@ -38,7 +38,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   // silently capped to the R&D Apps 20-day configured lookback.
   it('expands the time-entry window when lookbackDays override exceeds the space floor', async () => {
     const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636' } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
 
     const beforeMs = Date.now();
     await svc.backfillSpace(RD_APPS_ID, 140);
@@ -56,7 +56,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   // time logged earlier in the week is invisible until the next full backfill.
   it('keeps the space floor when the lookbackDays override is shorter', async () => {
     const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636' } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
 
     const beforeMs = Date.now();
     await svc.backfillSpace(RD_APPS_ID, 1);
@@ -75,7 +75,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   // space floor (here 7 < the R&D Apps 30-day floor).
   it('uses an explicit timeEntryLookbackDays even when shorter than the space floor', async () => {
     const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636' } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
 
     const beforeMs = Date.now();
     await svc.backfillSpace(RD_APPS_ID, 1, 7);
@@ -103,7 +103,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
         truncated: false,
       }),
     } as any;
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636' } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
 
     await svc.backfillSpace('99999999', 30);
 
@@ -115,7 +115,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   // Unknown space → no configured floor → use the override as-is.
   it('uses the lookbackDays override directly when the space is not configured', async () => {
     const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636' } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
 
     const beforeMs = Date.now();
     await svc.backfillSpace('99999999', 45);
@@ -126,5 +126,25 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
     const days45Ms = 45 * 24 * 60 * 60 * 1000;
     expect(startDateOf(calls[0])).toBeGreaterThanOrEqual(beforeMs - days45Ms);
     expect(startDateOf(calls[0])).toBeLessThanOrEqual(afterMs - days45Ms + 5);
+  });
+
+  // The includeArchived setting flows from SettingsService into the fetch, so a
+  // backfill runs the archived second pass exactly when the toggle is on.
+  it('passes includeArchived=true from settings into getAllTasksBySpace', async () => {
+    const { clickup, tasks, checkpoints, queues } = makeDeps();
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
+
+    await svc.backfillSpace(RD_APPS_ID, 30);
+
+    expect(clickup.getAllTasksBySpace).toHaveBeenCalledWith(RD_APPS_ID, expect.objectContaining({ includeArchived: true }));
+  });
+
+  it('passes includeArchived=false when the setting is off', async () => {
+    const { clickup, tasks, checkpoints, queues } = makeDeps();
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => false } as any);
+
+    await svc.backfillSpace(RD_APPS_ID, 30);
+
+    expect(clickup.getAllTasksBySpace).toHaveBeenCalledWith(RD_APPS_ID, expect.objectContaining({ includeArchived: false }));
   });
 });
