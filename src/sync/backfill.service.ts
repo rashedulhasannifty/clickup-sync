@@ -30,6 +30,7 @@ export class BackfillService {
       dateUpdatedGt: subtractDays(days).getTime(),
       includeClosed: true,
       subtasks: true,
+      includeArchived: this.settings.getIncludeArchived(),
     });
 
     const parentTasks = rawTasks.filter((t) => !t.parent);
