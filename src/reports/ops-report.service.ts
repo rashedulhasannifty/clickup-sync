@@ -10,6 +10,21 @@ export class OpsReportService {
 
   async syncHealth() {
     const checkpoints = await this.prisma.syncCheckpoint.findMany({ orderBy: { scopeId: 'asc' } });
+    // Longest backfill lookback (in days) actually run for each space, taken from
+    // the `lookbackDays` recorded on each backfill job log. Lets the Spaces page
+    // show "synced … · up to Nd" so an already-synced space communicates how far
+    // back its data reaches. Only backfills logged with a payload count — rows
+    // predating that logging report null (no history to draw from).
+    type LookbackRow = { space_id: string; max_lookback: number };
+    const lookbackRows = await this.prisma.$queryRaw<LookbackRow[]>(Prisma.sql`
+      SELECT entity_id AS space_id, MAX((payload->>'lookbackDays')::int) AS max_lookback
+      FROM sync_job_logs
+      WHERE queue_name = 'clickup-backfills'
+        AND entity_type = 'space'
+        AND payload->>'lookbackDays' ~ '^[0-9]+$'
+      GROUP BY entity_id
+    `);
+    const maxLookbackByScope = new Map(lookbackRows.map(r => [r.space_id, Number(r.max_lookback)]));
     const now = Date.now();
     // A space is "Stale" once its last successful sync is older than this. Set
     // comfortably above the reconcile/safety-net interval so a normal quiet gap
@@ -21,7 +36,14 @@ export class OpsReportService {
       const ageMs = cp.lastSuccessfulSyncAt ? now - cp.lastSuccessfulSyncAt.getTime() : null;
       const ageMinutes = ageMs !== null ? Math.round(ageMs / 60000) : null;
       const status = ageMinutes === null ? 'Unknown' : ageMinutes > STALE_AFTER_MINUTES ? 'Stale' : 'Fresh';
-      return { scopeId: cp.scopeId, spaceName: space?.name ?? cp.scopeId, lastSuccessfulSyncAt: cp.lastSuccessfulSyncAt, ageMinutes, status };
+      return {
+        scopeId: cp.scopeId,
+        spaceName: space?.name ?? cp.scopeId,
+        lastSuccessfulSyncAt: cp.lastSuccessfulSyncAt,
+        ageMinutes,
+        status,
+        maxLookbackDays: maxLookbackByScope.get(cp.scopeId) ?? null,
+      };
     });
   }
 

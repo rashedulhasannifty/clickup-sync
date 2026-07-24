@@ -67,6 +67,40 @@ describe('OpsReportService', () => {
       const result = await new OpsReportService(prisma).syncHealth();
       expect(result[0].spaceName).toBe('unknown-space');
     });
+
+    it('surfaces the longest recorded backfill lookback per space as maxLookbackDays', async () => {
+      const prisma = makePrisma();
+      prisma.syncCheckpoint.findMany.mockResolvedValue([
+        { scopeId: '3577824', lastSuccessfulSyncAt: new Date() },
+        { scopeId: '3589129', lastSuccessfulSyncAt: new Date() },
+      ]);
+      // The backfill-log MAX(lookbackDays) query — mocked to return a value for
+      // one space and nothing for the other.
+      prisma.$queryRaw.mockResolvedValue([
+        { space_id: '3577824', max_lookback: 90 },
+      ]);
+      const result = await new OpsReportService(prisma).syncHealth();
+      const dm = result.find((r) => r.scopeId === '3577824');
+      const rd = result.find((r) => r.scopeId === '3589129');
+      expect(dm?.maxLookbackDays).toBe(90);
+      // A space with no recorded backfill lookback reports null, not 0.
+      expect(rd?.maxLookbackDays).toBeNull();
+    });
+
+    it('queries sync_job_logs for backfill lookback days scoped to the backfills queue', async () => {
+      const prisma = makePrisma();
+      prisma.syncCheckpoint.findMany.mockResolvedValue([
+        { scopeId: '3577824', lastSuccessfulSyncAt: new Date() },
+      ]);
+      await new OpsReportService(prisma).syncHealth();
+      // $queryRaw is called once, for the lookback rollup.
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/sync_job_logs/);
+      expect(sqlText).toMatch(/lookbackDays/);
+      expect(sqlText).toMatch(/clickup-backfills/);
+    });
   });
 
   describe('webhookEvents', () => {
