@@ -16,7 +16,7 @@ model ClickupTask {
   statusType      String?  @map("status_type")
   statusColor     String?  @map("status_color")
   priority        String?
-  orderIndex      Int?     @map("order_index")
+  orderIndex      BigInt?  @map("order_index")
   archived        Boolean  @default(false)
   isDeleted       Boolean  @default(false) @map("is_deleted")
   createdDate     DateTime? @map("created_date")
