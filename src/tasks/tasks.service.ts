@@ -50,6 +50,8 @@ export class TasksService {
   }
 
   async softDeleteTask(taskId: string) { return this.repo.softDelete(taskId); }
+  /** Whether a task row exists locally (used to skip tombstoning 404s for tasks we never stored). */
+  async exists(taskId: string) { return this.repo.exists(taskId); }
 
   patchSpaceNames(spaceId: string, spaceName: string) { return this.repo.patchSpaceNames(spaceId, spaceName); }
 }
