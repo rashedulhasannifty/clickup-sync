@@ -6,7 +6,7 @@ import { joinNames, toNumberOrZero, toStringOrEmpty, toStringOrNull } from '../c
 
 export interface NormalizedTask {
   taskId: string; parentTaskId: string | null; taskName: string; description: string | null; url: string | null;
-  status: string | null; statusType: string | null; statusColor: string | null; priority: string | null; orderIndex: number; archived: boolean;
+  status: string | null; statusType: string | null; statusColor: string | null; priority: string | null; orderIndex: bigint; archived: boolean;
   createdDate: Date | null; updatedDate: Date | null; closedDate: Date | null; dueDate: Date | null; startDate: Date | null;
   timeEstimate: bigint | null; timeSpent: bigint | null; spaceId: string | null; spaceName: string | null; folderId: string | null; folderName: string | null; listId: string | null; listName: string | null;
   assigneesNames: string | null; assigneesEmails: string | null; watchersNames: string | null; watchersEmails: string | null; creatorId: string | null; creatorName: string | null;
@@ -35,7 +35,10 @@ export class ClickupNormalizer {
       statusType: toStringOrNull(t.status?.type),
       statusColor: toStringOrNull(t.status?.color),
       priority: toStringOrNull(t.priority?.priority),
-      orderIndex: Math.round(toNumberOrZero(t.orderindex)),
+      // ClickUp's orderindex is a very large number (e.g. 10_001_784_882_224)
+      // that overflows a 32-bit int, so it maps to a BigInt column. Mirrors the
+      // time_estimate/time_spent handling below.
+      orderIndex: BigInt(Math.round(toNumberOrZero(t.orderindex))),
       archived: !!t.archived,
       createdDate: fromClickupMillis(t.date_created),
       updatedDate: fromClickupMillis(t.date_updated),
