@@ -1,0 +1,13 @@
+-- Widen `clickup_tasks.order_index` from INT (INT4) to BIGINT (INT8).
+--
+-- ClickUp's `orderindex` is a very large number (observed: 10_001_784_882_224),
+-- which exceeds PostgreSQL INT4's max of 2_147_483_647. Upserting such a task
+-- failed at the DB with `value out of range for type integer`. Archived and
+-- older tasks in particular carry these large orderindex values, so pulling
+-- them surfaced the overflow.
+--
+-- `order_index` is write-only in this service (stored, never queried or ordered
+-- by), so widening is non-lossy and has no read-path impact. INT -> BIGINT is a
+-- safe widening cast; PostgreSQL rewrites the table under a brief ACCESS
+-- EXCLUSIVE lock, negligible at this table's size.
+ALTER TABLE "clickup_tasks" ALTER COLUMN "order_index" TYPE BIGINT;
