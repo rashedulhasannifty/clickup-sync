@@ -38,7 +38,28 @@ export class TaskSyncProcessor extends WorkerHost {
         const { startDate, endDate } = job.data as { taskId: string; startDate: number; endDate: number };
         result = await this.reconciliation.reconcileTask(job.data.taskId, startDate, endDate);
       } else {
-        result = await this.tasks.syncTask(job.data.taskId);
+        try {
+          result = await this.tasks.syncTask(job.data.taskId);
+        } catch (err) {
+          // A ClickUp 404 means the task no longer exists there. Don't retry it
+          // into a dead letter — handle it like the delete path: drop its tracked
+          // time and soft-delete locally. Guard with exists(): unlike
+          // reconcileTask (which only ever sees stored task IDs from findAllIds),
+          // the sync path carries arbitrary webhook task IDs, and most 404s are
+          // for tasks we never stored — skip those instead of writing thousands
+          // of "Unknown Task" tombstones. ONLY a 404 counts as gone;
+          // 401/403/5xx/network are access/transient and must still throw so the
+          // job retries rather than deleting live data on a transient blip.
+          if ((err as { response?: { status?: number } })?.response?.status !== 404) throw err;
+          if (await this.tasks.exists(job.data.taskId)) {
+            await this.timeEntries.deleteByTaskId(job.data.taskId);
+            await this.tasks.softDeleteTask(job.data.taskId);
+            await this.jobLogs.finished(log.id, { tasksSynced: 0 });
+            return { taskId: job.data.taskId, deleted: true };
+          }
+          await this.jobLogs.finished(log.id, { tasksSynced: 0 });
+          return { taskId: job.data.taskId, skipped: 'not-found-in-clickup' };
+        }
       }
       await this.jobLogs.finished(log.id, { tasksSynced: 1 });
       return result;

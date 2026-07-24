@@ -133,6 +133,10 @@ export function SyncLogsPage() {
   const retryAllDeadLetters = useRetryAllDeadLetters();
   const dlItems: DeadLetterJob[] = Array.isArray(deadLetters.data?.items) ? deadLetters.data!.items : [];
   const dlTotal = deadLetters.data?.total ?? 0;
+  // Backend re-queues at most this many pending jobs per "Retry all" click
+  // (src/admin/admin-dead-letters.controller.ts → findPending(1000, 0)). Keep in
+  // sync with that limit so the button label doesn't over-promise.
+  const RETRY_ALL_CAP = 1000;
 
   const jobLogs = useJobLogs({
     limit: runsPageSize,
@@ -725,7 +729,7 @@ export function SyncLogsPage() {
                   })
                 }
               >
-                Retry all ({dlItems.length})
+                Retry all ({dlTotal > RETRY_ALL_CAP ? `${RETRY_ALL_CAP} of ${dlTotal}` : dlTotal})
               </Button>
             )}
           </div>
