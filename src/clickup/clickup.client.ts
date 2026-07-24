@@ -129,7 +129,7 @@ export class ClickupClient {
     );
   }
 
-  async getAllTasksBySpace(
+  private async fetchAllPages(
     spaceId: string,
     options: {
       teamId: string;
@@ -137,17 +137,18 @@ export class ClickupClient {
       includeClosed?: boolean;
       subtasks?: boolean;
     },
+    archived: boolean,
   ): Promise<{ tasks: ClickUpTask[]; truncated: boolean }> {
     // ~500k tasks (5000 * 100). High enough that a multi-year backfill of any
     // real space stops on a short page well before the cap; the cap only exists
     // as a runaway guard, and `truncated` makes hitting it observable.
     const MAX_PAGES = 5000;
     const all: ClickUpTask[] = [];
-    let truncated = false;
     let page = 0;
     for (; page < MAX_PAGES; page++) {
       const res = await this.getTasksBySpace(spaceId, {
         ...options,
+        archived,
         page,
         limit: 100,
       });
@@ -160,12 +161,44 @@ export class ClickupClient {
       // we did not fetch. Surface it instead of silently treating the truncated
       // list as complete (which would make downstream reconciliation soft-delete
       // the missing tail as "no longer in ClickUp").
-      truncated = true;
       this.logger.warn(
-        `getAllTasksBySpace(${spaceId}) hit the ${MAX_PAGES}-page cap (~${all.length} tasks); results may be truncated and tasks beyond this window were not fetched`,
+        `getAllTasksBySpace(${spaceId}, archived=${archived}) hit the ${MAX_PAGES}-page cap (~${all.length} tasks); results may be truncated and tasks beyond this window were not fetched`,
       );
+      return { tasks: all, truncated: true };
     }
-    return { tasks: all, truncated };
+    return { tasks: all, truncated: false };
+  }
+
+  async getAllTasksBySpace(
+    spaceId: string,
+    options: {
+      teamId: string;
+      dateUpdatedGt?: number;
+      includeClosed?: boolean;
+      subtasks?: boolean;
+      includeArchived?: boolean;
+    },
+  ): Promise<{ tasks: ClickUpTask[]; truncated: boolean }> {
+    const active = await this.fetchAllPages(spaceId, options, false);
+    if (!options.includeArchived) return active;
+
+    const archived = await this.fetchAllPages(spaceId, options, true);
+    // Dedupe by task id. A task should appear in only one pass, but ClickUp's
+    // `archived=true` semantics are handled defensively so any overlap is
+    // harmless. Tasks without an id (should not happen) are kept as-is.
+    const seen = new Set<string>();
+    const merged: ClickUpTask[] = [];
+    for (const t of [...active.tasks, ...archived.tasks]) {
+      const id = (t as { id?: string }).id;
+      if (id == null) {
+        merged.push(t);
+        continue;
+      }
+      if (seen.has(id)) continue;
+      seen.add(id);
+      merged.push(t);
+    }
+    return { tasks: merged, truncated: active.truncated || archived.truncated };
   }
 
   async getTimeEntries(
