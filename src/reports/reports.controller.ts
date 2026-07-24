@@ -66,7 +66,7 @@ export class ReportsController {
   tasksFolders(@Query('spaceId') spaceId?: string) { return this.tasksReports.tasksFolders(spaceId); }
 
   @Get('tasks')
-  @ApiOperation({ summary: 'Paginated task list with filters. `archived`: exclude (default, hide archived) | include | only (archived tasks). Soft-deleted rows are always excluded.' })
+  @ApiOperation({ summary: 'Paginated task list with filters. `status`, `priority`, `assigneeId`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `archived`: exclude (default, hide archived) | include | only (archived tasks). Soft-deleted rows are always excluded.' })
   tasks(
     @Query('spaceId') spaceId?: string,
     @Query('status') status?: string,
@@ -129,7 +129,7 @@ export class ReportsController {
   }
 
   @Get('time-entries/aggregates')
-  @ApiOperation({ summary: 'Server-side aggregates for the Time Entries page metric cards. Accepts the same filters as /time-entries.' })
+  @ApiOperation({ summary: 'Server-side aggregates for the Time Entries page metric cards. Accepts the same filters as /time-entries, including the same comma-separated multi-value support.' })
   timeEntriesAggregates(
     @Query('userId') userId?: string,
     @Query('from') from?: string,
@@ -198,7 +198,7 @@ export class ReportsController {
   }
 
   @Get('time-entries')
-  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, billable, search, spaceId, missingOnly)' })
+  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId). `userId`, `status`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `missingOnly=true` overrides `status`.' })
   timeEntriesList(
     @Query('userId') userId?: string,
     @Query('from') from?: string,

@@ -14,6 +14,7 @@ import { Pill } from '../components/ui/Pill';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
+import { MultiSelect } from '../components/ui/MultiSelect';
 import { DataTable } from '../components/ui/DataTable';
 import type { Column } from '../components/ui/DataTable';
 import { QueryError } from '../components/ui/QueryError';
@@ -30,7 +31,6 @@ import { exportXlsx, type XlsxColumn } from '../lib/xlsx';
 type Task = Record<string, unknown>;
 
 const PRIORITY_OPTIONS = [
-  { value: '', label: 'Any priority' },
   { value: 'urgent', label: 'Urgent' },
   { value: 'high', label: 'High' },
   { value: 'normal', label: 'Normal' },
@@ -281,13 +281,13 @@ export function TasksPage() {
   // (and `page=1` reset) only fire after 300ms of quiet, matching TimeEntriesPage.
   const [searchRaw, setSearchRaw] = useState('');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [priorityFilter, setPriorityFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [priorityFilter, setPriorityFilter] = useState<string[]>([]);
   const [typeFilter, setTypeFilter] = useState('');
-  const [assigneeFilter, setAssigneeFilter] = useState('');
-  const [clientFilter, setClientFilter] = useState('');
-  const [listFilter, setListFilter] = useState('');
-  const [folderFilter, setFolderFilter] = useState('');
+  const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
+  const [clientFilter, setClientFilter] = useState<string[]>([]);
+  const [listFilter, setListFilter] = useState<string[]>([]);
+  const [folderFilter, setFolderFilter] = useState<string[]>([]);
   const [archivedFilter, setArchivedFilter] = useState('exclude');
   const [taskIdsFilter, setTaskIdsFilter] = useState<string[]>([]);
   const [page, setPage] = useState(1);
@@ -335,9 +335,9 @@ export function TasksPage() {
   // space is meaningless after the topbar space changes — clear it.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setListFilter('');
+    setListFilter([]);
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setFolderFilter('');
+    setFolderFilter([]);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(1);
   }, [space]);
@@ -351,7 +351,7 @@ export function TasksPage() {
     const seen = new Set<string>();
     // These rows carry only a name (no ClickUp id/email), so the avatar resolves
     // by username — falling back to initials when there's no directory match.
-    const opts: { value: string; label: string; icon?: ReactNode }[] = [{ value: '', label: 'Any assignee' }];
+    const opts: { value: string; label: string; icon?: ReactNode }[] = [];
     for (const r of rows) {
       if (!r.name || seen.has(r.name)) continue;
       seen.add(r.name);
@@ -363,7 +363,7 @@ export function TasksPage() {
 
   const clientOptions = useMemo(() => {
     const rows = (Array.isArray(clientsData) ? clientsData : []) as { client: string; taskCount?: number }[];
-    const opts = [{ value: '', label: 'Any client' }];
+    const opts: { value: string; label: string }[] = [];
     for (const r of rows) {
       if (!r.client) continue;
       const count = typeof r.taskCount === 'number' ? ` (${r.taskCount})` : '';
@@ -375,7 +375,7 @@ export function TasksPage() {
   const listOptions = useMemo(() => {
     const rows = (Array.isArray(listsData) ? listsData : []) as { listId: string; listName: string; spaceName?: string | null; taskCount?: number }[];
     const showSpace = space === 'all';
-    const opts = [{ value: '', label: 'Any list' }];
+    const opts: { value: string; label: string }[] = [];
     for (const r of rows) {
       if (!r.listId) continue;
       const count = typeof r.taskCount === 'number' ? ` (${r.taskCount})` : '';
@@ -388,7 +388,7 @@ export function TasksPage() {
   const folderOptions = useMemo(() => {
     const rows = (Array.isArray(foldersData) ? foldersData : []) as { folderId: string; folderName: string; spaceName?: string | null; taskCount?: number }[];
     const showSpace = space === 'all';
-    const opts = [{ value: '', label: 'Any folder' }];
+    const opts: { value: string; label: string }[] = [];
     for (const r of rows) {
       if (!r.folderId) continue;
       const count = typeof r.taskCount === 'number' ? ` (${r.taskCount})` : '';
@@ -403,7 +403,7 @@ export function TasksPage() {
   // (e.g. "to do", "complete") and includes ones that never appear (e.g. "open").
   const statusOptions = useMemo(() => {
     const rows = (summary?.byStatus ?? []) as { status: string | null; count: number }[];
-    const opts: { value: string; label: string }[] = [{ value: '', label: 'Any status' }];
+    const opts: { value: string; label: string }[] = [];
     const seen = new Set<string>();
     for (const r of rows) {
       const s = (r.status ?? '').trim();
@@ -423,14 +423,16 @@ export function TasksPage() {
     // (e.g. from Missing Rates); layering an unrelated `updated_date` window
     // on top would silently drop tasks they expected to see.
     spaceId: isDeepLink ? undefined : (space !== 'all' ? space : undefined),
-    status: statusFilter || undefined,
-    priority: priorityFilter || undefined,
+    // Multi-select filters go over the wire comma-separated; an empty selection
+    // omits the param entirely, which the backend reads as "no constraint".
+    status: statusFilter.length ? statusFilter.join(',') : undefined,
+    priority: priorityFilter.length ? priorityFilter.join(',') : undefined,
     type: typeFilter || undefined,
     search: search || undefined,
-    assigneeId: assigneeFilter || undefined,
-    client: clientFilter || undefined,
-    listId: listFilter || undefined,
-    folderId: folderFilter || undefined,
+    assigneeId: assigneeFilter.length ? assigneeFilter.join(',') : undefined,
+    client: clientFilter.length ? clientFilter.join(',') : undefined,
+    listId: listFilter.length ? listFilter.join(',') : undefined,
+    folderId: folderFilter.length ? folderFilter.join(',') : undefined,
     archived: archivedFilter,
     taskIds: isDeepLink ? taskIdsFilter.join(',') : undefined,
     // Global topbar date range filters by task `updated_date`.
@@ -445,19 +447,21 @@ export function TasksPage() {
   const total: number = data?.total ?? 0;
 
   const hasFilters = !!(
-    searchRaw || search || statusFilter || priorityFilter || typeFilter || assigneeFilter || clientFilter || listFilter || folderFilter || archivedFilter !== 'exclude' || taskIdsFilter.length > 0
+    searchRaw || search || statusFilter.length || priorityFilter.length || typeFilter
+    || assigneeFilter.length || clientFilter.length || listFilter.length || folderFilter.length
+    || archivedFilter !== 'exclude' || taskIdsFilter.length > 0
   );
 
   function reset() {
     setSearchRaw('');
     setSearch('');
-    setStatusFilter('');
-    setPriorityFilter('');
+    setStatusFilter([]);
+    setPriorityFilter([]);
     setTypeFilter('');
-    setAssigneeFilter('');
-    setClientFilter('');
-    setListFilter('');
-    setFolderFilter('');
+    setAssigneeFilter([]);
+    setClientFilter([]);
+    setListFilter([]);
+    setFolderFilter([]);
     setArchivedFilter('exclude');
     setTaskIdsFilter([]);
     setPage(1);
@@ -770,12 +774,12 @@ export function TasksPage() {
             aria-label="Search tasks"
           />
         </div>
-        <Select ariaLabel="Filter by status" size="md" value={statusFilter} onChange={v => { setStatusFilter(v); setPage(1); }} options={statusOptions} />
-        <Select ariaLabel="Filter by priority" size="md" value={priorityFilter} onChange={v => { setPriorityFilter(v); setPage(1); }} options={PRIORITY_OPTIONS} />
-        <Select ariaLabel="Filter by assignee" size="md" value={assigneeFilter} onChange={v => { setAssigneeFilter(v); setPage(1); }} options={assigneeOptions} />
-        <Select ariaLabel="Filter by client" size="md" value={clientFilter} onChange={v => { setClientFilter(v); setPage(1); }} options={clientOptions} />
-        <Select ariaLabel="Filter by folder" size="md" value={folderFilter} onChange={v => { setFolderFilter(v); setPage(1); }} options={folderOptions} />
-        <Select ariaLabel="Filter by list" size="md" value={listFilter} onChange={v => { setListFilter(v); setPage(1); }} options={listOptions} />
+        <MultiSelect ariaLabel="Filter by status" size="md" allLabel="Any status" value={statusFilter} onChange={v => { setStatusFilter(v); setPage(1); }} options={statusOptions} />
+        <MultiSelect ariaLabel="Filter by priority" size="md" allLabel="Any priority" value={priorityFilter} onChange={v => { setPriorityFilter(v); setPage(1); }} options={PRIORITY_OPTIONS} />
+        <MultiSelect ariaLabel="Filter by assignee" size="md" allLabel="Any assignee" value={assigneeFilter} onChange={v => { setAssigneeFilter(v); setPage(1); }} options={assigneeOptions} />
+        <MultiSelect ariaLabel="Filter by client" size="md" allLabel="Any client" value={clientFilter} onChange={v => { setClientFilter(v); setPage(1); }} options={clientOptions} />
+        <MultiSelect ariaLabel="Filter by folder" size="md" allLabel="Any folder" value={folderFilter} onChange={v => { setFolderFilter(v); setPage(1); }} options={folderOptions} />
+        <MultiSelect ariaLabel="Filter by list" size="md" allLabel="Any list" value={listFilter} onChange={v => { setListFilter(v); setPage(1); }} options={listOptions} />
         <Select ariaLabel="Filter by type" size="md" value={typeFilter} onChange={v => { setTypeFilter(v); setPage(1); }} options={TYPE_OPTIONS} />
         <Select ariaLabel="Filter by archived state" size="md" value={archivedFilter} onChange={v => { setArchivedFilter(v); setPage(1); }} options={ARCHIVED_OPTIONS} />
         {hasFilters && (

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { parseDate } from './report-date.util';
+import { csvList } from './report-filter.util';
 
 /** Task-centric report queries (counts, filters, per-space aggregates). */
 @Injectable()
@@ -164,6 +165,11 @@ export class TasksReportService {
     // this only matters for export requests.
     const safeLimit = Math.min(limit, 5000);
     const where: Prisma.ClickupTaskWhereInput = {};
+    // Clauses that would otherwise collide on a single `where` key accumulate
+    // here and land on `where.AND` at the end. The assignee filter and the
+    // free-text search each need their own OR group, so neither can own a bare
+    // top-level key. Same pattern as `timeEntriesList`.
+    const and: Prisma.ClickupTaskWhereInput[] = [];
     // ClickUp `archived` flag (exclude / include / only). Always hide soft-deleted rows unless we add a separate flag later.
     where.isDeleted = false;
     if (archived === 'only') {
@@ -174,15 +180,33 @@ export class TasksReportService {
       // exclude, hide, undefined, '' — default: hide archived tasks
       where.archived = false;
     }
+    // The categorical filters are multi-select in the dashboard and arrive as a
+    // comma-separated list. A single value parses as a one-element list, so
+    // pre-existing deep-links (e.g. `?client=Acme`) behave exactly as before.
+    const statuses = csvList(status);
+    const priorities = csvList(priority);
+    const clients = csvList(client);
+    const listIds = csvList(listId);
+    const folderIds = csvList(folderId);
+    const assigneeNames = csvList(assigneeId);
     if (spaceId) where.spaceId = spaceId;
-    if (status) where.status = status;
-    if (priority) where.priority = priority;
-    if (client) where.client = client;
-    if (listId) where.listId = listId;
-    if (folderId) where.folderId = folderId;
+    if (statuses) where.status = { in: statuses };
+    if (priorities) where.priority = { in: priorities };
+    if (clients) where.client = { in: clients };
+    if (listIds) where.listId = { in: listIds };
+    if (folderIds) where.folderId = { in: folderIds };
     if (type === 'parent') where.parentTaskId = null;
     if (type === 'subtask') where.parentTaskId = { not: null };
-    if (assigneeId) where.assigneesNames = { contains: assigneeId, mode: 'insensitive' };
+    // `assignees_names` is a single comma-joined string, so each selected name
+    // is a substring match and multiple names OR together. Substring matching
+    // means "Sam" also matches "Sameer" — pre-existing behavior, unchanged.
+    if (assigneeNames) {
+      and.push({
+        OR: assigneeNames.map((n) => ({
+          assigneesNames: { contains: n, mode: 'insensitive' as const },
+        })),
+      });
+    }
     if (taskIds) {
       const ids = taskIds.split(',').map(s => s.trim()).filter(Boolean);
       if (ids.length > 0) where.taskId = { in: ids };
@@ -191,27 +215,26 @@ export class TasksReportService {
       where.updatedDate = { gte: parseDate(fromParam, new Date(0)), lte: parseDate(toParam, new Date()) };
     }
     // Free-text search across short, indexed-friendly fields. Avoid description / raw
-    // JSON — ILIKE on those gets expensive fast. Compose via AND so search stacks
-    // with the other filters above (mirrors `timeEntriesList`).
+    // JSON — ILIKE on those gets expensive fast. Pushed onto the AND accumulator so
+    // search stacks with the other filters above (mirrors `timeEntriesList`).
     if (search?.trim()) {
       const q = search.trim();
-      where.AND = [
-        {
-          OR: [
-            { taskName: { contains: q, mode: 'insensitive' } },
-            { taskId: { contains: q, mode: 'insensitive' } },
-            { assigneesNames: { contains: q, mode: 'insensitive' } },
-            { assigneesEmails: { contains: q, mode: 'insensitive' } },
-            { client: { contains: q, mode: 'insensitive' } },
-            { listName: { contains: q, mode: 'insensitive' } },
-            { spaceName: { contains: q, mode: 'insensitive' } },
-            { sprintName: { contains: q, mode: 'insensitive' } },
-            { department: { contains: q, mode: 'insensitive' } },
-            { executiveName: { contains: q, mode: 'insensitive' } },
-          ],
-        },
-      ];
+      and.push({
+        OR: [
+          { taskName: { contains: q, mode: 'insensitive' } },
+          { taskId: { contains: q, mode: 'insensitive' } },
+          { assigneesNames: { contains: q, mode: 'insensitive' } },
+          { assigneesEmails: { contains: q, mode: 'insensitive' } },
+          { client: { contains: q, mode: 'insensitive' } },
+          { listName: { contains: q, mode: 'insensitive' } },
+          { spaceName: { contains: q, mode: 'insensitive' } },
+          { sprintName: { contains: q, mode: 'insensitive' } },
+          { department: { contains: q, mode: 'insensitive' } },
+          { executiveName: { contains: q, mode: 'insensitive' } },
+        ],
+      });
     }
+    if (and.length) where.AND = and;
     const [items, total] = await Promise.all([
       this.prisma.clickupTask.findMany({
         where,
