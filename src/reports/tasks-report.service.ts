@@ -302,10 +302,16 @@ export class TasksReportService {
     // Member count is approximated as the distinct set of users who have logged
     // time against any task in the space. We have no direct space-membership
     // table, but "people doing the work" is the question the metric answers.
+    // Group by space_id (the real key), not (space_id, space_name). space_name
+    // is denormalized and can be NULL on tasks synced via the single-task/webhook
+    // path (GET /task/{id} omits space.name). Grouping by name too would split one
+    // space into a named row + a NULL row, and the frontend's per-id merge would
+    // let the tiny NULL bucket clobber the real count. MAX() picks a non-NULL name
+    // for the space (NULL only if every row is NULL, which the UI falls back on).
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT
         t.space_id,
-        t.space_name,
+        MAX(t.space_name) AS space_name,
         COUNT(DISTINCT t.task_id)::bigint AS task_count,
         COUNT(DISTINCT t.task_id) FILTER (WHERE t.status_type NOT IN ('closed', 'done'))::bigint AS open_count,
         COUNT(DISTINCT e.user_id) FILTER (WHERE e.user_id IS NOT NULL)::bigint AS member_count,
@@ -314,7 +320,7 @@ export class TasksReportService {
       FROM clickup_tasks t
       LEFT JOIN clickup_time_entries e ON e.task_id = t.task_id
       WHERE t.is_deleted = false
-      GROUP BY t.space_id, t.space_name
+      GROUP BY t.space_id
       ORDER BY task_count DESC
     `);
     return rows.map(r => ({
