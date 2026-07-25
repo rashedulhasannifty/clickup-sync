@@ -288,7 +288,7 @@ export function TasksPage() {
   const [clientFilter, setClientFilter] = useState<string[]>([]);
   const [listFilter, setListFilter] = useState<string[]>([]);
   const [folderFilter, setFolderFilter] = useState<string[]>([]);
-  const [archivedFilter, setArchivedFilter] = useState('exclude');
+  const [archivedFilter, setArchivedFilter] = useState('include');
   const [taskIdsFilter, setTaskIdsFilter] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -304,8 +304,8 @@ export function TasksPage() {
   // Apply ?taskIds= from deep-links (e.g. Missing Rates "Show more" button).
   // Snapshot once on mount and strip the query so back-navigation doesn't
   // re-apply, and so the in-page filter state is the source of truth. We also
-  // flip `archivedFilter` to 'include' so an archived affected-task isn't
-  // silently hidden by the default 'exclude'.
+  // keep `archivedFilter` on 'include' (the default) so an archived
+  // affected-task isn't silently hidden.
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
     const raw = searchParams.get('taskIds');
@@ -449,7 +449,7 @@ export function TasksPage() {
   const hasFilters = !!(
     searchRaw || search || statusFilter.length || priorityFilter.length || typeFilter
     || assigneeFilter.length || clientFilter.length || listFilter.length || folderFilter.length
-    || archivedFilter !== 'exclude' || taskIdsFilter.length > 0
+    || archivedFilter !== 'include' || taskIdsFilter.length > 0
   );
 
   function reset() {
@@ -462,7 +462,7 @@ export function TasksPage() {
     setClientFilter([]);
     setListFilter([]);
     setFolderFilter([]);
-    setArchivedFilter('exclude');
+    setArchivedFilter('include');
     setTaskIdsFilter([]);
     setPage(1);
   }

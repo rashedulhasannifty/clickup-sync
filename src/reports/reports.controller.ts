@@ -142,8 +142,9 @@ export class ReportsController {
     @Query('client') client?: string,
     @Query('listId') listId?: string,
     @Query('folderId') folderId?: string,
+    @Query('archived') archived?: string,
   ) {
-    return this.timeEntriesReports.timeEntriesAggregates(userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId);
+    return this.timeEntriesReports.timeEntriesAggregates(userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId, archived);
   }
 
   @Get('time-entries/cost-trend')
@@ -198,7 +199,7 @@ export class ReportsController {
   }
 
   @Get('time-entries')
-  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId). `userId`, `status`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `missingOnly=true` overrides `status`.' })
+  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId, archived). `userId`, `status`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `missingOnly=true` overrides `status`. `archived` filters by the joined task: `exclude` (hide archived-task entries + keep task-less entries), `only`, or `include`/omitted (no constraint).' })
   timeEntriesList(
     @Query('userId') userId?: string,
     @Query('from') from?: string,
@@ -213,9 +214,10 @@ export class ReportsController {
     @Query('client') client?: string,
     @Query('listId') listId?: string,
     @Query('folderId') folderId?: string,
+    @Query('archived') archived?: string,
   ) {
     return this.timeEntriesReports.timeEntriesList(
-      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly, client, listId, folderId,
+      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly, client, listId, folderId, archived,
     );
   }
 
