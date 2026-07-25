@@ -19,7 +19,16 @@ export class BackfillService {
     private readonly settings: SettingsService,
   ) {}
 
-  async backfillSpace(spaceId: string, lookbackDays?: number, timeEntryLookbackDays?: number) {
+  // `includeArchived` overrides the global setting for this run. It exists so
+  // the recurring reconcile can force-skip the archived pass (an expensive
+  // per-list scan — see ClickupClient.getAllTasksBySpace) while manual backfills
+  // still pick up archived tasks. Undefined = fall back to the setting.
+  async backfillSpace(
+    spaceId: string,
+    lookbackDays?: number,
+    timeEntryLookbackDays?: number,
+    includeArchived?: boolean,
+  ) {
     const space = CLICKUP_SPACES.find((s) => s.id === spaceId);
     const days = lookbackDays ?? space?.backfillLookbackDays ?? 7;
     const teamId = this.settings.getTeamId();
@@ -30,7 +39,7 @@ export class BackfillService {
       dateUpdatedGt: subtractDays(days).getTime(),
       includeClosed: true,
       subtasks: true,
-      includeArchived: this.settings.getIncludeArchived(),
+      includeArchived: includeArchived ?? this.settings.getIncludeArchived(),
     });
 
     const parentTasks = rawTasks.filter((t) => !t.parent);

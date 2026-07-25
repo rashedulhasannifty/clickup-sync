@@ -19,7 +19,9 @@ describe('SyncScheduler.reconcileRecentUpdates', () => {
     for (const space of CLICKUP_SPACES) {
       expect(queue.add).toHaveBeenCalledWith(
         JOBS.BACKFILL_CLICKUP_SPACE,
-        { spaceId: space.id, lookbackDays: 1, timeEntryLookbackDays: 7 },
+        // includeArchived:false keeps the recurring reconcile off the expensive
+        // per-list archived scan (manual backfills still run it).
+        { spaceId: space.id, lookbackDays: 1, timeEntryLookbackDays: 7, includeArchived: false },
         {},
       );
     }

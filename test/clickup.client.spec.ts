@@ -127,3 +127,74 @@ describe('ClickupClient.getAllTasksBySpace — truncation signal', () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('ClickupClient.getAllTasksBySpace — archived per-list pass', () => {
+  // The team endpoint caps archived=true at ~100 rows and won't paginate, so
+  // the archived pass must scan each list via /list/{id}/task instead.
+  it('fetches archived tasks per-list and never asks the team endpoint for archived', async () => {
+    const request = jest
+      .fn()
+      // 1) active pass: one short page ends it
+      .mockReturnValueOnce(of({ data: { tasks: [{ id: 'a1' }] } }))
+      // 2) list enumeration: list?archived=false, folder?archived=false,
+      //    list?archived=true, folder?archived=true
+      .mockReturnValueOnce(of({ data: { lists: [{ id: 'L1' }] } }))
+      .mockReturnValueOnce(of({ data: { folders: [{ lists: [{ id: 'L2' }] }] } }))
+      .mockReturnValueOnce(of({ data: { lists: [] } }))
+      .mockReturnValueOnce(of({ data: { folders: [] } }))
+      // 3) per-list archived tasks
+      .mockReturnValueOnce(of({ data: { tasks: [{ id: 'arch1' }] } }))
+      .mockReturnValueOnce(of({ data: { tasks: [{ id: 'arch2' }] } }));
+    const client = build(request);
+
+    const res = await client.getAllTasksBySpace('3525433', {
+      teamId: '3450636',
+      includeArchived: true,
+      dateUpdatedGt: 111,
+    });
+
+    expect(res.tasks.map((t: any) => t.id).sort()).toEqual(['a1', 'arch1', 'arch2']);
+    expect(res.truncated).toBe(false);
+
+    const urls = request.mock.calls.map((c) => urlOf(c));
+    // No team-endpoint call ever requests archived tasks.
+    expect(urls.some((u) => u.includes('/team/') && u.includes('archived=true'))).toBe(false);
+    // The active pass hits the team endpoint with archived=false.
+    expect(urls.some((u) => u.includes('/team/3450636/task') && u.includes('archived=false'))).toBe(true);
+    // Archived tasks come from the list endpoint, carrying the lookback window.
+    expect(urls.some((u) => u.endsWith('/list/L1/task?archived=true&include_closed=true&subtasks=true&date_updated_gt=111&page=0'))).toBe(true);
+    expect(urls.some((u) => u.endsWith('/list/L2/task?archived=true&include_closed=true&subtasks=true&date_updated_gt=111&page=0'))).toBe(true);
+  });
+
+  it('skips the archived pass entirely when includeArchived is false', async () => {
+    const request = jest
+      .fn()
+      .mockReturnValueOnce(of({ data: { tasks: [{ id: 'a1' }] } }));
+    const client = build(request);
+
+    const res = await client.getAllTasksBySpace('3525433', { teamId: '3450636' });
+
+    expect(res.tasks).toHaveLength(1);
+    // Only the active team-endpoint page — no list enumeration, no /list calls.
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('dedupes a task that appears in both the active and archived passes', async () => {
+    const request = jest
+      .fn()
+      .mockReturnValueOnce(of({ data: { tasks: [{ id: 'dup' }, { id: 'a1' }] } }))
+      .mockReturnValueOnce(of({ data: { lists: [{ id: 'L1' }] } }))
+      .mockReturnValueOnce(of({ data: { folders: [] } }))
+      .mockReturnValueOnce(of({ data: { lists: [] } }))
+      .mockReturnValueOnce(of({ data: { folders: [] } }))
+      .mockReturnValueOnce(of({ data: { tasks: [{ id: 'dup' }, { id: 'arch1' }] } }));
+    const client = build(request);
+
+    const res = await client.getAllTasksBySpace('3525433', {
+      teamId: '3450636',
+      includeArchived: true,
+    });
+
+    expect(res.tasks.map((t: any) => t.id).sort()).toEqual(['a1', 'arch1', 'dup']);
+  });
+});
