@@ -52,19 +52,28 @@ describe('ClickupClient.getAllTasksBySpace', () => {
     expect(res.tasks).toHaveLength(101);
   });
 
-  it('runs a second archived pass and dedupes by id when includeArchived', async () => {
+  it('runs the archived pass per-list (never the team endpoint) and dedupes by id when includeArchived', async () => {
     const client = makeClient();
-    const spy = jest
-      .spyOn(client, 'getTasksBySpace')
-      .mockImplementation((_sp, opts) =>
-        (opts as { archived?: boolean }).archived
-          ? (Promise.resolve({ tasks: [{ id: 'b' }, { id: 'a' }] }) as never) // 'a' overlaps
-          : (Promise.resolve({ tasks: [{ id: 'a' }] }) as never),
-      );
+    // The team endpoint caps archived=true at ~100 and won't paginate, so the
+    // archived pass scans each list via /list/{id}/task instead. Active pass
+    // still uses getTasksBySpace; archived work goes through the raw request().
+    const request = jest
+      .spyOn(client as unknown as { request: (...a: unknown[]) => Promise<unknown> }, 'request')
+      .mockImplementation((...args: unknown[]) => {
+        const path = args[1] as string;
+        if (path.includes('/team/')) return Promise.resolve({ tasks: [{ id: 'a' }] }); // active short page
+        if (path.includes('/list?archived=false')) return Promise.resolve({ lists: [{ id: 'L1' }] });
+        if (path.includes('/folder?archived')) return Promise.resolve({ folders: [] });
+        if (path.includes('/list?archived=true')) return Promise.resolve({ lists: [] });
+        if (path.startsWith('/list/L1/task')) return Promise.resolve({ tasks: [{ id: 'b' }, { id: 'a' }] }); // 'a' overlaps
+        return Promise.resolve({ tasks: [] });
+      });
 
     const res = await client.getAllTasksBySpace('sp1', { teamId: 'team1', includeArchived: true });
 
-    expect(spy.mock.calls.some((c) => (c[1] as { archived?: boolean }).archived === true)).toBe(true);
+    const paths = request.mock.calls.map((c) => c[1] as string);
+    expect(paths.some((p) => p.includes('/team/') && p.includes('archived=true'))).toBe(false);
+    expect(paths.some((p) => p.startsWith('/list/L1/task'))).toBe(true);
     expect(res.tasks.map((t) => (t as { id: string }).id).sort()).toEqual(['a', 'b']);
   });
 });

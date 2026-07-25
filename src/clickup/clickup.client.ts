@@ -169,6 +169,86 @@ export class ClickupClient {
     return { tasks: all, truncated: false };
   }
 
+  /**
+   * List every list id in a space — folderless lists plus folder lists, and
+   * across both the active and archived containers. Archived tasks can live in
+   * an active list (task archived individually) or in an archived folder/list,
+   * so all four buckets are enumerated. Ids are de-duplicated.
+   *
+   * Known gap: an archived *list nested inside an active folder* is not
+   * returned by either `folder?archived=false` (its `.lists` omits archived
+   * lists) or `folder?archived=true` (returns only archived folders), so
+   * archived tasks there are missed. Low-risk in practice; revisit with a
+   * per-folder `/folder/{id}/list?archived=true` pass if it ever matters.
+   */
+  private async getSpaceListIds(spaceId: string): Promise<string[]> {
+    const ids = new Set<string>();
+    for (const archived of [false, true]) {
+      const listsRes = await this.request<{ lists?: Array<{ id: string }> }>(
+        "GET",
+        `/space/${spaceId}/list?archived=${archived}`,
+      );
+      for (const l of listsRes.lists ?? []) ids.add(l.id);
+      const foldersRes = await this.request<{
+        folders?: Array<{ lists?: Array<{ id: string }> }>;
+      }>("GET", `/space/${spaceId}/folder?archived=${archived}`);
+      for (const f of foldersRes.folders ?? [])
+        for (const l of f.lists ?? []) ids.add(l.id);
+    }
+    return [...ids];
+  }
+
+  /**
+   * Page through one list's archived tasks. Unlike the team-level task endpoint
+   * (which caps `archived=true` at ~100 and lies with `last_page=true`), the
+   * list endpoint paginates archived tasks correctly.
+   */
+  private async fetchArchivedByList(
+    listId: string,
+    options: { dateUpdatedGt?: number; includeClosed?: boolean; subtasks?: boolean },
+  ): Promise<{ tasks: ClickUpTask[]; truncated: boolean }> {
+    const MAX_PAGES = 5000;
+    const all: ClickUpTask[] = [];
+    let page = 0;
+    for (; page < MAX_PAGES; page++) {
+      const params = new URLSearchParams();
+      params.append("archived", "true");
+      params.append("include_closed", String(options.includeClosed ?? true));
+      params.append("subtasks", String(options.subtasks ?? true));
+      if (options.dateUpdatedGt)
+        params.append("date_updated_gt", String(options.dateUpdatedGt));
+      params.append("page", String(page));
+      const res = await this.request<ClickUpTaskPage>(
+        "GET",
+        `/list/${listId}/task?${params.toString()}`,
+      );
+      const tasks = res.tasks || [];
+      all.push(...tasks);
+      if (tasks.length < 100) break;
+    }
+    return { tasks: all, truncated: page === MAX_PAGES };
+  }
+
+  /**
+   * Fetch all archived tasks in a space by scanning each list, because the
+   * team-level task endpoint does not paginate archived tasks. `truncated` is
+   * true if any single list hit the page cap.
+   */
+  private async fetchArchivedBySpace(
+    spaceId: string,
+    options: { dateUpdatedGt?: number; includeClosed?: boolean; subtasks?: boolean },
+  ): Promise<{ tasks: ClickUpTask[]; truncated: boolean }> {
+    const listIds = await this.getSpaceListIds(spaceId);
+    const all: ClickUpTask[] = [];
+    let truncated = false;
+    for (const listId of listIds) {
+      const res = await this.fetchArchivedByList(listId, options);
+      all.push(...res.tasks);
+      truncated = truncated || res.truncated;
+    }
+    return { tasks: all, truncated };
+  }
+
   async getAllTasksBySpace(
     spaceId: string,
     options: {
@@ -182,7 +262,10 @@ export class ClickupClient {
     const active = await this.fetchAllPages(spaceId, options, false);
     if (!options.includeArchived) return active;
 
-    const archived = await this.fetchAllPages(spaceId, options, true);
+    // Archived tasks are fetched per-list, not via the team endpoint: the
+    // latter caps `archived=true` at ~100 rows and reports last_page=true, so
+    // any space with more archived tasks silently loses the tail.
+    const archived = await this.fetchArchivedBySpace(spaceId, options);
     // Dedupe by task id. A task should appear in only one pass, but ClickUp's
     // `archived=true` semantics are handled defensively so any overlap is
     // harmless. Tasks without an id (should not happen) are kept as-is.

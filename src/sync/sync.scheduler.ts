@@ -44,7 +44,13 @@ export class SyncScheduler {
       }
       await queue.add(
         JOBS.BACKFILL_CLICKUP_SPACE,
-        { spaceId: space.id, lookbackDays: 1, timeEntryLookbackDays: 7 },
+        // includeArchived: false — the archived pass is an expensive per-list
+        // scan (ClickUp's team endpoint can't paginate archived tasks). Running
+        // it on every 12h reconcile across all spaces would add minutes of
+        // sequential API calls and risk rate-limiting the webhook/time-entry
+        // queues. Archiving fires no webhook anyway, so archived status can't be
+        // real-time; it's refreshed on manual space backfills instead.
+        { spaceId: space.id, lookbackDays: 1, timeEntryLookbackDays: 7, includeArchived: false },
         this.queues.defaultJobOptions(),
       );
     }

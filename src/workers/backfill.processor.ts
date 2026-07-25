@@ -20,7 +20,7 @@ export class BackfillProcessor extends WorkerHost {
     await this.deadLetters.recordIfExhausted(job, err);
   }
 
-  async process(job: Job<{ spaceId: string; lookbackDays?: number; timeEntryLookbackDays?: number }>) {
+  async process(job: Job<{ spaceId: string; lookbackDays?: number; timeEntryLookbackDays?: number; includeArchived?: boolean }>) {
     const log = await this.jobLogs.started({
       jobId: job.id?.toString(),
       queueName: QUEUES.CLICKUP_BACKFILLS,
@@ -32,7 +32,7 @@ export class BackfillProcessor extends WorkerHost {
       payload: job.data.lookbackDays != null ? { lookbackDays: job.data.lookbackDays } : undefined,
     });
     try {
-      const result = await this.backfills.backfillSpace(job.data.spaceId, job.data.lookbackDays, job.data.timeEntryLookbackDays);
+      const result = await this.backfills.backfillSpace(job.data.spaceId, job.data.lookbackDays, job.data.timeEntryLookbackDays, job.data.includeArchived);
       // `tasksSynced` is used by /admin/backfill/active to compute progress bar
       // totals for the time-entry drain phase that follows. Without it the
       // dashboard can only show "X remaining" instead of "X / N done".
