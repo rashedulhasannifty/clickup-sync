@@ -293,6 +293,42 @@ describe('TimeEntriesReportService', () => {
     });
   });
 
+  describe('timeEntriesList (archived filter)', () => {
+    it("pushes a NOT-archived-task clause when archived='exclude' (keeps task-less entries)", async () => {
+      const prisma = makePrisma();
+      await new TimeEntriesReportService(prisma).timeEntriesList(
+        undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'exclude',
+      );
+      const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ NOT: { task: { archived: true } } });
+    });
+
+    it("pushes an archived-task clause when archived='only'", async () => {
+      const prisma = makePrisma();
+      await new TimeEntriesReportService(prisma).timeEntriesList(
+        undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'only',
+      );
+      const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ task: { archived: true } });
+    });
+
+    it("adds no archived clause when archived='include' or undefined", async () => {
+      const prisma = makePrisma();
+      await new TimeEntriesReportService(prisma).timeEntriesList(
+        undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'include',
+      );
+      const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).not.toContainEqual({ task: { archived: true } });
+      expect(and).not.toContainEqual({ NOT: { task: { archived: true } } });
+    });
+  });
+
   describe('timeEntriesList (userId filter)', () => {
     it('wraps a single userId in an IN clause (the deep-link path)', async () => {
       const prisma = makePrisma();

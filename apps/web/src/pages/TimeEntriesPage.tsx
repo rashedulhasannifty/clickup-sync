@@ -35,6 +35,14 @@ const BILLABLE_OPTIONS = [
   { value: 'false', label: 'Non-billable only' },
 ];
 
+// Mirrors the Tasks page. Time entries carry no archived column of their own —
+// the backend resolves this against the joined task's `archived` flag.
+const ARCHIVED_OPTIONS = [
+  { value: 'exclude', label: 'Hide archived' },
+  { value: 'include', label: 'Include archived' },
+  { value: 'only', label: 'Archived only' },
+];
+
 const STATUS_OPTIONS = [
   { value: 'COST_CALCULATED', label: 'Cost calculated' },
   { value: 'NO_RATE_FOUND', label: 'No rate found' },
@@ -80,6 +88,7 @@ export function TimeEntriesPage() {
   const [clientFilter, setClientFilter] = useState<string[]>([]);
   const [listFilter, setListFilter] = useState<string[]>([]);
   const [folderFilter, setFolderFilter] = useState<string[]>([]);
+  const [archivedFilter, setArchivedFilter] = useState('include');
   const [selectedEntry, setSelectedEntry] = useState<TimeEntryItem | null>(null);
   // Mirror the DataTable's column show/hide state so CSV export drops the same
   // hidden columns (keys match the `columns` defs below).
@@ -255,6 +264,9 @@ export function TimeEntriesPage() {
     billable: billable === 'true' || billable === 'false' ? billable : undefined,
     status: missingOnly ? undefined : (status.length ? status.join(',') : undefined),
     missingOnly: missingOnly ? 'true' : undefined,
+    // 'include' is the neutral default (no backend constraint) — omit it so it
+    // stays out of the query key / URL; only send 'exclude' or 'only'.
+    archived: archivedFilter !== 'include' ? archivedFilter : undefined,
     // Topbar space/date globals are bypassed in deep-link mode (arrived from
     // Missing Rates). bypassSpace (from an Anomalies "view") drops only the
     // space filter, keeping the explicit date window. See the state declarations.
@@ -268,7 +280,7 @@ export function TimeEntriesPage() {
     // backend defaults a missing `to` to now(), which is what we want.
     from: deepLinkActive ? ALL_TIME_FROM : (linkFrom ?? (fromDate || undefined)),
     to: deepLinkActive ? undefined : (linkTo ?? (toDate || undefined)),
-  }), [pageSize, page, search, userId, clientFilter, listFilter, folderFilter, billable, status, missingOnly, deepLinkActive, bypassSpace, space, fromDate, toDate, linkFrom, linkTo]);
+  }), [pageSize, page, search, userId, clientFilter, listFilter, folderFilter, billable, status, missingOnly, archivedFilter, deepLinkActive, bypassSpace, space, fromDate, toDate, linkFrom, linkTo]);
 
   const timeEntriesQuery = useTimeEntriesList(params);
   const { data, isLoading } = timeEntriesQuery;
@@ -333,6 +345,7 @@ export function TimeEntriesPage() {
   const hasFilters = !!(
     search || userId.length || clientFilter.length || listFilter.length
     || folderFilter.length || billable || status.length || missingOnly
+    || archivedFilter !== 'include'
   );
 
   const reset = useCallback(() => {
@@ -345,6 +358,7 @@ export function TimeEntriesPage() {
     setBillable('');
     setStatus([]);
     setMissingOnly(false);
+    setArchivedFilter('include');
     setDeepLinkActive(false);
     setBypassSpace(false);
     setLinkFrom(null);
@@ -666,6 +680,7 @@ export function TimeEntriesPage() {
         <MultiSelect ariaLabel="Filter by folder" size="md" allLabel="Any folder" options={folderOptions} value={folderFilter} onChange={(v) => { setFolderFilter(v); setPage(1); }} />
         <MultiSelect ariaLabel="Filter by list" size="md" allLabel="Any list" options={listOptions} value={listFilter} onChange={(v) => { setListFilter(v); setPage(1); }} />
         <Select ariaLabel="Filter by billable state" size="md" options={BILLABLE_OPTIONS} value={billable} onChange={(v) => { setBillable(v); setPage(1); }} />
+        <Select ariaLabel="Filter by archived state" size="md" options={ARCHIVED_OPTIONS} value={archivedFilter} onChange={(v) => { setArchivedFilter(v); setPage(1); }} />
         <MultiSelect ariaLabel="Filter by cost status" size="md" allLabel="Any status" options={STATUS_OPTIONS} value={status} onChange={(v) => { setStatus(v); setPage(1); }} disabled={missingOnly} />
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)', cursor: 'pointer' }}>
           <Switch ariaLabel="Show only entries missing a rate" checked={missingOnly} onChange={(v) => { setMissingOnly(v); setPage(1); }} />

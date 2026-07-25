@@ -237,6 +237,7 @@ export class TimeEntriesReportService {
     client?: string,
     listId?: string,
     folderId?: string,
+    archived?: string,
   ) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
@@ -259,6 +260,14 @@ export class TimeEntriesReportService {
     if (clients) and.push({ task: { client: { in: clients } } });
     if (listIds) and.push({ task: { listId: { in: listIds } } });
     if (folderIds) and.push({ task: { folderId: { in: folderIds } } });
+    // ClickUp `archived` flag. Archived status lives only on the joined task
+    // (time entries have no archived column of their own). 'exclude' keeps
+    // entries whose task isn't archived AND entries with no task at all — hence
+    // `NOT { task archived:true }`, not `task { archived:false }`, which would
+    // also drop null-task rows. 'only' keeps just archived-task entries.
+    // 'include'/undefined applies no constraint.
+    if (archived === 'only') and.push({ task: { archived: true } });
+    else if (archived === 'exclude') and.push({ NOT: { task: { archived: true } } });
     if (userIds) where.userId = { in: userIds };
     if (missingOnly === 'true') {
       where.status = 'NO_RATE_FOUND';
@@ -340,6 +349,7 @@ export class TimeEntriesReportService {
     client?: string,
     listId?: string,
     folderId?: string,
+    archived?: string,
   ) {
     // Same rationale as `tasks()`: cap allows CSV export to fetch the entire
     // filtered set; normal pagination tops out at 100 rows/page.
@@ -365,6 +375,14 @@ export class TimeEntriesReportService {
     if (clients) and.push({ task: { client: { in: clients } } });
     if (listIds) and.push({ task: { listId: { in: listIds } } });
     if (folderIds) and.push({ task: { folderId: { in: folderIds } } });
+    // ClickUp `archived` flag. Archived status lives only on the joined task
+    // (time entries have no archived column of their own). 'exclude' keeps
+    // entries whose task isn't archived AND entries with no task at all — hence
+    // `NOT { task archived:true }`, not `task { archived:false }`, which would
+    // also drop null-task rows. 'only' keeps just archived-task entries.
+    // 'include'/undefined applies no constraint.
+    if (archived === 'only') and.push({ task: { archived: true } });
+    else if (archived === 'exclude') and.push({ NOT: { task: { archived: true } } });
     if (userIds) where.userId = { in: userIds };
     if (missingOnly === 'true') {
       where.status = 'NO_RATE_FOUND';
