@@ -147,4 +147,25 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
 
     expect(clickup.getAllTasksBySpace).toHaveBeenCalledWith(RD_APPS_ID, expect.objectContaining({ includeArchived: false }));
   });
+
+  // The explicit `includeArchived` argument overrides the setting. The recurring
+  // reconcile passes `false` to force-skip the expensive per-list archived scan
+  // even when the toggle is on.
+  it('lets an explicit includeArchived=false override a setting that is on', async () => {
+    const { clickup, tasks, checkpoints, queues } = makeDeps();
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
+
+    await svc.backfillSpace(RD_APPS_ID, 1, 7, false);
+
+    expect(clickup.getAllTasksBySpace).toHaveBeenCalledWith(RD_APPS_ID, expect.objectContaining({ includeArchived: false }));
+  });
+
+  it('lets an explicit includeArchived=true override a setting that is off', async () => {
+    const { clickup, tasks, checkpoints, queues } = makeDeps();
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => false } as any);
+
+    await svc.backfillSpace(RD_APPS_ID, 30, undefined, true);
+
+    expect(clickup.getAllTasksBySpace).toHaveBeenCalledWith(RD_APPS_ID, expect.objectContaining({ includeArchived: true }));
+  });
 });
