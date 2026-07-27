@@ -170,41 +170,77 @@ export class ClickupClient {
   }
 
   /**
-   * List every list id in a space — folderless lists plus folder lists, and
-   * across both the active and archived containers. Archived tasks can live in
-   * an active list (task archived individually) or in an archived folder/list,
-   * so all four buckets are enumerated. Ids are de-duplicated.
+   * Enumerate every list in a space, flagging whether the list sits in an
+   * archived container — the list itself is archived, or its folder is.
    *
-   * Known gap: an archived *list nested inside an active folder* is not
-   * returned by either `folder?archived=false` (its `.lists` omits archived
-   * lists) or `folder?archived=true` (returns only archived folders), so
-   * archived tasks there are missed. Low-risk in practice; revisit with a
-   * per-folder `/folder/{id}/list?archived=true` pass if it ever matters.
+   * The distinction matters because ClickUp does NOT set a task's `archived`
+   * flag when only its *list* (or folder) is archived. Those tasks stay
+   * `archived=false` at the task level and are returned by
+   * `/list/{id}/task?archived=false` — never by `archived=true`, and never by
+   * the team endpoint (which excludes anything in an archived container). So a
+   * completed sprint (its list archived while the "Sprints" folder stays
+   * active) needs an explicit `archived=false` scan of that list. Active lists,
+   * by contrast, only need the `archived=true` scan — their live tasks already
+   * arrive via the team endpoint; only individually-archived tasks are missing.
+   *
+   * Lists are gathered from folderless lists (active + archived) and from every
+   * folder's lists (active + archived), enumerated per-folder via
+   * `/folder/{id}/list?archived=…` rather than the space folder query's
+   * `.lists` — the latter only carries a folder's *active* lists, so an
+   * archived sprint list nested in an active folder would otherwise be invisible.
+   * Ids are de-duplicated; the archived-container flag is OR-accumulated so a
+   * list seen in any archived context is scanned in both states.
    */
-  private async getSpaceListIds(spaceId: string): Promise<string[]> {
-    const ids = new Set<string>();
+  private async getSpaceLists(
+    spaceId: string,
+  ): Promise<Array<{ id: string; archivedContainer: boolean }>> {
+    const flagById = new Map<string, boolean>();
+    const add = (id: string | undefined, archivedContainer: boolean) => {
+      if (!id) return;
+      flagById.set(id, (flagById.get(id) ?? false) || archivedContainer);
+    };
+
+    // Folderless lists: an archived folderless list is itself an archived container.
     for (const archived of [false, true]) {
-      const listsRes = await this.request<{ lists?: Array<{ id: string }> }>(
+      const res = await this.request<{ lists?: Array<{ id: string }> }>(
         "GET",
         `/space/${spaceId}/list?archived=${archived}`,
       );
-      for (const l of listsRes.lists ?? []) ids.add(l.id);
-      const foldersRes = await this.request<{
-        folders?: Array<{ lists?: Array<{ id: string }> }>;
-      }>("GET", `/space/${spaceId}/folder?archived=${archived}`);
-      for (const f of foldersRes.folders ?? [])
-        for (const l of f.lists ?? []) ids.add(l.id);
+      for (const l of res.lists ?? []) add(l.id, archived);
     }
-    return [...ids];
+
+    // Folders: collect them (active + archived), then enumerate each folder's
+    // lists in both states. A list is an archived container if its folder is
+    // archived OR the list itself is archived.
+    const folders: Array<{ id: string; archived: boolean }> = [];
+    for (const archived of [false, true]) {
+      const res = await this.request<{ folders?: Array<{ id: string }> }>(
+        "GET",
+        `/space/${spaceId}/folder?archived=${archived}`,
+      );
+      for (const f of res.folders ?? []) if (f.id) folders.push({ id: f.id, archived });
+    }
+    for (const folder of folders) {
+      for (const listArchived of [false, true]) {
+        const res = await this.request<{ lists?: Array<{ id: string }> }>(
+          "GET",
+          `/folder/${folder.id}/list?archived=${listArchived}`,
+        );
+        for (const l of res.lists ?? []) add(l.id, folder.archived || listArchived);
+      }
+    }
+
+    return [...flagById].map(([id, archivedContainer]) => ({ id, archivedContainer }));
   }
 
   /**
-   * Page through one list's archived tasks. Unlike the team-level task endpoint
-   * (which caps `archived=true` at ~100 and lies with `last_page=true`), the
-   * list endpoint paginates archived tasks correctly.
+   * Page through one list's tasks for a given `archived` flag. Unlike the
+   * team-level task endpoint (which caps `archived=true` at ~100 and lies with
+   * `last_page=true`), the list endpoint paginates correctly.
    */
-  private async fetchArchivedByList(
+  private async fetchListTasks(
     listId: string,
+    archived: boolean,
     options: { dateUpdatedGt?: number; includeClosed?: boolean; subtasks?: boolean },
   ): Promise<{ tasks: ClickUpTask[]; truncated: boolean }> {
     const MAX_PAGES = 5000;
@@ -212,7 +248,7 @@ export class ClickupClient {
     let page = 0;
     for (; page < MAX_PAGES; page++) {
       const params = new URLSearchParams();
-      params.append("archived", "true");
+      params.append("archived", String(archived));
       params.append("include_closed", String(options.includeClosed ?? true));
       params.append("subtasks", String(options.subtasks ?? true));
       if (options.dateUpdatedGt)
@@ -230,21 +266,28 @@ export class ClickupClient {
   }
 
   /**
-   * Fetch all archived tasks in a space by scanning each list, because the
-   * team-level task endpoint does not paginate archived tasks. `truncated` is
-   * true if any single list hit the page cap.
+   * Fetch every archived-context task in a space by scanning each list, because
+   * the team-level task endpoint neither paginates archived tasks nor returns
+   * tasks living in an archived list/folder. Each list gets the `archived=true`
+   * pass (individually-archived tasks); archived-container lists additionally
+   * get the `archived=false` pass (their live tasks, which ClickUp does not flag
+   * archived — e.g. every task in a completed, archived sprint). `truncated` is
+   * true if any single list-scan hit the page cap.
    */
   private async fetchArchivedBySpace(
     spaceId: string,
     options: { dateUpdatedGt?: number; includeClosed?: boolean; subtasks?: boolean },
   ): Promise<{ tasks: ClickUpTask[]; truncated: boolean }> {
-    const listIds = await this.getSpaceListIds(spaceId);
+    const lists = await this.getSpaceLists(spaceId);
     const all: ClickUpTask[] = [];
     let truncated = false;
-    for (const listId of listIds) {
-      const res = await this.fetchArchivedByList(listId, options);
-      all.push(...res.tasks);
-      truncated = truncated || res.truncated;
+    for (const { id, archivedContainer } of lists) {
+      const states = archivedContainer ? [true, false] : [true];
+      for (const archived of states) {
+        const res = await this.fetchListTasks(id, archived, options);
+        all.push(...res.tasks);
+        truncated = truncated || res.truncated;
+      }
     }
     return { tasks: all, truncated };
   }
