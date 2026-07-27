@@ -129,22 +129,42 @@ describe('ClickupClient.getAllTasksBySpace — truncation signal', () => {
 });
 
 describe('ClickupClient.getAllTasksBySpace — archived per-list pass', () => {
-  // The team endpoint caps archived=true at ~100 rows and won't paginate, so
-  // the archived pass must scan each list via /list/{id}/task instead.
-  it('fetches archived tasks per-list and never asks the team endpoint for archived', async () => {
-    const request = jest
-      .fn()
-      // 1) active pass: one short page ends it
-      .mockReturnValueOnce(of({ data: { tasks: [{ id: 'a1' }] } }))
-      // 2) list enumeration: list?archived=false, folder?archived=false,
-      //    list?archived=true, folder?archived=true
-      .mockReturnValueOnce(of({ data: { lists: [{ id: 'L1' }] } }))
-      .mockReturnValueOnce(of({ data: { folders: [{ lists: [{ id: 'L2' }] }] } }))
-      .mockReturnValueOnce(of({ data: { lists: [] } }))
-      .mockReturnValueOnce(of({ data: { folders: [] } }))
-      // 3) per-list archived tasks
-      .mockReturnValueOnce(of({ data: { tasks: [{ id: 'arch1' }] } }))
-      .mockReturnValueOnce(of({ data: { tasks: [{ id: 'arch2' }] } }));
+  // The team endpoint caps archived=true at ~100 rows, won't paginate, and
+  // excludes tasks living in an archived list/folder — so the archived pass
+  // scans each list via /list/{id}/task instead. Because call order is no longer
+  // 1:1 with a fixed sequence (folders are enumerated per-folder), these tests
+  // route the mock by URL rather than by call index.
+  function routing(routes: Array<[(u: string) => boolean, any]>) {
+    return jest.fn((cfg: any) => {
+      const url: string = cfg.url;
+      for (const [match, body] of routes) if (match(url)) return of({ data: body });
+      return of({ data: {} });
+    });
+  }
+  const hit = (needle: string) => (u: string) => u.includes(needle);
+
+  it('scans archived-container lists with archived=false and never asks the team endpoint for archived', async () => {
+    // Layout: a folderless active list (LF), and an ACTIVE folder F1 holding an
+    // active list (LA) and an ARCHIVED sprint list (LX). The archived sprint's
+    // tasks are NOT flagged archived, so they only come back via archived=false.
+    const request = routing([
+      // active pass (team endpoint, archived=false): one short page
+      [(u) => u.includes('/team/3450636/task') && u.includes('archived=false'), { tasks: [{ id: 'a1' }] }],
+      // folderless lists
+      [hit('/space/3525433/list?archived=false'), { lists: [{ id: 'LF' }] }],
+      [hit('/space/3525433/list?archived=true'), { lists: [] }],
+      // folders: F1 is active
+      [hit('/space/3525433/folder?archived=false'), { folders: [{ id: 'F1' }] }],
+      [hit('/space/3525433/folder?archived=true'), { folders: [] }],
+      // F1's lists: LA active, LX archived (the completed sprint)
+      [hit('/folder/F1/list?archived=false'), { lists: [{ id: 'LA' }] }],
+      [hit('/folder/F1/list?archived=true'), { lists: [{ id: 'LX' }] }],
+      // per-list task scans
+      [hit('/list/LF/task?archived=true'), { tasks: [] }],
+      [hit('/list/LA/task?archived=true'), { tasks: [{ id: 'la-arch' }] }],
+      [hit('/list/LX/task?archived=true'), { tasks: [] }],
+      [hit('/list/LX/task?archived=false'), { tasks: [{ id: 'lx1' }, { id: 'lx2' }] }],
+    ]);
     const client = build(request);
 
     const res = await client.getAllTasksBySpace('3525433', {
@@ -153,17 +173,47 @@ describe('ClickupClient.getAllTasksBySpace — archived per-list pass', () => {
       dateUpdatedGt: 111,
     });
 
-    expect(res.tasks.map((t: any) => t.id).sort()).toEqual(['a1', 'arch1', 'arch2']);
+    // a1 (active) + LA's individually-archived task + LX's two live-but-hidden tasks
+    expect(res.tasks.map((t: any) => t.id).sort()).toEqual(['a1', 'la-arch', 'lx1', 'lx2']);
     expect(res.truncated).toBe(false);
 
     const urls = request.mock.calls.map((c) => urlOf(c));
     // No team-endpoint call ever requests archived tasks.
     expect(urls.some((u) => u.includes('/team/') && u.includes('archived=true'))).toBe(false);
-    // The active pass hits the team endpoint with archived=false.
-    expect(urls.some((u) => u.includes('/team/3450636/task') && u.includes('archived=false'))).toBe(true);
-    // Archived tasks come from the list endpoint, carrying the lookback window.
-    expect(urls.some((u) => u.endsWith('/list/L1/task?archived=true&include_closed=true&subtasks=true&date_updated_gt=111&page=0'))).toBe(true);
-    expect(urls.some((u) => u.endsWith('/list/L2/task?archived=true&include_closed=true&subtasks=true&date_updated_gt=111&page=0'))).toBe(true);
+    // The archived sprint list nested in an active folder is enumerated...
+    expect(urls.some((u) => u.includes('/folder/F1/list?archived=true'))).toBe(true);
+    // ...and scanned with archived=false, carrying the lookback window.
+    expect(urls.some((u) => u.endsWith('/list/LX/task?archived=false&include_closed=true&subtasks=true&date_updated_gt=111&page=0'))).toBe(true);
+    // An active list is scanned only for individually-archived tasks (archived=true),
+    // never archived=false (its live tasks already came via the team endpoint).
+    expect(urls.some((u) => u.includes('/list/LA/task?archived=true'))).toBe(true);
+    expect(urls.some((u) => u.includes('/list/LA/task?archived=false'))).toBe(false);
+  });
+
+  it('scans an archived folder\'s lists in both states', async () => {
+    const request = routing([
+      [(u) => u.includes('/team/3450636/task') && u.includes('archived=false'), { tasks: [] }],
+      [hit('/space/3525433/list?archived=false'), { lists: [] }],
+      [hit('/space/3525433/list?archived=true'), { lists: [] }],
+      [hit('/space/3525433/folder?archived=false'), { folders: [] }],
+      [hit('/space/3525433/folder?archived=true'), { folders: [{ id: 'FA' }] }],
+      [hit('/folder/FA/list?archived=false'), { lists: [{ id: 'LB' }] }],
+      [hit('/folder/FA/list?archived=true'), { lists: [] }],
+      // A list inside an archived folder is an archived container even though the
+      // list itself is "active" — its tasks come via archived=false.
+      [hit('/list/LB/task?archived=true'), { tasks: [] }],
+      [hit('/list/LB/task?archived=false'), { tasks: [{ id: 'b1' }] }],
+    ]);
+    const client = build(request);
+
+    const res = await client.getAllTasksBySpace('3525433', {
+      teamId: '3450636',
+      includeArchived: true,
+    });
+
+    expect(res.tasks.map((t: any) => t.id)).toEqual(['b1']);
+    const urls = request.mock.calls.map((c) => urlOf(c));
+    expect(urls.some((u) => u.includes('/list/LB/task?archived=false'))).toBe(true);
   });
 
   it('skips the archived pass entirely when includeArchived is false', async () => {
@@ -180,14 +230,14 @@ describe('ClickupClient.getAllTasksBySpace — archived per-list pass', () => {
   });
 
   it('dedupes a task that appears in both the active and archived passes', async () => {
-    const request = jest
-      .fn()
-      .mockReturnValueOnce(of({ data: { tasks: [{ id: 'dup' }, { id: 'a1' }] } }))
-      .mockReturnValueOnce(of({ data: { lists: [{ id: 'L1' }] } }))
-      .mockReturnValueOnce(of({ data: { folders: [] } }))
-      .mockReturnValueOnce(of({ data: { lists: [] } }))
-      .mockReturnValueOnce(of({ data: { folders: [] } }))
-      .mockReturnValueOnce(of({ data: { tasks: [{ id: 'dup' }, { id: 'arch1' }] } }));
+    const request = routing([
+      [(u) => u.includes('/team/3450636/task') && u.includes('archived=false'), { tasks: [{ id: 'dup' }, { id: 'a1' }] }],
+      [hit('/space/3525433/list?archived=false'), { lists: [{ id: 'LF' }] }],
+      [hit('/space/3525433/list?archived=true'), { lists: [] }],
+      [hit('/space/3525433/folder?archived=false'), { folders: [] }],
+      [hit('/space/3525433/folder?archived=true'), { folders: [] }],
+      [hit('/list/LF/task?archived=true'), { tasks: [{ id: 'dup' }, { id: 'arch1' }] }],
+    ]);
     const client = build(request);
 
     const res = await client.getAllTasksBySpace('3525433', {
