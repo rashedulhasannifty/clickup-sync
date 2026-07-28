@@ -4,6 +4,15 @@ import { JOBS } from '../src/queues/queue.constants';
 describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   const RD_APPS_ID = '3589129'; // configured backfillLookbackDays = 30
 
+  // The backfill streams: it calls streamAllTasksBySpace(spaceId, options,
+  // onBatch) and persists each batch. This mock delivers `tasks` as one batch.
+  function streamMock(tasks: any[], truncated = false) {
+    return jest.fn(async (_spaceId: string, _options: any, onBatch: (t: any[]) => Promise<void>) => {
+      await onBatch(tasks);
+      return { truncated };
+    });
+  }
+
   function makeDeps() {
     const queueAdd = jest.fn().mockResolvedValue({});
     const queues = {
@@ -11,7 +20,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
       defaultJobOptions: jest.fn().mockReturnValue({}),
     } as any;
     const clickup = {
-      getAllTasksBySpace: jest.fn().mockResolvedValue({ tasks: [{ id: 'task-1' }], truncated: false }),
+      streamAllTasksBySpace: streamMock([{ id: 'task-1' }]),
     } as any;
     const tasks = {
       syncTasks: jest.fn().mockResolvedValue(undefined),
@@ -94,14 +103,11 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   it('fetches parents referenced by subtasks but absent from the fetched page', async () => {
     const { queues, tasks, checkpoints } = makeDeps();
     const clickup = {
-      getAllTasksBySpace: jest.fn().mockResolvedValue({
-        tasks: [
-          { id: 'parent-A' },                      // present parent
-          { id: 'sub-1', parent: 'parent-A' },     // parent present → not missing
-          { id: 'sub-2', parent: 'parent-MISSING' }, // parent absent from page
-        ],
-        truncated: false,
-      }),
+      streamAllTasksBySpace: streamMock([
+        { id: 'parent-A' },                      // present parent
+        { id: 'sub-1', parent: 'parent-A' },     // parent present → not missing
+        { id: 'sub-2', parent: 'parent-MISSING' }, // parent absent from page
+      ]),
     } as any;
     const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
 
@@ -110,6 +116,31 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
     expect(tasks.syncMissingParents).toHaveBeenCalledTimes(1);
     const passedIds = tasks.syncMissingParents.mock.calls[0][0];
     expect(passedIds).toEqual(['parent-MISSING']);
+  });
+
+  // Streaming: the callback fires once per page/list, and the backfill persists
+  // each batch as it arrives (never accumulating the whole space). A task that
+  // appears in two batches (active + archived overlap) is processed once.
+  it('persists each streamed batch and dedupes a task seen across batches', async () => {
+    const { queueAdd, queues, tasks, checkpoints } = makeDeps();
+    const clickup = {
+      streamAllTasksBySpace: jest.fn(async (_s: string, _o: any, onBatch: (t: any[]) => Promise<void>) => {
+        await onBatch([{ id: 'a' }, { id: 'b' }]);       // active page
+        await onBatch([{ id: 'b' }, { id: 'c' }]);       // archived list — 'b' repeats
+        return { truncated: false };
+      }),
+    } as any;
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
+
+    const res = await svc.backfillSpace('99999999', 30);
+
+    // syncTasks called per batch (not once at the end); 'b' not re-synced.
+    expect(tasks.syncTasks.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const syncedIds = tasks.syncTasks.mock.calls.flatMap((c: any[]) => c[0]).map((t: any) => t.id).sort();
+    expect(syncedIds).toEqual(['a', 'b', 'c']);
+    // One time-entry job per unique task.
+    expect(timeEntryJobs(queueAdd).map((c) => c[1].taskId).sort()).toEqual(['a', 'b', 'c']);
+    expect(res.total).toBe(3);
   });
 
   // Unknown space → no configured floor → use the override as-is.
@@ -136,7 +167,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
 
     await svc.backfillSpace(RD_APPS_ID, 30);
 
-    expect(clickup.getAllTasksBySpace).toHaveBeenCalledWith(RD_APPS_ID, expect.objectContaining({ includeArchived: true }));
+    expect(clickup.streamAllTasksBySpace).toHaveBeenCalledWith(RD_APPS_ID, expect.objectContaining({ includeArchived: true }), expect.any(Function));
   });
 
   it('passes includeArchived=false when the setting is off', async () => {
@@ -145,7 +176,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
 
     await svc.backfillSpace(RD_APPS_ID, 30);
 
-    expect(clickup.getAllTasksBySpace).toHaveBeenCalledWith(RD_APPS_ID, expect.objectContaining({ includeArchived: false }));
+    expect(clickup.streamAllTasksBySpace).toHaveBeenCalledWith(RD_APPS_ID, expect.objectContaining({ includeArchived: false }), expect.any(Function));
   });
 
   // The explicit `includeArchived` argument overrides the setting. The recurring
@@ -157,7 +188,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
 
     await svc.backfillSpace(RD_APPS_ID, 1, 7, false);
 
-    expect(clickup.getAllTasksBySpace).toHaveBeenCalledWith(RD_APPS_ID, expect.objectContaining({ includeArchived: false }));
+    expect(clickup.streamAllTasksBySpace).toHaveBeenCalledWith(RD_APPS_ID, expect.objectContaining({ includeArchived: false }), expect.any(Function));
   });
 
   it('lets an explicit includeArchived=true override a setting that is off', async () => {
@@ -166,6 +197,6 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
 
     await svc.backfillSpace(RD_APPS_ID, 30, undefined, true);
 
-    expect(clickup.getAllTasksBySpace).toHaveBeenCalledWith(RD_APPS_ID, expect.objectContaining({ includeArchived: true }));
+    expect(clickup.streamAllTasksBySpace).toHaveBeenCalledWith(RD_APPS_ID, expect.objectContaining({ includeArchived: true }), expect.any(Function));
   });
 });
