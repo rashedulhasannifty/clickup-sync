@@ -9,11 +9,17 @@
 # Variables read from ./.env (compose substitutes ${...} automatically):
 #   DOMAIN             public hostname, e.g. clickup-sync.example.com
 #   POSTGRES_PASSWORD  must match the password embedded in DATABASE_URL
+#
+# Memory tuning (small host): every service has a mem_limit so a runaway process
+# is killed ALONE (container OOM) instead of triggering a global OOM that takes
+# down other containers. Node caps the V8 heap so it GCs hard and throws before
+# ballooning. Limits are ceilings, not reservations — steady usage sits below them.
 
 services:
   postgres:
     image: postgres:18-alpine
     restart: unless-stopped
+    mem_limit: 512m
     environment:
       POSTGRES_DB: clickup_sync
       POSTGRES_USER: clickup
@@ -31,7 +37,10 @@ services:
   redis:
     image: redis:8-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    mem_limit: 320m
+    # noeviction: BullMQ must NEVER have job keys evicted (that corrupts queues);
+    # Redis rejects writes instead if it ever hits the ceiling.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
     expose:
       - "6379"
     volumes:
@@ -49,7 +58,13 @@ services:
     image: ghcr.io/rashedulhasansojib/clickup-sync:${IMAGE_TAG:-latest}
     build: .
     restart: unless-stopped
+    # This single process runs web + workers + cron, including backfills, so it
+    # gets the largest ceiling. The heap cap makes V8 GC hard and throw before it
+    # balloons — a runaway backfill can otherwise OOM the whole host.
+    mem_limit: 896m
     env_file: .env
+    environment:
+      NODE_OPTIONS: --max-old-space-size=576
     expose:
       - "3000"
     depends_on:
@@ -69,6 +84,7 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    mem_limit: 96m
     ports:
       - "80:80"
       - "443:443"
