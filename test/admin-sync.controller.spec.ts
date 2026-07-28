@@ -52,45 +52,68 @@ describe('AdminSyncController', () => {
   });
 
   describe('backfill', () => {
-    it('uses configured lookback when lookbackDays is not provided', () => {
-      const result = makeCtrl().backfill({ spaceId: '3577824' });
+    it('uses configured lookback when lookbackDays is not provided', async () => {
+      const result = await makeCtrl().backfill({ spaceId: '3577824' });
       expect(result).toEqual({ queued: true, spaceId: '3577824', lookbackDays: 30 });
     });
 
-    it('uses provided lookbackDays over configured default', () => {
-      const result = makeCtrl().backfill({ spaceId: '3589129', lookbackDays: 7 });
+    it('uses provided lookbackDays over configured default', async () => {
+      const result = await makeCtrl().backfill({ spaceId: '3589129', lookbackDays: 7 });
       expect(result).toEqual({ queued: true, spaceId: '3589129', lookbackDays: 7 });
     });
 
-    it('throws BadRequestException for unknown spaceId', () => {
-      expect(() => makeCtrl().backfill({ spaceId: 'bad-id' })).toThrow(BadRequestException);
+    it('throws BadRequestException for unknown spaceId', async () => {
+      await expect(makeCtrl().backfill({ spaceId: 'bad-id' })).rejects.toThrow(BadRequestException);
     });
 
-    it('queues on clickup-backfills queue', () => {
+    it('queues on clickup-backfills queue', async () => {
       const queues = makeQueues();
-      makeCtrl({ queues }).backfill({ spaceId: '3525433' });
+      await makeCtrl({ queues }).backfill({ spaceId: '3525433' });
       expect(queues.get).toHaveBeenCalledWith('clickup-backfills');
     });
 
-    it('allows unknown spaceId when allowUnknownSpaces is true', () => {
-      const result = makeCtrl().backfill({ spaceId: 'test-space-999', allowUnknownSpaces: true });
+    it('allows unknown spaceId when allowUnknownSpaces is true', async () => {
+      const result = await makeCtrl().backfill({ spaceId: 'test-space-999', allowUnknownSpaces: true });
       expect(result).toEqual({ queued: true, spaceId: 'test-space-999', lookbackDays: 30 });
     });
 
-    it('uses provided lookbackDays for unknown space instead of default 30', () => {
-      const result = makeCtrl().backfill({ spaceId: 'test-space-999', allowUnknownSpaces: true, lookbackDays: 7 });
+    it('uses provided lookbackDays for unknown space instead of default 30', async () => {
+      const result = await makeCtrl().backfill({ spaceId: 'test-space-999', allowUnknownSpaces: true, lookbackDays: 7 });
       expect(result).toEqual({ queued: true, spaceId: 'test-space-999', lookbackDays: 7 });
     });
 
-    it('rejects lookbackDays above the configured cap', () => {
+    it('rejects lookbackDays above the configured cap', async () => {
       const ctrl = makeCtrl({ settings: makeSettings(1095) });
-      expect(() => ctrl.backfill({ spaceId: '3589129', lookbackDays: 2000 })).toThrow(BadRequestException);
+      await expect(ctrl.backfill({ spaceId: '3589129', lookbackDays: 2000 })).rejects.toThrow(BadRequestException);
     });
 
-    it('accepts lookbackDays at or below the configured cap', () => {
+    it('accepts lookbackDays at or below the configured cap', async () => {
       const ctrl = makeCtrl({ settings: makeSettings(3650) });
-      const result = ctrl.backfill({ spaceId: '3589129', lookbackDays: 2000 });
+      const result = await ctrl.backfill({ spaceId: '3589129', lookbackDays: 2000 });
       expect(result).toEqual({ queued: true, spaceId: '3589129', lookbackDays: 2000 });
+    });
+
+    it('skips (does not enqueue) when a backfill for the space is already in flight', async () => {
+      const add = jest.fn().mockResolvedValue(undefined);
+      // A live backfill job for the SAME space is already queued/active.
+      const getJobs = jest.fn().mockResolvedValue([{ data: { spaceId: '3525433' } }]);
+      const queues = { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
+
+      const result = await makeCtrl({ queues, settings: makeSettings(3650) }).backfill({ spaceId: '3525433', lookbackDays: 1500 });
+
+      expect(result).toEqual({ queued: false, alreadyRunning: true, spaceId: '3525433' });
+      expect(add).not.toHaveBeenCalled(); // no duplicate stacked
+    });
+
+    it('enqueues when the in-flight job is for a DIFFERENT space', async () => {
+      const add = jest.fn().mockResolvedValue(undefined);
+      const getJobs = jest.fn().mockResolvedValue([{ data: { spaceId: '3577824' } }]); // other space busy
+      const queues = { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
+
+      const result = await makeCtrl({ queues, settings: makeSettings(3650) }).backfill({ spaceId: '3525433', lookbackDays: 1500 });
+
+      expect(result).toEqual({ queued: true, spaceId: '3525433', lookbackDays: 1500 });
+      expect(add).toHaveBeenCalledTimes(1);
     });
   });
 

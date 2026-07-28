@@ -54,7 +54,7 @@ export class AdminSyncController {
   @Post('backfill')
   @HttpCode(200)
   @ApiOperation({ summary: 'Trigger a space backfill' })
-  backfill(@Body() dto: BackfillDto) {
+  async backfill(@Body() dto: BackfillDto) {
     const space = CLICKUP_SPACES.find((s) => s.id === dto.spaceId);
     if (!space && !dto.allowUnknownSpaces) throw new BadRequestException(`Unknown spaceId: ${dto.spaceId}. Valid: ${CLICKUP_SPACES.map((s) => s.id).join(', ')}. Pass allowUnknownSpaces: true to override.`);
     // The DTO only enforces the absolute 3650-day backstop; the effective cap is
@@ -64,7 +64,21 @@ export class AdminSyncController {
       throw new BadRequestException(`lookbackDays ${dto.lookbackDays} exceeds the configured maximum ${cap}. Raise it in Settings → Sync.`);
     }
     const lookbackDays = dto.lookbackDays ?? space?.backfillLookbackDays ?? 30;
-    this.queues.get(QUEUES.CLICKUP_BACKFILLS).add(JOBS.BACKFILL_CLICKUP_SPACE, { spaceId: dto.spaceId, lookbackDays }, this.queues.defaultJobOptions());
+    const queue = this.queues.get(QUEUES.CLICKUP_BACKFILLS);
+    // Refuse a duplicate while a backfill for this space is already in flight.
+    // The frontend disables the button, but it relies on polled state with lag,
+    // so "Sync all", a double-click, the recurring reconcile, or a direct API
+    // call could otherwise stack a second backfill — and each one fans out a
+    // per-task time-entry job for the whole space. Mirrors the overlap guard in
+    // reconcileTasks / SyncScheduler.reconcileRecentUpdates.
+    const live = await queue.getJobs(['active', 'waiting', 'delayed', 'prioritized']);
+    const alreadyRunning = live.some(
+      (j) => (j.data as { spaceId?: string } | undefined)?.spaceId === dto.spaceId,
+    );
+    if (alreadyRunning) {
+      return { queued: false, alreadyRunning: true, spaceId: dto.spaceId };
+    }
+    await queue.add(JOBS.BACKFILL_CLICKUP_SPACE, { spaceId: dto.spaceId, lookbackDays }, this.queues.defaultJobOptions());
     return { queued: true, spaceId: dto.spaceId, lookbackDays };
   }
 
