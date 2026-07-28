@@ -129,46 +129,6 @@ export class ClickupClient {
     );
   }
 
-  private async fetchAllPages(
-    spaceId: string,
-    options: {
-      teamId: string;
-      dateUpdatedGt?: number;
-      includeClosed?: boolean;
-      subtasks?: boolean;
-    },
-    archived: boolean,
-  ): Promise<{ tasks: ClickUpTask[]; truncated: boolean }> {
-    // ~500k tasks (5000 * 100). High enough that a multi-year backfill of any
-    // real space stops on a short page well before the cap; the cap only exists
-    // as a runaway guard, and `truncated` makes hitting it observable.
-    const MAX_PAGES = 5000;
-    const all: ClickUpTask[] = [];
-    let page = 0;
-    for (; page < MAX_PAGES; page++) {
-      const res = await this.getTasksBySpace(spaceId, {
-        ...options,
-        archived,
-        page,
-        limit: 100,
-      });
-      const tasks = res.tasks || [];
-      all.push(...tasks);
-      if (tasks.length < 100) break;
-    }
-    if (page === MAX_PAGES) {
-      // Ran the full cap without a short page — there are very likely more tasks
-      // we did not fetch. Surface it instead of silently treating the truncated
-      // list as complete (which would make downstream reconciliation soft-delete
-      // the missing tail as "no longer in ClickUp").
-      this.logger.warn(
-        `getAllTasksBySpace(${spaceId}, archived=${archived}) hit the ${MAX_PAGES}-page cap (~${all.length} tasks); results may be truncated and tasks beyond this window were not fetched`,
-      );
-      return { tasks: all, truncated: true };
-    }
-    return { tasks: all, truncated: false };
-  }
-
   /**
    * Enumerate every list in a space, flagging whether the list sits in an
    * archived container — the list itself is archived, or its folder is.
@@ -266,32 +226,74 @@ export class ClickupClient {
   }
 
   /**
-   * Fetch every archived-context task in a space by scanning each list, because
-   * the team-level task endpoint neither paginates archived tasks nor returns
-   * tasks living in an archived list/folder. Each list gets the `archived=true`
-   * pass (individually-archived tasks); archived-container lists additionally
-   * get the `archived=false` pass (their live tasks, which ClickUp does not flag
-   * archived — e.g. every task in a completed, archived sprint). `truncated` is
-   * true if any single list-scan hit the page cap.
+   * Streaming space fetch: invokes `onBatch` for each active page and each
+   * archived list-state page AS IT IS FETCHED, so the caller can persist
+   * incrementally and let every batch be garbage-collected.
+   *
+   * This is the memory-safe path for backfills. Accumulating a whole space's
+   * tasks first (each carrying full raw JSON) OOM-kills the worker on a
+   * multi-year archived pull — a single sprint folder can hold 200+ archived
+   * lists and tens of thousands of tasks. Streaming keeps the live set bounded
+   * to one page/list.
+   *
+   * Returns only the truncation signal — no task array is retained here.
+   * Archived tasks are fetched per-list (not the team endpoint, which caps
+   * `archived=true` at ~100 rows). Cross-pass overlap is NOT de-duplicated here
+   * (upsert is idempotent by task_id); a caller that needs an exact count can
+   * dedupe cheaply by id (ids are small — that Set is not the memory risk).
    */
-  private async fetchArchivedBySpace(
+  async streamAllTasksBySpace(
     spaceId: string,
-    options: { dateUpdatedGt?: number; includeClosed?: boolean; subtasks?: boolean },
-  ): Promise<{ tasks: ClickUpTask[]; truncated: boolean }> {
-    const lists = await this.getSpaceLists(spaceId);
-    const all: ClickUpTask[] = [];
+    options: {
+      teamId: string;
+      dateUpdatedGt?: number;
+      includeClosed?: boolean;
+      subtasks?: boolean;
+      includeArchived?: boolean;
+    },
+    onBatch: (tasks: ClickUpTask[]) => Promise<void>,
+  ): Promise<{ truncated: boolean }> {
+    const MAX_PAGES = 5000;
     let truncated = false;
+
+    // Active pass: page through the team endpoint, persisting each page. Awaiting
+    // onBatch gives natural backpressure — the next page isn't fetched until the
+    // current one is written.
+    let page = 0;
+    for (; page < MAX_PAGES; page++) {
+      const res = await this.getTasksBySpace(spaceId, { ...options, archived: false, page, limit: 100 });
+      const tasks = res.tasks || [];
+      if (tasks.length) await onBatch(tasks);
+      if (tasks.length < 100) break;
+    }
+    if (page === MAX_PAGES) {
+      this.logger.warn(
+        `streamAllTasksBySpace(${spaceId}) active pass hit the ${MAX_PAGES}-page cap; results may be truncated and tasks beyond this window were not fetched`,
+      );
+      truncated = true;
+    }
+
+    if (!options.includeArchived) return { truncated };
+
+    // Archived pass: scan each list (see getSpaceLists / fetchListTasks),
+    // persisting per list-state. Each list is bounded, so memory stays flat.
+    const lists = await this.getSpaceLists(spaceId);
     for (const { id, archivedContainer } of lists) {
       const states = archivedContainer ? [true, false] : [true];
       for (const archived of states) {
         const res = await this.fetchListTasks(id, archived, options);
-        all.push(...res.tasks);
+        if (res.tasks.length) await onBatch(res.tasks);
         truncated = truncated || res.truncated;
       }
     }
-    return { tasks: all, truncated };
+    return { truncated };
   }
 
+  /**
+   * Thin collector over streamAllTasksBySpace — retains the full, de-duplicated
+   * task list in memory. Use only where the result set is small or in tests; the
+   * backfill path streams instead (see BackfillService) to stay memory-bounded.
+   */
   async getAllTasksBySpace(
     spaceId: string,
     options: {
@@ -302,29 +304,21 @@ export class ClickupClient {
       includeArchived?: boolean;
     },
   ): Promise<{ tasks: ClickUpTask[]; truncated: boolean }> {
-    const active = await this.fetchAllPages(spaceId, options, false);
-    if (!options.includeArchived) return active;
-
-    // Archived tasks are fetched per-list, not via the team endpoint: the
-    // latter caps `archived=true` at ~100 rows and reports last_page=true, so
-    // any space with more archived tasks silently loses the tail.
-    const archived = await this.fetchArchivedBySpace(spaceId, options);
-    // Dedupe by task id. A task should appear in only one pass, but ClickUp's
-    // `archived=true` semantics are handled defensively so any overlap is
-    // harmless. Tasks without an id (should not happen) are kept as-is.
     const seen = new Set<string>();
     const merged: ClickUpTask[] = [];
-    for (const t of [...active.tasks, ...archived.tasks]) {
-      const id = (t as { id?: string }).id;
-      if (id == null) {
+    const { truncated } = await this.streamAllTasksBySpace(spaceId, options, async (batch) => {
+      for (const t of batch) {
+        const id = (t as { id?: string }).id;
+        if (id == null) {
+          merged.push(t);
+          continue;
+        }
+        if (seen.has(id)) continue;
+        seen.add(id);
         merged.push(t);
-        continue;
       }
-      if (seen.has(id)) continue;
-      seen.add(id);
-      merged.push(t);
-    }
-    return { tasks: merged, truncated: active.truncated || archived.truncated };
+    });
+    return { tasks: merged, truncated };
   }
 
   async getTimeEntries(
