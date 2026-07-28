@@ -66,6 +66,22 @@ describe('CustomFieldExtractor', () => {
     it('truncates fractional sprint points to an integer', () => {
       expect(extractor.extract({ id: '1', points: 3.9 } as any).sprintPoints).toBe(3);
     });
+
+    it('clamps an out-of-int4-range value to 0 so it cannot overflow the column', () => {
+      // A "number" custom field whose name contains "point" (e.g. a phone/id
+      // field) got matched into sprint_points and blew up the upsert in prod.
+      const fromCustomField = extractor.extract({ id: '1', custom_fields: [
+        { name: 'Contact Point', value: 10001784894520 },
+      ] } as any);
+      expect(fromCustomField.sprintPoints).toBe(0);
+
+      // Same guard on the root-level source.
+      expect(extractor.extract({ id: '1', points: 10001784894520 } as any).sprintPoints).toBe(0);
+      // Negative is nonsensical for points → 0.
+      expect(extractor.extract({ id: '1', points: -5 } as any).sprintPoints).toBe(0);
+      // A large-but-valid int4 value still passes through.
+      expect(extractor.extract({ id: '1', points: 2000000000 } as any).sprintPoints).toBe(2000000000);
+    });
   });
 
   describe('value guards', () => {

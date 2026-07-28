@@ -18,11 +18,23 @@ export class TasksService {
 
   async syncTasks(tasks: unknown[]) {
     let count = 0;
+    let failed = 0;
     for (const raw of tasks) {
-      const normalized = this.normalizer.normalizeTask(raw as any);
-      await this.repo.upsert(normalized);
-      count += 1;
+      // Tolerant per-task: a single bad row (e.g. a field value that violates a
+      // column constraint) must not abort the whole batch and fail an entire
+      // space backfill. Log and skip it, then keep going — same policy as
+      // syncMissingParents. Failures are surfaced in the count/log, not silent.
+      try {
+        const normalized = this.normalizer.normalizeTask(raw as any);
+        await this.repo.upsert(normalized);
+        count += 1;
+      } catch (err: any) {
+        failed += 1;
+        const taskId = (raw as { id?: string })?.id;
+        this.logger.warn(`Skipped task ${taskId ?? '<unknown>'} during batch sync: ${err?.message ?? err}`);
+      }
     }
+    if (failed > 0) this.logger.warn(`Batch sync completed with ${failed} skipped task(s) of ${tasks.length}`);
     return count;
   }
 
