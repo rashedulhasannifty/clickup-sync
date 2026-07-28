@@ -34,75 +34,99 @@ export class BackfillService {
     const teamId = this.settings.getTeamId();
     await this.checkpoints.markAttempt('clickup', 'space', spaceId);
 
-    const { tasks: rawTasks, truncated } = await this.clickup.getAllTasksBySpace(spaceId, {
-      teamId,
-      dateUpdatedGt: subtractDays(days).getTime(),
-      includeClosed: true,
-      subtasks: true,
-      includeArchived: includeArchived ?? this.settings.getIncludeArchived(),
-    });
+    // Time-entry window (see below): when the caller passes an explicit
+    // `timeEntryLookbackDays` (the recurring reconciliation sweep does — see
+    // SyncScheduler), use it verbatim so the hourly sweep scans a *bounded*
+    // window instead of re-draining the full per-space window every run.
+    // Otherwise (manual backfills), the configured per-space lookback is a
+    // *floor*: a short task-sync window must not shrink the time-entry window,
+    // or entries logged earlier would never be picked up — but a longer explicit
+    // window is respected. The time-entry upsert is idempotent so re-scanning is
+    // safe.
+    const endDate = Date.now();
+    const teLookbackDays = timeEntryLookbackDays ?? Math.max(days, space?.backfillLookbackDays ?? days);
+    const teStartDate = subtractDays(teLookbackDays).getTime();
+    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
+    const jobOpts = this.queues.defaultJobOptions();
 
-    const parentTasks = rawTasks.filter((t) => !t.parent);
-    const subtasks = rawTasks.filter((t) => !!t.parent);
-    await this.tasks.syncTasks(parentTasks);
+    // Stream the space and persist each page/list as it arrives. Accumulating a
+    // multi-year archived pull in memory (tens of thousands of tasks, each with
+    // full raw JSON) OOM-kills the worker; streaming keeps the live set bounded
+    // and lets partial progress survive a restart. `seen` holds only task ids
+    // (small) to avoid double-processing a task that appears in both the active
+    // and archived passes.
+    const seen = new Set<string>();
+    const referencedParents = new Set<string>();
+    let total = 0;
+    let parents = 0;
+    let subs = 0;
+    const { truncated } = await this.clickup.streamAllTasksBySpace(
+      spaceId,
+      {
+        teamId,
+        dateUpdatedGt: subtractDays(days).getTime(),
+        includeClosed: true,
+        subtasks: true,
+        includeArchived: includeArchived ?? this.settings.getIncludeArchived(),
+      },
+      async (batch) => {
+        const fresh = batch.filter((t) => {
+          const id = (t as { id?: string }).id;
+          if (!id) return true;
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
+        if (!fresh.length) return;
 
-    // Subtasks may reference a parent that wasn't updated within the lookback
-    // window and so isn't in `rawTasks`. Fetch+insert those (if not already
-    // stored) before the subtasks, so parentTaskId never dangles.
-    const presentIds = new Set(
-      rawTasks.map((t) => (t as { id?: string }).id).filter((id): id is string => !!id),
+        const batchParents = fresh.filter((t) => !(t as { parent?: unknown }).parent);
+        const batchSubs = fresh.filter((t) => !!(t as { parent?: unknown }).parent);
+        await this.tasks.syncTasks(batchParents);
+        await this.tasks.syncTasks(batchSubs);
+
+        // Record referenced parents, but resolve missing ones ONCE after the
+        // stream (below) — not per batch. A subtask's parent often lands in a
+        // later list/page, so a per-batch lookup would fetch it individually
+        // and then upsert it again when its own batch arrives; across 400+
+        // lists that is a lot of redundant rate-limited /task calls.
+        for (const t of batchSubs) {
+          const p = (t as { parent?: string | null }).parent;
+          if (p) referencedParents.add(p);
+        }
+
+        // Enqueue time-entry sync per task. The worker resolves all-workspace
+        // members as the `assignee` filter, capturing tracked time regardless of
+        // who logged it.
+        for (const t of fresh) {
+          const taskId = (t as { id?: string }).id;
+          if (taskId) {
+            await queue.add(JOBS.SYNC_TASK_TIME_ENTRIES, { taskId, startDate: teStartDate, endDate }, jobOpts);
+          }
+        }
+
+        total += fresh.length;
+        parents += batchParents.length;
+        subs += batchSubs.length;
+      },
     );
-    const referencedParentIds = [
-      ...new Set(
-        subtasks
-          .map((t) => (t as { parent?: string | null }).parent)
-          .filter((p): p is string => !!p && !presentIds.has(p)),
-      ),
-    ];
-    await this.tasks.syncMissingParents(referencedParentIds);
 
-    await this.tasks.syncTasks(subtasks);
+    // Resolve parents referenced by subtasks but never seen in the stream (their
+    // own update fell outside the lookback window). Parents that DID appear in a
+    // batch are already stored, so exclude them; syncMissingParents re-checks the
+    // DB and fetches only those still absent, so parentTaskId never dangles.
+    const missingParentIds = [...referencedParents].filter((id) => !seen.has(id));
+    await this.tasks.syncMissingParents(missingParentIds);
 
     // The team-level tasks endpoint omits space.name — patch it from config
     if (space?.name) {
       await this.tasks.patchSpaceNames(spaceId, space.name);
     }
 
-    // Enqueue time entry sync for every task that was backfilled.
-    //
-    // When the caller passes an explicit `timeEntryLookbackDays` (the recurring
-    // reconciliation sweep does — see SyncScheduler), use it verbatim. This lets
-    // the hourly sweep scan a *bounded* time-entry window (e.g. 7 days) instead
-    // of re-draining the full configured per-space window every run, while still
-    // recovering time entries whose webhook was missed within that window.
-    //
-    // Otherwise (manual backfills), the configured per-space lookback is a
-    // *floor*: a short task-sync window must not shrink the time-entry window,
-    // or entries logged earlier would never be picked up. But when the caller
-    // explicitly asks for a *longer* window (e.g. a manual 140-day backfill),
-    // respect it — otherwise old time entries on recently-updated tasks (think:
-    // an expense task touched in April with hours logged back in January) are
-    // permanently invisible. The upsert is idempotent so re-scanning is safe.
-    const endDate = Date.now();
-    const teLookbackDays = timeEntryLookbackDays ?? Math.max(days, space?.backfillLookbackDays ?? days);
-    const teStartDate = subtractDays(teLookbackDays).getTime();
-    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
-    const jobOpts = this.queues.defaultJobOptions();
-    for (const task of rawTasks) {
-      const taskId = (task as { id?: string }).id;
-      if (taskId) {
-        // The time-entry worker resolves all-workspace-members as the
-        // `assignee` filter when no specific assignee is provided, which
-        // captures tracked time on tasks regardless of who logged it.
-        await queue.add(JOBS.SYNC_TASK_TIME_ENTRIES, { taskId, startDate: teStartDate, endDate }, jobOpts);
-      }
-    }
-
     await this.checkpoints.markSuccess('clickup', 'space', spaceId);
     if (truncated) {
       this.logger.warn(`Backfill of ${space?.name || spaceId} hit the task pagination cap — the result is incomplete and tasks beyond the cap were not synced`);
     }
-    this.logger.log(`Backfilled ${rawTasks.length} tasks + enqueued ${rawTasks.length} time-entry jobs for ${space?.name || spaceId}`);
-    return { total: rawTasks.length, parents: parentTasks.length, subtasks: subtasks.length, truncated };
+    this.logger.log(`Backfilled ${total} tasks + enqueued ${total} time-entry jobs for ${space?.name || spaceId}`);
+    return { total, parents, subtasks: subs, truncated };
   }
 }
