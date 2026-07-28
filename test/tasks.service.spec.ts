@@ -29,6 +29,21 @@ describe('TasksService', () => {
     expect(upsert).toHaveBeenCalledTimes(2);
   });
 
+  it('syncTasks tolerates one failing upsert and still processes the rest', async () => {
+    // A single bad row (e.g. a column-constraint violation) must not abort the
+    // whole batch and fail an entire space backfill.
+    const { svc, upsert } = makeDeps();
+    upsert
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error('value out of range for type integer'))
+      .mockResolvedValueOnce({});
+
+    const count = await svc.syncTasks([{ id: 'a' }, { id: 'bad' }, { id: 'c' }]);
+
+    expect(upsert).toHaveBeenCalledTimes(3); // did not stop at the bad one
+    expect(count).toBe(2); // only the two that succeeded
+  });
+
   it('softDeleteTask delegates to the repository', async () => {
     const { svc, softDelete } = makeDeps();
     await svc.softDeleteTask('t9');

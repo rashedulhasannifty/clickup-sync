@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ClickUpCustomField, ClickUpTask } from './clickup.types';
-import { toNumberOrZero } from '../common/utils/safe-value';
+import { toNumberOrZero, toSafeInt32 } from '../common/utils/safe-value';
 
 export interface ExtractedCustomFields { executiveName: string | null; department: string | null; client: string | null; cost: number; estimation: number; sprintName: string | null; sprintPoints: number; }
 
@@ -27,7 +27,10 @@ export class CustomFieldExtractor {
       if (name.includes('sprint') && !name.includes('point')) sprintName = String(value);
       if (name.includes('point') || name.includes('story point') || name === 'sprint points') sprintPoints = Math.trunc(toNumberOrZero(value));
     }
-    return { executiveName, department, client, cost, estimation, sprintName, sprintPoints: Math.trunc(sprintPoints) };
+    // sprint_points is an int4 column; a mis-matched custom field can carry a
+    // value far beyond int4 range (the `name.includes('point')` match above is
+    // broad). Clamp obvious garbage to 0 so it can't overflow and abort the upsert.
+    return { executiveName, department, client, cost, estimation, sprintName, sprintPoints: toSafeInt32(sprintPoints) };
   }
 
   private resolveDropdown(cf: ClickUpCustomField, value: unknown): string | null {
