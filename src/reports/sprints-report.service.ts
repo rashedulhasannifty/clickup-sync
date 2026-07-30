@@ -57,6 +57,19 @@ export class SprintsReportService {
     private readonly cycleTime: CycleTimeReportService,
   ) {}
 
+  /**
+   * Coerce to a finite integer, falling back to `fallback` when the input is
+   * undefined/NaN/±Infinity (e.g. an unvalidated `limit`/`offset` reaching this
+   * layer before Task 7's DTO validation exists — `Math.max(NaN, 1)` is `NaN`,
+   * which would otherwise splice a literal `NaN` into the query), then clamps
+   * to `[min, max]`. Always returns a finite integer in range.
+   */
+  private clampInt(value: number | undefined, fallback: number, min: number, max: number): number {
+    const n = Number(value);
+    const v = Number.isFinite(n) ? Math.trunc(n) : fallback;
+    return Math.min(Math.max(v, min), max);
+  }
+
   private statusFilter(status?: SprintStatus): Prisma.Sql {
     if (status === 'completed') return Prisma.sql`l.archived = true`;
     if (status === 'all') return Prisma.sql`TRUE`;
@@ -91,17 +104,15 @@ export class SprintsReportService {
     limit?: number;
     offset?: number;
   }): Promise<{ items: SprintRow[]; total: number }> {
-    const { spaceId, folderId, status, limit = 50, offset = 0 } = p;
+    const { spaceId, folderId, status } = p;
     const search = p.search?.trim();
-    // No existing $queryRaw in this repo binds LIMIT/OFFSET as a query
-    // parameter (paginated raw queries elsewhere use Prisma's findMany
-    // take/skip instead). Postgres does accept a bound parameter there, but
-    // rather than ship an unprecedented pattern, clamp to a plain integer
-    // first and splice it in as literal SQL text via Prisma.raw — safe
-    // specifically because both values are always numbers here, never
-    // unsanitized input.
-    const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
-    const safeOffset = Math.max(Math.trunc(offset), 0);
+    // Bound query parameters (mirrors ops-report.service.ts's
+    // `LIMIT ${safeLimit} OFFSET ${offset}` — Prisma binds these as real
+    // query params, which Postgres accepts fine for LIMIT/OFFSET). Clamped
+    // to a finite integer first so an unvalidated caller (Task 7's DTO
+    // validation doesn't exist yet) can't send NaN/±Infinity through.
+    const safeLimit = this.clampInt(p.limit, 50, 1, 500);
+    const safeOffset = this.clampInt(p.offset, 0, 0, 1_000_000_000);
     const statusClause = this.statusFilter(status);
     const spaceClause = spaceId ? Prisma.sql`AND l.space_id = ${spaceId}` : Prisma.empty;
     const folderClause = folderId ? Prisma.sql`AND l.folder_id = ${folderId}` : Prisma.empty;
@@ -123,7 +134,7 @@ export class SprintsReportService {
           ${searchClause}
         GROUP BY l.list_id, l.name, l.folder_name, l.space_name, l.archived, l.start_date, l.due_date
         ORDER BY l.due_date DESC NULLS LAST, l.name ASC
-        LIMIT ${Prisma.raw(String(safeLimit))} OFFSET ${Prisma.raw(String(safeOffset))}
+        LIMIT ${safeLimit} OFFSET ${safeOffset}
       `),
       this.prisma.$queryRaw<{ total: bigint }[]>(Prisma.sql`
         SELECT COUNT(*)::bigint AS total
@@ -257,9 +268,9 @@ export class SprintsReportService {
     limit = 12,
   ): Promise<{ listId: string; name: string; dueDate: Date | null; taskDone: number; hours: number }[]> {
     type Row = { list_id: string; name: string; due_date: Date | null; task_done: bigint; hours: number };
-    // See sprints()'s comment: clamp first, then splice the plain integer in
-    // as literal SQL rather than binding LIMIT as a query parameter.
-    const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 100);
+    // See sprints()'s comment: clamp to a finite integer first, then bind it
+    // as a normal query parameter (mirrors ops-report.service.ts).
+    const safeLimit = this.clampInt(limit, 12, 1, 100);
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT l.list_id, l.name, l.due_date,
              COUNT(DISTINCT t.task_id) FILTER (WHERE t.status_type IN ('closed', 'done'))::bigint AS task_done,
@@ -270,7 +281,7 @@ export class SprintsReportService {
       WHERE l.folder_id = ${folderId}
       GROUP BY l.list_id, l.name, l.due_date
       ORDER BY l.due_date DESC NULLS LAST
-      LIMIT ${Prisma.raw(String(safeLimit))}
+      LIMIT ${safeLimit}
     `);
     return rows.map((r) => ({
       listId: r.list_id,

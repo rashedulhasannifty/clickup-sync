@@ -8,6 +8,10 @@ function sqlOf(call: any): string {
   return call.sql ?? call.text ?? String(call);
 }
 
+function valuesOf(call: any): unknown[] {
+  return call.values ?? [];
+}
+
 describe('SprintsReportService', () => {
   describe('sprints', () => {
     it('maps rows and status=completed filters archived=true', async () => {
@@ -65,14 +69,42 @@ describe('SprintsReportService', () => {
       expect(sql).toMatch(/l\.name ILIKE/);
     });
 
-    it('splices limit/offset as clamped literal integers, not bound params', async () => {
+    it('binds limit/offset as normal query parameters, clamped to range', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ total: 0n }]);
       const svc = new SprintsReportService(prisma, {} as any);
       await svc.sprints({ limit: 999, offset: -5 });
       const sql = sqlOf(prisma.$queryRaw.mock.calls[0][0]);
-      expect(sql).toMatch(/LIMIT 500\b/);
-      expect(sql).toMatch(/OFFSET 0\b/);
+      // Prisma.Sql's `.sql` uses `?` placeholders (driver-specific `$n`/`?`
+      // conversion happens later) — a bound param, not a spliced literal.
+      expect(sql).toMatch(/LIMIT \? OFFSET \?/);
+      const values = valuesOf(prisma.$queryRaw.mock.calls[0][0]);
+      expect(values).toContain(500); // clamped to the 1-500 cap
+      expect(values).toContain(0); // clamped to >= 0
+    });
+
+    it('falls back to the default limit/offset for non-finite input instead of splicing NaN', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ total: 0n }]);
+      const svc = new SprintsReportService(prisma, {} as any);
+      await svc.sprints({ limit: NaN, offset: Infinity });
+      const sql = sqlOf(prisma.$queryRaw.mock.calls[0][0]);
+      expect(sql).not.toMatch(/NaN|Infinity/);
+      const values = valuesOf(prisma.$queryRaw.mock.calls[0][0]);
+      expect(values.every((v) => typeof v !== 'number' || Number.isFinite(v))).toBe(true);
+      expect(values).toContain(50); // default limit fallback
+      expect(values).toContain(0); // default offset fallback
+    });
+
+    it('keeps a pathologically large offset a finite clamped integer', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ total: 0n }]);
+      const svc = new SprintsReportService(prisma, {} as any);
+      await svc.sprints({ offset: 1e21 });
+      const values = valuesOf(prisma.$queryRaw.mock.calls[0][0]);
+      const offsetValue = values.find((v) => typeof v === 'number' && v > 1000);
+      expect(offsetValue).toBe(1_000_000_000);
+      expect(Number.isFinite(offsetValue)).toBe(true);
     });
 
     it('pctDone is 0 when taskTotal is 0', async () => {
@@ -199,18 +231,26 @@ describe('SprintsReportService', () => {
       expect(res[0]).toMatchObject({ listId: 'l1', taskDone: 7, hours: 12 });
       const sql = sqlOf(prisma.$queryRaw.mock.calls[0][0]);
       expect(sql).toMatch(/ORDER BY l\.due_date DESC NULLS LAST/);
-      // Literal (pre-clamped) integer, not a bound parameter — asserting the
-      // actual number, not just the LIMIT keyword, so this fails if the
-      // clamp/interpolation regresses.
-      expect(sql).toMatch(/LIMIT 5\b/);
+      // Bound parameter (mirrors ops-report.service.ts), so the SQL text only
+      // shows the `?` placeholder — assert the actual clamped value via `.values`.
+      expect(sql).toMatch(/LIMIT \?/);
+      expect(valuesOf(prisma.$queryRaw.mock.calls[0][0])).toContain(5);
     });
 
     it('clamps an out-of-range limit to the 1-100 cap', async () => {
       const prisma = makePrisma();
       const svc = new SprintsReportService(prisma, {} as any);
       await svc.velocity('f1', 999);
+      expect(valuesOf(prisma.$queryRaw.mock.calls[0][0])).toContain(100);
+    });
+
+    it('falls back to the default limit for non-finite input instead of splicing NaN', async () => {
+      const prisma = makePrisma();
+      const svc = new SprintsReportService(prisma, {} as any);
+      await svc.velocity('f1', NaN);
       const sql = sqlOf(prisma.$queryRaw.mock.calls[0][0]);
-      expect(sql).toMatch(/LIMIT 100\b/);
+      expect(sql).not.toMatch(/NaN/);
+      expect(valuesOf(prisma.$queryRaw.mock.calls[0][0])).toContain(12); // default
     });
 
     it('uses COUNT(DISTINCT t.task_id) so the time-entry join does not inflate taskDone', async () => {
