@@ -45,6 +45,19 @@ Add a BullMQ job to `clickup-backfills` with payload:
 { "spaceId": "3577824", "lookbackDays": 90 }
 ```
 
+## Sprint / list catalog
+
+`clickup_lists` is the sprint/list catalog behind `/reports/sprints*` and the `sprintStatus` filter on `/reports/tasks` and `/reports/time-entries`. It is kept in sync four ways:
+
+- **Every manual space backfill** (`POST /admin/backfill`) — after the task/time-entry sync succeeds, `BackfillService` best-effort refreshes the list catalog for that space (failures here are logged only; they never fail the backfill itself).
+- **Daily cron** — `SyncScheduler.syncListCatalogs()` runs at 03:00 (`@Cron('0 0 3 * * *')`, job `sync-list-catalog` on the `clickup-backfills` queue), one job per space that's configured and enabled in Settings. This is the backstop for lists that change out-of-band (renamed, moved, archived) without any task in them being touched.
+- **`POST /admin/lists/sync`** — body `{ "spaceId": "3577824" }` to sync one space, or an empty body to sync every configured space (regardless of the enabled/disabled setting).
+- **Opportunistically from task webhooks/sync** — every normalized task write also upserts its list's `name`/`folderId`/`folderName`/`spaceId`/`spaceName` into the catalog, so new lists show up promptly.
+
+Only the backfill/cron/`POST /admin/lists/sync` paths are authoritative for the `archived` flag and the sprint `startDate`/`dueDate` — the opportunistic webhook path deliberately never writes those fields, so a list that's only ever touched via webhook won't have its archived/date fields populated until one of the other three paths runs.
+
+**Bootstrap:** after deploying this feature, call `POST /admin/lists/sync` once to populate the catalog before the first 03:00 cron run.
+
 ## Assignee rates
 
 Rates are managed in the dashboard (`/assignee-rates`) via `POST|PATCH|DELETE /admin/rates`. Changing a rate automatically triggers a scoped `recalculate-costs` job on the `maintenance` queue that recomputes costs for affected `clickup_time_entries`. There is no Google Sheets sync. For a manual full recalculation, call `POST /admin/rates/recalculate`.
