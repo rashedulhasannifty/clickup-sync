@@ -32,6 +32,7 @@ export const JOBS = {
   REFRESH_CLICKUP_WEBHOOKS: 'refresh-clickup-webhooks',
   REPLACE_TIME_ENTRY_ASSIGNEES: 'replace-time-entry-assignees',
   RECALCULATE_COSTS: 'recalculate-costs',
+  SYNC_LIST_CATALOG: 'sync-list-catalog',
 } as const;
 
 /**

@@ -1,5 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { AdminSyncController } from '../src/admin/admin-sync.controller';
+import { JOBS } from '../src/queues/queue.constants';
+import { CLICKUP_SPACES } from '../src/config/clickup-spaces.config';
 
 describe('AdminSyncController', () => {
   // Fake ioredis surface used by the progress high-water mark. `stored` seeds
@@ -108,7 +110,7 @@ describe('AdminSyncController', () => {
     it('skips (does not enqueue) when a backfill for the space is already in flight', async () => {
       const add = jest.fn().mockResolvedValue(undefined);
       // A live backfill job for the SAME space is already queued/active.
-      const getJobs = jest.fn().mockResolvedValue([{ data: { spaceId: '3525433' } }]);
+      const getJobs = jest.fn().mockResolvedValue([{ name: JOBS.BACKFILL_CLICKUP_SPACE, data: { spaceId: '3525433' } }]);
       const queues = { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
 
       const result = await makeCtrl({ queues, settings: makeSettings(3650) }).backfill({ spaceId: '3525433', lookbackDays: 1500 });
@@ -119,13 +121,54 @@ describe('AdminSyncController', () => {
 
     it('enqueues when the in-flight job is for a DIFFERENT space', async () => {
       const add = jest.fn().mockResolvedValue(undefined);
-      const getJobs = jest.fn().mockResolvedValue([{ data: { spaceId: '3577824' } }]); // other space busy
+      const getJobs = jest.fn().mockResolvedValue([{ name: JOBS.BACKFILL_CLICKUP_SPACE, data: { spaceId: '3577824' } }]); // other space busy
       const queues = { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
 
       const result = await makeCtrl({ queues, settings: makeSettings(3650) }).backfill({ spaceId: '3525433', lookbackDays: 1500 });
 
       expect(result).toEqual({ queued: true, spaceId: '3525433', lookbackDays: 1500 });
       expect(add).toHaveBeenCalledTimes(1);
+    });
+
+    // Task 5: CLICKUP_BACKFILLS is now shared with SYNC_LIST_CATALOG jobs. A
+    // pending/retrying catalog job for this space must NOT be mistaken for an
+    // in-flight backfill, or a manual "sync space" would be refused for a
+    // genuinely idle space.
+    it('enqueues when the only in-flight job for the space is a list-catalog sync', async () => {
+      const add = jest.fn().mockResolvedValue(undefined);
+      const getJobs = jest.fn().mockResolvedValue([{ name: JOBS.SYNC_LIST_CATALOG, data: { spaceId: '3525433' } }]);
+      const queues = { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
+
+      const result = await makeCtrl({ queues, settings: makeSettings(3650) }).backfill({ spaceId: '3525433', lookbackDays: 1500 });
+
+      expect(result).toEqual({ queued: true, spaceId: '3525433', lookbackDays: 1500 });
+      expect(add).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('syncLists', () => {
+    it('enqueues a single SYNC_LIST_CATALOG job for the given spaceId', async () => {
+      const queues = makeQueues();
+      const result = await makeCtrl({ queues }).syncLists({ spaceId: '3577824' });
+      expect(result).toEqual({ queued: 1 });
+      expect(queues.get).toHaveBeenCalledWith('clickup-backfills');
+      const add = (queues.get as jest.Mock).mock.results[0].value.add as jest.Mock;
+      expect(add).toHaveBeenCalledWith(JOBS.SYNC_LIST_CATALOG, { spaceId: '3577824' }, {});
+    });
+
+    it('enqueues one job per configured space when spaceId is omitted', async () => {
+      const queues = makeQueues();
+      const result = await makeCtrl({ queues }).syncLists({});
+      expect(result).toEqual({ queued: CLICKUP_SPACES.length });
+      const add = (queues.get as jest.Mock).mock.results[0].value.add as jest.Mock;
+      expect(add).toHaveBeenCalledTimes(CLICKUP_SPACES.length);
+      for (const space of CLICKUP_SPACES) {
+        expect(add).toHaveBeenCalledWith(JOBS.SYNC_LIST_CATALOG, { spaceId: space.id }, {});
+      }
+    });
+
+    it('throws BadRequestException for an unknown spaceId', async () => {
+      await expect(makeCtrl().syncLists({ spaceId: 'bad-id' })).rejects.toThrow(BadRequestException);
     });
   });
 
@@ -148,13 +191,25 @@ describe('AdminSyncController', () => {
 
     it('reports backfill phase as "fetching" with no total', async () => {
       const queues = makeQueuesWithJobs({
-        'clickup-backfills': [{ data: { spaceId: '3589129' } }],
+        'clickup-backfills': [{ name: JOBS.BACKFILL_CLICKUP_SPACE, data: { spaceId: '3589129' } }],
         'clickup-time-entries': [],
       });
       const result = await makeCtrl({ queues }).backfillActive();
       expect(result.spaces).toEqual([
         { spaceId: '3589129', phase: 'fetching', total: null, done: null, remaining: 0 },
       ]);
+    });
+
+    // Task 5: a queued SYNC_LIST_CATALOG job (shares CLICKUP_BACKFILLS) must
+    // not be mistaken for a "fetching" backfill — it carries no task-count
+    // total and isn't a backfill in progress.
+    it('does not report a list-catalog-only job as an active/fetching space', async () => {
+      const queues = makeQueuesWithJobs({
+        'clickup-backfills': [{ name: JOBS.SYNC_LIST_CATALOG, data: { spaceId: '3589129' } }],
+        'clickup-time-entries': [],
+      });
+      const result = await makeCtrl({ queues }).backfillActive();
+      expect(result.spaces).toEqual([]);
     });
 
     it('attributes time-entry queue depth to spaces via clickup_tasks', async () => {
@@ -239,7 +294,7 @@ describe('AdminSyncController', () => {
       prisma.clickupTask.findMany.mockResolvedValue([{ taskId: 't1', spaceId: '3525433' }]);
       const queues = makeQueuesWithJobs(
         {
-          'clickup-backfills': [{ data: { spaceId: '3525433' } }], // fresh backfill → fetching
+          'clickup-backfills': [{ name: JOBS.BACKFILL_CLICKUP_SPACE, data: { spaceId: '3525433' } }], // fresh backfill → fetching
           'clickup-time-entries': [{ data: { taskId: 't1' } }], // big backlog still draining
         },
         { '3525433': '8000' },
@@ -277,7 +332,7 @@ describe('AdminSyncController', () => {
       const prisma = makePrisma();
       prisma.clickupTask.findMany.mockResolvedValue([{ taskId: 't1', spaceId: '3589129' }]);
       const queues = makeQueuesWithJobs({
-        'clickup-backfills': [{ data: { spaceId: '3589129' } }],
+        'clickup-backfills': [{ name: JOBS.BACKFILL_CLICKUP_SPACE, data: { spaceId: '3589129' } }],
         'clickup-time-entries': [{ data: { taskId: 't1' } }],
       });
       const result = await makeCtrl({ queues, prisma }).backfillActive();

@@ -27,9 +27,13 @@ export class SyncScheduler {
     // duplicate per-space backfills (and their per-task time-entry fan-out).
     // jobId dedup can't help here: cron never re-adds an identical id, and a
     // stable id would be blocked forever by the kept completed job.
+    // The CLICKUP_BACKFILLS queue is now shared with SYNC_LIST_CATALOG jobs
+    // (Task 5), so filter by job name — otherwise a pending/retrying catalog
+    // job would make its space look "busy" and silently skip this reconcile.
     const live = await queue.getJobs(['active', 'waiting', 'delayed', 'prioritized']);
     const busy = new Set(
       live
+        .filter((j) => j.name === JOBS.BACKFILL_CLICKUP_SPACE)
         .map((j) => (j.data as { spaceId?: string } | undefined)?.spaceId)
         .filter((v): v is string => typeof v === 'string'),
     );
@@ -53,6 +57,23 @@ export class SyncScheduler {
         { spaceId: space.id, lookbackDays: 1, timeEntryLookbackDays: 7, includeArchived: false },
         this.queues.defaultJobOptions(),
       );
+    }
+  }
+
+  // Daily refresh of the list/folder catalog per space. Backfills already
+  // trigger this opportunistically (see BackfillService.backfillSpace), but a
+  // space can go a while between backfills/reconciles for lists that changed
+  // out-of-band (renamed, moved to a different folder, archived) without any
+  // task in that list being touched — this cron is the backstop.
+  @Cron('0 0 3 * * *')
+  async syncListCatalogs() {
+    const queue = this.queues.get(QUEUES.CLICKUP_BACKFILLS);
+    for (const space of CLICKUP_SPACES) {
+      if (!this.settings.isSpaceEnabled(space.id)) {
+        this.logger.log(`Skipping list-catalog sync for space ${space.id}: disabled in settings`);
+        continue;
+      }
+      await queue.add(JOBS.SYNC_LIST_CATALOG, { spaceId: space.id }, this.queues.defaultJobOptions());
     }
   }
 }

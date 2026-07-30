@@ -6,6 +6,7 @@ import { AuditLogInterceptor } from './audit-log.interceptor';
 import { SyncTaskDto } from './dto/sync-task.dto';
 import { BackfillDto } from './dto/backfill.dto';
 import { BackfillReplacementDto } from './dto/backfill-replacement.dto';
+import { SyncListsDto } from './dto/sync-lists.dto';
 import { SettingsService } from '../settings/settings.service';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
@@ -79,15 +80,39 @@ export class AdminSyncController {
     // call could otherwise stack a second backfill — and each one fans out a
     // per-task time-entry job for the whole space. Mirrors the overlap guard in
     // reconcileTasks / SyncScheduler.reconcileRecentUpdates.
+    // CLICKUP_BACKFILLS is now shared with SYNC_LIST_CATALOG jobs (Task 5), so
+    // filter by job name here too — otherwise a pending/retrying catalog job
+    // for this space would make a genuinely-idle space report "already
+    // running" and silently refuse a manual backfill.
     const live = await queue.getJobs(['active', 'waiting', 'delayed', 'prioritized']);
     const alreadyRunning = live.some(
-      (j) => (j.data as { spaceId?: string } | undefined)?.spaceId === dto.spaceId,
+      (j) => j.name === JOBS.BACKFILL_CLICKUP_SPACE && (j.data as { spaceId?: string } | undefined)?.spaceId === dto.spaceId,
     );
     if (alreadyRunning) {
       return { queued: false, alreadyRunning: true, spaceId: dto.spaceId };
     }
     await queue.add(JOBS.BACKFILL_CLICKUP_SPACE, { spaceId: dto.spaceId, lookbackDays }, this.queues.defaultJobOptions());
     return { queued: true, spaceId: dto.spaceId, lookbackDays };
+  }
+
+  @Post('lists/sync')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Manually trigger a list/folder catalog sync for one space, or all configured spaces if spaceId is omitted' })
+  async syncLists(@Body() dto: SyncListsDto) {
+    const queue = this.queues.get(QUEUES.CLICKUP_BACKFILLS);
+    const jobOpts = this.queues.defaultJobOptions();
+
+    if (dto.spaceId) {
+      const space = CLICKUP_SPACES.find((s) => s.id === dto.spaceId);
+      if (!space) throw new BadRequestException(`Unknown spaceId: ${dto.spaceId}. Valid: ${CLICKUP_SPACES.map((s) => s.id).join(', ')}.`);
+      await queue.add(JOBS.SYNC_LIST_CATALOG, { spaceId: dto.spaceId }, jobOpts);
+      return { queued: 1 };
+    }
+
+    for (const space of CLICKUP_SPACES) {
+      await queue.add(JOBS.SYNC_LIST_CATALOG, { spaceId: space.id }, jobOpts);
+    }
+    return { queued: CLICKUP_SPACES.length };
   }
 
   /**
@@ -120,6 +145,9 @@ export class AdminSyncController {
 
     const fetchingSpaceIds = new Set<string>();
     for (const job of backfillJobs) {
+      // CLICKUP_BACKFILLS also carries SYNC_LIST_CATALOG jobs (Task 5); only a
+      // real backfill job means the space is "fetching" for this progress bar.
+      if (job.name !== JOBS.BACKFILL_CLICKUP_SPACE) continue;
       const sid = (job.data as { spaceId?: string } | undefined)?.spaceId;
       if (sid) fetchingSpaceIds.add(sid);
     }

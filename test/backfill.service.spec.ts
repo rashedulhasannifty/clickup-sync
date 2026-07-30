@@ -47,7 +47,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   // silently capped to the R&D Apps 20-day configured lookback.
   it('expands the time-entry window when lookbackDays override exceeds the space floor', async () => {
     const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any, { syncSpace: jest.fn().mockResolvedValue({ synced: 0 }) } as any);
 
     const beforeMs = Date.now();
     await svc.backfillSpace(RD_APPS_ID, 140);
@@ -65,7 +65,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   // time logged earlier in the week is invisible until the next full backfill.
   it('keeps the space floor when the lookbackDays override is shorter', async () => {
     const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any, { syncSpace: jest.fn().mockResolvedValue({ synced: 0 }) } as any);
 
     const beforeMs = Date.now();
     await svc.backfillSpace(RD_APPS_ID, 1);
@@ -84,7 +84,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   // space floor (here 7 < the R&D Apps 30-day floor).
   it('uses an explicit timeEntryLookbackDays even when shorter than the space floor', async () => {
     const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any, { syncSpace: jest.fn().mockResolvedValue({ synced: 0 }) } as any);
 
     const beforeMs = Date.now();
     await svc.backfillSpace(RD_APPS_ID, 1, 7);
@@ -109,7 +109,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
         { id: 'sub-2', parent: 'parent-MISSING' }, // parent absent from page
       ]),
     } as any;
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any, { syncSpace: jest.fn().mockResolvedValue({ synced: 0 }) } as any);
 
     await svc.backfillSpace('99999999', 30);
 
@@ -130,7 +130,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
         return { truncated: false };
       }),
     } as any;
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any, { syncSpace: jest.fn().mockResolvedValue({ synced: 0 }) } as any);
 
     const res = await svc.backfillSpace('99999999', 30);
 
@@ -146,7 +146,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   // Unknown space → no configured floor → use the override as-is.
   it('uses the lookbackDays override directly when the space is not configured', async () => {
     const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any, { syncSpace: jest.fn().mockResolvedValue({ synced: 0 }) } as any);
 
     const beforeMs = Date.now();
     await svc.backfillSpace('99999999', 45);
@@ -165,7 +165,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   // — which stay at the default priority 0 (= highest in BullMQ).
   it('enqueues backfill time-entry jobs with a deprioritizing priority', async () => {
     const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any, { syncSpace: jest.fn().mockResolvedValue({ synced: 0 }) } as any);
 
     await svc.backfillSpace(RD_APPS_ID, 30);
 
@@ -180,7 +180,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   // backfill runs the archived second pass exactly when the toggle is on.
   it('passes includeArchived=true from settings into getAllTasksBySpace', async () => {
     const { clickup, tasks, checkpoints, queues } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any, { syncSpace: jest.fn().mockResolvedValue({ synced: 0 }) } as any);
 
     await svc.backfillSpace(RD_APPS_ID, 30);
 
@@ -189,7 +189,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
 
   it('passes includeArchived=false when the setting is off', async () => {
     const { clickup, tasks, checkpoints, queues } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => false } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => false } as any, { syncSpace: jest.fn().mockResolvedValue({ synced: 0 }) } as any);
 
     await svc.backfillSpace(RD_APPS_ID, 30);
 
@@ -201,7 +201,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   // even when the toggle is on.
   it('lets an explicit includeArchived=false override a setting that is on', async () => {
     const { clickup, tasks, checkpoints, queues } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any, { syncSpace: jest.fn().mockResolvedValue({ synced: 0 }) } as any);
 
     await svc.backfillSpace(RD_APPS_ID, 1, 7, false);
 
@@ -210,10 +210,38 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
 
   it('lets an explicit includeArchived=true override a setting that is off', async () => {
     const { clickup, tasks, checkpoints, queues } = makeDeps();
-    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => false } as any);
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => false } as any, { syncSpace: jest.fn().mockResolvedValue({ synced: 0 }) } as any);
 
     await svc.backfillSpace(RD_APPS_ID, 30, undefined, true);
 
     expect(clickup.streamAllTasksBySpace).toHaveBeenCalledWith(RD_APPS_ID, expect.objectContaining({ includeArchived: true }), expect.any(Function));
+  });
+
+  // Task 5: a successful backfill also refreshes the list catalog for the
+  // space, so the sprint report has up-to-date list/folder names without a
+  // separate manual trigger.
+  it('syncs the list catalog for the space after a successful backfill', async () => {
+    const { queues, clickup, tasks, checkpoints } = makeDeps();
+    const listCatalog = { syncSpace: jest.fn().mockResolvedValue({ synced: 5 }) } as any;
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any, listCatalog);
+
+    await svc.backfillSpace(RD_APPS_ID, 30);
+
+    expect(listCatalog.syncSpace).toHaveBeenCalledWith(RD_APPS_ID);
+  });
+
+  // Guard: the catalog sync is a best-effort side effect. If ClickUp/DB hiccups
+  // on the list-catalog call, the backfill itself (already recorded as
+  // successful via markSuccess) must still resolve normally — a catalog outage
+  // must never turn into a failed backfill job / retry storm.
+  it('does not fail the backfill when the list-catalog sync rejects', async () => {
+    const { queues, clickup, tasks, checkpoints } = makeDeps();
+    const listCatalog = { syncSpace: jest.fn().mockRejectedValue(new Error('catalog boom')) } as any;
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any, listCatalog);
+
+    const res = await svc.backfillSpace(RD_APPS_ID, 30);
+
+    expect(res.total).toBe(1);
+    expect(checkpoints.markSuccess).toHaveBeenCalled();
   });
 });
