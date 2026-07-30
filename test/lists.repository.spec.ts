@@ -19,6 +19,19 @@ describe('ListsRepository', () => {
     }));
   });
 
+  it('upsertMany omits null folder/space fields from update so a prior resolved value survives', async () => {
+    const prisma = makePrisma();
+    const repo = new ListsRepository(prisma);
+    await repo.upsertMany([{ listId: 'l1', name: 'Sprint 1', folderId: null, folderName: null, spaceId: null, spaceName: null, archived: true, startDate: new Date('2026-07-01'), dueDate: null }]);
+    const arg = prisma.clickupList.upsert.mock.calls[0][0];
+    expect(arg.update).not.toHaveProperty('folderId');
+    expect(arg.update).not.toHaveProperty('folderName');
+    expect(arg.update).not.toHaveProperty('spaceId');
+    expect(arg.update).not.toHaveProperty('spaceName');
+    expect(arg.update).toHaveProperty('archived', true);
+    expect(arg.update).toHaveProperty('startDate');
+  });
+
   it('upsertMinimalFromTasks dedupes by listId and never sets archived/dates', async () => {
     const prisma = makePrisma();
     const repo = new ListsRepository(prisma);
