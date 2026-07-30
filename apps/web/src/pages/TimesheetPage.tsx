@@ -112,9 +112,7 @@ export function TimesheetPage() {
   const [showCost, setShowCost] = useState(true);
 
   const assigneeOptions = useMemo(() => {
-    const opts: { value: string; label: string; icon?: ReactNode }[] = [
-      { value: '', label: 'Select a teammate…' },
-    ];
+    const opts: { value: string; label: string; icon?: ReactNode }[] = [];
     for (const a of assignees ?? []) {
       if (!a.id) continue;
       opts.push({
@@ -200,7 +198,7 @@ export function TimesheetPage() {
         display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
         padding: '10px 12px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
       }}>
-        <Select ariaLabel="Select teammate" size="md" options={assigneeOptions} value={userId} onChange={setUserId} />
+        <Select ariaLabel="Select teammate" size="md" searchable placeholder="Select a teammate…" searchPlaceholder="Search teammates…" options={assigneeOptions} value={userId} onChange={setUserId} />
         <span style={{
           display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12,
           color: 'var(--text-muted)', padding: '4px 8px', background: 'var(--muted-bg)', borderRadius: 6,
