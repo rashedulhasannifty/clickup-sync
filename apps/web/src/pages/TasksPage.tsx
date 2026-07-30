@@ -49,6 +49,12 @@ const ARCHIVED_OPTIONS = [
   { value: 'only', label: 'Archived only' },
 ];
 
+const SPRINT_STATUS_OPTIONS = [
+  { value: 'all', label: 'All sprints' },
+  { value: 'active', label: 'Active sprints' },
+  { value: 'completed', label: 'Completed sprints' },
+];
+
 function parseAssignees(r: Task): { name: string; email?: string }[] {
   const names = String(r.assigneesNames ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   const emails = String(r.assigneesEmails ?? '').split(',').map((s) => s.trim());
@@ -289,6 +295,7 @@ export function TasksPage() {
   const [listFilter, setListFilter] = useState<string[]>([]);
   const [folderFilter, setFolderFilter] = useState<string[]>([]);
   const [archivedFilter, setArchivedFilter] = useState('include');
+  const [sprintStatus, setSprintStatus] = useState('all');
   const [taskIdsFilter, setTaskIdsFilter] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -434,11 +441,12 @@ export function TasksPage() {
     listId: listFilter.length ? listFilter.join(',') : undefined,
     folderId: folderFilter.length ? folderFilter.join(',') : undefined,
     archived: archivedFilter,
+    sprintStatus: sprintStatus !== 'all' ? sprintStatus : undefined,
     taskIds: isDeepLink ? taskIdsFilter.join(',') : undefined,
     // Global topbar date range filters by task `updated_date`.
     from: isDeepLink ? undefined : (fromDate || undefined),
     to: isDeepLink ? undefined : (toDate || undefined),
-  }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, listFilter, folderFilter, archivedFilter, taskIdsFilter, fromDate, toDate]);
+  }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, listFilter, folderFilter, archivedFilter, sprintStatus, taskIdsFilter, fromDate, toDate]);
 
   const tasksQuery = useTasks(taskParams as Record<string, string | number | undefined>);
   const { data, isLoading, refetch } = tasksQuery;
@@ -449,7 +457,7 @@ export function TasksPage() {
   const hasFilters = !!(
     searchRaw || search || statusFilter.length || priorityFilter.length || typeFilter
     || assigneeFilter.length || clientFilter.length || listFilter.length || folderFilter.length
-    || archivedFilter !== 'include' || taskIdsFilter.length > 0
+    || archivedFilter !== 'include' || sprintStatus !== 'all' || taskIdsFilter.length > 0
   );
 
   function reset() {
@@ -463,6 +471,7 @@ export function TasksPage() {
     setListFilter([]);
     setFolderFilter([]);
     setArchivedFilter('include');
+    setSprintStatus('all');
     setTaskIdsFilter([]);
     setPage(1);
   }
@@ -782,6 +791,7 @@ export function TasksPage() {
         <MultiSelect ariaLabel="Filter by list" size="md" allLabel="Any list" value={listFilter} onChange={v => { setListFilter(v); setPage(1); }} options={listOptions} />
         <Select ariaLabel="Filter by type" size="md" value={typeFilter} onChange={v => { setTypeFilter(v); setPage(1); }} options={TYPE_OPTIONS} />
         <Select ariaLabel="Filter by archived state" size="md" value={archivedFilter} onChange={v => { setArchivedFilter(v); setPage(1); }} options={ARCHIVED_OPTIONS} />
+        <Select ariaLabel="Filter by sprint status" size="md" value={sprintStatus} onChange={v => { setSprintStatus(v); setPage(1); }} options={SPRINT_STATUS_OPTIONS} />
         {hasFilters && (
           <Button size="md" variant="ghost" icon={<X size={13} strokeWidth={1.75} />} onClick={reset}>Reset</Button>
         )}
