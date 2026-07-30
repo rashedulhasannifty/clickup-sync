@@ -1,5 +1,5 @@
 import { BackfillService } from '../src/sync/backfill.service';
-import { JOBS } from '../src/queues/queue.constants';
+import { JOBS, BACKFILL_TIME_ENTRY_PRIORITY } from '../src/queues/queue.constants';
 
 describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   const RD_APPS_ID = '3589129'; // configured backfillLookbackDays = 30
@@ -157,6 +157,23 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
     const days45Ms = 45 * 24 * 60 * 60 * 1000;
     expect(startDateOf(calls[0])).toBeGreaterThanOrEqual(beforeMs - days45Ms);
     expect(startDateOf(calls[0])).toBeLessThanOrEqual(afterMs - days45Ms + 5);
+  });
+
+  // Bulk backfill time-entry jobs must be enqueued with a non-zero BullMQ
+  // priority so they land in the prioritized set (drained only when `wait` is
+  // empty) and never head-of-line-block live taskTimeTrackedUpdated webhook jobs
+  // — which stay at the default priority 0 (= highest in BullMQ).
+  it('enqueues backfill time-entry jobs with a deprioritizing priority', async () => {
+    const { queueAdd, queues, clickup, tasks, checkpoints } = makeDeps();
+    const svc = new BackfillService(clickup, tasks, checkpoints, queues, { getTeamId: () => '3450636', getIncludeArchived: () => true } as any);
+
+    await svc.backfillSpace(RD_APPS_ID, 30);
+
+    const calls = timeEntryJobs(queueAdd);
+    expect(calls).toHaveLength(1);
+    const jobOpts = calls[0][2];
+    expect(jobOpts.priority).toBe(BACKFILL_TIME_ENTRY_PRIORITY);
+    expect(jobOpts.priority).toBeGreaterThanOrEqual(1);
   });
 
   // The includeArchived setting flows from SettingsService into the fetch, so a

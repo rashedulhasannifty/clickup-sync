@@ -54,7 +54,7 @@ export class AdminSyncController {
   @Post('backfill')
   @HttpCode(200)
   @ApiOperation({ summary: 'Trigger a space backfill' })
-  backfill(@Body() dto: BackfillDto) {
+  async backfill(@Body() dto: BackfillDto) {
     const space = CLICKUP_SPACES.find((s) => s.id === dto.spaceId);
     if (!space && !dto.allowUnknownSpaces) throw new BadRequestException(`Unknown spaceId: ${dto.spaceId}. Valid: ${CLICKUP_SPACES.map((s) => s.id).join(', ')}. Pass allowUnknownSpaces: true to override.`);
     // The DTO only enforces the absolute 3650-day backstop; the effective cap is
@@ -64,7 +64,21 @@ export class AdminSyncController {
       throw new BadRequestException(`lookbackDays ${dto.lookbackDays} exceeds the configured maximum ${cap}. Raise it in Settings → Sync.`);
     }
     const lookbackDays = dto.lookbackDays ?? space?.backfillLookbackDays ?? 30;
-    this.queues.get(QUEUES.CLICKUP_BACKFILLS).add(JOBS.BACKFILL_CLICKUP_SPACE, { spaceId: dto.spaceId, lookbackDays }, this.queues.defaultJobOptions());
+    const queue = this.queues.get(QUEUES.CLICKUP_BACKFILLS);
+    // Refuse a duplicate while a backfill for this space is already in flight.
+    // The frontend disables the button, but it relies on polled state with lag,
+    // so "Sync all", a double-click, the recurring reconcile, or a direct API
+    // call could otherwise stack a second backfill — and each one fans out a
+    // per-task time-entry job for the whole space. Mirrors the overlap guard in
+    // reconcileTasks / SyncScheduler.reconcileRecentUpdates.
+    const live = await queue.getJobs(['active', 'waiting', 'delayed', 'prioritized']);
+    const alreadyRunning = live.some(
+      (j) => (j.data as { spaceId?: string } | undefined)?.spaceId === dto.spaceId,
+    );
+    if (alreadyRunning) {
+      return { queued: false, alreadyRunning: true, spaceId: dto.spaceId };
+    }
+    await queue.add(JOBS.BACKFILL_CLICKUP_SPACE, { spaceId: dto.spaceId, lookbackDays }, this.queues.defaultJobOptions());
     return { queued: true, spaceId: dto.spaceId, lookbackDays };
   }
 
@@ -84,8 +98,9 @@ export class AdminSyncController {
    *
    * Webhook-driven time-entry jobs that happen to land in the same window
    * get attributed to the most recent backfill on that space — acceptable
-   * noise for an admin progress bar, and only inside a 1-hour lookback so a
-   * long-quiescent space isn't misattributed.
+   * noise for an admin progress bar. The lookback for that backfill is tied to
+   * the age of the oldest still-queued job (with a 1-hour minimum), so a big
+   * multi-hour drain keeps a stable `total` instead of collapsing `done` to 0.
    */
   @Get('backfill/active')
   @ApiOperation({ summary: 'Live per-space sync progress (queued + active jobs, with totals from the most recent backfill)' })
@@ -125,6 +140,27 @@ export class AdminSyncController {
     const activeSpaceIds = new Set<string>([...fetchingSpaceIds, ...remainingBySpace.keys()]);
     if (activeSpaceIds.size === 0) return { spaces: [] };
 
+    // Lookback floor for the completed-backfill query. A fixed 1-hour window was
+    // wrong: a big archived backfill enqueues tens of thousands of rate-limited
+    // (30/min) time-entry jobs that take MANY HOURS to drain. Once the backfill
+    // is older than the window, `recentTotal` becomes 0, `total` falls back to
+    // `remaining`, and `done = total - remaining` collapses to a permanent 0 —
+    // the bar shows `0 / <shrinking queue depth>` for the whole drain.
+    //
+    // Instead, tie the floor to the age of the oldest still-queued job (minus
+    // slack), so the backfill that ENQUEUED these jobs stays in range for as
+    // long as they drain and `total` stays pinned to its `tasks_synced`. Keep a
+    // 1-hour minimum for freshly-finished backfills. A newer completed backfill
+    // still wins (orderBy desc); a long-quiescent space has no queued jobs so it
+    // never reaches here, so widening the window can't misattribute.
+    const oldestQueuedTs = timeEntryJobs.reduce(
+      (min, j) => (typeof j.timestamp === 'number' && j.timestamp < min ? j.timestamp : min),
+      Date.now(),
+    );
+    const backfillLookbackFloor = new Date(
+      Math.min(oldestQueuedTs - 5 * 60 * 1000, Date.now() - 60 * 60 * 1000),
+    );
+
     // Pull the most-recent completed backfill per active space — gives us the
     // `tasks_synced` total for the progress bar denominator.
     const recentBackfills = await this.prisma.syncJobLog.findMany({
@@ -133,7 +169,7 @@ export class AdminSyncController {
         entityType: 'space',
         entityId: { in: [...activeSpaceIds] },
         status: 'completed',
-        finishedAt: { gte: new Date(Date.now() - 60 * 60 * 1000) },
+        finishedAt: { gte: backfillLookbackFloor },
       },
       orderBy: { finishedAt: 'desc' },
       select: { entityId: true, tasksSynced: true, finishedAt: true },
