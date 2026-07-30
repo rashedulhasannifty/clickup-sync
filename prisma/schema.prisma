@@ -400,3 +400,21 @@ model Session {
   @@index([userId])
   @@map("sessions")
 }
+
+model ClickupList {
+  listId     String    @id @map("list_id")
+  name       String
+  folderId   String?   @map("folder_id")
+  folderName String?   @map("folder_name")
+  spaceId    String?   @map("space_id")
+  spaceName  String?   @map("space_name")
+  archived   Boolean   @default(false)
+  startDate  DateTime? @map("start_date")
+  dueDate    DateTime? @map("due_date")
+  syncedAt   DateTime  @default(now()) @map("synced_at")
+
+  @@index([folderId])
+  @@index([spaceId])
+  @@index([archived])
+  @@map("clickup_lists")
+}
