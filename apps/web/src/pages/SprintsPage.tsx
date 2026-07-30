@@ -286,8 +286,9 @@ export function SprintsPage() {
             icon={<Download size={13} strokeWidth={1.75} />}
             disabled={items.length === 0}
             onClick={handleExport}
+            title="Exports the current page only, not the full filtered set"
           >
-            Export
+            Export page
           </Button>
         }
       />
