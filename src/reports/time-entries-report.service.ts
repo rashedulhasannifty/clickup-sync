@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { assembleTimesheet, dhakaDate, type TimesheetAggRow } from './timesheet.assemble';
 import { defaultFrom, parseDate } from './report-date.util';
-import { csvList } from './report-filter.util';
+import { csvList, sprintStatusListIds } from './report-filter.util';
 
 /** Time-entry report queries (timesheets, per-user/client/department rollups, list + aggregates). */
 @Injectable()
@@ -238,6 +238,7 @@ export class TimeEntriesReportService {
     listId?: string,
     folderId?: string,
     archived?: string,
+    sprintStatus?: string,
   ) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
@@ -268,6 +269,14 @@ export class TimeEntriesReportService {
     // 'include'/undefined applies no constraint.
     if (archived === 'only') and.push({ task: { archived: true } });
     else if (archived === 'exclude') and.push({ NOT: { task: { archived: true } } });
+    // Sprint (== clickup_lists row) status filter: 'active'/'completed' scopes
+    // to entries whose task's list isn't/is archived (dropping task-less
+    // entries — no task, no sprint, unlike the archived filter above which
+    // deliberately keeps them); 'all'/absent/unrecognized emits no clause
+    // (backward-compatible). See `sprintStatusListIds` for the fetch-ids-then-IN
+    // rationale (no Prisma relation from ClickupList to ClickupTask).
+    const sprintListIds = await sprintStatusListIds(this.prisma, sprintStatus);
+    if (sprintListIds) and.push({ task: { listId: { in: sprintListIds } } });
     if (userIds) where.userId = { in: userIds };
     if (missingOnly === 'true') {
       where.status = 'NO_RATE_FOUND';
@@ -350,6 +359,7 @@ export class TimeEntriesReportService {
     listId?: string,
     folderId?: string,
     archived?: string,
+    sprintStatus?: string,
   ) {
     // Same rationale as `tasks()`: cap allows CSV export to fetch the entire
     // filtered set; normal pagination tops out at 100 rows/page.
@@ -383,6 +393,11 @@ export class TimeEntriesReportService {
     // 'include'/undefined applies no constraint.
     if (archived === 'only') and.push({ task: { archived: true } });
     else if (archived === 'exclude') and.push({ NOT: { task: { archived: true } } });
+    // Sprint (== clickup_lists row) status filter: see `timeEntriesAggregates`'s
+    // comment above for the full rationale (fetch-ids-then-IN join; drops
+    // task-less entries; backward-compatible no-op for 'all'/absent/garbage).
+    const sprintListIds = await sprintStatusListIds(this.prisma, sprintStatus);
+    if (sprintListIds) and.push({ task: { listId: { in: sprintListIds } } });
     if (userIds) where.userId = { in: userIds };
     if (missingOnly === 'true') {
       where.status = 'NO_RATE_FOUND';

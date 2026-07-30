@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { BudgetsService } from '../budgets/budgets.service';
 import { SettingsService } from '../settings/settings.service';
@@ -8,6 +8,15 @@ import { CostTrendReportService } from './cost-trend-report.service';
 import { CycleTimeReportService } from './cycle-time-report.service';
 import { AnomalyReportService } from './anomaly-report.service';
 import { OpsReportService } from './ops-report.service';
+import { SprintsReportService } from './sprints-report.service';
+
+/** `sprintStatus`/`status` filter accepted by the sprint routes and the
+ *  tasks/time-entries list endpoints. Unrecognized values fall back to
+ *  `fallback` rather than throwing — mirrors how `archived`/`groupBy` are
+ *  validated elsewhere in this controller (silently ignored, not rejected). */
+function normalizeSprintStatus(value: string | undefined, fallback: 'active' | 'all'): 'active' | 'completed' | 'all' {
+  return value === 'active' || value === 'completed' || value === 'all' ? value : fallback;
+}
 
 @ApiTags('reports')
 @ApiSecurity('x-admin-key')
@@ -22,6 +31,7 @@ export class ReportsController {
     private readonly opsReports: OpsReportService,
     private readonly settings: SettingsService,
     private readonly budgets: BudgetsService,
+    private readonly sprintsReports: SprintsReportService,
   ) {}
 
   @Get('tasks/summary')
@@ -66,7 +76,7 @@ export class ReportsController {
   tasksFolders(@Query('spaceId') spaceId?: string) { return this.tasksReports.tasksFolders(spaceId); }
 
   @Get('tasks')
-  @ApiOperation({ summary: 'Paginated task list with filters. `status`, `priority`, `assigneeId`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `archived`: exclude (default, hide archived) | include | only (archived tasks). Soft-deleted rows are always excluded.' })
+  @ApiOperation({ summary: 'Paginated task list with filters. `status`, `priority`, `assigneeId`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `archived`: exclude (default, hide archived) | include | only (archived tasks). `sprintStatus=active|completed|all` (default `all`) scopes to tasks whose list (sprint) is/isn\'t archived. Soft-deleted rows are always excluded.' })
   tasks(
     @Query('spaceId') spaceId?: string,
     @Query('status') status?: string,
@@ -83,8 +93,9 @@ export class ReportsController {
     @Query('taskIds') taskIds?: string,
     @Query('listId') listId?: string,
     @Query('folderId') folderId?: string,
+    @Query('sprintStatus') sprintStatus?: string,
   ) {
-    return this.tasksReports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId);
+    return this.tasksReports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId, normalizeSprintStatus(sprintStatus, 'all'));
   }
 
   @Get('anomalies')
@@ -129,7 +140,7 @@ export class ReportsController {
   }
 
   @Get('time-entries/aggregates')
-  @ApiOperation({ summary: 'Server-side aggregates for the Time Entries page metric cards. Accepts the same filters as /time-entries, including the same comma-separated multi-value support.' })
+  @ApiOperation({ summary: 'Server-side aggregates for the Time Entries page metric cards. Accepts the same filters as /time-entries, including the same comma-separated multi-value support and `sprintStatus`.' })
   timeEntriesAggregates(
     @Query('userId') userId?: string,
     @Query('from') from?: string,
@@ -143,8 +154,9 @@ export class ReportsController {
     @Query('listId') listId?: string,
     @Query('folderId') folderId?: string,
     @Query('archived') archived?: string,
+    @Query('sprintStatus') sprintStatus?: string,
   ) {
-    return this.timeEntriesReports.timeEntriesAggregates(userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId, archived);
+    return this.timeEntriesReports.timeEntriesAggregates(userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'));
   }
 
   @Get('time-entries/cost-trend')
@@ -199,7 +211,7 @@ export class ReportsController {
   }
 
   @Get('time-entries')
-  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId, archived). `userId`, `status`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `missingOnly=true` overrides `status`. `archived` filters by the joined task: `exclude` (hide archived-task entries + keep task-less entries), `only`, or `include`/omitted (no constraint).' })
+  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId, archived, sprintStatus). `userId`, `status`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `missingOnly=true` overrides `status`. `archived` filters by the joined task: `exclude` (hide archived-task entries + keep task-less entries), `only`, or `include`/omitted (no constraint). `sprintStatus=active|completed|all` (default `all`) scopes to entries whose task\'s list (sprint) is/isn\'t archived, dropping task-less entries.' })
   timeEntriesList(
     @Query('userId') userId?: string,
     @Query('from') from?: string,
@@ -215,9 +227,10 @@ export class ReportsController {
     @Query('listId') listId?: string,
     @Query('folderId') folderId?: string,
     @Query('archived') archived?: string,
+    @Query('sprintStatus') sprintStatus?: string,
   ) {
     return this.timeEntriesReports.timeEntriesList(
-      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly, client, listId, folderId, archived,
+      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'),
     );
   }
 
@@ -225,6 +238,51 @@ export class ReportsController {
   @ApiOperation({ summary: 'Sprint points by space and status' })
   sprintPoints(@Query('spaceId') spaceId?: string) {
     return this.tasksReports.sprintPoints(spaceId);
+  }
+
+  @Get('sprints')
+  @ApiOperation({ summary: 'Paginated sprint (clickup_lists row) list with task/hours/cost roll-ups. `status=active|completed|all` (default `active`) filters by the list\'s archived flag. Optional spaceId/folderId scope, and a name search.' })
+  sprints(
+    @Query('spaceId') spaceId?: string,
+    @Query('folderId') folderId?: string,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.sprintsReports.sprints({
+      spaceId,
+      folderId,
+      status: normalizeSprintStatus(status, 'active'),
+      search,
+      limit: Number(limit) || 50,
+      offset: Number(offset) || 0,
+    });
+  }
+
+  // Static sub-paths of `sprints/*` MUST be declared before the `:listId`
+  // param route below — Nest/Express match route segments in registration
+  // order, so a `GET /sprints/folders` request would otherwise be captured
+  // by `sprints/:listId` with `listId = 'folders'`.
+  @Get('sprints/folders')
+  @ApiOperation({ summary: 'Sprint (list) folders grouped with active/completed sprint counts, for the sprint folder-picker. Optional spaceId scope.' })
+  sprintFolders(@Query('spaceId') spaceId?: string) {
+    return this.sprintsReports.sprintFolders(spaceId);
+  }
+
+  @Get('sprints/velocity')
+  @ApiOperation({ summary: 'Recent-sprint throughput (tasks done + hours logged) for a folder, most recent sprint first. folderId is required.' })
+  velocity(@Query('folderId') folderId?: string, @Query('limit') limit?: string) {
+    if (!folderId) {
+      throw new BadRequestException('folderId is required');
+    }
+    return this.sprintsReports.velocity(folderId, Number(limit) || 12);
+  }
+
+  @Get('sprints/:listId')
+  @ApiOperation({ summary: 'Single sprint (list) detail: status breakdown, per-assignee hours/cost, and mean cycle time for its tasks.' })
+  sprintDetail(@Param('listId') listId: string) {
+    return this.sprintsReports.sprintDetail(listId);
   }
 
   @Get('ops/sync-health')
