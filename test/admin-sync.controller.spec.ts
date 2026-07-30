@@ -2,12 +2,24 @@ import { BadRequestException } from '@nestjs/common';
 import { AdminSyncController } from '../src/admin/admin-sync.controller';
 
 describe('AdminSyncController', () => {
+  // Fake ioredis surface used by the progress high-water mark. `stored` seeds
+  // existing peaks (key suffix = spaceId → value); set/del are spies.
+  function makeRedis(stored: Record<string, string> = {}) {
+    const set = jest.fn().mockResolvedValue('OK');
+    const del = jest.fn().mockResolvedValue(1);
+    const mget = jest.fn((keys: string[]) =>
+      Promise.resolve(keys.map((k) => stored[k.replace('progress:te-peak:', '')] ?? null)),
+    );
+    return { set, del, mget };
+  }
+
   function makeQueues() {
     const add = jest.fn().mockResolvedValue({});
     // getJobs defaults to empty so the reconcile in-flight guard finds no
     // running sweep and proceeds to enqueue.
     const getJobs = jest.fn().mockResolvedValue([]);
-    return { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}), webhookJobOptions: jest.fn().mockReturnValue({}) } as any;
+    const redisClient = makeRedis();
+    return { get: jest.fn().mockReturnValue({ add, getJobs }), redis: jest.fn().mockResolvedValue(redisClient), defaultJobOptions: jest.fn().mockReturnValue({}), webhookJobOptions: jest.fn().mockReturnValue({}) } as any;
   }
 
   function makeSettings(maxBackfillLookbackDays = 1095) {
@@ -118,14 +130,15 @@ describe('AdminSyncController', () => {
   });
 
   describe('backfillActive', () => {
-    function makeQueuesWithJobs(jobsByQueue: Record<string, any[]>) {
+    function makeQueuesWithJobs(jobsByQueue: Record<string, any[]>, storedPeaks: Record<string, string> = {}) {
       const getJobs = jest.fn((_states: string[]) => Promise.resolve([])); // default
       const queueMocks = new Map<string, any>();
       for (const [name, jobs] of Object.entries(jobsByQueue)) {
         queueMocks.set(name, { getJobs: jest.fn().mockResolvedValue(jobs), add: jest.fn() });
       }
       const get = jest.fn((name: string) => queueMocks.get(name) ?? { getJobs, add: jest.fn() });
-      return { get, defaultJobOptions: jest.fn().mockReturnValue({}), webhookJobOptions: jest.fn().mockReturnValue({}) } as any;
+      const redisClient = makeRedis(storedPeaks);
+      return { get, redis: jest.fn().mockResolvedValue(redisClient), _redis: redisClient, defaultJobOptions: jest.fn().mockReturnValue({}), webhookJobOptions: jest.fn().mockReturnValue({}) } as any;
     }
 
     it('returns empty list when no jobs are active', async () => {
@@ -198,6 +211,53 @@ describe('AdminSyncController', () => {
       // Old behavior: 3h-old backfill excluded → total=remaining=2 → done=0.
       // New behavior: window reaches the backfill → total=100, done=98.
       expect(result.spaces[0]).toMatchObject({ phase: 'time-entries', total: 100, done: 98, remaining: 2 });
+    });
+
+    // Regression: a persisted high-water mark keeps the denominator stable. When
+    // the big backfill has slid out of the lookback window (seed collapses to a
+    // small reconcile's total) but its jobs are still draining, the stored peak
+    // must hold the total so done keeps climbing instead of snapping back.
+    it('holds the denominator from the Redis high-water mark when the seed shrinks', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([{ taskId: 't1', spaceId: 'X' }]);
+      // Only a small reconcile is in-window now (big backfill aged out) → seed=76.
+      prisma.syncJobLog.findMany.mockResolvedValue([{ entityId: 'X', tasksSynced: 76, finishedAt: new Date() }]);
+      const queues = makeQueuesWithJobs(
+        { 'clickup-backfills': [], 'clickup-time-entries': [{ data: { taskId: 't1' } }] },
+        { X: '8000' }, // high-water mark persisted from earlier in the drain
+      );
+      const result = await makeCtrl({ queues, prisma }).backfillActive();
+      // peak = max(stored 8000, remaining 1, seed 76) = 8000 → done = 7999, not 0.
+      expect(result.spaces[0]).toMatchObject({ phase: 'time-entries', total: 8000, done: 7999, remaining: 1 });
+    });
+
+    // A space that is BOTH fetching (a fresh backfill enqueued, e.g. the 12h
+    // cron) AND still draining a big backlog must keep its high-water mark — the
+    // reset keys off "has queued time-entry jobs", not the time-entries phase.
+    it('does not clear the high-water mark for a space that is fetching but still draining', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([{ taskId: 't1', spaceId: '3525433' }]);
+      const queues = makeQueuesWithJobs(
+        {
+          'clickup-backfills': [{ data: { spaceId: '3525433' } }], // fresh backfill → fetching
+          'clickup-time-entries': [{ data: { taskId: 't1' } }], // big backlog still draining
+        },
+        { '3525433': '8000' },
+      );
+      const result = await makeCtrl({ queues, prisma }).backfillActive();
+      // Fetching wins for display, but the peak key must survive.
+      expect(result.spaces[0]).toMatchObject({ spaceId: '3525433', phase: 'fetching' });
+      const deletedKeys = queues._redis.del.mock.calls.flat();
+      expect(deletedKeys).not.toContain('progress:te-peak:3525433');
+    });
+
+    // The high-water mark is cleared once a space is fully idle, so the next
+    // backfill's bar starts from zero instead of inheriting a stale large peak.
+    it('clears the high-water mark for idle configured spaces', async () => {
+      const queues = makeQueuesWithJobs({ 'clickup-backfills': [], 'clickup-time-entries': [] });
+      await makeCtrl({ queues }).backfillActive();
+      // No active spaces → every configured space key is deleted.
+      expect(queues._redis.del).toHaveBeenCalled();
     });
 
     it('clamps done to >= 0 when webhook drains outrun the last backfill', async () => {

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import type { Queue } from 'bullmq';
+import type { Redis, Cluster } from 'ioredis';
 import { QUEUES } from './queue.constants';
 import { SettingsService } from '../settings/settings.service';
 
@@ -28,6 +29,16 @@ export class QueueService {
     const queue = map[name];
     if (!queue) throw new Error(`Unknown queue: ${name}`);
     return queue;
+  }
+
+  /**
+   * The shared ioredis connection backing the queues. Exposed so lightweight
+   * operational state (e.g. the backfill progress high-water mark) can be stored
+   * outside the `bull:` keyspace without standing up a second Redis client.
+   * Raw client commands are NOT auto-prefixed, so callers must namespace keys.
+   */
+  redis(): Promise<Redis | Cluster> {
+    return this.timeEntries.client;
   }
 
   defaultJobOptions() {

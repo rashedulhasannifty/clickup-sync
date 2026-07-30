@@ -16,6 +16,14 @@ import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
 import { TasksRepository } from '../tasks/tasks.repository';
 import { subtractDays } from '../common/utils/date-utils';
 
+/** Redis key prefix (outside the `bull:` keyspace) for the per-space time-entry
+ * backfill progress high-water mark. */
+const PROGRESS_PEAK_PREFIX = 'progress:te-peak:';
+/** Backstop expiry for a high-water mark. Longer than any realistic single
+ * drain, so it self-cleans if a space is never observed idle (e.g. a
+ * non-configured admin-override space the idle sweep doesn't iterate). */
+const PROGRESS_PEAK_TTL_S = 48 * 60 * 60;
+
 /** Manual sync/backfill/reconcile actions under `/admin`. */
 @ApiTags('admin')
 @ApiSecurity('x-admin-key')
@@ -138,6 +146,22 @@ export class AdminSyncController {
     }
 
     const activeSpaceIds = new Set<string>([...fetchingSpaceIds, ...remainingBySpace.keys()]);
+    // Spaces genuinely in a time-entry drain (queued jobs, backfill fetch done).
+    const timeEntrySpaceIds = [...remainingBySpace.keys()].filter((id) => !fetchingSpaceIds.has(id));
+
+    // Reset the high-water mark for every configured space with NO queued
+    // time-entry jobs — genuinely between drains. Crucially this keys off
+    // `remainingBySpace`, NOT the time-entries phase: a space that is mid-drain
+    // AND fetching (e.g. the 12-hourly cron enqueues a fresh backfill while a big
+    // backlog still drains) keeps its mark, so its total can't collapse. Runs on
+    // every poll (including when nothing is active), so the next drain starts its
+    // bar from zero instead of inheriting a stale peak.
+    const redis = await this.queues.redis();
+    const staleKeys = CLICKUP_SPACES.map((s) => s.id)
+      .filter((id) => !remainingBySpace.has(id))
+      .map((id) => `${PROGRESS_PEAK_PREFIX}${id}`);
+    if (staleKeys.length) await redis.del(...staleKeys);
+
     if (activeSpaceIds.size === 0) return { spaces: [] };
 
     // Lookback floor for the completed-backfill query. A fixed 1-hour window was
@@ -174,25 +198,48 @@ export class AdminSyncController {
       orderBy: { finishedAt: 'desc' },
       select: { entityId: true, tasksSynced: true, finishedAt: true },
     });
+    // Seed the denominator with the LARGEST tasks_synced in the window, not the
+    // most-recent. A small 12-hourly reconcile (lookbackDays:1) completing on top
+    // of a big archived backfill would otherwise become "the recent backfill" and
+    // shrink the total to a handful — the high-water mark below then preserves the
+    // large seed even after the big backfill slides out of the lookback window.
     const recentTotalBySpace = new Map<string, number>();
     for (const row of recentBackfills) {
-      if (!row.entityId || recentTotalBySpace.has(row.entityId)) continue;
-      if (row.tasksSynced != null) recentTotalBySpace.set(row.entityId, row.tasksSynced);
+      if (!row.entityId || row.tasksSynced == null) continue;
+      const prev = recentTotalBySpace.get(row.entityId) ?? 0;
+      if (row.tasksSynced > prev) recentTotalBySpace.set(row.entityId, row.tasksSynced);
     }
 
-    const spaces = [...activeSpaceIds].map((spaceId) => {
-      const remaining = remainingBySpace.get(spaceId) ?? 0;
-      if (fetchingSpaceIds.has(spaceId)) {
-        return { spaceId, phase: 'fetching' as const, total: null, done: null, remaining };
-      }
-      // Fall back to `remaining` whenever the recent backfill is missing OR
-      // recorded 0 tasks — otherwise progress would be 0/0 (NaN%) or done
-      // would clamp to a permanent 0%.
-      const recentTotal = recentTotalBySpace.get(spaceId) ?? 0;
-      const total = recentTotal > 0 ? recentTotal : remaining;
-      const done = Math.max(0, total - remaining);
-      return { spaceId, phase: 'time-entries' as const, total, done, remaining };
-    });
+    // Read the persisted per-space high-water mark of the time-entry backlog so
+    // the progress denominator is stable and monotonic for the whole (multi-hour)
+    // drain — surviving page reloads, both blue-green web instances, and small
+    // reconciles. `total` = peak(remaining ever seen, largest backfill total);
+    // `done` climbs as `remaining` falls. Stored in the shared Redis outside the
+    // `bull:` keyspace (cleanup handled above; TTL is a backstop).
+    const storedPeaksRaw = timeEntrySpaceIds.length
+      ? await redis.mget(timeEntrySpaceIds.map((id) => `${PROGRESS_PEAK_PREFIX}${id}`))
+      : [];
+    const storedPeakBySpace = new Map<string, number>(
+      timeEntrySpaceIds.map((id, i) => [id, Number(storedPeaksRaw[i]) || 0]),
+    );
+
+    const spaces = await Promise.all(
+      [...activeSpaceIds].map(async (spaceId) => {
+        const remaining = remainingBySpace.get(spaceId) ?? 0;
+        if (fetchingSpaceIds.has(spaceId)) {
+          return { spaceId, phase: 'fetching' as const, total: null, done: null, remaining };
+        }
+        const stored = storedPeakBySpace.get(spaceId) ?? 0;
+        const seed = recentTotalBySpace.get(spaceId) ?? 0;
+        const peak = Math.max(stored, remaining, seed);
+        if (peak > stored) {
+          await redis.set(`${PROGRESS_PEAK_PREFIX}${spaceId}`, peak, 'EX', PROGRESS_PEAK_TTL_S);
+        }
+        const total = peak > 0 ? peak : remaining;
+        const done = Math.max(0, total - remaining);
+        return { spaceId, phase: 'time-entries' as const, total, done, remaining };
+      }),
+    );
 
     return { spaces };
   }
