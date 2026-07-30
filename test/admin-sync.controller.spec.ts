@@ -169,6 +169,37 @@ describe('AdminSyncController', () => {
       expect(byId['3577824']).toEqual({ spaceId: '3577824', phase: 'time-entries', total: 50, done: 49, remaining: 1 });
     });
 
+    // Regression: a big archived backfill drains for many hours (30/min limiter).
+    // A fixed 1-hour lookback dropped the backfill's tasks_synced total once it
+    // aged out, collapsing done to a permanent 0. The window is now tied to the
+    // oldest still-queued job, so a 3-hour-old backfill still feeds the total.
+    it('keeps the total for a backfill older than 1h while its jobs still drain', async () => {
+      const prisma = makePrisma();
+      const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+      prisma.clickupTask.findMany.mockResolvedValue([
+        { taskId: 't1', spaceId: 'X' },
+        { taskId: 't2', spaceId: 'X' },
+      ]);
+      // Mock honors the finishedAt.gte floor so we actually exercise the window.
+      prisma.syncJobLog.findMany.mockImplementation((args: any) => {
+        const floor: Date = args.where.finishedAt.gte;
+        const rows = [{ entityId: 'X', tasksSynced: 100, finishedAt: threeHoursAgo }];
+        return Promise.resolve(rows.filter((r) => r.finishedAt >= floor));
+      });
+      const queues = makeQueuesWithJobs({
+        'clickup-backfills': [],
+        // jobs enqueued ~3h ago (mid-backfill), so the oldest-job floor reaches back that far
+        'clickup-time-entries': [
+          { data: { taskId: 't1' }, timestamp: threeHoursAgo.getTime() },
+          { data: { taskId: 't2' }, timestamp: threeHoursAgo.getTime() },
+        ],
+      });
+      const result = await makeCtrl({ queues, prisma }).backfillActive();
+      // Old behavior: 3h-old backfill excluded → total=remaining=2 → done=0.
+      // New behavior: window reaches the backfill → total=100, done=98.
+      expect(result.spaces[0]).toMatchObject({ phase: 'time-entries', total: 100, done: 98, remaining: 2 });
+    });
+
     it('clamps done to >= 0 when webhook drains outrun the last backfill', async () => {
       const prisma = makePrisma();
       prisma.clickupTask.findMany.mockResolvedValue([{ taskId: 't1', spaceId: 'X' }]);
