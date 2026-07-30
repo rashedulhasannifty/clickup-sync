@@ -21,6 +21,18 @@ const MAX_BACKOFF_MS = 60_000;
 // so existing hot paths (webhooks, hourly sweep) are unchanged.
 const TIME_ENTRIES_SLICE_MS = 365 * 24 * 60 * 60 * 1000;
 
+export type ListCatalogEntry = {
+  id: string;
+  name: string;
+  folderId: string | null;
+  folderName: string | null;
+  spaceId: string | null;
+  spaceName: string | null;
+  archived: boolean;
+  startDate: Date | null;
+  dueDate: Date | null;
+};
+
 @Injectable()
 export class ClickupClient {
   private readonly logger = new Logger(ClickupClient.name);
@@ -151,46 +163,82 @@ export class ClickupClient {
    * Ids are de-duplicated; the archived-container flag is OR-accumulated so a
    * list seen in any archived context is scanned in both states.
    */
-  private async getSpaceLists(
-    spaceId: string,
-  ): Promise<Array<{ id: string; archivedContainer: boolean }>> {
-    const flagById = new Map<string, boolean>();
-    const add = (id: string | undefined, archivedContainer: boolean) => {
-      if (!id) return;
-      flagById.set(id, (flagById.get(id) ?? false) || archivedContainer);
+  async getSpaceListCatalog(spaceId: string): Promise<ListCatalogEntry[]> {
+    const byId = new Map<string, ListCatalogEntry>();
+    const toMillis = (v: unknown): Date | null => {
+      const n = typeof v === "string" ? Number(v) : typeof v === "number" ? v : NaN;
+      return Number.isFinite(n) && n > 0 ? new Date(n) : null;
+    };
+    type RawList = {
+      id?: string;
+      name?: string;
+      start_date?: unknown;
+      due_date?: unknown;
+      folder?: { id?: string; name?: string };
+      space?: { id?: string; name?: string };
+    };
+    const add = (
+      l: RawList,
+      archivedContainer: boolean,
+      folderId: string | null,
+      folderName: string | null,
+    ) => {
+      if (!l.id) return;
+      const prev = byId.get(l.id);
+      const entry: ListCatalogEntry = {
+        id: l.id,
+        name: l.name ?? prev?.name ?? "Unknown List",
+        folderId: folderId ?? l.folder?.id ?? prev?.folderId ?? null,
+        folderName: folderName ?? l.folder?.name ?? prev?.folderName ?? null,
+        spaceId: l.space?.id ?? prev?.spaceId ?? spaceId,
+        spaceName: l.space?.name ?? prev?.spaceName ?? null,
+        archived: (prev?.archived ?? false) || archivedContainer,
+        startDate: toMillis(l.start_date) ?? prev?.startDate ?? null,
+        dueDate: toMillis(l.due_date) ?? prev?.dueDate ?? null,
+      };
+      byId.set(l.id, entry);
     };
 
     // Folderless lists: an archived folderless list is itself an archived container.
     for (const archived of [false, true]) {
-      const res = await this.request<{ lists?: Array<{ id: string }> }>(
+      const res = await this.request<{ lists?: RawList[] }>(
         "GET",
         `/space/${spaceId}/list?archived=${archived}`,
       );
-      for (const l of res.lists ?? []) add(l.id, archived);
+      for (const l of res.lists ?? []) add(l, archived, l.folder?.id ?? null, l.folder?.name ?? null);
     }
 
     // Folders: collect them (active + archived), then enumerate each folder's
     // lists in both states. A list is an archived container if its folder is
     // archived OR the list itself is archived.
-    const folders: Array<{ id: string; archived: boolean }> = [];
+    const folders: Array<{ id: string; name: string | null; archived: boolean }> = [];
     for (const archived of [false, true]) {
-      const res = await this.request<{ folders?: Array<{ id: string }> }>(
+      const res = await this.request<{ folders?: Array<{ id?: string; name?: string }> }>(
         "GET",
         `/space/${spaceId}/folder?archived=${archived}`,
       );
-      for (const f of res.folders ?? []) if (f.id) folders.push({ id: f.id, archived });
+      for (const f of res.folders ?? [])
+        if (f.id) folders.push({ id: f.id, name: f.name ?? null, archived });
     }
     for (const folder of folders) {
       for (const listArchived of [false, true]) {
-        const res = await this.request<{ lists?: Array<{ id: string }> }>(
+        const res = await this.request<{ lists?: RawList[] }>(
           "GET",
           `/folder/${folder.id}/list?archived=${listArchived}`,
         );
-        for (const l of res.lists ?? []) add(l.id, folder.archived || listArchived);
+        for (const l of res.lists ?? [])
+          add(l, folder.archived || listArchived, folder.id, folder.name);
       }
     }
 
-    return [...flagById].map(([id, archivedContainer]) => ({ id, archivedContainer }));
+    return [...byId.values()];
+  }
+
+  private async getSpaceLists(
+    spaceId: string,
+  ): Promise<Array<{ id: string; archivedContainer: boolean }>> {
+    const cat = await this.getSpaceListCatalog(spaceId);
+    return cat.map((e) => ({ id: e.id, archivedContainer: e.archived }));
   }
 
   /**
