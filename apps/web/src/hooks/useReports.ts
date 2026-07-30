@@ -427,7 +427,7 @@ export interface SprintRow {
   archived: boolean; startDate: string | null; dueDate: string | null;
   taskTotal: number; taskDone: number; pctDone: number; hours: number; costAud: number;
 }
-export interface SprintFolder { folderId: string; folderName: string; spaceName: string | null; activeCount: number; completedCount: number; }
+export interface SprintFolder { folderId: string; folderName: string | null; spaceName: string | null; activeCount: number; completedCount: number; }
 export interface SprintVelocityPoint { listId: string; name: string; dueDate: string | null; taskDone: number; hours: number; }
 export interface SprintDetail {
   list: SprintRow;

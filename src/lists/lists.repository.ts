@@ -59,7 +59,12 @@ export class ListsRepository {
         // id without name — see tasks.repository.ts's identical guard. An
         // unconditional overwrite here would blank a name upsertMany already
         // resolved, so keep the existing value when the incoming field is null.
+        // Same reasoning applies to `name` itself: a listId-only opportunistic
+        // row must not degrade an authoritative catalog name to 'Unknown List'.
+        // CREATE still needs a non-null name (NOT NULL column), so the
+        // 'Unknown List' fallback in `fields` is kept for create only.
         const update: Record<string, unknown> = { ...fields };
+        if (t.listName == null) delete update.name;
         if (t.folderId == null) delete update.folderId;
         if (t.folderName == null) delete update.folderName;
         if (t.spaceId == null) delete update.spaceId;

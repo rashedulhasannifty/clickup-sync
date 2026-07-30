@@ -139,7 +139,7 @@ export function SprintsPage() {
     const opts: { value: string; label: string }[] = [{ value: '', label: 'All folders' }];
     for (const f of rows) {
       if (!f.folderId) continue;
-      opts.push({ value: f.folderId, label: `${f.folderName} (${f.activeCount} active / ${f.completedCount} done)` });
+      opts.push({ value: f.folderId, label: `${f.folderName ?? '(no folder)'} (${f.activeCount} active / ${f.completedCount} done)` });
     }
     return opts;
   }, [foldersQuery.data]);

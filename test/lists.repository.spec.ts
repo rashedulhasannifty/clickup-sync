@@ -65,4 +65,18 @@ describe('ListsRepository', () => {
     expect(arg.create).toHaveProperty('folderId', null);
     expect(arg.create).toHaveProperty('spaceName', null);
   });
+
+  it('upsertMinimalFromTasks omits name from update when listName is null, but still writes a fallback name on create', async () => {
+    // A listId-only opportunistic row (listName null) must not degrade an
+    // authoritative catalog name (e.g. set by upsertMany) to 'Unknown List'.
+    // CREATE still needs a non-null name since it's a NOT NULL column.
+    const prisma = makePrisma();
+    const repo = new ListsRepository(prisma);
+    await repo.upsertMinimalFromTasks([
+      { listId: 'l1', listName: null, folderId: 'f1', folderName: 'X', spaceId: 's1', spaceName: 'X' },
+    ]);
+    const arg = prisma.clickupList.upsert.mock.calls[0][0];
+    expect(arg.update).not.toHaveProperty('name');
+    expect(arg.create).toHaveProperty('name', 'Unknown List');
+  });
 });
