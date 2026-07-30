@@ -55,10 +55,19 @@ export class ListsRepository {
           folderId: t.folderId, folderName: t.folderName,
           spaceId: t.spaceId, spaceName: t.spaceName,
         };
+        // Single-task fetches (webhooks, manual sync) commonly carry space/folder
+        // id without name — see tasks.repository.ts's identical guard. An
+        // unconditional overwrite here would blank a name upsertMany already
+        // resolved, so keep the existing value when the incoming field is null.
+        const update: Record<string, unknown> = { ...fields };
+        if (t.folderId == null) delete update.folderId;
+        if (t.folderName == null) delete update.folderName;
+        if (t.spaceId == null) delete update.spaceId;
+        if (t.spaceName == null) delete update.spaceName;
         return this.prisma.clickupList.upsert({
           where: { listId: t.listId! },
           create: { listId: t.listId!, ...fields },
-          update: fields, // deliberately omits archived/startDate/dueDate
+          update, // deliberately omits archived/startDate/dueDate too
         });
       }),
     );
