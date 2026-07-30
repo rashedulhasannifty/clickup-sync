@@ -93,7 +93,15 @@ export class SprintsReportService {
   }): Promise<{ items: SprintRow[]; total: number }> {
     const { spaceId, folderId, status, limit = 50, offset = 0 } = p;
     const search = p.search?.trim();
-    const safeLimit = Math.min(Math.max(limit, 1), 500);
+    // No existing $queryRaw in this repo binds LIMIT/OFFSET as a query
+    // parameter (paginated raw queries elsewhere use Prisma's findMany
+    // take/skip instead). Postgres does accept a bound parameter there, but
+    // rather than ship an unprecedented pattern, clamp to a plain integer
+    // first and splice it in as literal SQL text via Prisma.raw — safe
+    // specifically because both values are always numbers here, never
+    // unsanitized input.
+    const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 500);
+    const safeOffset = Math.max(Math.trunc(offset), 0);
     const statusClause = this.statusFilter(status);
     const spaceClause = spaceId ? Prisma.sql`AND l.space_id = ${spaceId}` : Prisma.empty;
     const folderClause = folderId ? Prisma.sql`AND l.folder_id = ${folderId}` : Prisma.empty;
@@ -115,7 +123,7 @@ export class SprintsReportService {
           ${searchClause}
         GROUP BY l.list_id, l.name, l.folder_name, l.space_name, l.archived, l.start_date, l.due_date
         ORDER BY l.due_date DESC NULLS LAST, l.name ASC
-        LIMIT ${safeLimit} OFFSET ${offset}
+        LIMIT ${Prisma.raw(String(safeLimit))} OFFSET ${Prisma.raw(String(safeOffset))}
       `),
       this.prisma.$queryRaw<{ total: bigint }[]>(Prisma.sql`
         SELECT COUNT(*)::bigint AS total
@@ -249,7 +257,9 @@ export class SprintsReportService {
     limit = 12,
   ): Promise<{ listId: string; name: string; dueDate: Date | null; taskDone: number; hours: number }[]> {
     type Row = { list_id: string; name: string; due_date: Date | null; task_done: bigint; hours: number };
-    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    // See sprints()'s comment: clamp first, then splice the plain integer in
+    // as literal SQL rather than binding LIMIT as a query parameter.
+    const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 100);
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT l.list_id, l.name, l.due_date,
              COUNT(DISTINCT t.task_id) FILTER (WHERE t.status_type IN ('closed', 'done'))::bigint AS task_done,
@@ -260,7 +270,7 @@ export class SprintsReportService {
       WHERE l.folder_id = ${folderId}
       GROUP BY l.list_id, l.name, l.due_date
       ORDER BY l.due_date DESC NULLS LAST
-      LIMIT ${safeLimit}
+      LIMIT ${Prisma.raw(String(safeLimit))}
     `);
     return rows.map((r) => ({
       listId: r.list_id,
