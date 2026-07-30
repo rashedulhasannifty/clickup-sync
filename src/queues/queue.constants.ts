@@ -33,3 +33,22 @@ export const JOBS = {
   REPLACE_TIME_ENTRY_ASSIGNEES: 'replace-time-entry-assignees',
   RECALCULATE_COSTS: 'recalculate-costs',
 } as const;
+
+/**
+ * BullMQ priority for bulk backfill-generated time-entry jobs.
+ *
+ * Counter-intuitive but load-bearing: in BullMQ, priority `0` (the default) is
+ * the HIGHEST priority — non-prioritized jobs sit in the FIFO `wait` list and
+ * `moveToActive` drains that list BEFORE it touches the prioritized set. So a
+ * large space backfill, which enqueues thousands of time-entry jobs at the
+ * default priority, would head-of-line-block live `taskTimeTrackedUpdated`
+ * webhook jobs enqueued afterwards (also default priority) behind the entire
+ * backlog — hours of delay on the same shared queue.
+ *
+ * Giving backfill jobs an explicit priority (>= 1) moves them into the
+ * prioritized set, so they only run when the `wait` list is empty. Live webhook
+ * jobs and manual single-task admin syncs stay at the default priority (0) and
+ * are always served first. The exact number doesn't matter (nothing else is
+ * prioritized); it just has to be non-zero.
+ */
+export const BACKFILL_TIME_ENTRY_PRIORITY = 100;
