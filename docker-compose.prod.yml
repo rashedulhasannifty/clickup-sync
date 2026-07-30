@@ -1,121 +1,140 @@
-# Production stack for a single Ubuntu host — blue-green.
-#
-# Topology:
-#   app-web-blue / app-web-green : two HTTP+SPA colors (ROLE=web). Caddy points
-#                                  at one; the other is the warm rollback target.
-#   app-worker                   : singleton BullMQ + cron (ROLE=worker).
-#   migrate                      : one-shot `prisma migrate deploy` (profile tools);
-#                                  run explicitly before cutover, never on `up`.
-#   postgres / redis             : shared state, internal-only.
-#   caddy                        : TLS + reverse proxy; flips via active.conf reload.
-#
-# Postgres and Redis are NOT published to the host (Docker-published ports bypass
-# ufw). Only Caddy publishes 80/443. The deploy is orchestrated by scripts/deploy.sh.
-#
-# Variables read from ./.env (rendered by CI from GitHub secrets):
-#   DOMAIN, POSTGRES_PASSWORD, IMAGE_TAG (defaults to latest for manual use).
+  # Production stack for a single Ubuntu host — blue-green.
+  #
+  # Topology:
+  #   app-web-blue / app-web-green : two HTTP+SPA colors (ROLE=web). Caddy points
+  #                                  at one; the other is the warm rollback target.
+  #   app-worker                   : singleton BullMQ + cron (ROLE=worker).
+  #   migrate                      : one-shot `prisma migrate deploy` (profile tools);
+  #                                  run explicitly before cutover, never on `up`.
+  #   postgres / redis             : shared state, internal-only.
+  #   caddy                        : TLS + reverse proxy; flips via active.conf reload.
+  #
+  # Postgres and Redis are NOT published to the host (Docker-published ports bypass
+  # ufw). Only Caddy publishes 80/443. The deploy is orchestrated by scripts/deploy.sh.
+  #
+  # Variables read from ./.env (rendered by CI from GitHub secrets):
+  #   DOMAIN, POSTGRES_PASSWORD, IMAGE_TAG (defaults to latest for manual use).
+  #
+  # Memory tuning (1.9 GB host + 4 GB swap): every service has a mem_limit so a
+  # runaway process is killed ALONE (container OOM) instead of triggering a global
+  # OOM that takes down random containers. Node services also cap the V8 heap so
+  # they GC hard and throw before ballooning. Limits are ceilings, not
+  # reservations — steady usage sits well below them; swap absorbs brief overlap.
 
-x-app: &app-common
-  image: ghcr.io/rashedulhasannifty/clickup-sync:${IMAGE_TAG:-latest}
-  restart: unless-stopped
-  env_file: .env
-  depends_on:
+  x-app: &app-common
+    image: ghcr.io/rashedulhasannifty/clickup-sync:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  services:
     postgres:
-      condition: service_healthy
+      image: postgres:18-alpine
+      restart: unless-stopped
+      mem_limit: 512m
+      environment:
+        POSTGRES_DB: clickup_sync
+        POSTGRES_USER: clickup
+        POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      expose:
+        - "5432"
+      volumes:
+        # Postgres 18+ images store data in a major-version subdirectory and want
+        # a SINGLE mount at /var/lib/postgresql (NOT /var/lib/postgresql/data —
+        # that path is rejected as an "unused mount/volume" and the container
+        # restart-loops). Matches the dev compose.
+        - postgres_data:/var/lib/postgresql
+      healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U clickup -d clickup_sync"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+        # Give first-time initdb room on a small host before being marked unhealthy.
+        start_period: 30s
+
     redis:
-      condition: service_healthy
+      image: redis:8-alpine
+      restart: unless-stopped
+      mem_limit: 320m
+      # noeviction: BullMQ must NEVER have job keys evicted (that corrupts queues);
+      # Redis rejects writes instead if it ever hits the ceiling.
+      command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+      expose:
+        - "6379"
+      volumes:
+        - redis_data:/data
+      healthcheck:
+        test: ["CMD", "redis-cli", "ping"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
 
-services:
-  postgres:
-    image: postgres:18-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: clickup_sync
-      POSTGRES_USER: clickup
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-    expose:
-      - "5432"
-    volumes:
-      # Postgres 18+ images store data in a major-version subdirectory and want
-      # a SINGLE mount at /var/lib/postgresql (NOT /var/lib/postgresql/data —
-      # that path is rejected as an "unused mount/volume" and the container
-      # restart-loops). Matches the dev compose.
-      - postgres_data:/var/lib/postgresql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U clickup -d clickup_sync"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      # Give first-time initdb room on a small host before being marked unhealthy.
-      start_period: 30s
+    app-web-blue:
+      <<: *app-common
+      mem_limit: 448m
+      environment:
+        ROLE: web
+        NODE_OPTIONS: --max-old-space-size=288
+      expose:
+        - "3000"
+      healthcheck:
+        test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+        interval: 30s
+        timeout: 5s
+        retries: 5
+        start_period: 40s
 
-  redis:
-    image: redis:8-alpine
-    restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    expose:
-      - "6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    app-web-green:
+      <<: *app-common
+      mem_limit: 448m
+      environment:
+        ROLE: web
+        NODE_OPTIONS: --max-old-space-size=288
+      expose:
+        - "3000"
+      healthcheck:
+        test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+        interval: 30s
+        timeout: 5s
+        retries: 5
+        start_period: 40s
 
-  app-web-blue:
-    <<: *app-common
-    environment:
-      ROLE: web
-    expose:
-      - "3000"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
+    app-worker:
+      <<: *app-common
+      # Highest ceiling — the worker runs backfills. With the streaming fix it
+      # stays low; the cap + heap limit stop a pathological run from taking the host.
+      mem_limit: 640m
+      environment:
+        ROLE: worker
+        NODE_OPTIONS: --max-old-space-size=400
 
-  app-web-green:
-    <<: *app-common
-    environment:
-      ROLE: web
-    expose:
-      - "3000"
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
+    migrate:
+      <<: *app-common
+      restart: "no"
+      profiles: ["tools"]
+      command: ["npm", "run", "prisma:deploy"]
 
-  app-worker:
-    <<: *app-common
-    environment:
-      ROLE: worker
+    caddy:
+      image: caddy:2-alpine
+      restart: unless-stopped
+      mem_limit: 96m
+      ports:
+        - "80:80"
+        - "443:443"
+      environment:
+        DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      volumes:
+        - ./Caddyfile:/etc/caddy/Caddyfile:ro
+        - ./active.conf:/etc/caddy/active.conf:ro
+        - caddy_data:/data
+        - caddy_config:/config
 
-  migrate:
-    <<: *app-common
-    restart: "no"
-    profiles: ["tools"]
-    command: ["npm", "run", "prisma:deploy"]
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    environment:
-      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./active.conf:/etc/caddy/active.conf:ro
-      - caddy_data:/data
-      - caddy_config:/config
-
-volumes:
-  postgres_data:
-  redis_data:
-  caddy_data:
-  caddy_config:
+  volumes:
+    postgres_data:
+    redis_data:
+    caddy_data:
+    caddy_config:
