@@ -45,6 +45,16 @@ Add a BullMQ job to `clickup-backfills` with payload:
 { "spaceId": "3577824", "lookbackDays": 90 }
 ```
 
+A backfill that hits the task pagination cap is **incomplete** — tasks beyond the cap are not synced. This is now recorded on the run's `sync_job_logs` row as status `partial` (rendered as an amber pill in Sync Logs; the reason shows in the run detail) instead of a clean `completed`. Re-run the backfill with a narrower window if you see it.
+
+## Scheduled reconcile
+
+Three recurring crons run as safety nets for events ClickUp never delivered (real-time updates still arrive via webhooks):
+
+- **Recent updates** — `reconcileRecentUpdates()` every 12h (`@Cron('0 0 */12 * * *')`): re-syncs tasks updated in the last day + a bounded 7-day time-entry window, per enabled space. Deliberately skips the archived per-list scan (too heavy across all spaces every run).
+- **List catalog** — `syncListCatalogs()` daily at 03:00 (see "Sprint / list catalog" below).
+- **Archived reconcile** — `reconcileArchived()` daily at 04:00 (`@Cron('0 0 4 * * *')`): runs a full `includeArchived=true` backfill for **exactly one** enabled space per day, rotating through the enabled spaces by calendar day. This closes the gap where a task inside a just-completed (archived) sprint whose state changed after its list was archived would otherwise never re-sync until a manual backfill — while keeping the expensive archived scan bounded to one space per run on the small host. It respects the same in-flight overlap guard as the 12h reconcile.
+
 ## Sprint / list catalog
 
 `clickup_lists` is the sprint/list catalog behind `/reports/sprints*` and the `sprintStatus` filter on `/reports/tasks` and `/reports/time-entries`. It is kept in sync four ways:
