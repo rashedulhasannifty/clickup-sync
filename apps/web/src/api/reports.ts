@@ -46,6 +46,14 @@ export const reportsApi = {
   spaces: () => apiClient.get('/reports/spaces').then(r => r.data),
   timesheet: (params: { userId: string; from?: string; to?: string }) =>
     apiClient.get('/reports/timesheet', { params }).then(r => r.data),
+  sprints: (params: Record<string, string | number | undefined>) =>
+    apiClient.get('/reports/sprints', { params }).then((r) => r.data),
+  sprintFolders: (params?: { spaceId?: string }) =>
+    apiClient.get('/reports/sprints/folders', { params }).then((r) => r.data),
+  sprintVelocity: (params: { folderId: string; limit?: number }) =>
+    apiClient.get('/reports/sprints/velocity', { params }).then((r) => r.data),
+  sprintDetail: (listId: string) =>
+    apiClient.get(`/reports/sprints/${listId}`).then((r) => r.data),
 };
 
 export interface CycleTimeItem { bucket: string; meanHours: number; medianHours: number; p90Hours: number; taskCount: number; }

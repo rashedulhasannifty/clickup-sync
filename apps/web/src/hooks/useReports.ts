@@ -421,3 +421,31 @@ export function useTimesheet(params: { userId: string; from?: string; to?: strin
     placeholderData: keepPreviousData,
   });
 }
+
+export interface SprintRow {
+  listId: string; name: string; folderName: string | null; spaceName: string | null;
+  archived: boolean; startDate: string | null; dueDate: string | null;
+  taskTotal: number; taskDone: number; pctDone: number; hours: number; costAud: number;
+}
+export interface SprintFolder { folderId: string; folderName: string | null; spaceName: string | null; activeCount: number; completedCount: number; }
+export interface SprintVelocityPoint { listId: string; name: string; dueDate: string | null; taskDone: number; hours: number; }
+export interface SprintDetail {
+  list: SprintRow;
+  byStatus: { status: string; color: string | null; count: number }[];
+  byAssignee: { userName: string; hours: number; costAud: number }[];
+  assigneeCount: number;
+  cycleTimeHours: number | null;
+}
+
+export function useSprints(params: Record<string, string | number | undefined>) {
+  return useQuery({ queryKey: ['sprints', params], queryFn: () => reportsApi.sprints(params) as Promise<{ items: SprintRow[]; total: number }>, placeholderData: keepPreviousData });
+}
+export function useSprintFolders(spaceId?: string) {
+  return useQuery({ queryKey: ['sprint-folders', spaceId ?? 'all'], queryFn: () => reportsApi.sprintFolders(spaceId ? { spaceId } : undefined) as Promise<SprintFolder[]> });
+}
+export function useSprintVelocity(folderId: string | undefined, limit = 12) {
+  return useQuery({ queryKey: ['sprint-velocity', folderId, limit], queryFn: () => reportsApi.sprintVelocity({ folderId: folderId!, limit }) as Promise<SprintVelocityPoint[]>, enabled: !!folderId });
+}
+export function useSprintDetail(listId: string | undefined) {
+  return useQuery({ queryKey: ['sprint-detail', listId], queryFn: () => reportsApi.sprintDetail(listId!) as Promise<SprintDetail>, enabled: !!listId });
+}

@@ -9,7 +9,9 @@ function makeDeps() {
   const softDelete = jest.fn().mockResolvedValue({});
   const findMissingParentIds = jest.fn();
   const repo = { upsert, softDelete, findMissingParentIds } as any;
-  return { svc: new TasksService(clickup, normalizer, repo), getTask, normalizeTask, upsert, softDelete, findMissingParentIds };
+  const upsertMinimalFromTasks = jest.fn().mockResolvedValue(0);
+  const lists = { upsertMinimalFromTasks } as any;
+  return { svc: new TasksService(clickup, normalizer, repo, lists), getTask, normalizeTask, upsert, softDelete, findMissingParentIds, upsertMinimalFromTasks };
 }
 
 describe('TasksService', () => {
@@ -48,6 +50,58 @@ describe('TasksService', () => {
     const { svc, softDelete } = makeDeps();
     await svc.softDeleteTask('t9');
     expect(softDelete).toHaveBeenCalledWith('t9');
+  });
+
+  describe('opportunistic list catalog upsert', () => {
+    it('syncTasks upserts distinct lists opportunistically', async () => {
+      const clickup = {} as any;
+      const normalizer = { normalizeTask: (t: any) => ({ taskId: t.id, listId: t.list?.id ?? null, listName: t.list?.name ?? null, folderId: null, folderName: null, spaceId: null, spaceName: null, raw: t }) } as any;
+      const repo = { upsert: jest.fn().mockResolvedValue({}) } as any;
+      const lists = { upsertMinimalFromTasks: jest.fn().mockResolvedValue(1) } as any;
+      const svc = new TasksService(clickup, normalizer, repo, lists);
+      await svc.syncTasks([{ id: 't1', list: { id: 'l1', name: 'Sprint 1' } }, { id: 't2', list: { id: 'l1', name: 'Sprint 1' } }]);
+      expect(lists.upsertMinimalFromTasks).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ listId: 'l1' })]));
+    });
+
+    it('syncTasks swallows an error from upsertMinimalFromTasks and still returns the successful count', async () => {
+      const clickup = {} as any;
+      const normalizer = { normalizeTask: (t: any) => ({ taskId: t.id, listId: t.list?.id ?? null, listName: t.list?.name ?? null, folderId: null, folderName: null, spaceId: null, spaceName: null, raw: t }) } as any;
+      const repo = { upsert: jest.fn().mockResolvedValue({}) } as any;
+      const lists = { upsertMinimalFromTasks: jest.fn().mockRejectedValue(new Error('db down')) } as any;
+      const svc = new TasksService(clickup, normalizer, repo, lists);
+
+      const count = await svc.syncTasks([{ id: 't1', list: { id: 'l1', name: 'Sprint 1' } }]);
+
+      expect(count).toBe(1); // the catalog-upsert failure did not fail the task batch
+      expect(lists.upsertMinimalFromTasks).toHaveBeenCalled();
+    });
+
+    it('syncTask upserts the single task list opportunistically', async () => {
+      const getTask = jest.fn().mockResolvedValue({ id: 't1', list: { id: 'l1', name: 'Sprint 1' } });
+      const clickup = { getTask } as any;
+      const normalizer = { normalizeTask: (t: any) => ({ taskId: t.id, listId: t.list?.id ?? null, listName: t.list?.name ?? null, folderId: null, folderName: null, spaceId: null, spaceName: null, raw: t }) } as any;
+      const repo = { upsert: jest.fn().mockResolvedValue({}) } as any;
+      const lists = { upsertMinimalFromTasks: jest.fn().mockResolvedValue(1) } as any;
+      const svc = new TasksService(clickup, normalizer, repo, lists);
+
+      await svc.syncTask('t1');
+
+      expect(lists.upsertMinimalFromTasks).toHaveBeenCalledWith([expect.objectContaining({ listId: 'l1' })]);
+    });
+
+    it('syncTask swallows an error from upsertMinimalFromTasks and still returns the normalized task', async () => {
+      const getTask = jest.fn().mockResolvedValue({ id: 't1', list: { id: 'l1', name: 'Sprint 1' } });
+      const clickup = { getTask } as any;
+      const normalizer = { normalizeTask: (t: any) => ({ taskId: t.id, listId: t.list?.id ?? null, listName: t.list?.name ?? null, folderId: null, folderName: null, spaceId: null, spaceName: null, raw: t }) } as any;
+      const repo = { upsert: jest.fn().mockResolvedValue({}) } as any;
+      const lists = { upsertMinimalFromTasks: jest.fn().mockRejectedValue(new Error('db down')) } as any;
+      const svc = new TasksService(clickup, normalizer, repo, lists);
+
+      const res = await svc.syncTask('t1');
+
+      expect(res.taskId).toBe('t1');
+      expect(lists.upsertMinimalFromTasks).toHaveBeenCalled();
+    });
   });
 
   describe('syncMissingParents', () => {

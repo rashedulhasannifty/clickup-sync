@@ -49,6 +49,12 @@ const ARCHIVED_OPTIONS = [
   { value: 'only', label: 'Archived only' },
 ];
 
+const SPRINT_STATUS_OPTIONS = [
+  { value: 'all', label: 'All sprints' },
+  { value: 'active', label: 'Active sprints' },
+  { value: 'completed', label: 'Completed (archived) sprints' },
+];
+
 function parseAssignees(r: Task): { name: string; email?: string }[] {
   const names = String(r.assigneesNames ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   const emails = String(r.assigneesEmails ?? '').split(',').map((s) => s.trim());
@@ -100,9 +106,11 @@ function cell(v: unknown): ReactNode {
 
 function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () => void }) {
   const [tab, setTab] = useState('overview');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setTab('overview');
+    setCopied(false);
   }, [String(task?.taskId ?? task?.task_id ?? '')]);
 
   const taskIdForHistory = task ? String(task.taskId ?? task.task_id ?? '') : null;
@@ -119,6 +127,23 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
   const priority = String(task.priority ?? '');
   const priorityTone = priority === 'urgent' ? 'red' : priority === 'high' ? 'amber' : 'gray';
   const archived = !!task.archived;
+  const taskId = String(task.taskId ?? task.task_id ?? '');
+  // Prefer the stored ClickUp URL (handles custom domains / task custom ids);
+  // fall back to the deterministic task URL when the row predates the `url` select.
+  const clickupUrl = String(task.url ?? '') || `https://app.clickup.com/t/${taskId}`;
+  const copyTaskId = () => {
+    // Only show the "Copied!" confirmation once the write actually resolves —
+    // clipboard access can be denied (insecure context, unfocused doc, blocked
+    // permission); reporting success we didn't achieve would mislead. Swallow
+    // the rejection so it isn't an unhandled promise.
+    navigator.clipboard
+      ?.writeText(taskId)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {});
+  };
 
   return (
     <Drawer open width={620} onClose={onClose}>
@@ -130,13 +155,13 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
           }}
           >
             <CheckSquare size={12} strokeWidth={1.75} />
-            <span>{String(task.taskId ?? task.task_id ?? '')}</span>
-            <button type="button" title="Copy task ID" style={{ border: 0, background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: 2 }}>
-              <Copy size={11} strokeWidth={1.75} />
+            <span>{taskId}</span>
+            <button type="button" title={copied ? 'Copied!' : 'Copy task ID'} onClick={copyTaskId} style={{ border: 0, background: 'transparent', color: copied ? 'var(--green, #10b981)' : 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: 2 }}>
+              {copied ? <CircleCheck size={11} strokeWidth={1.75} /> : <Copy size={11} strokeWidth={1.75} />}
             </button>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            <Button size="sm" variant="default" icon={<ExternalLink size={13} strokeWidth={1.75} />}>Open in ClickUp</Button>
+            <Button size="sm" variant="default" icon={<ExternalLink size={13} strokeWidth={1.75} />} onClick={() => window.open(clickupUrl, '_blank', 'noopener,noreferrer')}>Open in ClickUp</Button>
             <button
               type="button"
               onClick={onClose}
@@ -289,6 +314,7 @@ export function TasksPage() {
   const [listFilter, setListFilter] = useState<string[]>([]);
   const [folderFilter, setFolderFilter] = useState<string[]>([]);
   const [archivedFilter, setArchivedFilter] = useState('include');
+  const [sprintStatus, setSprintStatus] = useState('all');
   const [taskIdsFilter, setTaskIdsFilter] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -434,11 +460,12 @@ export function TasksPage() {
     listId: listFilter.length ? listFilter.join(',') : undefined,
     folderId: folderFilter.length ? folderFilter.join(',') : undefined,
     archived: archivedFilter,
+    sprintStatus: sprintStatus !== 'all' ? sprintStatus : undefined,
     taskIds: isDeepLink ? taskIdsFilter.join(',') : undefined,
     // Global topbar date range filters by task `updated_date`.
     from: isDeepLink ? undefined : (fromDate || undefined),
     to: isDeepLink ? undefined : (toDate || undefined),
-  }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, listFilter, folderFilter, archivedFilter, taskIdsFilter, fromDate, toDate]);
+  }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, listFilter, folderFilter, archivedFilter, sprintStatus, taskIdsFilter, fromDate, toDate]);
 
   const tasksQuery = useTasks(taskParams as Record<string, string | number | undefined>);
   const { data, isLoading, refetch } = tasksQuery;
@@ -449,7 +476,7 @@ export function TasksPage() {
   const hasFilters = !!(
     searchRaw || search || statusFilter.length || priorityFilter.length || typeFilter
     || assigneeFilter.length || clientFilter.length || listFilter.length || folderFilter.length
-    || archivedFilter !== 'include' || taskIdsFilter.length > 0
+    || archivedFilter !== 'include' || sprintStatus !== 'all' || taskIdsFilter.length > 0
   );
 
   function reset() {
@@ -463,6 +490,7 @@ export function TasksPage() {
     setListFilter([]);
     setFolderFilter([]);
     setArchivedFilter('include');
+    setSprintStatus('all');
     setTaskIdsFilter([]);
     setPage(1);
   }
@@ -782,6 +810,7 @@ export function TasksPage() {
         <MultiSelect ariaLabel="Filter by list" size="md" allLabel="Any list" value={listFilter} onChange={v => { setListFilter(v); setPage(1); }} options={listOptions} />
         <Select ariaLabel="Filter by type" size="md" value={typeFilter} onChange={v => { setTypeFilter(v); setPage(1); }} options={TYPE_OPTIONS} />
         <Select ariaLabel="Filter by archived state" size="md" value={archivedFilter} onChange={v => { setArchivedFilter(v); setPage(1); }} options={ARCHIVED_OPTIONS} />
+        <Select ariaLabel="Filter by sprint status" size="md" value={sprintStatus} onChange={v => { setSprintStatus(v); setPage(1); }} options={SPRINT_STATUS_OPTIONS} />
         {hasFilters && (
           <Button size="md" variant="ghost" icon={<X size={13} strokeWidth={1.75} />} onClick={reset}>Reset</Button>
         )}

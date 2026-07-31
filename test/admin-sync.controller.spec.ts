@@ -1,13 +1,27 @@
 import { BadRequestException } from '@nestjs/common';
 import { AdminSyncController } from '../src/admin/admin-sync.controller';
+import { JOBS } from '../src/queues/queue.constants';
+import { CLICKUP_SPACES } from '../src/config/clickup-spaces.config';
 
 describe('AdminSyncController', () => {
+  // Fake ioredis surface used by the progress high-water mark. `stored` seeds
+  // existing peaks (key suffix = spaceId → value); set/del are spies.
+  function makeRedis(stored: Record<string, string> = {}) {
+    const set = jest.fn().mockResolvedValue('OK');
+    const del = jest.fn().mockResolvedValue(1);
+    const mget = jest.fn((keys: string[]) =>
+      Promise.resolve(keys.map((k) => stored[k.replace('progress:te-peak:', '')] ?? null)),
+    );
+    return { set, del, mget };
+  }
+
   function makeQueues() {
     const add = jest.fn().mockResolvedValue({});
     // getJobs defaults to empty so the reconcile in-flight guard finds no
     // running sweep and proceeds to enqueue.
     const getJobs = jest.fn().mockResolvedValue([]);
-    return { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}), webhookJobOptions: jest.fn().mockReturnValue({}) } as any;
+    const redisClient = makeRedis();
+    return { get: jest.fn().mockReturnValue({ add, getJobs }), redis: jest.fn().mockResolvedValue(redisClient), defaultJobOptions: jest.fn().mockReturnValue({}), webhookJobOptions: jest.fn().mockReturnValue({}) } as any;
   }
 
   function makeSettings(maxBackfillLookbackDays = 1095) {
@@ -96,7 +110,7 @@ describe('AdminSyncController', () => {
     it('skips (does not enqueue) when a backfill for the space is already in flight', async () => {
       const add = jest.fn().mockResolvedValue(undefined);
       // A live backfill job for the SAME space is already queued/active.
-      const getJobs = jest.fn().mockResolvedValue([{ data: { spaceId: '3525433' } }]);
+      const getJobs = jest.fn().mockResolvedValue([{ name: JOBS.BACKFILL_CLICKUP_SPACE, data: { spaceId: '3525433' } }]);
       const queues = { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
 
       const result = await makeCtrl({ queues, settings: makeSettings(3650) }).backfill({ spaceId: '3525433', lookbackDays: 1500 });
@@ -107,7 +121,22 @@ describe('AdminSyncController', () => {
 
     it('enqueues when the in-flight job is for a DIFFERENT space', async () => {
       const add = jest.fn().mockResolvedValue(undefined);
-      const getJobs = jest.fn().mockResolvedValue([{ data: { spaceId: '3577824' } }]); // other space busy
+      const getJobs = jest.fn().mockResolvedValue([{ name: JOBS.BACKFILL_CLICKUP_SPACE, data: { spaceId: '3577824' } }]); // other space busy
+      const queues = { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
+
+      const result = await makeCtrl({ queues, settings: makeSettings(3650) }).backfill({ spaceId: '3525433', lookbackDays: 1500 });
+
+      expect(result).toEqual({ queued: true, spaceId: '3525433', lookbackDays: 1500 });
+      expect(add).toHaveBeenCalledTimes(1);
+    });
+
+    // Task 5: CLICKUP_BACKFILLS is now shared with SYNC_LIST_CATALOG jobs. A
+    // pending/retrying catalog job for this space must NOT be mistaken for an
+    // in-flight backfill, or a manual "sync space" would be refused for a
+    // genuinely idle space.
+    it('enqueues when the only in-flight job for the space is a list-catalog sync', async () => {
+      const add = jest.fn().mockResolvedValue(undefined);
+      const getJobs = jest.fn().mockResolvedValue([{ name: JOBS.SYNC_LIST_CATALOG, data: { spaceId: '3525433' } }]);
       const queues = { get: jest.fn().mockReturnValue({ add, getJobs }), defaultJobOptions: jest.fn().mockReturnValue({}) } as any;
 
       const result = await makeCtrl({ queues, settings: makeSettings(3650) }).backfill({ spaceId: '3525433', lookbackDays: 1500 });
@@ -117,15 +146,42 @@ describe('AdminSyncController', () => {
     });
   });
 
+  describe('syncLists', () => {
+    it('enqueues a single SYNC_LIST_CATALOG job for the given spaceId', async () => {
+      const queues = makeQueues();
+      const result = await makeCtrl({ queues }).syncLists({ spaceId: '3577824' });
+      expect(result).toEqual({ queued: 1 });
+      expect(queues.get).toHaveBeenCalledWith('clickup-backfills');
+      const add = (queues.get as jest.Mock).mock.results[0].value.add as jest.Mock;
+      expect(add).toHaveBeenCalledWith(JOBS.SYNC_LIST_CATALOG, { spaceId: '3577824' }, {});
+    });
+
+    it('enqueues one job per configured space when spaceId is omitted', async () => {
+      const queues = makeQueues();
+      const result = await makeCtrl({ queues }).syncLists({});
+      expect(result).toEqual({ queued: CLICKUP_SPACES.length });
+      const add = (queues.get as jest.Mock).mock.results[0].value.add as jest.Mock;
+      expect(add).toHaveBeenCalledTimes(CLICKUP_SPACES.length);
+      for (const space of CLICKUP_SPACES) {
+        expect(add).toHaveBeenCalledWith(JOBS.SYNC_LIST_CATALOG, { spaceId: space.id }, {});
+      }
+    });
+
+    it('throws BadRequestException for an unknown spaceId', async () => {
+      await expect(makeCtrl().syncLists({ spaceId: 'bad-id' })).rejects.toThrow(BadRequestException);
+    });
+  });
+
   describe('backfillActive', () => {
-    function makeQueuesWithJobs(jobsByQueue: Record<string, any[]>) {
+    function makeQueuesWithJobs(jobsByQueue: Record<string, any[]>, storedPeaks: Record<string, string> = {}) {
       const getJobs = jest.fn((_states: string[]) => Promise.resolve([])); // default
       const queueMocks = new Map<string, any>();
       for (const [name, jobs] of Object.entries(jobsByQueue)) {
         queueMocks.set(name, { getJobs: jest.fn().mockResolvedValue(jobs), add: jest.fn() });
       }
       const get = jest.fn((name: string) => queueMocks.get(name) ?? { getJobs, add: jest.fn() });
-      return { get, defaultJobOptions: jest.fn().mockReturnValue({}), webhookJobOptions: jest.fn().mockReturnValue({}) } as any;
+      const redisClient = makeRedis(storedPeaks);
+      return { get, redis: jest.fn().mockResolvedValue(redisClient), _redis: redisClient, defaultJobOptions: jest.fn().mockReturnValue({}), webhookJobOptions: jest.fn().mockReturnValue({}) } as any;
     }
 
     it('returns empty list when no jobs are active', async () => {
@@ -135,13 +191,25 @@ describe('AdminSyncController', () => {
 
     it('reports backfill phase as "fetching" with no total', async () => {
       const queues = makeQueuesWithJobs({
-        'clickup-backfills': [{ data: { spaceId: '3589129' } }],
+        'clickup-backfills': [{ name: JOBS.BACKFILL_CLICKUP_SPACE, data: { spaceId: '3589129' } }],
         'clickup-time-entries': [],
       });
       const result = await makeCtrl({ queues }).backfillActive();
       expect(result.spaces).toEqual([
         { spaceId: '3589129', phase: 'fetching', total: null, done: null, remaining: 0 },
       ]);
+    });
+
+    // Task 5: a queued SYNC_LIST_CATALOG job (shares CLICKUP_BACKFILLS) must
+    // not be mistaken for a "fetching" backfill — it carries no task-count
+    // total and isn't a backfill in progress.
+    it('does not report a list-catalog-only job as an active/fetching space', async () => {
+      const queues = makeQueuesWithJobs({
+        'clickup-backfills': [{ name: JOBS.SYNC_LIST_CATALOG, data: { spaceId: '3589129' } }],
+        'clickup-time-entries': [],
+      });
+      const result = await makeCtrl({ queues }).backfillActive();
+      expect(result.spaces).toEqual([]);
     });
 
     it('attributes time-entry queue depth to spaces via clickup_tasks', async () => {
@@ -200,6 +268,53 @@ describe('AdminSyncController', () => {
       expect(result.spaces[0]).toMatchObject({ phase: 'time-entries', total: 100, done: 98, remaining: 2 });
     });
 
+    // Regression: a persisted high-water mark keeps the denominator stable. When
+    // the big backfill has slid out of the lookback window (seed collapses to a
+    // small reconcile's total) but its jobs are still draining, the stored peak
+    // must hold the total so done keeps climbing instead of snapping back.
+    it('holds the denominator from the Redis high-water mark when the seed shrinks', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([{ taskId: 't1', spaceId: 'X' }]);
+      // Only a small reconcile is in-window now (big backfill aged out) → seed=76.
+      prisma.syncJobLog.findMany.mockResolvedValue([{ entityId: 'X', tasksSynced: 76, finishedAt: new Date() }]);
+      const queues = makeQueuesWithJobs(
+        { 'clickup-backfills': [], 'clickup-time-entries': [{ data: { taskId: 't1' } }] },
+        { X: '8000' }, // high-water mark persisted from earlier in the drain
+      );
+      const result = await makeCtrl({ queues, prisma }).backfillActive();
+      // peak = max(stored 8000, remaining 1, seed 76) = 8000 → done = 7999, not 0.
+      expect(result.spaces[0]).toMatchObject({ phase: 'time-entries', total: 8000, done: 7999, remaining: 1 });
+    });
+
+    // A space that is BOTH fetching (a fresh backfill enqueued, e.g. the 12h
+    // cron) AND still draining a big backlog must keep its high-water mark — the
+    // reset keys off "has queued time-entry jobs", not the time-entries phase.
+    it('does not clear the high-water mark for a space that is fetching but still draining', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([{ taskId: 't1', spaceId: '3525433' }]);
+      const queues = makeQueuesWithJobs(
+        {
+          'clickup-backfills': [{ name: JOBS.BACKFILL_CLICKUP_SPACE, data: { spaceId: '3525433' } }], // fresh backfill → fetching
+          'clickup-time-entries': [{ data: { taskId: 't1' } }], // big backlog still draining
+        },
+        { '3525433': '8000' },
+      );
+      const result = await makeCtrl({ queues, prisma }).backfillActive();
+      // Fetching wins for display, but the peak key must survive.
+      expect(result.spaces[0]).toMatchObject({ spaceId: '3525433', phase: 'fetching' });
+      const deletedKeys = queues._redis.del.mock.calls.flat();
+      expect(deletedKeys).not.toContain('progress:te-peak:3525433');
+    });
+
+    // The high-water mark is cleared once a space is fully idle, so the next
+    // backfill's bar starts from zero instead of inheriting a stale large peak.
+    it('clears the high-water mark for idle configured spaces', async () => {
+      const queues = makeQueuesWithJobs({ 'clickup-backfills': [], 'clickup-time-entries': [] });
+      await makeCtrl({ queues }).backfillActive();
+      // No active spaces → every configured space key is deleted.
+      expect(queues._redis.del).toHaveBeenCalled();
+    });
+
     it('clamps done to >= 0 when webhook drains outrun the last backfill', async () => {
       const prisma = makePrisma();
       prisma.clickupTask.findMany.mockResolvedValue([{ taskId: 't1', spaceId: 'X' }]);
@@ -217,7 +332,7 @@ describe('AdminSyncController', () => {
       const prisma = makePrisma();
       prisma.clickupTask.findMany.mockResolvedValue([{ taskId: 't1', spaceId: '3589129' }]);
       const queues = makeQueuesWithJobs({
-        'clickup-backfills': [{ data: { spaceId: '3589129' } }],
+        'clickup-backfills': [{ name: JOBS.BACKFILL_CLICKUP_SPACE, data: { spaceId: '3589129' } }],
         'clickup-time-entries': [{ data: { taskId: 't1' } }],
       });
       const result = await makeCtrl({ queues, prisma }).backfillActive();

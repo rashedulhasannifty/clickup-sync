@@ -45,6 +45,31 @@ Add a BullMQ job to `clickup-backfills` with payload:
 { "spaceId": "3577824", "lookbackDays": 90 }
 ```
 
+A backfill that hits the task pagination cap is **incomplete** — tasks beyond the cap are not synced. This is now recorded on the run's `sync_job_logs` row as status `partial` (rendered as an amber pill in Sync Logs; the reason shows in the run detail) instead of a clean `completed`. Re-run the backfill with a narrower window if you see it.
+
+## Scheduled reconcile
+
+Three recurring crons run as safety nets for events ClickUp never delivered (real-time updates still arrive via webhooks):
+
+- **Recent updates** — `reconcileRecentUpdates()` every 12h (`@Cron('0 0 */12 * * *')`): re-syncs tasks updated in the last day + a bounded 7-day time-entry window, per enabled space. Deliberately skips the archived per-list scan (too heavy across all spaces every run).
+- **List catalog** — `syncListCatalogs()` daily at 03:00 (see "Sprint / list catalog" below).
+- **Archived reconcile** — `reconcileArchived()` daily at 04:00 (`@Cron('0 0 4 * * *')`): runs a full `includeArchived=true` backfill for **exactly one** enabled space per day, rotating through the enabled spaces by calendar day. This closes the gap where a task inside a just-completed (archived) sprint whose state changed after its list was archived would otherwise never re-sync until a manual backfill — while keeping the expensive archived scan bounded to one space per run on the small host. It respects the same in-flight overlap guard as the 12h reconcile.
+
+  Caveat: the archived pass issues one paginated request per list (a sprint folder can hold 200+ archived lists) and fans a `sync-task-time-entries` job out per task onto the throughput-bottlenecked `clickup-time-entries` queue. The overlap guard only checks that the space has no `clickup-backfills` job in flight — it does **not** see the time-entry backlog, which drains after the backfill job itself completes. In practice the one-space-per-day rotation gives ~N days (N = enabled space count) for that backlog to drain, and those backfill time-entry jobs are deprioritized so they never block live webhooks. If archived-list counts grow much larger, bound the per-run list count or gate on `clickup-time-entries` depth.
+
+## Sprint / list catalog
+
+`clickup_lists` is the sprint/list catalog behind `/reports/sprints*` and the `sprintStatus` filter on `/reports/tasks` and `/reports/time-entries`. It is kept in sync four ways:
+
+- **Every manual space backfill** (`POST /admin/backfill`) — after the task/time-entry sync succeeds, `BackfillService` best-effort refreshes the list catalog for that space (failures here are logged only; they never fail the backfill itself).
+- **Daily cron** — `SyncScheduler.syncListCatalogs()` runs at 03:00 (`@Cron('0 0 3 * * *')`, job `sync-list-catalog` on the `clickup-backfills` queue), one job per space that's configured and enabled in Settings. This is the backstop for lists that change out-of-band (renamed, moved, archived) without any task in them being touched.
+- **`POST /admin/lists/sync`** — body `{ "spaceId": "3577824" }` to sync one space, or an empty body to sync every configured space (regardless of the enabled/disabled setting).
+- **Opportunistically from task webhooks/sync** — every normalized task write also upserts its list's `name`/`folderId`/`folderName`/`spaceId`/`spaceName` into the catalog, so new lists show up promptly.
+
+Only the backfill/cron/`POST /admin/lists/sync` paths are authoritative for the `archived` flag and the sprint `startDate`/`dueDate` — the opportunistic webhook path deliberately never writes those fields, so a list that's only ever touched via webhook won't have its archived/date fields populated until one of the other three paths runs.
+
+**Bootstrap:** after deploying this feature, call `POST /admin/lists/sync` once to populate the catalog before the first 03:00 cron run.
+
 ## Assignee rates
 
 Rates are managed in the dashboard (`/assignee-rates`) via `POST|PATCH|DELETE /admin/rates`. Changing a rate automatically triggers a scoped `recalculate-costs` job on the `maintenance` queue that recomputes costs for affected `clickup_time_entries`. There is no Google Sheets sync. For a manual full recalculation, call `POST /admin/rates/recalculate`.

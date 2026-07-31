@@ -329,6 +329,103 @@ describe('TimeEntriesReportService', () => {
     });
   });
 
+  describe('timeEntriesList (sprintStatus filter)', () => {
+    function callList(prisma: any, sprintStatus?: string, listId?: string) {
+      return new TimeEntriesReportService(prisma).timeEntriesList(
+        undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, listId, undefined, undefined,
+        sprintStatus,
+      );
+    }
+
+    it('adds a task.listId-IN clause scoped to non-archived lists when sprintStatus="active"', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([{ list_id: 'L1' }, { list_id: 'L2' }]);
+      await callList(prisma, 'active');
+      const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ task: { listId: { in: ['L1', 'L2'] } } });
+      const rawCall = prisma.$queryRaw.mock.calls[0][0];
+      expect(rawCall.values).toEqual([false]);
+    });
+
+    it('adds a task.listId-IN clause scoped to archived lists when sprintStatus="completed"', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([{ list_id: 'L3' }]);
+      await callList(prisma, 'completed');
+      const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ task: { listId: { in: ['L3'] } } });
+      const rawCall = prisma.$queryRaw.mock.calls[0][0];
+      expect(rawCall.values).toEqual([true]);
+    });
+
+    // Regression pin: zero archived lists must exclude every entry (empty
+    // IN), not be treated as "no filter".
+    it('still pushes an (empty) IN clause when no lists match sprintStatus="completed"', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await callList(prisma, 'completed');
+      const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ task: { listId: { in: [] } } });
+    });
+
+    it('emits no extra clause and issues no extra query when sprintStatus="all" (backward-compatible)', async () => {
+      const prisma = makePrisma();
+      await callList(prisma, 'all');
+      const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
+      expect(arg.where.AND).toBeUndefined();
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('emits no extra clause when sprintStatus is undefined (pre-existing callers unaffected)', async () => {
+      const prisma = makePrisma();
+      await callList(prisma);
+      const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
+      expect(arg.where.AND).toBeUndefined();
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('combines with an existing listId filter as two separate AND entries (both must hold, not merged)', async () => {
+      const prisma = makePrisma();
+      // Different list_id than the user's explicit filter so the two clauses
+      // are distinguishable — proves both survive as independent AND entries
+      // rather than one overwriting the other.
+      prisma.$queryRaw.mockResolvedValue([{ list_id: 'L2' }]);
+      await callList(prisma, 'completed', 'L1');
+      const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ task: { listId: { in: ['L1'] } } });
+      expect(and).toContainEqual({ task: { listId: { in: ['L2'] } } });
+    });
+  });
+
+  describe('timeEntriesAggregates (sprintStatus filter)', () => {
+    it('adds a task.listId-IN clause when sprintStatus="completed"', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([{ list_id: 'L9' }]);
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, 'completed',
+      );
+      const arg = prisma.clickupTimeEntry.groupBy.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ task: { listId: { in: ['L9'] } } });
+    });
+
+    it('emits no extra clause when sprintStatus="all"', async () => {
+      const prisma = makePrisma();
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, 'all',
+      );
+      const arg = prisma.clickupTimeEntry.groupBy.mock.calls[0][0];
+      expect(arg.where.AND).toBeUndefined();
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    });
+  });
+
   describe('timeEntriesList (userId filter)', () => {
     it('wraps a single userId in an IN clause (the deep-link path)', async () => {
       const prisma = makePrisma();

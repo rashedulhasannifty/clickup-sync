@@ -33,6 +33,9 @@ const HourSpikesPage = React.lazy(() =>
 const TasksPage = React.lazy(() =>
 	import('./pages/TasksPage').then((m) => ({ default: m.TasksPage })),
 );
+const SprintsPage = React.lazy(() =>
+	import('./pages/SprintsPage').then((m) => ({ default: m.SprintsPage })),
+);
 const TimeEntriesPage = React.lazy(() =>
 	import('./pages/TimeEntriesPage').then((m) => ({
 		default: m.TimeEntriesPage,
@@ -168,6 +171,7 @@ export default function App() {
 										<Route path="/analytics" element={<SuspenseRoute><AnalyticsPage /></SuspenseRoute>} />
 										<Route path="/time-spikes" element={<SuspenseRoute><HourSpikesPage /></SuspenseRoute>} />
 										<Route path="/tasks" element={<SuspenseRoute><TasksPage /></SuspenseRoute>} />
+										<Route path="/sprints" element={<SuspenseRoute><SprintsPage /></SuspenseRoute>} />
 										<Route path="/time-entries" element={<SuspenseRoute><TimeEntriesPage /></SuspenseRoute>} />
 										<Route path="/timesheet" element={<SuspenseRoute><TimesheetPage /></SuspenseRoute>} />
 										<Route path="/missing-rates" element={<SuspenseRoute><MissingRatesPage /></SuspenseRoute>} />

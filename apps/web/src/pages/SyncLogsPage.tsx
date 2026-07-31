@@ -43,6 +43,7 @@ const WEBHOOK_STATUS_OPTIONS = [
 const JOB_STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
   { value: 'completed', label: 'Completed' },
+  { value: 'partial', label: 'Partial' },
   { value: 'failed', label: 'Failed' },
   { value: 'running', label: 'Running' },
   { value: 'pending', label: 'Pending' },

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { parseDate } from './report-date.util';
-import { csvList } from './report-filter.util';
+import { csvList, sprintStatusListIds } from './report-filter.util';
 
 /** Task-centric report queries (counts, filters, per-space aggregates). */
 @Injectable()
@@ -159,6 +159,7 @@ export class TasksReportService {
     taskIds?: string,
     listId?: string,
     folderId?: string,
+    sprintStatus?: string,
   ) {
     // Cap kept generous so the dashboard's "Export CSV" can pull a complete
     // filtered set in one shot. The page UI never offers > 100 rows/page, so
@@ -234,6 +235,15 @@ export class TasksReportService {
         ],
       });
     }
+    // Sprint (== clickup_lists row) status filter: 'active'/'completed' scopes
+    // to tasks whose list isn't/is archived; 'all'/absent/unrecognized emits
+    // no clause at all (backward-compatible with every pre-existing caller).
+    // No Prisma relation from ClickupTask to ClickupList exists, so this is a
+    // fetch-ids-then-IN join rather than a nested where — see
+    // `sprintStatusListIds` for why, and why an empty array must still push a
+    // (never-matching) clause instead of being treated as "no filter".
+    const sprintListIds = await sprintStatusListIds(this.prisma, sprintStatus);
+    if (sprintListIds) and.push({ listId: { in: sprintListIds } });
     if (and.length) where.AND = and;
     const [items, total] = await Promise.all([
       this.prisma.clickupTask.findMany({
@@ -242,7 +252,7 @@ export class TasksReportService {
         take: safeLimit,
         skip: offset,
         select: {
-          taskId: true, taskName: true, spaceId: true, spaceName: true, status: true, statusType: true, statusColor: true,
+          taskId: true, taskName: true, url: true, spaceId: true, spaceName: true, status: true, statusType: true, statusColor: true,
           priority: true, parentTaskId: true, assigneesNames: true, assigneesEmails: true,
           updatedDate: true, syncedAt: true, sprintPoints: true, sprintName: true, cost: true,
           client: true, department: true, isDeleted: true, archived: true,

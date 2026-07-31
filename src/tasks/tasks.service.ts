@@ -1,17 +1,53 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ClickupClient } from '../clickup/clickup.client';
-import { ClickupNormalizer } from '../clickup/clickup-normalizer';
+import { ClickupNormalizer, NormalizedTask } from '../clickup/clickup-normalizer';
 import { TasksRepository } from './tasks.repository';
+import { ListsRepository } from '../lists/lists.repository';
+
+type MinimalListRow = {
+  listId: string | null; listName: string | null;
+  folderId: string | null; folderName: string | null;
+  spaceId: string | null; spaceName: string | null;
+};
+
+function toListRow(task: NormalizedTask): MinimalListRow {
+  return {
+    listId: task.listId, listName: task.listName,
+    folderId: task.folderId, folderName: task.folderName,
+    spaceId: task.spaceId, spaceName: task.spaceName,
+  };
+}
 
 @Injectable()
 export class TasksService {
   private readonly logger = new Logger(TasksService.name);
-  constructor(private readonly clickup: ClickupClient, private readonly normalizer: ClickupNormalizer, private readonly repo: TasksRepository) {}
+  constructor(
+    private readonly clickup: ClickupClient,
+    private readonly normalizer: ClickupNormalizer,
+    private readonly repo: TasksRepository,
+    private readonly lists: ListsRepository,
+  ) {}
+
+  /**
+   * Best-effort catalog freshness: upsert the minimal list/folder/space fields
+   * off already-normalized tasks into the list catalog. This must never fail
+   * or abort a task sync — it is purely opportunistic, kept fresh between
+   * authoritative catalog syncs (see ListCatalogService).
+   */
+  private async upsertListsOpportunistically(rows: MinimalListRow[]) {
+    if (!rows.length) return;
+    try {
+      await this.lists.upsertMinimalFromTasks(rows);
+    } catch (err: any) {
+      this.logger.warn(`Skipped opportunistic list catalog upsert: ${err?.message ?? err}`);
+    }
+  }
 
   async syncTask(taskId: string) {
     const task = await this.clickup.getTask(taskId);
     const normalized = this.normalizer.normalizeTask(task);
     await this.repo.upsert(normalized);
+    await this.upsertListsOpportunistically([toListRow(normalized)]);
     this.logger.log(`Synced ClickUp task ${taskId}`);
     return normalized;
   }
@@ -19,6 +55,12 @@ export class TasksService {
   async syncTasks(tasks: unknown[]) {
     let count = 0;
     let failed = 0;
+    // Dedupe by listId as we go rather than retaining every full normalized
+    // task (which carries the raw ClickUp payload) for the whole batch —
+    // batches can be page-sized (100) or a full space during a reconcile, and
+    // this codebase has already hit an OOM from whole-batch accumulation
+    // elsewhere (see backfill streaming-persistence fix).
+    const listRows = new Map<string, MinimalListRow>();
     for (const raw of tasks) {
       // Tolerant per-task: a single bad row (e.g. a field value that violates a
       // column constraint) must not abort the whole batch and fail an entire
@@ -27,6 +69,7 @@ export class TasksService {
       try {
         const normalized = this.normalizer.normalizeTask(raw as any);
         await this.repo.upsert(normalized);
+        if (normalized.listId) listRows.set(normalized.listId, toListRow(normalized));
         count += 1;
       } catch (err: any) {
         failed += 1;
@@ -35,6 +78,7 @@ export class TasksService {
       }
     }
     if (failed > 0) this.logger.warn(`Batch sync completed with ${failed} skipped task(s) of ${tasks.length}`);
+    await this.upsertListsOpportunistically([...listRows.values()]);
     return count;
   }
 

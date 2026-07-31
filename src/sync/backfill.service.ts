@@ -7,6 +7,7 @@ import { JOBS, QUEUES, BACKFILL_TIME_ENTRY_PRIORITY } from '../queues/queue.cons
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { subtractDays } from '../common/utils/date-utils';
 import { SettingsService } from '../settings/settings.service';
+import { ListCatalogService } from '../lists/list-catalog.service';
 
 @Injectable()
 export class BackfillService {
@@ -17,6 +18,7 @@ export class BackfillService {
     private readonly checkpoints: SyncCheckpointsRepository,
     private readonly queues: QueueService,
     private readonly settings: SettingsService,
+    private readonly listCatalog: ListCatalogService,
   ) {}
 
   // `includeArchived` overrides the global setting for this run. It exists so
@@ -126,6 +128,18 @@ export class BackfillService {
     }
 
     await this.checkpoints.markSuccess('clickup', 'space', spaceId);
+
+    // Best-effort refresh of the list/folder catalog for this space, so sprint
+    // reporting has current list names without a separate manual trigger. Must
+    // never fail the backfill: the task/time-entry sync above already
+    // succeeded and markSuccess is already recorded, so a catalog hiccup here
+    // should only be logged, not surfaced as a failed job/retry.
+    try {
+      await this.listCatalog.syncSpace(spaceId);
+    } catch (e) {
+      this.logger.error(`List-catalog sync failed for space ${space?.name || spaceId} (backfill itself succeeded)`, e instanceof Error ? e.stack : e);
+    }
+
     if (truncated) {
       this.logger.warn(`Backfill of ${space?.name || spaceId} hit the task pagination cap — the result is incomplete and tasks beyond the cap were not synced`);
     }

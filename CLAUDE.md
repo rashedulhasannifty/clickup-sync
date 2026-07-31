@@ -193,6 +193,10 @@ Rules:
 - Empty `valid_to` means open-ended.
 - Use effective dating to calculate time-entry cost.
 
+### Sprint / list catalog
+
+`clickup_lists` is the sprint/list catalog: one row per ClickUp list (sprint), keyed on `list_id`, storing `name`, `folderId`/`folderName`, `spaceId`/`spaceName`, `archived`, and sprint `startDate`/`dueDate`. It powers `/reports/sprints`, `/reports/sprints/folders`, `/reports/sprints/velocity`, `/reports/sprints/:listId`, and the `sprintStatus=active|completed|all` filter on `/reports/tasks` and `/reports/time-entries`. See "Sprint / list catalog" in `docs/OPERATIONS.md` for how it's populated (backfill, daily cron, `POST /admin/lists/sync`, opportunistic webhook upserts) and which of those paths are authoritative for `archived`/dates vs. name/folder only.
+
 ## Worker and queue rules
 
 Webhook controllers should respond quickly and queue work. Do not perform heavy ClickUp fetches or database backfills inside the HTTP request path.
@@ -331,4 +335,5 @@ Already in place (do not re-implement):
 - Time-entry replacement with audit (`TimeEntryReplacement` model + `AssigneeReplacementService`; audit row written before original delete; `originalEntryId @unique` for idempotency)
 - Admin audit log (`AdminAuditLog` model + `AuditLogInterceptor` on `AdminController`, write actions only, viewable at `/audit-log`)
 - Status-change history capture (`clickup_task_events`, subscribed to `taskStatusUpdated`; cycle-time + time-in-status reports at `/reports/cycle-time` and `/reports/time-in-status`; card on Overview page)
+- Sprint/list catalog + reports (`clickup_lists`, populated via manual space backfill, the daily `SYNC_LIST_CATALOG` cron at 03:00, `POST /admin/lists/sync`, and opportunistic upserts from task webhooks — see `docs/OPERATIONS.md`): `/reports/sprints`, `/reports/sprints/folders`, `/reports/sprints/velocity`, `/reports/sprints/:listId`, plus a `sprintStatus=active|completed|all` filter on `/reports/tasks` and `/reports/time-entries`; frontend `/sprints` analytics page and a sprintStatus Select on the Tasks and Time Entries pages.
 - Per-user authentication & RBAC (`src/auth/*`): email/password login (`scrypt` hashing, NIST-style policy), HTTP-only cookie sessions that are DB-backed with SHA-256-hashed tokens and an hourly expired-session sweep (`SessionCleanupService`). One `Organization` tenant with three roles — Owner (org secrets + everything), Admin (ops + invite), Member (read-only) — enforced app-wide by a global `AuthGuard` + `RolesGuard`. Self-serve signup claims the seed org and becomes its first Owner; after that signup is closed and users join by email invitation (`nodemailer`/SMTP, dev transport logs the link). The shared `ADMIN_API_KEY` now authenticates as a synthetic Owner machine credential. The audit log actor is derived from the authenticated session user (the spoofable `X-Admin-User` header is retired). Note: per-ORG data isolation (`org_id` on ClickUp data tables, multi-org sync) is still pending — see Spec 2 and `docs/superpowers/specs/2026-06-06-auth-orgs-rbac-design.md`.

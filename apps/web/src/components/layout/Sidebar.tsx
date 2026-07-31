@@ -20,6 +20,7 @@ import {
   type LucideIcon,
   UsersRound,
   Wallet,
+  Rocket,
 } from "lucide-react";
 import { useStats } from "../../hooks/useReports";
 import { useAuth } from "../../hooks/useAuth";
@@ -64,6 +65,7 @@ export function Sidebar({
     { to: "/analytics", label: "Analytics", icon: BarChart3 },
     { to: "/time-spikes", label: "Time Spikes", icon: Activity },
     { to: "/tasks", label: "Tasks", icon: CheckSquare },
+    { to: "/sprints", label: "Sprints", icon: Rocket },
     { to: "/time-entries", label: "Time Entries", icon: Clock },
     { to: "/timesheet", label: "Timesheet", icon: CalendarClock },
     {

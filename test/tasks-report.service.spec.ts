@@ -361,6 +361,81 @@ describe('TasksReportService', () => {
     });
   });
 
+  describe('tasks (sprintStatus filter)', () => {
+    function callTasks(prisma: any, sprintStatus?: string, listId?: string) {
+      return new TasksReportService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, listId, undefined,
+        sprintStatus,
+      );
+    }
+
+    it('adds a listId-IN clause scoped to non-archived lists when sprintStatus="active"', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([{ list_id: 'L1' }, { list_id: 'L2' }]);
+      await callTasks(prisma, 'active');
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ listId: { in: ['L1', 'L2'] } });
+      // Bound value, not string-concatenated: archived=false for 'active'.
+      const rawCall = prisma.$queryRaw.mock.calls[0][0];
+      expect(rawCall.values).toEqual([false]);
+    });
+
+    it('adds a listId-IN clause scoped to archived lists when sprintStatus="completed"', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([{ list_id: 'L3' }]);
+      await callTasks(prisma, 'completed');
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ listId: { in: ['L3'] } });
+      const rawCall = prisma.$queryRaw.mock.calls[0][0];
+      expect(rawCall.values).toEqual([true]);
+    });
+
+    // Regression pin: zero archived lists must exclude every task (empty IN),
+    // not be treated as "no filter" and fall through to unfiltered.
+    it('still pushes an (empty) IN clause when no lists match sprintStatus="completed"', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await callTasks(prisma, 'completed');
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ listId: { in: [] } });
+    });
+
+    it('emits no extra clause and issues no extra query when sprintStatus="all" (backward-compatible)', async () => {
+      const prisma = makePrisma();
+      await callTasks(prisma, 'all');
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.AND).toBeUndefined();
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('emits no extra clause when sprintStatus is undefined (pre-existing callers unaffected)', async () => {
+      const prisma = makePrisma();
+      await callTasks(prisma);
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.AND).toBeUndefined();
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('combines with an existing listId filter as two separate constraints (both must hold, not merged)', async () => {
+      const prisma = makePrisma();
+      // Different list_id than the user's explicit filter so the two clauses
+      // are distinguishable — proves both survive as independent constraints
+      // rather than one overwriting the other.
+      prisma.$queryRaw.mockResolvedValue([{ list_id: 'L2' }]);
+      await callTasks(prisma, 'completed', 'L1');
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      // The user's explicit listId filter stays on the bare key...
+      expect(arg.where.listId).toEqual({ in: ['L1'] });
+      // ...and the sprintStatus scope is a separate AND entry, not merged in.
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ listId: { in: ['L2'] } });
+    });
+  });
+
   describe('sprintPoints', () => {
     it('maps groupBy to spaceName, status, totalPoints', async () => {
       const prisma = makePrisma();

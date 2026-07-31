@@ -7,6 +7,7 @@ const STATUS_COLORS: Record<string, { bg: string; dot: string; text: string }> =
   running: { bg: 'rgba(59,130,246,0.1)', dot: '#3b82f6', text: '#2563eb' },
   pending: { bg: 'rgba(59,130,246,0.1)', dot: '#3b82f6', text: '#2563eb' },
   'in progress': { bg: 'rgba(59,130,246,0.1)', dot: '#3b82f6', text: '#2563eb' },
+  active: { bg: 'rgba(59,130,246,0.1)', dot: '#3b82f6', text: '#2563eb' },
   open: { bg: 'rgba(100,116,139,0.1)', dot: '#64748b', text: '#475569' },
   review: { bg: 'rgba(245,158,11,0.1)', dot: '#f59e0b', text: '#d97706' },
   partial: { bg: 'rgba(245,158,11,0.1)', dot: '#f59e0b', text: '#d97706' },
