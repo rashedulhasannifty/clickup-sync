@@ -76,4 +76,50 @@ export class SyncScheduler {
       await queue.add(JOBS.SYNC_LIST_CATALOG, { spaceId: space.id }, this.queues.defaultJobOptions());
     }
   }
+
+  // Staggered archived reconcile. The 12h reconcile deliberately skips the
+  // archived per-list scan (too heavy across all spaces every run) and archiving
+  // fires no webhook — so a task inside a just-completed (archived) sprint whose
+  // final state changed after its list was archived never re-syncs until a
+  // manual backfill. This runs the archived pass for exactly ONE enabled space
+  // per day in rotation, so each space is refreshed over a cycle of a few days
+  // with bounded per-run load on the small (1.9GB) host. (The daily list-catalog
+  // cron already keeps list-level archived state fresh; this closes the
+  // task-level content gap.)
+  @Cron('0 0 4 * * *')
+  async reconcileArchived() {
+    const enabled = CLICKUP_SPACES.filter((s) => this.settings.isSpaceEnabled(s.id));
+    if (!enabled.length) return;
+    const space = enabled[this.rotationIndex(new Date(), enabled.length)];
+    const queue = this.queues.get(QUEUES.CLICKUP_BACKFILLS);
+    // Same overlap guard as reconcileRecentUpdates: only real backfills count as
+    // "busy" (the shared queue also carries SYNC_LIST_CATALOG jobs).
+    const live = await queue.getJobs(['active', 'waiting', 'delayed', 'prioritized']);
+    const busy = live.some(
+      (j) => j.name === JOBS.BACKFILL_CLICKUP_SPACE && (j.data as { spaceId?: string } | undefined)?.spaceId === space.id,
+    );
+    if (busy) {
+      this.logger.warn(`Skipping archived reconcile for space ${space.id}: a backfill is still in flight`);
+      return;
+    }
+    await queue.add(
+      JOBS.BACKFILL_CLICKUP_SPACE,
+      // includeArchived:true triggers the per-list archived scan. lookbackDays 30
+      // bounds the active pass; timeEntryLookbackDays 7 bounds time-entry fan-out.
+      { spaceId: space.id, lookbackDays: 30, timeEntryLookbackDays: 7, includeArchived: true },
+      this.queues.defaultJobOptions(),
+    );
+    this.logger.log(`Archived reconcile enqueued for space ${space.id} (daily rotation)`);
+  }
+
+  /**
+   * Deterministic day-based rotation: returns an index in [0, count) that
+   * advances by one each calendar day (UTC) and wraps, so consecutive daily
+   * runs cycle through all enabled spaces. Pure for testability.
+   */
+  rotationIndex(date: Date, count: number): number {
+    if (count <= 0) return 0;
+    const dayNumber = Math.floor(date.getTime() / 86_400_000);
+    return ((dayNumber % count) + count) % count;
+  }
 }
