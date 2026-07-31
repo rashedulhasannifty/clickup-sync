@@ -50,7 +50,23 @@ export class BackfillProcessor extends WorkerHost {
       // `tasksSynced` is used by /admin/backfill/active to compute progress bar
       // totals for the time-entry drain phase that follows. Without it the
       // dashboard can only show "X remaining" instead of "X / N done".
-      await this.jobLogs.finished(log.id, { tasksSynced: result.total });
+      //
+      // A truncated result means the fetch hit the pagination cap and tasks
+      // beyond it were NOT synced. Record that as a distinct `partial` status +
+      // note (the Sync Logs pill renders unknown statuses amber, and the note
+      // shows in the row detail) so a capped/incomplete backfill isn't shown as
+      // a clean success. Only the truncated path passes the extra args, so the
+      // normal call stays the plain 2-arg form.
+      if (result.truncated) {
+        await this.jobLogs.finished(
+          log.id,
+          { tasksSynced: result.total },
+          'partial',
+          'Backfill hit the task pagination cap — result is incomplete; tasks beyond the cap were not synced.',
+        );
+      } else {
+        await this.jobLogs.finished(log.id, { tasksSynced: result.total });
+      }
       return result;
     } catch (e) {
       await this.jobLogs.failed(log.id, e);

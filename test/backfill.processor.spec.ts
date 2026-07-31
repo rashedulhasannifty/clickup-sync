@@ -41,6 +41,18 @@ describe('BackfillProcessor', () => {
     expect(res).toEqual({ synced: 4 });
   });
 
+  it('marks a truncated (pagination-capped) backfill as partial with a note', async () => {
+    const { proc, backfillSpace, finished } = makeDeps();
+    backfillSpace.mockResolvedValueOnce({ total: 200, parents: 120, subtasks: 80, truncated: true });
+    await proc.process({ id: '1', name: JOBS.BACKFILL_CLICKUP_SPACE, data: { spaceId: 's1' } } as any);
+    expect(finished).toHaveBeenCalledWith(
+      1n,
+      { tasksSynced: 200 },
+      'partial',
+      expect.stringMatching(/pagination cap|incomplete/i),
+    );
+  });
+
   it('logs failure and rethrows on a failed backfill', async () => {
     const { proc, backfillSpace, failed } = makeDeps();
     const err = new Error('boom');
