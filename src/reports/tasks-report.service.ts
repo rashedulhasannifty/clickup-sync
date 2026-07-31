@@ -252,7 +252,7 @@ export class TasksReportService {
         take: safeLimit,
         skip: offset,
         select: {
-          taskId: true, taskName: true, spaceId: true, spaceName: true, status: true, statusType: true, statusColor: true,
+          taskId: true, taskName: true, url: true, spaceId: true, spaceName: true, status: true, statusType: true, statusColor: true,
           priority: true, parentTaskId: true, assigneesNames: true, assigneesEmails: true,
           updatedDate: true, syncedAt: true, sprintPoints: true, sprintName: true, cost: true,
           client: true, department: true, isDeleted: true, archived: true,

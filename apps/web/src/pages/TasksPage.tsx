@@ -106,9 +106,11 @@ function cell(v: unknown): ReactNode {
 
 function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () => void }) {
   const [tab, setTab] = useState('overview');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setTab('overview');
+    setCopied(false);
   }, [String(task?.taskId ?? task?.task_id ?? '')]);
 
   const taskIdForHistory = task ? String(task.taskId ?? task.task_id ?? '') : null;
@@ -125,6 +127,15 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
   const priority = String(task.priority ?? '');
   const priorityTone = priority === 'urgent' ? 'red' : priority === 'high' ? 'amber' : 'gray';
   const archived = !!task.archived;
+  const taskId = String(task.taskId ?? task.task_id ?? '');
+  // Prefer the stored ClickUp URL (handles custom domains / task custom ids);
+  // fall back to the deterministic task URL when the row predates the `url` select.
+  const clickupUrl = String(task.url ?? '') || `https://app.clickup.com/t/${taskId}`;
+  const copyTaskId = () => {
+    void navigator.clipboard?.writeText(taskId);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   return (
     <Drawer open width={620} onClose={onClose}>
@@ -136,13 +147,13 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
           }}
           >
             <CheckSquare size={12} strokeWidth={1.75} />
-            <span>{String(task.taskId ?? task.task_id ?? '')}</span>
-            <button type="button" title="Copy task ID" style={{ border: 0, background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: 2 }}>
-              <Copy size={11} strokeWidth={1.75} />
+            <span>{taskId}</span>
+            <button type="button" title={copied ? 'Copied!' : 'Copy task ID'} onClick={copyTaskId} style={{ border: 0, background: 'transparent', color: copied ? 'var(--green, #10b981)' : 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: 2 }}>
+              {copied ? <CircleCheck size={11} strokeWidth={1.75} /> : <Copy size={11} strokeWidth={1.75} />}
             </button>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            <Button size="sm" variant="default" icon={<ExternalLink size={13} strokeWidth={1.75} />}>Open in ClickUp</Button>
+            <Button size="sm" variant="default" icon={<ExternalLink size={13} strokeWidth={1.75} />} onClick={() => window.open(clickupUrl, '_blank', 'noopener,noreferrer')}>Open in ClickUp</Button>
             <button
               type="button"
               onClick={onClose}
