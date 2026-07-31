@@ -132,9 +132,17 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
   // fall back to the deterministic task URL when the row predates the `url` select.
   const clickupUrl = String(task.url ?? '') || `https://app.clickup.com/t/${taskId}`;
   const copyTaskId = () => {
-    void navigator.clipboard?.writeText(taskId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    // Only show the "Copied!" confirmation once the write actually resolves —
+    // clipboard access can be denied (insecure context, unfocused doc, blocked
+    // permission); reporting success we didn't achieve would mislead. Swallow
+    // the rejection so it isn't an unhandled promise.
+    navigator.clipboard
+      ?.writeText(taskId)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {});
   };
 
   return (

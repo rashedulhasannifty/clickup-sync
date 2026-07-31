@@ -84,7 +84,8 @@ describe('SyncScheduler.rotationIndex', () => {
     const day0 = new Date('2026-01-01T12:00:00Z');
     const day1 = new Date('2026-01-02T12:00:00Z');
     const day3 = new Date('2026-01-04T12:00:00Z'); // 3 days later, count=3 → same index
-    expect(s.rotationIndex(day0, 3)).not.toBe(s.rotationIndex(day1, 3));
+    // advances by exactly +1 per day (mod count) — pins the step, not just "differs"
+    expect((s.rotationIndex(day1, 3) - s.rotationIndex(day0, 3) + 3) % 3).toBe(1);
     expect(s.rotationIndex(day0, 3)).toBe(s.rotationIndex(day3, 3));
     expect(s.rotationIndex(day0, 3)).toBeGreaterThanOrEqual(0);
     expect(s.rotationIndex(day0, 3)).toBeLessThan(3);

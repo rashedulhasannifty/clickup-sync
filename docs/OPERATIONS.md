@@ -55,6 +55,8 @@ Three recurring crons run as safety nets for events ClickUp never delivered (rea
 - **List catalog** — `syncListCatalogs()` daily at 03:00 (see "Sprint / list catalog" below).
 - **Archived reconcile** — `reconcileArchived()` daily at 04:00 (`@Cron('0 0 4 * * *')`): runs a full `includeArchived=true` backfill for **exactly one** enabled space per day, rotating through the enabled spaces by calendar day. This closes the gap where a task inside a just-completed (archived) sprint whose state changed after its list was archived would otherwise never re-sync until a manual backfill — while keeping the expensive archived scan bounded to one space per run on the small host. It respects the same in-flight overlap guard as the 12h reconcile.
 
+  Caveat: the archived pass issues one paginated request per list (a sprint folder can hold 200+ archived lists) and fans a `sync-task-time-entries` job out per task onto the throughput-bottlenecked `clickup-time-entries` queue. The overlap guard only checks that the space has no `clickup-backfills` job in flight — it does **not** see the time-entry backlog, which drains after the backfill job itself completes. In practice the one-space-per-day rotation gives ~N days (N = enabled space count) for that backlog to drain, and those backfill time-entry jobs are deprioritized so they never block live webhooks. If archived-list counts grow much larger, bound the per-run list count or gate on `clickup-time-entries` depth.
+
 ## Sprint / list catalog
 
 `clickup_lists` is the sprint/list catalog behind `/reports/sprints*` and the `sprintStatus` filter on `/reports/tasks` and `/reports/time-entries`. It is kept in sync four ways:

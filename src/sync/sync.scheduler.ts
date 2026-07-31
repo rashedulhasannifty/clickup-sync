@@ -104,9 +104,13 @@ export class SyncScheduler {
     }
     await queue.add(
       JOBS.BACKFILL_CLICKUP_SPACE,
-      // includeArchived:true triggers the per-list archived scan. lookbackDays 30
-      // bounds the active pass; timeEntryLookbackDays 7 bounds time-entry fan-out.
-      { spaceId: space.id, lookbackDays: 30, timeEntryLookbackDays: 7, includeArchived: true },
+      // includeArchived:true triggers the per-list archived scan. The lookback
+      // (from the space's config, default 30) bounds the active pass;
+      // timeEntryLookbackDays 7 bounds the time-entry fan-out this enqueues onto
+      // the (throughput-bottlenecked) clickup-time-entries queue. Those backfill
+      // time-entry jobs are already deprioritized so they never block live
+      // webhooks; the one-space-per-day rotation gives them room to drain.
+      { spaceId: space.id, lookbackDays: space.backfillLookbackDays ?? 30, timeEntryLookbackDays: 7, includeArchived: true },
       this.queues.defaultJobOptions(),
     );
     this.logger.log(`Archived reconcile enqueued for space ${space.id} (daily rotation)`);
