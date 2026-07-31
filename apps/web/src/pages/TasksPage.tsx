@@ -52,7 +52,7 @@ const ARCHIVED_OPTIONS = [
 const SPRINT_STATUS_OPTIONS = [
   { value: 'all', label: 'All sprints' },
   { value: 'active', label: 'Active sprints' },
-  { value: 'completed', label: 'Completed sprints' },
+  { value: 'completed', label: 'Completed (archived) sprints' },
 ];
 
 function parseAssignees(r: Task): { name: string; email?: string }[] {

@@ -35,7 +35,7 @@ function moneyAud(dollars: number) {
 const SPRINT_STATUS_OPTIONS = [
   { value: 'all', label: 'All sprints' },
   { value: 'active', label: 'Active sprints' },
-  { value: 'completed', label: 'Completed sprints' },
+  { value: 'completed', label: 'Completed (archived) sprints' },
 ];
 
 // DataTable's generic is constrained to `{ [key: string]: unknown }`. SprintRow
