@@ -121,6 +121,38 @@ export class ClickupWebhooksService {
     };
   }
 
+  /**
+   * Force a fresh signing secret by deleting the webhook currently at the
+   * configured endpoint (if any) and registering anew. `register()` alone only
+   * PUT-reactivates an existing match and KEEPS its secret — useless against a
+   * 401 signature mismatch that keeps a webhook suspended. This is the one-call
+   * manual equivalent of the auto-heal's delete+recreate escalation
+   * (`webhook-health.service.ts`). Surfaces `rotated: false` when register comes
+   * back non-`created` (the delete hadn't propagated / a match reappeared), so
+   * the caller isn't told a rotation happened when the old secret was kept.
+   */
+  async rotate(actor?: string): Promise<{ deletedId: string | null; rotated: boolean; result: RegisterWebhookResult }> {
+    const teamId = this.settings.getTeamId();
+    const endpoint = this.settings.getWebhookEndpoint();
+    const existing = await this.client.getWebhooks(teamId);
+    const match = existing.find((w) => w.endpoint === endpoint);
+    let deletedId: string | null = null;
+    if (match) {
+      await this.client.deleteWebhook(match.id);
+      deletedId = match.id;
+      this.logger.log(`Rotate: deleted webhook ${match.id} at ${endpoint}`);
+    }
+    const result = await this.register(actor);
+    const rotated = result.action === 'created';
+    if (!rotated) {
+      this.logger.warn(
+        `Rotate did not issue a fresh secret: register returned '${result.action}' ` +
+          '(a webhook still matched the endpoint after delete). Old secret retained.',
+      );
+    }
+    return { deletedId, rotated, result };
+  }
+
   /** Delete a single ClickUp webhook by id. */
   async deleteById(id: string): Promise<{ deleted: true; id: string }> {
     await this.client.deleteWebhook(id);

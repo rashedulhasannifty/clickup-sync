@@ -62,6 +62,14 @@ export function usePruneStaleWebhooks() {
   });
 }
 
+export function useRotateWebhook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: adminApi.rotateWebhook,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['registered-webhooks'] }),
+  });
+}
+
 /**
  * Force-sync a single task from the UI: enqueues BOTH the task sync and its
  * time-entry sync (both idempotent job enqueues). Resolves once both are queued.
