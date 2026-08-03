@@ -5,7 +5,7 @@ import { fromClickupMillis } from '../common/utils/date-utils';
 import { joinNames, toNumberOrZero, toStringOrEmpty, toStringOrNull } from '../common/utils/safe-value';
 
 export interface NormalizedTask {
-  taskId: string; parentTaskId: string | null; taskName: string; description: string | null; url: string | null;
+  taskId: string; parentTaskId: string | null; taskName: string; description: string | null; markdownDescription: string | null; url: string | null;
   status: string | null; statusType: string | null; statusColor: string | null; priority: string | null; orderIndex: bigint; archived: boolean;
   createdDate: Date | null; updatedDate: Date | null; closedDate: Date | null; dueDate: Date | null; startDate: Date | null;
   timeEstimate: bigint | null; timeSpent: bigint | null; spaceId: string | null; spaceName: string | null; folderId: string | null; folderName: string | null; listId: string | null; listName: string | null;
@@ -30,6 +30,7 @@ export class ClickupNormalizer {
       parentTaskId: toStringOrNull(t.parent),
       taskName: toStringOrEmpty(t.name) || 'Untitled',
       description: toStringOrNull(t.description),
+      markdownDescription: toStringOrNull(t.markdown_description),
       url: toStringOrNull(t.url),
       status: toStringOrNull(t.status?.status),
       statusType: toStringOrNull(t.status?.type),

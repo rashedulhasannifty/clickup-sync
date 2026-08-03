@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQueryClient, useMutation } from '@tanstack/react-query';
+import { useQueryClient, useMutation, useQuery } from '@tanstack/react-query';
 import {
   Search, Download, RefreshCw, X, CheckSquare, Copy, ExternalLink,
   CircleCheck, Inbox,
@@ -21,6 +21,7 @@ import { QueryError } from '../components/ui/QueryError';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { ClickupAvatar, ClickupAvatarStack } from '../components/ui/ClickupAvatar';
 import { Drawer } from '../components/ui/Drawer';
+import { Markdown } from '../components/ui/Markdown';
 import { Tabs } from '../components/ui/Tabs';
 import { TaskTimeline, type TaskTimelineEvent } from '../components/tasks/TaskTimeline';
 import { fmt } from '../lib/formatters';
@@ -116,6 +117,14 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
   const taskIdForHistory = task ? String(task.taskId ?? task.task_id ?? '') : null;
   const history = useTaskHistory(taskIdForHistory || null);
 
+  // Description is fetched on demand (not carried in the paged list/export
+  // payload — see taskDescription() in tasks-report.service.ts).
+  const descQuery = useQuery({
+    queryKey: ['task-description', taskIdForHistory],
+    queryFn: () => reportsApi.taskDescription(taskIdForHistory as string),
+    enabled: !!taskIdForHistory,
+  });
+
   const historyItems = history.data ?? [];
   const timelineEvents = historyItems.filter((it): it is TaskTimelineEvent => it.kind === 'event');
   const syncJobs = historyItems.filter((it) => it.kind === 'job');
@@ -127,6 +136,11 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
   const priority = String(task.priority ?? '');
   const priorityTone = priority === 'urgent' ? 'red' : priority === 'high' ? 'amber' : 'gray';
   const archived = !!task.archived;
+  // Prefer ClickUp's rich markdown source; fall back to the plain-text
+  // description for rows synced before markdown was captured.
+  const markdown = String(descQuery.data?.markdownDescription ?? '').trim();
+  const description = String(descQuery.data?.description ?? '').trim();
+  const descLoading = descQuery.isLoading;
   const taskId = String(task.taskId ?? task.task_id ?? '');
   // Prefer the stored ClickUp URL (handles custom domains / task custom ids);
   // fall back to the deterministic task URL when the row predates the `url` select.
@@ -205,6 +219,16 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
       <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
         {tab === 'overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            {(descLoading || markdown || description) && (
+              <div>
+                <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Description</h3>
+                {descLoading
+                  ? <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading description…</div>
+                  : markdown
+                    ? <Markdown>{markdown}</Markdown>
+                    : <p style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{description}</p>}
+              </div>
+            )}
             <div>
               <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Hierarchy & ownership</h3>
               <MetaGrid items={[

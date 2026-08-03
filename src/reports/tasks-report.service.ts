@@ -281,6 +281,22 @@ export class TasksReportService {
     };
   }
 
+  /**
+   * Lean per-task description lookup for the task drawer. Kept off the paged
+   * `tasks()` list select on purpose: descriptions (especially the markdown
+   * source) are large-ish text and are only ever shown one task at a time in
+   * the drawer, while the list endpoint is also the CSV/Excel export source
+   * (limit up to 5000 rows) on a memory-tight host. Fetch on drawer open.
+   */
+  async taskDescription(taskId: string) {
+    const row = await this.prisma.clickupTask.findUnique({
+      where: { taskId },
+      select: { description: true, markdownDescription: true },
+    });
+    if (!row) return null;
+    return { description: row.description, markdownDescription: row.markdownDescription };
+  }
+
   async sprintPoints(spaceId?: string) {
     const where: Prisma.ClickupTaskWhereInput = { isDeleted: false };
     if (spaceId) where.spaceId = spaceId;

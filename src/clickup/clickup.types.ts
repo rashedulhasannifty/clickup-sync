@@ -1,6 +1,6 @@
 export interface ClickUpTaskPage { tasks: ClickUpTask[]; }
 export interface ClickUpTask {
-  id: string; name?: string; description?: string; parent?: string | null; url?: string;
+  id: string; name?: string; description?: string; markdown_description?: string; parent?: string | null; url?: string;
   status?: { status?: string; type?: string; color?: string };
   priority?: { priority?: string } | null;
   orderindex?: string | number; archived?: boolean;
