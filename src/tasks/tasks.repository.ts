@@ -18,6 +18,12 @@ export class TasksRepository {
     // On UPDATE, keep the existing value when the incoming space fields are null.
     if (task.spaceName == null) delete (update as Record<string, unknown>).spaceName;
     if (task.spaceId == null) delete (update as Record<string, unknown>).spaceId;
+    // Same rationale for the rich description: only the single-task fetch
+    // (GET /task/{id}) reliably returns `markdown_description`; the bulk team
+    // endpoint used by backfill/reconcile may omit it, yielding null. Don't let
+    // a backfill pass blank a value the webhook path already captured. The plain
+    // `description` is present on both, so it stays an unconditional overwrite.
+    if (task.markdownDescription == null) delete (update as Record<string, unknown>).markdownDescription;
     return this.prisma.clickupTask.upsert({
       where: { taskId: task.taskId },
       create: { ...shared, syncCount: 1 },

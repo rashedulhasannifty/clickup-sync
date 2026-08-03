@@ -98,6 +98,12 @@ export class ReportsController {
     return this.tasksReports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId, normalizeSprintStatus(sprintStatus, 'all'));
   }
 
+  @Get('tasks/:taskId/description')
+  @ApiOperation({ summary: 'Rich (markdown) + plain description for a single task. Fetched on demand by the task drawer; kept off the paged list/export payload on purpose.' })
+  taskDescription(@Param('taskId') taskId: string) {
+    return this.tasksReports.taskDescription(taskId);
+  }
+
   @Get('anomalies')
   @ApiOperation({ summary: 'Spend-spike anomalies for the Overview panel — daily totals and per-client weekly totals exceeding their median baselines.' })
   anomalies() {

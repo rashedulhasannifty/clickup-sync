@@ -11,6 +11,7 @@ model ClickupTask {
   parentTaskId    String?  @map("parent_task_id")
   taskName        String   @map("task_name")
   description     String?
+  markdownDescription String? @map("markdown_description")
   url             String?
   status          String?
   statusType      String?  @map("status_type")
