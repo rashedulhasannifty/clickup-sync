@@ -96,6 +96,40 @@ describe('ClickupWebhooksService', () => {
     });
   });
 
+  describe('rotate', () => {
+    const suspendedMatch = { id: 'old', endpoint: ENDPOINT, events: DEFAULT_EVENTS, health: { status: 'suspended', fail_count: 5 } };
+
+    it('deletes the matching webhook then registers a fresh one (rotated=true)', async () => {
+      // register()'s internal read sees no match (default []) → it creates;
+      // rotate()'s first read sees the suspended match → it deletes it.
+      const { svc, client } = makeService([]);
+      client.getWebhooks.mockResolvedValueOnce([suspendedMatch]);
+      const res = await svc.rotate('alice');
+      expect(client.deleteWebhook).toHaveBeenCalledWith('old');
+      expect(res.deletedId).toBe('old');
+      expect(res.rotated).toBe(true);
+      expect(res.result).toEqual({ action: 'created', webhookId: 'new-id', endpoint: ENDPOINT, secretStored: true });
+    });
+
+    it('registers fresh with no delete when nothing is currently registered (deletedId=null)', async () => {
+      const { svc, client } = makeService([]);
+      const res = await svc.rotate();
+      expect(client.deleteWebhook).not.toHaveBeenCalled();
+      expect(res.deletedId).toBeNull();
+      expect(res.rotated).toBe(true);
+    });
+
+    it('reports rotated=false when a webhook still matches after delete (old secret kept)', async () => {
+      // Both reads return the match (delete didn't propagate), so register()
+      // PUT-reactivates it → action 'updated', no fresh secret.
+      const { svc, client } = makeService([suspendedMatch]);
+      const res = await svc.rotate();
+      expect(client.deleteWebhook).toHaveBeenCalledWith('old');
+      expect(res.rotated).toBe(false);
+      expect(res.result.action).toBe('updated');
+    });
+  });
+
   describe('pruneStale', () => {
     it('deletes every webhook whose endpoint differs from the configured one, keeps the matching one', async () => {
       const webhooks = [

@@ -68,6 +68,14 @@ export class AdminWebhooksController {
     return this.webhooks.pruneStale();
   }
 
+  @Post('webhooks/rotate')
+  @Roles(Role.OWNER)
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Rotate the signing secret: delete the webhook at the configured endpoint (if any) and register a fresh one. Use when a suspended webhook keeps re-suspending after Register (a 401 secret mismatch, which Register/PUT cannot fix). Returns rotated=false if the old secret was kept.' })
+  rotateWebhook(@CurrentUser() user: AuthPrincipal) {
+    return this.webhooks.rotate(actorLabel(user));
+  }
+
   @Delete('webhooks/:id')
   @Roles(Role.OWNER)
   @ApiOperation({ summary: 'Delete a single ClickUp webhook by id.' })

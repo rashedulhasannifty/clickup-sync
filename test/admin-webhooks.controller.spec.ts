@@ -48,6 +48,17 @@ describe('AdminWebhooksController', () => {
     });
   });
 
+  describe('rotateWebhook', () => {
+    it('delegates to ClickupWebhooksService.rotate with the actor', async () => {
+      const rotate = jest.fn().mockResolvedValue({ deletedId: 'old', rotated: true, result: { action: 'created', webhookId: 'wh-new', endpoint: 'https://x.com', secretStored: true } });
+      const webhooks = { register: jest.fn(), rotate } as any;
+      const ctrl = makeCtrl({ webhooks });
+      const result = await ctrl.rotateWebhook({ email: 'owner@test.com', isMachine: false } as any);
+      expect(rotate).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ deletedId: 'old', rotated: true });
+    });
+  });
+
   describe('retryFailedWebhooks', () => {
     it('re-enqueues each failed event after re-parsing its raw payload, and clears the failed marker', async () => {
       const queues = makeQueues();

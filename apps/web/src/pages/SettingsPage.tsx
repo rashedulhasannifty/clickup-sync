@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useSpaces, useSyncHealth, useStats } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
-import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks, useReconcileActive, useWebhooks, useSyncTaskFull, useDeleteWebhook, usePruneStaleWebhooks } from '../hooks/useAdmin';
+import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks, useReconcileActive, useWebhooks, useSyncTaskFull, useDeleteWebhook, usePruneStaleWebhooks, useRotateWebhook } from '../hooks/useAdmin';
 import { useSettings, useUpdateSettings } from '../hooks/useSettings';
 import { useAuth } from '../hooks/useAuth';
 import { RequireRole } from '../components/RequireRole';
@@ -357,9 +357,18 @@ export function SettingsPage() {
   const syncTaskFull = useSyncTaskFull();
   const deleteWebhook = useDeleteWebhook();
   const pruneStaleWebhooks = usePruneStaleWebhooks();
+  const rotateWebhook = useRotateWebhook();
   const staleWebhookCount = webhooksList.data
     ? webhooksList.data.webhooks.filter((w) => w.endpoint !== webhooksList.data!.configuredEndpoint).length
     : 0;
+  // Only meaningful when the live (configured) webhook is suspended and keeps
+  // re-suspending after a plain Register — that's the 401 secret-mismatch case
+  // a rotation (delete + re-create → fresh secret) is the fix for.
+  const configuredSuspended = webhooksList.data
+    ? webhooksList.data.webhooks.some(
+        (w) => w.endpoint === webhooksList.data!.configuredEndpoint && w.health?.status === 'suspended',
+      )
+    : false;
 
   function confirmDeleteWebhook(id: string, endpoint: string | null, isConfigured: boolean) {
     const msg = isConfigured
@@ -378,6 +387,16 @@ export function SettingsPage() {
     pruneStaleWebhooks.mutate(undefined, {
       onSuccess: (res) => showBanner(`Pruned ${res.deleted.length} stale webhook(s).`, 'blue'),
       onError: (err) => showBanner(`Prune failed: ${(err as Error).message}`, 'red'),
+    });
+  }
+
+  function rotateSecret() {
+    if (!window.confirm('Rotate the signing secret?\n\nThis deletes the webhook at your configured endpoint and re-creates it with a FRESH secret. Use this only when a suspended webhook keeps re-suspending after Register (a 401 secret mismatch). Brief gap while it re-registers. Continue?')) return;
+    rotateWebhook.mutate(undefined, {
+      onSuccess: (res) => res.rotated
+        ? showBanner(`Rotated webhook — fresh secret issued (${res.result.webhookId}).`, 'blue')
+        : showBanner(`Rotation did NOT issue a fresh secret (register returned "${res.result.action}"). A webhook still matched after delete — try again, or check APP_ENCRYPTION_KEY.`, 'red'),
+      onError: (err) => showBanner(`Rotate failed: ${(err as Error).message}`, 'red'),
     });
   }
   const [manualTaskId, setManualTaskId] = useState('');
@@ -797,6 +816,11 @@ export function SettingsPage() {
               subtitle="What ClickUp actually delivers to. Differs from the checkboxes above until you Register."
               action={
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {configuredSuspended && isOwner && (
+                    <Button variant="danger" size="sm" loading={rotateWebhook.isPending} onClick={rotateSecret}>
+                      Rotate secret
+                    </Button>
+                  )}
                   {staleWebhookCount > 0 && (
                     <Button variant="danger" size="sm" loading={pruneStaleWebhooks.isPending} onClick={pruneStale}>
                       Prune stale ({staleWebhookCount})
