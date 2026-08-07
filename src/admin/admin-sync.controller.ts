@@ -29,6 +29,10 @@ const PROGRESS_PEAK_TTL_S = 48 * 60 * 60;
 const RECONCILE_WINDOW_SLICE_DAYS = 30;
 /** Default lookback when the caller doesn't specify one. */
 const RECONCILE_WINDOW_DEFAULT_LOOKBACK_DAYS = 90;
+/** Sane upper bound on the resolved lookback — an unbounded caller-supplied
+ * value (e.g. a typo'd 100000) would fan out tens of thousands of jobs,
+ * recreating the per-task pathology this endpoint exists to remove. */
+const RECONCILE_WINDOW_MAX_LOOKBACK_DAYS = 400;
 
 /** Manual sync/backfill/reconcile actions under `/admin`. */
 @ApiTags('admin')
@@ -343,7 +347,8 @@ export class AdminSyncController {
         })()
       : CLICKUP_SPACES;
 
-    const lookbackDays = dto.lookbackDays && dto.lookbackDays > 0 ? Math.round(dto.lookbackDays) : RECONCILE_WINDOW_DEFAULT_LOOKBACK_DAYS;
+    const resolvedLookbackDays = dto.lookbackDays && dto.lookbackDays > 0 ? Math.round(dto.lookbackDays) : RECONCILE_WINDOW_DEFAULT_LOOKBACK_DAYS;
+    const lookbackDays = Math.min(Math.max(resolvedLookbackDays, 1), RECONCILE_WINDOW_MAX_LOOKBACK_DAYS);
     const sliceMs = RECONCILE_WINDOW_SLICE_DAYS * 24 * 60 * 60 * 1000;
     const end = Date.now();
     const start = subtractDays(lookbackDays).getTime();

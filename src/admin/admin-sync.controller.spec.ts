@@ -34,4 +34,15 @@ describe('POST reconcile-window', () => {
     const controller = makeController({ queues: { get: () => ({ add: jest.fn() }), defaultJobOptions: () => ({}) } });
     await expect(controller.reconcileTimeEntriesWindow({ spaceId: 'nope' })).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it('clamps an unbounded lookbackDays to the configured maximum instead of fanning out unboundedly', async () => {
+    const add = jest.fn().mockResolvedValue(undefined);
+    const controller = makeController({ queues: { get: () => ({ add }), defaultJobOptions: () => ({}) } });
+
+    const res = await controller.reconcileTimeEntriesWindow({ lookbackDays: 100000 });
+
+    const slices = Math.ceil(400 / 30); // 14, clamped from the requested 100000 days
+    expect(res.queued).toBe(CLICKUP_SPACES.length * slices);
+    expect(add).toHaveBeenCalledTimes(CLICKUP_SPACES.length * slices);
+  });
 });

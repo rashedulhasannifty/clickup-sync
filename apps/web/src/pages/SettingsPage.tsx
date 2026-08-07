@@ -1189,6 +1189,10 @@ export function SettingsPage() {
                   a few windowed jobs. Deletions in that window are pruned.
                 </p>
                 <p style={{ margin: 0, color: 'var(--text-muted)' }}>
+                  Note: correct scoping and delete-pruning depend on ClickUp honoring the space filter, which hasn't been
+                  verified in this workspace yet — treat pruning as best-effort until confirmed.
+                </p>
+                <p style={{ margin: 0, color: 'var(--text-muted)' }}>
                   For a single space, sync it from the Spaces page instead.
                 </p>
               </div>

@@ -22,6 +22,12 @@ import { PrismaService } from '../database/prisma.service';
 // real data loss. A single task's window normally has a handful of entries, so a
 // count at/above this bound is truncation-suspect: we skip the prune (keep local
 // rows) and warn, trading a stale row for never deleting live data on a bad read.
+// This also guards the windowed `reconcileWindow` caller (space × 30-day slice),
+// whose per-slice volume can be far higher than a single task's — on a busy
+// space a slice may legitimately exceed this threshold and skip pruning. That's
+// a pruning-efficacy trade-off, not a bug; whether it needs a higher/separate
+// threshold for the windowed path is to be measured once the space_id probe
+// (see the windowed-time-entry-reconcile design doc) confirms real volumes.
 const PRUNE_SAFETY_MAX_ENTRIES = 1000;
 
 @Injectable()

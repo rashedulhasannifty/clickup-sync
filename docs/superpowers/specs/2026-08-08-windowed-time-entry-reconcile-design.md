@@ -69,11 +69,20 @@ Generalize the query builder and add a team-level (no `task_id`) fetch.
   unbounded.
 
 **`space_id` verification (implementation-time):** confirm ClickUp's
-`time_entries` endpoint honors `space_id`. If it does **not**, fall back to a
-workspace-wide windowed fetch (no `space_id`) and rely on the existing FK-skip
-(entries whose task isn't in a configured space are skipped on upsert) — with
-the prune then scoped to the configured spaces only. The service API below is
-identical either way; only the client query changes.
+`time_entries` endpoint honors `space_id`. If it does **not**, the windowed
+fetch becomes workspace-wide. This is NOT caught by the FK-skip in
+`persistEntries`: `ensureTaskExists` self-heals any referenced task (fetches
+and inserts it from ClickUp if missing locally) regardless of which space it
+belongs to, so the FK-skip only drops tasks genuinely deleted in ClickUp — it
+does **not** filter out other-space tasks. A workspace-wide fetch would
+therefore UPSERT other spaces' entries (and self-heal their tasks), an
+insertion-pollution risk, not just a deletion one. Deletion safety instead
+comes entirely from the space-scoped `pruneWindowOutsideSet` (joins through
+`task.spaceId`), which only ever deletes rows within its own job's space —
+that part stays correct regardless of whether `space_id` is honored. The
+`space_id` probe therefore gates overall correctness (insertion scope), not
+only delete-pruning. The service API below is identical either way; only the
+client query changes.
 
 ### 2. Service — `reconcileWindow`
 
@@ -248,10 +257,14 @@ Admin clicks "Reconcile time entries" (Settings, lookback N days)
   **Status: NOT yet probed** — the probe requires a live ClickUp call with the
   production service token, so it is deferred to the first real run against
   staging/prod rather than executed during this build. The code passes
-  `space_id` on the assumption it is honored; the fallback (drop `space_id`,
-  fetch workspace-wide, rely on the FK-skip in `persistEntries` while the
-  space-scoped `pruneWindowOutsideSet` keeps the prune correct) is fully
-  specified in §1 and requires no design or structural change if the probe
-  comes back negative. **Action before trusting the delete-reconciliation in
-  prod:** run the `curl` probe in §9 Step 4 of the plan and confirm results are
-  space-limited; if not, apply the one-line fallback.
+  `space_id` on the assumption it is honored. If the probe comes back
+  negative, the fetch is workspace-wide: `pruneWindowOutsideSet` (space-scoped
+  via `task.spaceId`) keeps deletion correct regardless, but the FK-skip in
+  `persistEntries` does **not** filter other-space entries — `ensureTaskExists`
+  self-heals any referenced task irrespective of space — so a negative result
+  means other spaces' entries (and their tasks) get upserted, an
+  insertion-pollution risk on top of the reduced pruning efficacy from larger
+  per-slice counts tripping the truncation guard. **Action before trusting
+  this endpoint in prod:** run the `curl` probe in §9 Step 4 of the plan and
+  confirm results are space-limited; if not, this needs a structural fix (e.g.
+  filtering to configured spaces before upsert), not just a one-line fallback.

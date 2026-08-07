@@ -57,6 +57,12 @@ Three recurring crons run as safety nets for events ClickUp never delivered (rea
 
   Caveat: the archived pass issues one paginated request per list (a sprint folder can hold 200+ archived lists) and fans a `sync-task-time-entries` job out per task onto the throughput-bottlenecked `clickup-time-entries` queue. The overlap guard only checks that the space has no `clickup-backfills` job in flight — it does **not** see the time-entry backlog, which drains after the backfill job itself completes. In practice the one-space-per-day rotation gives ~N days (N = enabled space count) for that backlog to drain, and those backfill time-entry jobs are deprioritized so they never block live webhooks. If archived-list counts grow much larger, bound the per-run list count or gate on `clickup-time-entries` depth.
 
+## Windowed time-entry reconcile
+
+`POST /admin/time-entries/reconcile-window` (body: `{ spaceId?: string; lookbackDays?: number }`, default lookback 90 days, clamped to a max of 400 days) enqueues one deprioritized `reconcile-time-entries-window` job per configured space × 30-day slice — a cheap alternative to the per-task `sync-all` sweep. It is manual/on-demand only (not one of the three crons above), wired to Settings → Sync → "Reconcile time entries".
+
+**Unverified assumption:** both its cross-space scoping and its delete-pruning depend on ClickUp's `GET /team/{team}/time_entries` honoring the `space_id` filter. That has not yet been confirmed against a live workspace. If ClickUp silently ignores `space_id`, the windowed fetch returns workspace-wide entries, which get upserted (and their tasks self-healed in) even for spaces this deployment doesn't track, and larger per-slice counts make the truncation guard (`PRUNE_SAFETY_MAX_ENTRIES`) trip more often, skipping pruning. Treat pruning from this endpoint as best-effort until the `space_id` probe is run — see `docs/superpowers/specs/2026-08-08-windowed-time-entry-reconcile-design.md` for the probe and fallback.
+
 ## Sprint / list catalog
 
 `clickup_lists` is the sprint/list catalog behind `/reports/sprints*` and the `sprintStatus` filter on `/reports/tasks` and `/reports/time-entries`. It is kept in sync four ways:
