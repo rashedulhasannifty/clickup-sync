@@ -1,14 +1,13 @@
 import { useState, useMemo, useEffect, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQueryClient, useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
-  Search, Download, RefreshCw, X, CheckSquare, Copy, ExternalLink,
+  Search, Download, X, CheckSquare, Copy, ExternalLink,
   CircleCheck, Inbox,
 } from 'lucide-react';
 import { useTasks, useTasksAssignees, useTasksSummary, useClients, useLists, useFolders } from '../hooks/useReports';
 import { useTaskHistory } from '../hooks/useTaskHistory';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
-import { useAuth } from '../hooks/useAuth';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Pill } from '../components/ui/Pill';
 import { Button } from '../components/ui/Button';
@@ -25,7 +24,6 @@ import { Markdown } from '../components/ui/Markdown';
 import { Tabs } from '../components/ui/Tabs';
 import { TaskTimeline, type TaskTimelineEvent } from '../components/tasks/TaskTimeline';
 import { fmt } from '../lib/formatters';
-import { adminApi } from '../api/admin';
 import { reportsApi } from '../api/reports';
 import { exportXlsx, type XlsxColumn } from '../lib/xlsx';
 
@@ -319,7 +317,6 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
 
 export function TasksPage() {
   const { space, fromDate, toDate } = useGlobalFilters();
-  const queryClient = useQueryClient();
   const { data: assigneesData } = useTasksAssignees();
   const { data: summary } = useTasksSummary();
   const { data: clientsData } = useClients();
@@ -492,7 +489,7 @@ export function TasksPage() {
   }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, listFilter, folderFilter, archivedFilter, sprintStatus, taskIdsFilter, fromDate, toDate]);
 
   const tasksQuery = useTasks(taskParams as Record<string, string | number | undefined>);
-  const { data, isLoading, refetch } = tasksQuery;
+  const { data, isLoading } = tasksQuery;
 
   const items: Task[] = (data?.items ?? []) as Task[];
   const total: number = data?.total ?? 0;
@@ -519,15 +516,6 @@ export function TasksPage() {
     setPage(1);
   }
 
-  const { hasRole } = useAuth();
-  const isAdmin = hasRole('ADMIN');
-
-  const backfill = useMutation({
-    mutationFn: () => (space !== 'all' ? adminApi.backfill(space, 7) : Promise.resolve(null)),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    },
-  });
 
   // CSV export pulls the full filtered set in one request (not just the current
   // page of 50). Backend `safeLimit` caps at 5000 — enough for the present
@@ -753,32 +741,16 @@ export function TasksPage() {
         description="Audit synced ClickUp tasks and subtasks across all spaces."
         badge={<Pill tone="gray">{fmt.number(total)}</Pill>}
         actions={
-          <>
-            <Button
-              variant="subtle"
-              size="md"
-              icon={<Download size={13} strokeWidth={1.75} />}
-              loading={exportExcel.isPending}
-              disabled={exportExcel.isPending || isLoading}
-              onClick={() => exportExcel.mutate()}
-            >
-              Export Excel
-            </Button>
-            {isAdmin && (
-              <Button
-                variant="caution"
-                size="md"
-                icon={<RefreshCw size={13} strokeWidth={1.75} />}
-                loading={backfill.isPending}
-                onClick={() => {
-                  if (space !== 'all') backfill.mutate();
-                  else void refetch();
-                }}
-              >
-                Sync now
-              </Button>
-            )}
-          </>
+          <Button
+            variant="subtle"
+            size="md"
+            icon={<Download size={13} strokeWidth={1.75} />}
+            loading={exportExcel.isPending}
+            disabled={exportExcel.isPending || isLoading}
+            onClick={() => exportExcel.mutate()}
+          >
+            Export Excel
+          </Button>
         }
       />
 

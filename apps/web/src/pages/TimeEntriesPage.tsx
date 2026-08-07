@@ -1,15 +1,13 @@
 import { useState, useEffect, useMemo, useCallback, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
 import {
-  Clock, DollarSign, AlertTriangle, CircleCheck, Download, RefreshCw,
+  Clock, DollarSign, AlertTriangle, CircleCheck, Download,
   Search, X,
 } from 'lucide-react';
 import { useTimeEntriesList, useTimeEntriesByUser, useTimeEntriesAggregates, useClients, useLists, useFolders } from '../hooks/useReports';
 import { useMutation } from '@tanstack/react-query';
 import { reportsApi } from '../api/reports';
 import { exportXlsx, type XlsxColumn } from '../lib/xlsx';
-import { useToast } from '../components/ui/Toast';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { fmt } from '../lib/formatters';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -26,8 +24,6 @@ import { ClickupAvatar } from '../components/ui/ClickupAvatar';
 import { Pill } from '../components/ui/Pill';
 import { TimeEntryDrawer } from '../components/TimeEntryDrawer';
 import type { TimeEntryItem } from '../components/TimeEntryDrawer';
-import { useSyncAllTimeEntries } from '../hooks/useAdmin';
-import { useAuth } from '../hooks/useAuth';
 
 const BILLABLE_OPTIONS = [
   { value: '', label: 'Billable + non' },
@@ -72,15 +68,11 @@ function fmtLinkWindow(fromIso: string, toIso: string): string {
 
 export function TimeEntriesPage() {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { space, fromDate, toDate } = useGlobalFilters();
   const { data: byUser } = useTimeEntriesByUser();
   const { data: clientsData } = useClients();
   const { data: listsData } = useLists(space !== 'all' ? space : undefined);
   const { data: foldersData } = useFolders(space !== 'all' ? space : undefined);
-  const syncAllTimeEntries = useSyncAllTimeEntries();
-  const { hasRole } = useAuth();
-  const isAdmin = hasRole('ADMIN');
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -184,13 +176,6 @@ export function TimeEntriesPage() {
     // its identity for re-runs).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Sync results surface as a toast (top-right, auto-dismiss) instead of the
-  // previous off-brand native alert / inline banner.
-  const toast = useToast();
-  function showBanner(msg: string) {
-    toast.show(msg, 'blue');
-  }
 
   useEffect(() => {
     const t = setTimeout(() => setSearch(searchRaw), 300);
@@ -531,35 +516,16 @@ export function TimeEntriesPage() {
         title="Time Entries"
         description="Audit time tracking and verify calculated labor costs."
         actions={
-          <>
-            <Button
-              size="md"
-              variant="subtle"
-              icon={<Download size={13} strokeWidth={1.75} />}
-              loading={exportExcel.isPending}
-              disabled={exportExcel.isPending || isLoading}
-              onClick={() => exportExcel.mutate()}
-            >
-              Export Excel
-            </Button>
-            {isAdmin && (
-              <Button
-                size="md"
-                variant="caution"
-                icon={<RefreshCw size={13} strokeWidth={1.75} />}
-                loading={syncAllTimeEntries.isPending}
-                onClick={() => syncAllTimeEntries.mutate(undefined, {
-                  onSuccess: (res) => {
-                    void queryClient.invalidateQueries({ queryKey: ['time-entries-list'] });
-                    void queryClient.invalidateQueries({ queryKey: ['time-entries-by-user'] });
-                    showBanner(`Queued ${res.queued} time-entry sync jobs — counts will refresh as workers complete.`);
-                  },
-                })}
-              >
-                Sync time entries
-              </Button>
-            )}
-          </>
+          <Button
+            size="md"
+            variant="subtle"
+            icon={<Download size={13} strokeWidth={1.75} />}
+            loading={exportExcel.isPending}
+            disabled={exportExcel.isPending || isLoading}
+            onClick={() => exportExcel.mutate()}
+          >
+            Export Excel
+          </Button>
         }
       />
 
