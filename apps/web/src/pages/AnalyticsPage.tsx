@@ -16,7 +16,7 @@ import { Card } from '../components/ui/Card';
 import { PageHeader } from '../components/ui/PageHeader';
 import { QueryError } from '../components/ui/QueryError';
 import { Button } from '../components/ui/Button';
-import { BarChart } from '../components/charts/BarChart';
+import { BarChart, type BarData } from '../components/charts/BarChart';
 import { ClickupAvatar } from '../components/ui/ClickupAvatar';
 import { DonutChart } from '../components/charts/DonutChart';
 import { CostTrendCard } from '../components/charts/CostTrendCard';
@@ -52,7 +52,7 @@ const STATUS_FALLBACK_PALETTE = [
 ];
 
 type TaskBySpaceRow = { spaceName: string; status: string; count: number };
-type UserTimeRow    = { userName: string; totalHours: number; totalCostAud: number };
+type UserTimeRow    = { userId: string | null; userName: string; totalHours: number; totalCostAud: number };
 type ClientTimeRow  = { client: string; totalHours: number; totalCostAud: number };
 type DeptTimeRow    = { department: string; totalHours: number; totalCostAud: number };
 type SprintPointRow = { spaceName: string; status: string; totalPoints: number };
@@ -64,7 +64,27 @@ type TasksSummary   = {
 
 export function AnalyticsPage() {
   const navigate = useNavigate();
-  const { dateRangeLabel, dateRange, customFrom, customTo } = useGlobalFilters();
+  const { dateRangeLabel, dateRange, customFrom, customTo, setSpace } = useGlobalFilters();
+
+  // Deep-link a breakdown row into the Time Entries page. Client/assignee ride
+  // as URL params the page already consumes; space is a global topbar filter
+  // (no URL param), so we set it before navigating.
+  const goToTimeEntries = (params: Record<string, string>) => {
+    const qs = new URLSearchParams(params).toString();
+    navigate(qs ? `/time-entries?${qs}` : '/time-entries');
+  };
+  // The client/assignee breakdowns are computed cross-space (their reports take
+  // only from/to — no space filter), so we send `spaceScope=all` to make Time
+  // Entries drop the topbar space filter and reproduce the figure that was
+  // clicked. Without it, a space-scoped topbar would show a smaller total.
+  const filterByClient = (d: BarData) => { if (d.filterKey) goToTimeEntries({ client: d.filterKey, spaceScope: 'all' }); };
+  const filterByUser   = (d: BarData) => { if (d.filterKey) goToTimeEntries({ userId: d.filterKey, spaceScope: 'all' }); };
+  // Tasks-by-space instead scopes the destination *to* the clicked space via
+  // the global filter — the whole point is to filter by that space.
+  const filterBySpace  = (d: BarData) => { if (d.filterKey) { setSpace(d.filterKey); goToTimeEntries({}); } };
+  // Same accessible label for every deep-link row (defined once so the four
+  // call sites can't drift apart).
+  const rowLabel = (d: BarData) => `View time entries for ${d.label}`;
 
   const deltasQ = useOverviewDeltas();
   const deltas = deltasQ.data;
@@ -138,18 +158,19 @@ export function AnalyticsPage() {
       label: (r.spaceName?.trim()) || (r.spaceId ? `Space ${r.spaceId}` : 'Unnamed space'),
       value: r.count,
       color: SPACE_COLORS[i % SPACE_COLORS.length],
+      filterKey: r.spaceId ?? undefined,
     }))
     .sort((a, b) => b.value - a.value);
 
   // BarChart: time by assignee — all assignees, ranked by hours.
   const timeByUserData = [...userRows]
     .sort((a, b) => b.totalHours - a.totalHours)
-    .map((r, i) => ({ label: r.userName, value: r.totalHours, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} /> }));
+    .map((r, i) => ({ label: r.userName, value: r.totalHours, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} />, filterKey: r.userId ?? undefined }));
 
   // BarChart: cost by assignee — all assignees.
   const costByUserData = [...userRows]
     .sort((a, b) => b.totalCostAud - a.totalCostAud)
-    .map((r, i) => ({ label: r.userName, value: r.totalCostAud, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} /> }));
+    .map((r, i) => ({ label: r.userName, value: r.totalCostAud, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} />, filterKey: r.userId ?? undefined }));
 
   // BarChart: cost by department — all departments.
   const deptRows = (timeByDept.data as DeptTimeRow[] | undefined) ?? [];
@@ -165,6 +186,7 @@ export function AnalyticsPage() {
       label: r.client,
       value: Math.round(r.totalCostAud * 100),
       color: SPACE_COLORS[i % SPACE_COLORS.length],
+      filterKey: r.client || undefined,
     }));
 
   // BarChart: sprint points
@@ -262,15 +284,33 @@ export function AnalyticsPage() {
         </Card>
 
         <Card title="Cost by client" subtitle={`By spend · ${costByClientData.length} clients`} padding={16}>
-          <BarChart data={costByClientData} direction="horizontal" formatValue={(v) => moneyAud(v / 100)} />
+          <BarChart
+            data={costByClientData}
+            direction="horizontal"
+            formatValue={(v) => moneyAud(v / 100)}
+            onBarClick={filterByClient}
+            rowLabel={rowLabel}
+          />
         </Card>
 
         <Card title="Time tracked by assignee" subtitle={`Hours logged in ${dateRangeLabel} · ${timeByUserData.length} assignees`} padding={16}>
-          <BarChart data={timeByUserData} direction="horizontal" formatValue={fmt.hours} />
+          <BarChart
+            data={timeByUserData}
+            direction="horizontal"
+            formatValue={fmt.hours}
+            onBarClick={filterByUser}
+            rowLabel={rowLabel}
+          />
         </Card>
 
         <Card title="Cost by assignee" subtitle={`Calculated labor cost · ${costByUserData.length} assignees`} padding={16}>
-          <BarChart data={costByUserData} direction="horizontal" formatValue={(v) => moneyAud(v)} />
+          <BarChart
+            data={costByUserData}
+            direction="horizontal"
+            formatValue={(v) => moneyAud(v)}
+            onBarClick={filterByUser}
+            rowLabel={rowLabel}
+          />
         </Card>
 
         <Card title="Cost by department" subtitle="Calculated labor cost" padding={16}>
@@ -278,7 +318,13 @@ export function AnalyticsPage() {
         </Card>
 
         <Card title="Tasks by space" subtitle="Distribution across workspaces" padding={16}>
-          <BarChart data={tasksBySpaceData} direction="horizontal" formatValue={fmt.number} />
+          <BarChart
+            data={tasksBySpaceData}
+            direction="horizontal"
+            formatValue={fmt.number}
+            onBarClick={filterBySpace}
+            rowLabel={rowLabel}
+          />
         </Card>
       </div>
 
