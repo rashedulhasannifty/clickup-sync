@@ -1,6 +1,8 @@
 const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
 export interface TimeEntriesQueryOptions {
+  taskId?: string;
+  spaceId?: string;
   assigneeIds?: string[];
   startDate?: number;
   endDate?: number;
@@ -26,8 +28,10 @@ export function resolveTimeEntriesWindow(options: TimeEntriesQueryOptions): { st
  * ClickUp returns ONLY the token owner's entries unless `assignee` is supplied,
  * so the caller must pass the user ids whose tracked time should be synced.
  */
-export function buildTimeEntriesQuery(taskId: string, options: TimeEntriesQueryOptions): string {
-  const params = new URLSearchParams({ task_id: taskId });
+export function buildTimeEntriesQuery(options: TimeEntriesQueryOptions): string {
+  const params = new URLSearchParams();
+  if (options.taskId) params.append('task_id', options.taskId);
+  if (options.spaceId) params.append('space_id', options.spaceId);
   if (options.assigneeIds && options.assigneeIds.length > 0) {
     params.append('assignee', options.assigneeIds.join(','));
   }

@@ -382,7 +382,8 @@ export class ClickupClient {
     const out: ClickUpTimeEntry[] = [];
     for (let sliceStart = startMs; sliceStart < endMs; sliceStart += TIME_ENTRIES_SLICE_MS) {
       const sliceEnd = Math.min(sliceStart + TIME_ENTRIES_SLICE_MS, endMs);
-      const qs = buildTimeEntriesQuery(taskId, {
+      const qs = buildTimeEntriesQuery({
+        taskId,
         assigneeIds: options?.assigneeIds,
         startDate: sliceStart,
         endDate: sliceEnd,
