@@ -107,6 +107,44 @@ export class TimeEntriesService {
   }
 
   /**
+   * Windowed reconcile: pulls a space's tracked time in [startDate,endDate] in
+   * one team-level call (all members), upserts via the shared pipeline, and
+   * prunes deletions at window granularity. Cheaper than one-job-per-task and
+   * catches deletions on tasks the 30-day space backfill never revisits. The
+   * fetch and prune share one resolved window so they can't drift.
+   */
+  async reconcileWindow(spaceId: string, startDate: number, endDate: number): Promise<number> {
+    const teamId = this.settings.getTeamId();
+    const ids = await this.members.getMemberIds();
+    const { startMs, endMs } = resolveTimeEntriesWindow({ startDate, endDate });
+
+    const entries = await this.clickup.getTimeEntriesWindow(teamId, {
+      spaceId,
+      assigneeIds: ids,
+      startDate: startMs,
+      endDate: endMs,
+    });
+
+    const { count, upserted } = await this.persistEntries(entries);
+
+    // Delete-reconciliation for exactly this space × window × members. A
+    // suspiciously large slice is treated as possibly-truncated — upsert only,
+    // never prune off a partial read.
+    if (entries.length >= PRUNE_SAFETY_MAX_ENTRIES) {
+      this.logger.warn(
+        `Fetched ${entries.length} time entries for space ${spaceId} (>= ${PRUNE_SAFETY_MAX_ENTRIES}); skipping delete-reconciliation to avoid pruning live rows on a possibly-truncated response`,
+      );
+    } else {
+      const keepIds = upserted.map((u) => u.normalized.timeEntryId);
+      const pruned = await this.repo.pruneWindowOutsideSet({ spaceId, userIds: ids, startMs, endMs, keepIds });
+      if (pruned > 0) this.logger.log(`Pruned ${pruned} time entr${pruned === 1 ? 'y' : 'ies'} deleted in ClickUp for space ${spaceId}`);
+    }
+
+    await this.enqueueTagReplacements(upserted);
+    return count;
+  }
+
+  /**
    * Ensures every distinct task id referenced by `entries` exists locally
    * (self-healing from ClickUp as needed), then normalizes, prices, and
    * upserts each entry whose task resolved. Entries pointing at an
