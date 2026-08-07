@@ -9,7 +9,7 @@ import { BackfillReplacementDto } from './dto/backfill-replacement.dto';
 import { SyncListsDto } from './dto/sync-lists.dto';
 import { SettingsService } from '../settings/settings.service';
 import { QueueService } from '../queues/queue.service';
-import { JOBS, QUEUES } from '../queues/queue.constants';
+import { JOBS, QUEUES, BACKFILL_TIME_ENTRY_PRIORITY } from '../queues/queue.constants';
 import { replacementJobId } from '../time-entries/assignee-replacement.service';
 import { PrismaService } from '../database/prisma.service';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
@@ -24,6 +24,11 @@ const PROGRESS_PEAK_PREFIX = 'progress:te-peak:';
  * drain, so it self-cleans if a space is never observed idle (e.g. a
  * non-configured admin-override space the idle sweep doesn't iterate). */
 const PROGRESS_PEAK_TTL_S = 48 * 60 * 60;
+
+/** Width of each date-slice fanned out by the windowed reconcile endpoint. */
+const RECONCILE_WINDOW_SLICE_DAYS = 30;
+/** Default lookback when the caller doesn't specify one. */
+const RECONCILE_WINDOW_DEFAULT_LOOKBACK_DAYS = 90;
 
 /** Manual sync/backfill/reconcile actions under `/admin`. */
 @ApiTags('admin')
@@ -324,6 +329,41 @@ export class AdminSyncController {
     }
 
     return { queued: tasks.length };
+  }
+
+  @Post('time-entries/reconcile-window')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Windowed time-entry reconcile: one job per configured space per date-slice (cheap alternative to the per-task sync-all).' })
+  async reconcileTimeEntriesWindow(@Body() dto: { spaceId?: string; lookbackDays?: number }) {
+    const spaces = dto.spaceId
+      ? (() => {
+          const hit = CLICKUP_SPACES.find((s) => s.id === dto.spaceId);
+          if (!hit) throw new BadRequestException(`Unknown space ${dto.spaceId}`);
+          return [hit];
+        })()
+      : CLICKUP_SPACES;
+
+    const lookbackDays = dto.lookbackDays && dto.lookbackDays > 0 ? Math.round(dto.lookbackDays) : RECONCILE_WINDOW_DEFAULT_LOOKBACK_DAYS;
+    const sliceMs = RECONCILE_WINDOW_SLICE_DAYS * 24 * 60 * 60 * 1000;
+    const end = Date.now();
+    const start = subtractDays(lookbackDays).getTime();
+
+    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
+    const jobOpts = { ...this.queues.defaultJobOptions(), priority: BACKFILL_TIME_ENTRY_PRIORITY };
+
+    let queued = 0;
+    for (const space of spaces) {
+      for (let sliceStart = start; sliceStart < end; sliceStart += sliceMs) {
+        const sliceEnd = Math.min(sliceStart + sliceMs, end);
+        await queue.add(
+          JOBS.RECONCILE_TIME_ENTRIES_WINDOW,
+          { spaceId: space.id, startDate: sliceStart, endDate: sliceEnd },
+          jobOpts,
+        );
+        queued += 1;
+      }
+    }
+    return { queued };
   }
 
   @Post('tasks/reconcile')
