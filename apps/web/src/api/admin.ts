@@ -64,10 +64,8 @@ export const adminApi = {
     apiClient.post('/admin/backfill', { spaceId, lookbackDays }).then(r => r.data),
   backfillActive: (): Promise<ActiveBackfill[]> =>
     apiClient.get('/admin/backfill/active').then((r) => (Array.isArray(r.data?.spaces) ? r.data.spaces : [])),
-  syncAllTimeEntries: (lookbackDays?: number) =>
-    apiClient.post('/admin/time-entries/sync-all', undefined, {
-      params: lookbackDays ? { lookbackDays } : undefined,
-    }).then(r => r.data as { queued: number }),
+  reconcileTimeEntriesWindow: (lookbackDays?: number) =>
+    apiClient.post('/admin/time-entries/reconcile-window', { lookbackDays }).then(r => r.data as { queued: number }),
   reconcileTasks: (lookbackDays?: number) =>
     apiClient.post('/admin/tasks/reconcile', undefined, {
       params: lookbackDays ? { lookbackDays } : undefined,

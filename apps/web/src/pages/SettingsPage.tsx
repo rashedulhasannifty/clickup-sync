@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useSpaces, useSyncHealth, useStats } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
-import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks, useReconcileActive, useWebhooks, useSyncTaskFull, useDeleteWebhook, usePruneStaleWebhooks, useRotateWebhook, useSyncAllTimeEntries } from '../hooks/useAdmin';
+import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks, useReconcileActive, useWebhooks, useSyncTaskFull, useDeleteWebhook, usePruneStaleWebhooks, useRotateWebhook, useReconcileTimeEntriesWindow } from '../hooks/useAdmin';
 import { useSettings, useUpdateSettings } from '../hooks/useSettings';
 import { useAuth } from '../hooks/useAuth';
 import { RequireRole } from '../components/RequireRole';
@@ -350,7 +350,7 @@ export function SettingsPage() {
   const registerWebhook = useRegisterWebhook();
   const testConnection = useTestClickupConnection();
   const reconcileTasks = useReconcileTasks();
-  const syncAllTimeEntries = useSyncAllTimeEntries();
+  const reconcileTimeEntries = useReconcileTimeEntriesWindow();
   const reconcileProgress = useReconcileActive(hasRole('ADMIN'));
   const settingsQuery = useSettings();
   const updateSettings = useUpdateSettings();
@@ -1051,7 +1051,7 @@ export function SettingsPage() {
               )}
               <SettingRow
                 label="Reconcile time entries"
-                desc="Re-pull tracked time for every stored task (last N days). Time-entries only — it won't detect task deletes; use Full reconciliation for that. Heavy: queues one job per task and can take hours to drain on a large workspace. For a routine refresh, sync a single space from the Spaces page instead."
+                desc="Re-pull tracked time for every configured space over the last N days, in a few windowed jobs (not one per task). Time-entries only — it won't detect task deletes; use Full reconciliation for that."
                 control={
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Input
@@ -1066,7 +1066,7 @@ export function SettingsPage() {
                     <Button
                       size="sm"
                       variant="caution"
-                      loading={syncAllTimeEntries.isPending}
+                      loading={reconcileTimeEntries.isPending}
                       onClick={() => {
                         const days = Number(teReconcileDays);
                         if (!Number.isFinite(days) || days < 1) {
@@ -1155,7 +1155,7 @@ export function SettingsPage() {
               open
               onClose={() => setTeConfirmOpen(false)}
               title="Reconcile all time entries?"
-              subtitle="Queues one sync job per stored task."
+              subtitle="Queues a few windowed jobs across configured spaces."
               width={440}
               footer={
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -1163,14 +1163,14 @@ export function SettingsPage() {
                   <Button
                     size="md"
                     variant="caution"
-                    loading={syncAllTimeEntries.isPending}
+                    loading={reconcileTimeEntries.isPending}
                     onClick={() => {
                       const days = Number(teReconcileDays);
-                      syncAllTimeEntries.mutate(days, {
+                      reconcileTimeEntries.mutate(days, {
                         onSuccess: (res) => {
                           setTeConfirmOpen(false);
                           showBanner(
-                            `Queued ${res.queued} time-entry sync job${res.queued === 1 ? '' : 's'} (last ${days} days). Hours will refresh as workers drain the queue.`,
+                            `Queued ${res.queued} windowed reconcile job${res.queued === 1 ? '' : 's'} (last ${days} days). Hours will refresh as workers drain the queue.`,
                             'blue',
                           );
                         },
@@ -1185,11 +1185,11 @@ export function SettingsPage() {
             >
               <div style={{ fontSize: 13, color: 'var(--text)', display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <p style={{ margin: 0 }}>
-                  Re-pulls the last <strong>{teReconcileDays} days</strong> of tracked time for <strong>every</strong> stored task.
-                  On a large workspace that can be tens of thousands of jobs and take hours to drain (ClickUp rate limits).
+                  Reconciles the last <strong>{teReconcileDays} days</strong> of tracked time across all configured spaces using
+                  a few windowed jobs. Deletions in that window are pruned.
                 </p>
                 <p style={{ margin: 0, color: 'var(--text-muted)' }}>
-                  For a routine refresh, sync a single space from the Spaces page instead.
+                  For a single space, sync it from the Spaces page instead.
                 </p>
               </div>
             </Modal>
