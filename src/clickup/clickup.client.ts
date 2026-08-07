@@ -407,6 +407,51 @@ export class ClickupClient {
     return out;
   }
 
+  /**
+   * Windowed team-level fetch: every tracked-time entry in [start,end] for a
+   * space (or the whole workspace when spaceId is omitted), in <=1-year slices.
+   * Unlike getTimeEntries this omits task_id, so one call covers all tasks —
+   * the memory-cheap path for a reconcile. Deduped by entry id across slice
+   * boundaries; the union is authoritative for the full window.
+   */
+  async getTimeEntriesWindow(
+    teamId: string,
+    options: {
+      spaceId?: string;
+      assigneeIds?: string[];
+      startDate?: number;
+      endDate?: number;
+    },
+  ): Promise<ClickUpTimeEntry[]> {
+    const { startMs, endMs } = resolveTimeEntriesWindow(options);
+    const byId = new Map<string, ClickUpTimeEntry>();
+    const out: ClickUpTimeEntry[] = [];
+    for (let sliceStart = startMs; sliceStart < endMs; sliceStart += TIME_ENTRIES_SLICE_MS) {
+      const sliceEnd = Math.min(sliceStart + TIME_ENTRIES_SLICE_MS, endMs);
+      const qs = buildTimeEntriesQuery({
+        spaceId: options.spaceId,
+        assigneeIds: options.assigneeIds,
+        startDate: sliceStart,
+        endDate: sliceEnd,
+      });
+      const res: any = await this.request(
+        "GET",
+        `/team/${teamId}/time_entries?${qs}`,
+      );
+      const entries: ClickUpTimeEntry[] = res.data || res.entries || [];
+      for (const entry of entries) {
+        const id = (entry as { id?: string }).id;
+        if (id == null) {
+          out.push(entry);
+        } else if (!byId.has(id)) {
+          byId.set(id, entry);
+          out.push(entry);
+        }
+      }
+    }
+    return out;
+  }
+
   async getTeamMembers(teamId: string): Promise<ClickUpMember[]> {
     const res: any = await this.request("GET", `/team/${teamId}`);
     return res.team?.members || [];
