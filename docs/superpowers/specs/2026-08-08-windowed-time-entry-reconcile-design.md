@@ -244,6 +244,14 @@ Admin clicks "Reconcile time entries" (Settings, lookback N days)
 
 ## Open question deferred to implementation
 
-- Whether ClickUp's `time_entries` endpoint honors `space_id` (see §1). Verified
-  with a single probe call during implementation; the fallback path is specified
-  and requires no design change.
+- Whether ClickUp's `time_entries` endpoint honors `space_id` (see §1).
+  **Status: NOT yet probed** — the probe requires a live ClickUp call with the
+  production service token, so it is deferred to the first real run against
+  staging/prod rather than executed during this build. The code passes
+  `space_id` on the assumption it is honored; the fallback (drop `space_id`,
+  fetch workspace-wide, rely on the FK-skip in `persistEntries` while the
+  space-scoped `pruneWindowOutsideSet` keeps the prune correct) is fully
+  specified in §1 and requires no design or structural change if the probe
+  comes back negative. **Action before trusting the delete-reconciliation in
+  prod:** run the `curl` probe in §9 Step 4 of the plan and confirm results are
+  space-limited; if not, apply the one-line fallback.
