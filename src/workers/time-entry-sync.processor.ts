@@ -1,7 +1,7 @@
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import type { Job } from 'bullmq';
-import { QUEUES, clickupWorkerOptions } from '../queues/queue.constants';
+import { JOBS, QUEUES, clickupWorkerOptions } from '../queues/queue.constants';
 import { TimeEntriesService } from '../time-entries/time-entries.service';
 import { JobLogsRepository } from '../jobs/job-logs.repository';
 import { DeadLetterService } from '../jobs/dead-letter.service';
@@ -20,10 +20,22 @@ export class TimeEntrySyncProcessor extends WorkerHost {
     await this.deadLetters.recordIfExhausted(job, err);
   }
 
-  async process(job: Job<{ taskId: string; assigneeIds?: string[]; startDate?: number; endDate?: number }>) {
+  async process(job: Job<{ taskId?: string; assigneeIds?: string[]; startDate?: number; endDate?: number; spaceId?: string }>) {
+    if (job.name === JOBS.RECONCILE_TIME_ENTRIES_WINDOW) {
+      const log = await this.jobLogs.started({ jobId: job.id?.toString(), queueName: QUEUES.CLICKUP_TIME_ENTRIES, jobName: job.name, entityType: 'space', entityId: job.data.spaceId });
+      try {
+        const result = await this.timeEntries.reconcileWindow(job.data.spaceId!, job.data.startDate!, job.data.endDate!);
+        await this.jobLogs.finished(log.id, { timeEntriesSynced: result });
+        return result;
+      } catch (e) {
+        await this.jobLogs.failed(log.id, e);
+        throw e;
+      }
+    }
+
     const log = await this.jobLogs.started({ jobId: job.id?.toString(), queueName: QUEUES.CLICKUP_TIME_ENTRIES, jobName: job.name, entityType: 'task', entityId: job.data.taskId });
     try {
-      const result = await this.timeEntries.syncTaskTimeEntries(job.data.taskId, job.data.assigneeIds, job.data.startDate, job.data.endDate);
+      const result = await this.timeEntries.syncTaskTimeEntries(job.data.taskId!, job.data.assigneeIds, job.data.startDate, job.data.endDate);
       await this.jobLogs.finished(log.id, { timeEntriesSynced: result });
       return result;
     } catch (e) {

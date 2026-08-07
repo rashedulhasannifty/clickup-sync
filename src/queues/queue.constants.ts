@@ -28,6 +28,7 @@ export const JOBS = {
   DELETE_CLICKUP_TASK: 'delete-clickup-task',
   RECONCILE_CLICKUP_TASK: 'reconcile-clickup-task',
   SYNC_TASK_TIME_ENTRIES: 'sync-task-time-entries',
+  RECONCILE_TIME_ENTRIES_WINDOW: 'reconcile-time-entries-window',
   BACKFILL_CLICKUP_SPACE: 'backfill-clickup-space',
   REFRESH_CLICKUP_WEBHOOKS: 'refresh-clickup-webhooks',
   REPLACE_TIME_ENTRY_ASSIGNEES: 'replace-time-entry-assignees',
