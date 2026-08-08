@@ -90,8 +90,8 @@ export function useBackfill() {
   });
 }
 
-export function useSyncAllTimeEntries() {
-  return useMutation({ mutationFn: (lookbackDays?: number) => adminApi.syncAllTimeEntries(lookbackDays) });
+export function useReconcileTimeEntriesWindow() {
+  return useMutation({ mutationFn: (lookbackDays?: number) => adminApi.reconcileTimeEntriesWindow(lookbackDays) });
 }
 
 /**

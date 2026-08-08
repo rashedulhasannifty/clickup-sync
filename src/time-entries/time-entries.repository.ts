@@ -66,6 +66,32 @@ export class TimeEntriesRepository {
     return count;
   }
 
+  /**
+   * Window-scoped delete-reconciliation for reconcileWindow. Space is reached via
+   * the task join (clickup_time_entries has no space_id), so scoping by spaceId is
+   * REQUIRED: the fetch (and keepIds) is space-scoped, so an unscoped prune would
+   * delete other spaces' in-window rows. Rows with a null task_id have no related
+   * task and are therefore never pruned (conservative, matches departed-user
+   * safety: the userIds filter also excludes rows from members not in the set).
+   */
+  async pruneWindowOutsideSet(args: {
+    spaceId: string;
+    userIds: string[];
+    startMs: number;
+    endMs: number;
+    keepIds: string[];
+  }): Promise<number> {
+    const { count } = await this.prisma.clickupTimeEntry.deleteMany({
+      where: {
+        task: { is: { spaceId: args.spaceId } },
+        userId: { in: args.userIds },
+        startTime: { gte: new Date(args.startMs), lte: new Date(args.endMs) },
+        timeEntryId: { notIn: args.keepIds },
+      },
+    });
+    return count;
+  }
+
   async findUnreplacedAgencyEntries(agencyUserId: string, limit = 500) {
     // NOT EXISTS anti-join rather than loading every replaced id into a JS Set
     // and building an unbounded `NOT IN (...)` list (which grows without limit

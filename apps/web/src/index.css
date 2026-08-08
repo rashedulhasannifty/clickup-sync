@@ -237,6 +237,12 @@ button { cursor: pointer; font-family: var(--font-sans); }
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.65), 0 2px 0 0 #000000;
 }
 
+/* Clickable BarChart rows (analytics deep-links). Hover is declarative so the
+   highlight is reconciled by CSS instead of manual DOM mutation, which could
+   stick if the row re-rendered while hovered. */
+.barchart-row { background: none; transition: background 120ms ease; }
+.barchart-row:hover { background: var(--muted-bg); }
+
 /* ── 3D · elevated cards ──────────────────────────────────────────────────────
    Cards float off the page on a soft two-layer drop shadow (tight contact
    shadow + a wider ambient one). Interactive cards (.card-3d-interactive, set

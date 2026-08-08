@@ -37,4 +37,29 @@ describe('TimeEntriesRepository', () => {
       });
     });
   });
+
+  describe('pruneWindowOutsideSet', () => {
+    it('deletes only in-window rows for the space + members that are not kept, scoped via the task join', async () => {
+      const deleteMany = jest.fn().mockResolvedValue({ count: 3 });
+      const repo = new TimeEntriesRepository({ clickupTimeEntry: { deleteMany } } as any);
+
+      const count = await repo.pruneWindowOutsideSet({
+        spaceId: 'sp1',
+        userIds: ['u1', 'u2'],
+        startMs: 1000,
+        endMs: 2000,
+        keepIds: ['te1', 'te2'],
+      });
+
+      expect(count).toBe(3);
+      expect(deleteMany).toHaveBeenCalledWith({
+        where: {
+          task: { is: { spaceId: 'sp1' } },
+          userId: { in: ['u1', 'u2'] },
+          startTime: { gte: new Date(1000), lte: new Date(2000) },
+          timeEntryId: { notIn: ['te1', 'te2'] },
+        },
+      });
+    });
+  });
 });

@@ -22,6 +22,12 @@ import { PrismaService } from '../database/prisma.service';
 // real data loss. A single task's window normally has a handful of entries, so a
 // count at/above this bound is truncation-suspect: we skip the prune (keep local
 // rows) and warn, trading a stale row for never deleting live data on a bad read.
+// This also guards the windowed `reconcileWindow` caller (space × 30-day slice),
+// whose per-slice volume can be far higher than a single task's — on a busy
+// space a slice may legitimately exceed this threshold and skip pruning. That's
+// a pruning-efficacy trade-off, not a bug; whether it needs a higher/separate
+// threshold for the windowed path is to be measured once the space_id probe
+// (see the windowed-time-entry-reconcile design doc) confirms real volumes.
 const PRUNE_SAFETY_MAX_ENTRIES = 1000;
 
 @Injectable()
@@ -74,60 +80,7 @@ export class TimeEntriesService {
     const { startMs, endMs } = resolveTimeEntriesWindow({ startDate, endDate });
     const entries = await this.clickup.getTimeEntries(teamId, taskId, { assigneeIds: ids, startDate: startMs, endDate: endMs });
 
-    // ClickUp's team `time_entries?task_id=X` rolls up subtask time: an entry's
-    // own `task.id` can be a SUBTASK of the queried task, not the queried task
-    // itself. We write each entry under its own task_id (NormalizedTimeEntry
-    // .taskId = entry.task.id), so every distinct referenced task must exist or
-    // the upsert hits `clickup_time_entries_task_id_fkey`. Self-heal each
-    // foreign task once (a recently-untouched subtask won't be in any backfill
-    // page); entries whose task can't be resolved are skipped below rather than
-    // failing the whole job. The queried `taskId` is already ensured above.
-    const resolvableTaskIds = new Set<string>([taskId]);
-    const foreignTaskIds = [
-      ...new Set(
-        entries
-          .map((e) => e.task?.id)
-          .filter((id): id is string => !!id && id !== taskId),
-      ),
-    ];
-    for (const fid of foreignTaskIds) {
-      if (await this.ensureTaskExists(fid)) resolvableTaskIds.add(fid);
-      else this.logger.warn(`Time entry references task ${fid} (likely a subtask of ${taskId}) not resolvable in ClickUp — its entries will be skipped`);
-    }
-
-    let count = 0;
-    const upserted: { normalized: NormalizedTimeEntry; rawTags: string[] }[] = [];
-    // One rate cache for the whole task so multiple intervals logged by the
-    // same user on the same day resolve the effective rate once, not per entry.
-    const rateCache = new Map();
-    // When rateMatching='due', pre-fetch the task due dates for all resolvable
-    // tasks so we can pass dueDate to the cost calculator without a per-entry
-    // DB round-trip. Skip the query entirely when using the default 'start'
-    // matching to keep the hot path unchanged.
-    let dueByTask: Map<string, Date | null> | null = null;
-    if (this.settings.getPreferences().cost.rateMatching === 'due') {
-      const taskRows = await this.prisma.clickupTask.findMany({
-        where: { taskId: { in: [...resolvableTaskIds] } },
-        select: { taskId: true, dueDate: true },
-      });
-      dueByTask = new Map(taskRows.map((t) => [t.taskId, t.dueDate]));
-    }
-    for (const entry of entries) {
-      const normalized = this.normalizer.normalizeTimeEntry(entry);
-      // A non-null task_id that we couldn't resolve would violate the FK. Skip
-      // just that entry (the rest still sync). A null task_id is allowed by the
-      // nullable `ON DELETE SET NULL` FK, so it never violates.
-      if (normalized.taskId != null && !resolvableTaskIds.has(normalized.taskId)) {
-        this.logger.warn(`Skipping time entry ${normalized.timeEntryId}: task ${normalized.taskId} unresolved (FK guard)`);
-        continue;
-      }
-      const rawTags = extractEntryTagNames(entry);
-      upserted.push({ normalized, rawTags });
-      const cost = await this.costs.calculate(normalized.userId, normalized.startTime, normalized.durationHours, rateCache, { billable: normalized.billable, dueDate: dueByTask?.get(normalized.taskId ?? '') ?? null });
-      await this.repo.upsert(normalized, cost);
-      if (cost.status === 'NO_RATE_FOUND') this.logger.warn(`Missing rate for user ${normalized.userId} on time entry ${normalized.timeEntryId}`);
-      count += 1;
-    }
+    const { count, upserted } = await this.persistEntries(entries);
 
     // Delete-reconciliation. ClickUp emits no "time entry deleted" event, so a
     // taskTimeTrackedUpdated webhook (or a backfill) is our only signal that an
@@ -154,36 +107,142 @@ export class TimeEntriesService {
     // the convention ClickUp surfaces in the data and what the n8n workflow
     // relied on. (An earlier approach gated on the logger's user id, which
     // matched the wrong dimension and never fired on real data.)
-    const activeMap = await this.tagAssigneeMap.findAllActive();
-    if (activeMap.length > 0) {
-      const activeTagNames = new Set(activeMap.map((m) => m.tagName.toLowerCase()));
-      for (const { normalized, rawTags } of upserted) {
-        if (rawTags.length === 0) continue;
-        if (!rawTags.some((t) => activeTagNames.has(t))) continue;
-        await this.queues.get(QUEUES.CLICKUP_ASSIGNEE_REPLACEMENT).add(
-          JOBS.REPLACE_TIME_ENTRY_ASSIGNEES,
-          {
-            timeEntryId: normalized.timeEntryId,
-            taskId: normalized.taskId ?? taskId,
-            startMs: normalized.startTime?.getTime() ?? 0,
-            endMs: normalized.endTime?.getTime() ?? 0,
-            durationHours: normalized.durationHours,
-            billable: normalized.billable,
-            description: normalized.description ?? undefined,
-            originalUserId: normalized.userId ?? '',
-            tags: rawTags,
-          } satisfies ReplacementJobData,
-          // Deterministic jobId so the same time entry can't be processed by two
-          // concurrent replacement jobs (which would each create a ClickUp entry
-          // = duplicate). BullMQ keeps one job per id; the worker's own audit-row
-          // check handles idempotency across time. NB: jobId must not contain ':'
-          // (BullMQ rejects it) — replacementJobId() uses a '-' separator.
-          { ...this.queues.defaultJobOptions(), jobId: replacementJobId(normalized.timeEntryId) },
-        );
-      }
-    }
+    await this.enqueueTagReplacements(upserted, taskId);
 
     return count;
+  }
+
+  /**
+   * Windowed reconcile: pulls a space's tracked time in [startDate,endDate] in
+   * one team-level call (all members), upserts via the shared pipeline, and
+   * prunes deletions at window granularity. Cheaper than one-job-per-task and
+   * catches deletions on tasks the 30-day space backfill never revisits. The
+   * fetch and prune share one resolved window so they can't drift.
+   */
+  async reconcileWindow(spaceId: string, startDate: number, endDate: number): Promise<number> {
+    const teamId = this.settings.getTeamId();
+    const ids = await this.members.getMemberIds();
+    const { startMs, endMs } = resolveTimeEntriesWindow({ startDate, endDate });
+
+    const entries = await this.clickup.getTimeEntriesWindow(teamId, {
+      spaceId,
+      assigneeIds: ids,
+      startDate: startMs,
+      endDate: endMs,
+    });
+
+    const { count, upserted } = await this.persistEntries(entries);
+
+    // Delete-reconciliation for exactly this space × window × members. A
+    // suspiciously large slice is treated as possibly-truncated — upsert only,
+    // never prune off a partial read.
+    if (entries.length >= PRUNE_SAFETY_MAX_ENTRIES) {
+      this.logger.warn(
+        `Fetched ${entries.length} time entries for space ${spaceId} (>= ${PRUNE_SAFETY_MAX_ENTRIES}); skipping delete-reconciliation to avoid pruning live rows on a possibly-truncated response`,
+      );
+    } else {
+      const keepIds = upserted.map((u) => u.normalized.timeEntryId);
+      const pruned = await this.repo.pruneWindowOutsideSet({ spaceId, userIds: ids, startMs, endMs, keepIds });
+      if (pruned > 0) this.logger.log(`Pruned ${pruned} time entr${pruned === 1 ? 'y' : 'ies'} deleted in ClickUp for space ${spaceId}`);
+    }
+
+    await this.enqueueTagReplacements(upserted);
+    return count;
+  }
+
+  /**
+   * Ensures every distinct task id referenced by `entries` exists locally
+   * (self-healing from ClickUp as needed), then normalizes, prices, and
+   * upserts each entry whose task resolved. Entries pointing at an
+   * unresolvable task are skipped to avoid violating
+   * `clickup_time_entries_task_id_fkey`. Shared by `syncTaskTimeEntries` and
+   * the windowed reconcile path.
+   */
+  private async persistEntries(
+    entries: ClickUpTimeEntry[],
+  ): Promise<{ count: number; upserted: { normalized: NormalizedTimeEntry; rawTags: string[] }[] }> {
+    const resolvableTaskIds = new Set<string>();
+    const distinctTaskIds = [
+      ...new Set(entries.map((e) => e.task?.id).filter((id): id is string => !!id)),
+    ];
+    for (const tid of distinctTaskIds) {
+      if (await this.ensureTaskExists(tid)) resolvableTaskIds.add(tid);
+      else this.logger.warn(`Time entry references task ${tid} not resolvable in ClickUp — its entries will be skipped`);
+    }
+
+    // When rateMatching='due', pre-fetch the task due dates for all resolvable
+    // tasks so we can pass dueDate to the cost calculator without a per-entry
+    // DB round-trip. Skip the query entirely when using the default 'start'
+    // matching to keep the hot path unchanged.
+    let dueByTask: Map<string, Date | null> | null = null;
+    if (this.settings.getPreferences().cost.rateMatching === 'due') {
+      const taskRows = await this.prisma.clickupTask.findMany({
+        where: { taskId: { in: [...resolvableTaskIds] } },
+        select: { taskId: true, dueDate: true },
+      });
+      dueByTask = new Map(taskRows.map((t) => [t.taskId, t.dueDate]));
+    }
+
+    let count = 0;
+    const upserted: { normalized: NormalizedTimeEntry; rawTags: string[] }[] = [];
+    // One rate cache for the whole call so multiple intervals logged by the
+    // same user on the same day resolve the effective rate once, not per entry.
+    const rateCache = new Map();
+    for (const entry of entries) {
+      const normalized = this.normalizer.normalizeTimeEntry(entry);
+      // A non-null task_id that we couldn't resolve would violate the FK. Skip
+      // just that entry (the rest still sync). A null task_id is allowed by the
+      // nullable `ON DELETE SET NULL` FK, so it never violates.
+      if (normalized.taskId != null && !resolvableTaskIds.has(normalized.taskId)) {
+        this.logger.warn(`Skipping time entry ${normalized.timeEntryId}: task ${normalized.taskId} unresolved (FK guard)`);
+        continue;
+      }
+      const rawTags = extractEntryTagNames(entry);
+      upserted.push({ normalized, rawTags });
+      const cost = await this.costs.calculate(normalized.userId, normalized.startTime, normalized.durationHours, rateCache, { billable: normalized.billable, dueDate: dueByTask?.get(normalized.taskId ?? '') ?? null });
+      await this.repo.upsert(normalized, cost);
+      if (cost.status === 'NO_RATE_FOUND') this.logger.warn(`Missing rate for user ${normalized.userId} on time entry ${normalized.timeEntryId}`);
+      count += 1;
+    }
+    return { count, upserted };
+  }
+
+  /**
+   * Enqueues assignee-replacement jobs for upserted entries whose tags match
+   * an active tag→assignee mapping. `fallbackTaskId` fills in when an entry's
+   * own `taskId` is null (e.g. logged without a task).
+   */
+  private async enqueueTagReplacements(
+    upserted: { normalized: NormalizedTimeEntry; rawTags: string[] }[],
+    fallbackTaskId?: string,
+  ): Promise<void> {
+    const activeMap = await this.tagAssigneeMap.findAllActive();
+    if (activeMap.length === 0) return;
+    const activeTagNames = new Set(activeMap.map((m) => m.tagName.toLowerCase()));
+    for (const { normalized, rawTags } of upserted) {
+      if (rawTags.length === 0) continue;
+      if (!rawTags.some((t) => activeTagNames.has(t))) continue;
+      await this.queues.get(QUEUES.CLICKUP_ASSIGNEE_REPLACEMENT).add(
+        JOBS.REPLACE_TIME_ENTRY_ASSIGNEES,
+        {
+          timeEntryId: normalized.timeEntryId,
+          taskId: normalized.taskId ?? fallbackTaskId ?? '',
+          startMs: normalized.startTime?.getTime() ?? 0,
+          endMs: normalized.endTime?.getTime() ?? 0,
+          durationHours: normalized.durationHours,
+          billable: normalized.billable,
+          description: normalized.description ?? undefined,
+          originalUserId: normalized.userId ?? '',
+          tags: rawTags,
+        } satisfies ReplacementJobData,
+        // Deterministic jobId so the same time entry can't be processed by two
+        // concurrent replacement jobs (which would each create a ClickUp entry
+        // = duplicate). BullMQ keeps one job per id; the worker's own audit-row
+        // check handles idempotency across time. NB: jobId must not contain ':'
+        // (BullMQ rejects it) — replacementJobId() uses a '-' separator.
+        { ...this.queues.defaultJobOptions(), jobId: replacementJobId(normalized.timeEntryId) },
+      );
+    }
   }
 
   /**

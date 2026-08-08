@@ -77,3 +77,28 @@ describe('ClickupClient.getAllTasksBySpace', () => {
     expect(res.tasks.map((t) => (t as { id: string }).id).sort()).toEqual(['a', 'b']);
   });
 });
+
+describe('getTimeEntriesWindow', () => {
+  it('queries the team endpoint with space_id, assignee and window; dedupes by id', async () => {
+    const client = makeClient();
+    const req = jest
+      .spyOn(client as unknown as { request: (...a: unknown[]) => Promise<unknown> }, 'request')
+      .mockResolvedValue({
+        data: [{ id: 'te1' }, { id: 'te1' }, { id: 'te2' }],
+      });
+
+    const out = await client.getTimeEntriesWindow('team1', {
+      spaceId: 'sp1',
+      assigneeIds: ['u1', 'u2'],
+      startDate: 1000,
+      endDate: 2000,
+    });
+
+    expect(out.map((e) => e.id)).toEqual(['te1', 'te2']);
+    const path = req.mock.calls[0][1] as string;
+    expect(path).toContain('/team/team1/time_entries?');
+    expect(path).toContain('space_id=sp1');
+    expect(path).toContain('assignee=u1%2Cu2');
+    expect(path).not.toContain('task_id=');
+  });
+});

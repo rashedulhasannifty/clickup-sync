@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useSpaces, useSyncHealth, useStats } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
-import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks, useReconcileActive, useWebhooks, useSyncTaskFull, useDeleteWebhook, usePruneStaleWebhooks, useRotateWebhook } from '../hooks/useAdmin';
+import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks, useReconcileActive, useWebhooks, useSyncTaskFull, useDeleteWebhook, usePruneStaleWebhooks, useRotateWebhook, useReconcileTimeEntriesWindow } from '../hooks/useAdmin';
 import { useSettings, useUpdateSettings } from '../hooks/useSettings';
 import { useAuth } from '../hooks/useAuth';
 import { RequireRole } from '../components/RequireRole';
@@ -25,6 +25,7 @@ import { Input } from '../components/ui/Input';
 import { Switch } from '../components/ui/Switch';
 import { Pill } from '../components/ui/Pill';
 import { Callout } from '../components/ui/Callout';
+import { Modal } from '../components/ui/Modal';
 import { useToast } from '../components/ui/Toast';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Field } from '../components/ui/Field';
@@ -349,6 +350,7 @@ export function SettingsPage() {
   const registerWebhook = useRegisterWebhook();
   const testConnection = useTestClickupConnection();
   const reconcileTasks = useReconcileTasks();
+  const reconcileTimeEntries = useReconcileTimeEntriesWindow();
   const reconcileProgress = useReconcileActive(hasRole('ADMIN'));
   const settingsQuery = useSettings();
   const updateSettings = useUpdateSettings();
@@ -458,6 +460,10 @@ export function SettingsPage() {
   const [tagForm, setTagForm] = useState<TagFormState>(emptyForm);
 
   const [reconcileDays, setReconcileDays] = useState('365');
+  // "Reconcile time entries" — the lighter, time-entries-only sweep (no delete
+  // detection). Heavy enough to gate behind a confirm dialog.
+  const [teReconcileDays, setTeReconcileDays] = useState('90');
+  const [teConfirmOpen, setTeConfirmOpen] = useState(false);
   useEffect(() => {
     if (prefs?.sync.reconcileLookbackDays != null) setReconcileDays(String(prefs.sync.reconcileLookbackDays));
   }, [prefs?.sync.reconcileLookbackDays]);
@@ -1044,6 +1050,38 @@ export function SettingsPage() {
                 </div>
               )}
               <SettingRow
+                label="Reconcile time entries"
+                desc="Re-pull tracked time for every configured space over the last N days, in a few windowed jobs (not one per task). Time-entries only — it won't detect task deletes; use Full reconciliation for that."
+                control={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={teReconcileDays}
+                      onChange={(e) => setTeReconcileDays(e.target.value)}
+                      style={{ width: 88 }}
+                      aria-label="Time-entry reconcile lookback in days"
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>days back</span>
+                    <Button
+                      size="sm"
+                      variant="caution"
+                      loading={reconcileTimeEntries.isPending}
+                      onClick={() => {
+                        const days = Number(teReconcileDays);
+                        if (!Number.isFinite(days) || days < 1) {
+                          showBanner('Enter a lookback of at least 1 day.', 'red');
+                          return;
+                        }
+                        setTeConfirmOpen(true);
+                      }}
+                    >
+                      Run now
+                    </Button>
+                  </div>
+                }
+              />
+              <SettingRow
                 label="Backfill on connect"
                 desc="When on, registering the webhook also backfills enabled spaces."
                 control={
@@ -1111,6 +1149,55 @@ export function SettingsPage() {
               />
             </div>
           </Card>
+
+          {teConfirmOpen && (
+            <Modal
+              open
+              onClose={() => setTeConfirmOpen(false)}
+              title="Reconcile all time entries?"
+              subtitle="Queues a few windowed jobs across configured spaces."
+              width={440}
+              footer={
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  <Button size="md" variant="ghost" onClick={() => setTeConfirmOpen(false)}>Cancel</Button>
+                  <Button
+                    size="md"
+                    variant="caution"
+                    loading={reconcileTimeEntries.isPending}
+                    onClick={() => {
+                      const days = Number(teReconcileDays);
+                      reconcileTimeEntries.mutate(days, {
+                        onSuccess: (res) => {
+                          setTeConfirmOpen(false);
+                          showBanner(
+                            `Queued ${res.queued} windowed reconcile job${res.queued === 1 ? '' : 's'} (last ${days} days). Hours will refresh as workers drain the queue.`,
+                            'blue',
+                          );
+                        },
+                        onError: (err) => showBanner(`Failed to start: ${(err as Error).message}`, 'red'),
+                      });
+                    }}
+                  >
+                    Queue jobs
+                  </Button>
+                </div>
+              }
+            >
+              <div style={{ fontSize: 13, color: 'var(--text)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <p style={{ margin: 0 }}>
+                  Reconciles the last <strong>{teReconcileDays} days</strong> of tracked time across all configured spaces using
+                  a few windowed jobs. Deletions in that window are pruned.
+                </p>
+                <p style={{ margin: 0, color: 'var(--text-muted)' }}>
+                  Note: correct scoping and delete-pruning depend on ClickUp honoring the space filter, which hasn't been
+                  verified in this workspace yet — treat pruning as best-effort until confirmed.
+                </p>
+                <p style={{ margin: 0, color: 'var(--text-muted)' }}>
+                  For a single space, sync it from the Spaces page instead.
+                </p>
+              </div>
+            </Modal>
+          )}
 
           <Card>
             <CardHeader title="Cost calculation" subtitle="How labor cost is computed from time entries." />
