@@ -38,4 +38,24 @@ describe('planRateSuccession', () => {
     const plan = planRateSuccession({ existing, newValidFrom: d('2026-06-01'), newValidTo: null });
     expect(plan.ok).toBe(false);
   });
+
+  it('leaves an existing rate untouched when new bounded rate ends before it starts', () => {
+    const existing: RateInterval[] = [{ rateId: 6n, validFrom: d('2027-01-01'), validTo: null }];
+    const plan = planRateSuccession({
+      existing,
+      newValidFrom: d('2026-06-01'),
+      newValidTo: d('2026-12-31'),
+    });
+    expect(plan).toEqual({ ok: true, caps: [] });
+  });
+
+  it('blocks a new bounded rate overlapping an existing rate that starts after the new range', () => {
+    const existing: RateInterval[] = [{ rateId: 7n, validFrom: d('2026-12-01'), validTo: null }];
+    const plan = planRateSuccession({
+      existing,
+      newValidFrom: d('2026-06-01'),
+      newValidTo: d('2026-12-31'),
+    });
+    expect(plan.ok).toBe(false);
+  });
 });
