@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { planRateSuccession } from './rate-succession';
 
 export interface RateRow { assigneeId: string; assigneeName?: string; assigneeEmail?: string; currency: string; hourlyRateCents: bigint; validFrom: Date; validTo: Date | null; }
 
@@ -39,6 +40,50 @@ export class RatesRepository {
       data: { assigneeId: data.assigneeId, assigneeName: data.assigneeName, assigneeEmail: data.assigneeEmail, currency: data.currency, hourlyRateCents: BigInt(data.hourlyRateCents), validFrom: data.validFrom, validTo: data.validTo ?? null },
     });
     return mapRate(r);
+  }
+
+  /**
+   * Insert a rate while keeping the "one active rate per assignee" invariant:
+   * cap any overlapping earlier rate to newValidFrom-1, or reject (400) an
+   * overlap that starts on/after the new start. All in one transaction so we
+   * never leave two active rates or a capped rate without its replacement.
+   */
+  async createWithSuccession(data: {
+    assigneeId: string;
+    assigneeName?: string;
+    assigneeEmail?: string;
+    currency: string;
+    hourlyRateCents: number;
+    validFrom: Date;
+    validTo?: Date | null;
+  }) {
+    return this.prisma.$transaction(async (tx) => {
+      const existing = await tx.assigneeRate.findMany({
+        where: { assigneeId: data.assigneeId },
+        select: { rateId: true, validFrom: true, validTo: true },
+      });
+      const plan = planRateSuccession({
+        existing,
+        newValidFrom: data.validFrom,
+        newValidTo: data.validTo ?? null,
+      });
+      if (!plan.ok) throw new BadRequestException(plan.reason);
+      for (const cap of plan.caps) {
+        await tx.assigneeRate.update({ where: { rateId: cap.rateId }, data: { validTo: cap.validTo } });
+      }
+      const r = await tx.assigneeRate.create({
+        data: {
+          assigneeId: data.assigneeId,
+          assigneeName: data.assigneeName,
+          assigneeEmail: data.assigneeEmail,
+          currency: data.currency,
+          hourlyRateCents: BigInt(data.hourlyRateCents),
+          validFrom: data.validFrom,
+          validTo: data.validTo ?? null,
+        },
+      });
+      return mapRate(r);
+    });
   }
 
   async update(id: bigint, data: { assigneeName?: string; assigneeEmail?: string; currency?: string; hourlyRateCents?: number; validFrom?: Date; validTo?: Date | null }) {
