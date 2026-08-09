@@ -266,11 +266,11 @@ export function RateModal({
 	// Mirror the backend succession rule so the warning matches what will happen.
 	// Closed-closed [from, to]; null = unbounded.
 	const overlapInfo = useMemo(() => {
+		if (rate) return null;
 		if (!validFrom || !assigneeId) return null;
 		const nf = new Date(validFrom).getTime();
 		const nt = validTo ? new Date(validTo).getTime() : null;
 		const conflicts = ratesList.filter((r) => {
-			if (rate && r.id === rate.id) return false;
 			if (r.assigneeId !== assigneeId) return false;
 			const f = new Date(r.validFrom).getTime();
 			const t = r.validTo ? new Date(r.validTo).getTime() : null;
@@ -308,7 +308,13 @@ export function RateModal({
 		if (rate) {
 			updateRate.mutate(
 				{ id: rate.id, data: payload },
-				{ onSuccess: () => onClose() },
+				{
+					onSuccess: () => onClose(),
+					onError: (err) => {
+						const e = err as { response?: { data?: { message?: string } }; message?: string };
+						setFormError(e.response?.data?.message ?? e.message ?? 'Could not save rate.');
+					},
+				},
 			);
 		} else {
 			createRate.mutate(payload, {
