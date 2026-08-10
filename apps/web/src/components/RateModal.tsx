@@ -170,6 +170,9 @@ export function RateModal({
 			newRateStartedWithEmptyAssigneeList.current = false;
 			return;
 		}
+		// Clear any stale submit error (e.g. a prior "adjust the dates" block
+		// message) so it doesn't resurface when the modal is reopened.
+		setFormError('');
 		if (rate) {
 			newRateStartedWithEmptyAssigneeList.current = false;
 			setAssigneeId(rate.assigneeId);
@@ -216,6 +219,12 @@ export function RateModal({
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [open, rate?.id, presetAssignee?.assigneeId]);
+
+	// A stale submit error (e.g. a block message from a previous date) is no
+	// longer relevant once the user edits the inputs — clear it as they type.
+	useEffect(() => {
+		setFormError('');
+	}, [validFrom, validTo, assigneeId, hourlyRateDollars]);
 
 	/** If the assignee list was empty on open and loads later, pick the first assignee (not user-chosen manual). */
 	useEffect(() => {
