@@ -30,8 +30,8 @@ export class RatesService {
     }
   }
 
-  async create(data: Parameters<RatesRepository['create']>[0]) {
-    const rate = await this.repo.create(data);
+  async create(data: Parameters<RatesRepository['createWithSuccession']>[0]) {
+    const rate = await this.repo.createWithSuccession(data);
     await this.enqueueRecalc(rate.assigneeId);
     return rate;
   }

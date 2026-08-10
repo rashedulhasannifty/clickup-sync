@@ -21,6 +21,8 @@ import { Input } from './ui/Input';
 import { Button } from './ui/Button';
 import { Callout } from './ui/Callout';
 import { Select } from './ui/Select';
+import { useToast } from './ui/Toast';
+import { fmt } from '../lib/formatters';
 
 const MANUAL_VALUE = '__manual__';
 
@@ -259,19 +261,29 @@ export function RateModal({
 		}
 	}
 
-	// Closed-closed `[from, to]` to match the cost calculator. Whichever rate
-	// has the later validFrom wins on overlap, but we still warn so the user
-	// can fix it before saving rather than discovering misattributed costs.
-	const hasOverlap =
-		validFrom.length > 0 &&
-		ratesList.some((r) => {
-			if (rate && r.id === rate.id) return false;
+	const toast = useToast();
+
+	// Mirror the backend succession rule so the warning matches what will happen.
+	// Closed-closed [from, to]; null = unbounded.
+	const overlapInfo = useMemo(() => {
+		if (rate) return null;
+		if (!validFrom || !assigneeId) return null;
+		const nf = new Date(validFrom).getTime();
+		const nt = validTo ? new Date(validTo).getTime() : null;
+		const conflicts = ratesList.filter((r) => {
 			if (r.assigneeId !== assigneeId) return false;
-			const from = new Date(r.validFrom);
-			const to = r.validTo ? new Date(r.validTo) : null;
-			const check = new Date(validFrom);
-			return check >= from && (to === null || check <= to);
+			const f = new Date(r.validFrom).getTime();
+			const t = r.validTo ? new Date(r.validTo).getTime() : null;
+			const startsBeforeNewEnds = nt === null || f <= nt;
+			const endsAfterNewStarts = t === null || t >= nf;
+			return startsBeforeNewEnds && endsAfterNewStarts;
 		});
+		if (conflicts.length === 0) return null;
+		const blocking = conflicts.some((r) => new Date(r.validFrom).getTime() >= nf);
+		const capTarget = conflicts.find((r) => new Date(r.validFrom).getTime() < nf) ?? null;
+		const capDate = new Date(nf - 24 * 60 * 60 * 1000);
+		return { blocking, capTarget, capDate };
+	}, [validFrom, validTo, assigneeId, rate, ratesList]);
 
 	const isPending = createRate.isPending || updateRate.isPending;
 	const isNew = !rate;
@@ -296,10 +308,29 @@ export function RateModal({
 		if (rate) {
 			updateRate.mutate(
 				{ id: rate.id, data: payload },
-				{ onSuccess: () => onClose() },
+				{
+					onSuccess: () => onClose(),
+					onError: (err) => {
+						const e = err as { response?: { data?: { message?: string } }; message?: string };
+						setFormError(e.response?.data?.message ?? e.message ?? 'Could not save rate.');
+					},
+				},
 			);
 		} else {
-			createRate.mutate(payload, { onSuccess: () => onClose() });
+			createRate.mutate(payload, {
+				onSuccess: () => {
+					if (overlapInfo?.capTarget) {
+						toast.success(`Rate created — previous rate closed on ${fmt.shortDate(overlapInfo.capDate)}.`);
+					}
+					onClose();
+				},
+				onError: (err) => {
+					// Surface the backend's block message (e.g. "New rate starts on or
+					// before an existing rate…") instead of failing silently.
+					const e = err as { response?: { data?: { message?: string } }; message?: string };
+					setFormError(e.response?.data?.message ?? e.message ?? 'Could not create rate.');
+				},
+			});
 		}
 	}
 
@@ -513,10 +544,19 @@ export function RateModal({
 					a clean handoff with no overlap.
 				</Callout>
 
-				{hasOverlap && (
+				{overlapInfo?.blocking && (
 					<Callout tone="amber" icon={<AlertTriangle size={13} strokeWidth={2} />}>
-						The &quot;Effective from&quot; date falls within an existing rate range
-						for this assignee. Review for overlaps before saving.
+						This overlaps an existing rate for this assignee that starts on or after
+						this date. Adjust the dates — saving will be rejected.
+					</Callout>
+				)}
+
+				{overlapInfo && !overlapInfo.blocking && overlapInfo.capTarget && (
+					<Callout tone="amber" icon={<AlertTriangle size={13} strokeWidth={2} />}>
+						Saving will close this assignee&apos;s current rate ($
+						{(overlapInfo.capTarget.hourlyRateCents / 100).toFixed(2)}/hr from{' '}
+						{fmt.shortDate(overlapInfo.capTarget.validFrom)}) on{' '}
+						{fmt.shortDate(overlapInfo.capDate)}.
 					</Callout>
 				)}
 			</div>

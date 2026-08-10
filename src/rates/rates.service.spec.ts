@@ -5,6 +5,7 @@ function makeDeps(autoRecalc = true) {
   const created = { id: '1', assigneeId: 'u1', assigneeName: null, assigneeEmail: null, currency: 'AUD', hourlyRateCents: 100, validFrom: new Date(), validTo: null, updatedAt: new Date() };
   const repo = {
     create: jest.fn().mockResolvedValue(created),
+    createWithSuccession: jest.fn().mockResolvedValue(created),
     update: jest.fn().mockResolvedValue({ ...created, assigneeId: 'u2' }),
     remove: jest.fn().mockResolvedValue(undefined),
     findById: jest.fn().mockResolvedValue({ ...created, assigneeId: 'u3' }),
@@ -16,12 +17,19 @@ function makeDeps(autoRecalc = true) {
 }
 
 describe('RatesService', () => {
-  it('create writes then enqueues a scoped recalculation', async () => {
+  it('create writes via succession then enqueues a scoped recalculation', async () => {
     const { svc, repo, add } = makeDeps();
     const r = await svc.create({ assigneeId: 'u1', currency: 'AUD', hourlyRateCents: 100, validFrom: new Date() } as any);
-    expect(repo.create).toHaveBeenCalled();
+    expect(repo.createWithSuccession).toHaveBeenCalled();
     expect(add).toHaveBeenCalledWith(JOBS.RECALCULATE_COSTS, { assigneeId: 'u1' }, {});
     expect(r.assigneeId).toBe('u1');
+  });
+
+  it('propagates a blocked create and does NOT enqueue recalc', async () => {
+    const { svc, repo, add } = makeDeps();
+    (repo.createWithSuccession as jest.Mock).mockRejectedValueOnce(new Error('overlap'));
+    await expect(svc.create({ assigneeId: 'u1', currency: 'AUD', hourlyRateCents: 100, validFrom: new Date() } as any)).rejects.toThrow('overlap');
+    expect(add).not.toHaveBeenCalled();
   });
 
   it('update enqueues for the updated rate\'s assignee', async () => {
