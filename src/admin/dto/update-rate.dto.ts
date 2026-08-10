@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsInt, IsISO8601, IsOptional, IsString, Min } from 'class-validator';
+import { IsDateOnOrAfter } from './is-date-on-or-after.validator';
 
 export class UpdateRateDto {
   @ApiPropertyOptional()
@@ -31,5 +32,6 @@ export class UpdateRateDto {
   @ApiPropertyOptional({ description: 'Effective until date (ISO 8601). Send null to make open-ended.' })
   @IsISO8601()
   @IsOptional()
+  @IsDateOnOrAfter('validFrom')
   validTo?: string | null;
 }
