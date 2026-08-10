@@ -38,6 +38,8 @@ export const ratesApi = {
   remove: (id: string) => apiClient.delete(`/admin/rates/${id}`).then(r => r.data),
   recalculate: (assigneeId?: string) =>
     apiClient
-      .post('/admin/rates/recalculate', null, { params: assigneeId ? { assigneeId } : {} })
+      // Send `{}` (not `null`): a JSON `null` primitive body makes the backend's
+      // body parser drop this route to a 404. An object body reaches the handler.
+      .post('/admin/rates/recalculate', {}, { params: assigneeId ? { assigneeId } : {} })
       .then((r) => r.data as { queued: boolean; scope: string }),
 };
