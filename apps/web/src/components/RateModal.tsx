@@ -170,6 +170,9 @@ export function RateModal({
 			newRateStartedWithEmptyAssigneeList.current = false;
 			return;
 		}
+		// Clear any stale submit error (e.g. a prior "adjust the dates" block
+		// message) so it doesn't resurface when the modal is reopened.
+		setFormError('');
 		if (rate) {
 			newRateStartedWithEmptyAssigneeList.current = false;
 			setAssigneeId(rate.assigneeId);
@@ -216,6 +219,12 @@ export function RateModal({
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [open, rate?.id, presetAssignee?.assigneeId]);
+
+	// A stale submit error (e.g. a block message from a previous date) is no
+	// longer relevant once the user edits the inputs — clear it as they type.
+	useEffect(() => {
+		setFormError('');
+	}, [validFrom, validTo, assigneeId, hourlyRateDollars]);
 
 	/** If the assignee list was empty on open and loads later, pick the first assignee (not user-chosen manual). */
 	useEffect(() => {
@@ -545,18 +554,34 @@ export function RateModal({
 				</Callout>
 
 				{overlapInfo?.blocking && (
-					<Callout tone="amber" icon={<AlertTriangle size={13} strokeWidth={2} />}>
-						This overlaps an existing rate for this assignee that starts on or after
-						this date. Adjust the dates — saving will be rejected.
+					<Callout tone="red" icon={<AlertTriangle size={18} strokeWidth={2.25} />}>
+						<div style={{ fontSize: 14, lineHeight: 1.5, fontWeight: 600 }}>
+							<span style={{ display: 'block', fontWeight: 800, marginBottom: 2 }}>
+								This can&apos;t be saved
+							</span>
+							It overlaps an existing rate that starts on or after this date.
+							Adjust the dates before saving.
+						</div>
 					</Callout>
 				)}
 
 				{overlapInfo && !overlapInfo.blocking && overlapInfo.capTarget && (
-					<Callout tone="amber" icon={<AlertTriangle size={13} strokeWidth={2} />}>
-						Saving will close this assignee&apos;s current rate ($
-						{(overlapInfo.capTarget.hourlyRateCents / 100).toFixed(2)}/hr from{' '}
-						{fmt.shortDate(overlapInfo.capTarget.validFrom)}) on{' '}
-						{fmt.shortDate(overlapInfo.capDate)}.
+					<Callout tone="amber" icon={<AlertTriangle size={18} strokeWidth={2.25} />}>
+						<div style={{ fontSize: 14, lineHeight: 1.5, fontWeight: 600 }}>
+							<span style={{ display: 'block', fontWeight: 800, marginBottom: 2 }}>
+								This will close the current rate
+							</span>
+							Saving closes this assignee&apos;s current rate{' '}
+							<strong style={{ fontWeight: 800 }}>
+								${(overlapInfo.capTarget.hourlyRateCents / 100).toFixed(2)}/hr from{' '}
+								{fmt.shortDate(overlapInfo.capTarget.validFrom)}
+							</strong>{' '}
+							on{' '}
+							<strong style={{ fontWeight: 800 }}>
+								{fmt.shortDate(overlapInfo.capDate)}
+							</strong>
+							.
+						</div>
 					</Callout>
 				)}
 			</div>
