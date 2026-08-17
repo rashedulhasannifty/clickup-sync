@@ -20,11 +20,11 @@ export class CustomFieldExtractor {
       const value = cf.value;
       if (value === undefined || value === null || value === '') continue;
       if (name === 'client' && cf.type === 'drop_down') client = this.resolveDropdown(cf, value);
-      if (name.includes('executive')) executiveName = String(value);
-      if (name.includes('department')) department = String(value);
+      if (name.includes('executive')) executiveName = this.cleanText(String(value));
+      if (name.includes('department')) department = this.cleanText(String(value));
       if (name.includes('cost')) cost = toNumberOrZero(value);
       if (name.includes('estimation') || name.includes('estimate')) estimation = toNumberOrZero(value);
-      if (name.includes('sprint') && !name.includes('point')) sprintName = String(value);
+      if (name.includes('sprint') && !name.includes('point')) sprintName = this.cleanText(String(value));
       if (name.includes('point') || name.includes('story point') || name === 'sprint points') sprintPoints = Math.trunc(toNumberOrZero(value));
     }
     // sprint_points is an int4 column; a mis-matched custom field can carry a
@@ -36,6 +36,21 @@ export class CustomFieldExtractor {
   private resolveDropdown(cf: ClickUpCustomField, value: unknown): string | null {
     const selected = Number(value);
     const option = cf.type_config?.options?.find((opt) => opt.orderindex === selected);
-    return option?.name || null;
+    return this.cleanText(option?.name ?? null);
+  }
+
+  /**
+   * Trim surrounding whitespace from an extracted string field and collapse an
+   * empty result to null. ClickUp dropdown option names / text-field values are
+   * stored verbatim, and a stray trailing space (e.g. the "Call A tradie Pty "
+   * client option) silently breaks the dashboard's exact-match filters: the
+   * facet counts the padded value but the filter trims what it sends, so
+   * `client IN (...)` matches nothing. Trimming on ingestion keeps the stored
+   * value and the filtered value byte-identical.
+   */
+  private cleanText(value: string | null | undefined): string | null {
+    if (value == null) return null;
+    const trimmed = value.trim();
+    return trimmed === '' ? null : trimmed;
   }
 }
