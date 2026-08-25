@@ -10,6 +10,7 @@ import { buildBullConnection } from './config/connection.config';
 import { isWorker } from './config/role';
 import { DatabaseModule } from './database/database.module';
 import { SettingsModule } from './settings/settings.module';
+import { SettingsSyncModule } from './settings/settings-sync.module';
 import { ClickupModule } from './clickup/clickup.module';
 import { QueuesModule } from './queues/queues.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
@@ -49,6 +50,7 @@ const worker = isWorker();
     }),
     DatabaseModule,
     SettingsModule,
+    SettingsSyncModule,
     ClickupModule,
     QueuesModule,
     WebhooksModule,
