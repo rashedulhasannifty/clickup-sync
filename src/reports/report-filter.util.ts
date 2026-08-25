@@ -60,3 +60,45 @@ export async function sprintStatusListIds(
   `);
   return rows.map((r) => r.list_id);
 }
+
+/**
+ * Task columns covered by the dashboard's free-text search.
+ *
+ * Deliberately short, indexed-friendly columns only — `description` and the raw
+ * JSON payload are excluded because ILIKE over those gets expensive fast.
+ *
+ * Shared so the Tasks page and the Time Entries page resolve the SAME task set
+ * for the same query. They used to diverge: Tasks searched ten task columns
+ * while Time Entries searched only `task.taskName`, so a task matching on
+ * `listName`, `client`, or `department` appeared on one page and not the other —
+ * and a task renamed in ClickUp could silently drop out of one page's results
+ * while staying in the other's. Any field added here must reach both pages, so
+ * add it here rather than at either call site.
+ */
+export function taskSearchOr(q: string): Prisma.ClickupTaskWhereInput[] {
+  const match = { contains: q, mode: 'insensitive' as const };
+  return [
+    { taskName: match },
+    { taskId: match },
+    { assigneesNames: match },
+    { assigneesEmails: match },
+    { client: match },
+    { listName: match },
+    { spaceName: match },
+    { sprintName: match },
+    { department: match },
+    { executiveName: match },
+  ];
+}
+
+/**
+ * The same task-side search clauses, reached through `ClickupTimeEntry.task`.
+ *
+ * Derived from `taskSearchOr` rather than restated so the two can never drift.
+ * Entries with no task row match none of these — callers OR in the
+ * entry-specific fields (logger name/email, time-entry id) separately, which is
+ * what keeps a task-less entry findable.
+ */
+export function timeEntryTaskSearchOr(q: string): Prisma.ClickupTimeEntryWhereInput[] {
+  return taskSearchOr(q).map((task) => ({ task }));
+}

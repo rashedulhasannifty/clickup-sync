@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { assembleTimesheet, dhakaDate, type TimesheetAggRow } from './timesheet.assemble';
 import { defaultFrom, parseDate } from './report-date.util';
-import { csvList, sprintStatusListIds } from './report-filter.util';
+import { csvList, sprintStatusListIds, timeEntryTaskSearchOr } from './report-filter.util';
 
 /** Time-entry report queries (timesheets, per-user/client/department rollups, list + aggregates). */
 @Injectable()
@@ -287,13 +287,17 @@ export class TimeEntriesReportService {
     else if (billable === 'false') where.billable = false;
     if (search?.trim()) {
       const q = search.trim();
+      const match = { contains: q, mode: 'insensitive' as const };
       and.push({
         OR: [
-          { task: { taskName: { contains: q, mode: 'insensitive' } } },
-          { userName: { contains: q, mode: 'insensitive' } },
-          { userEmail: { contains: q, mode: 'insensitive' } },
-          { taskId: { contains: q, mode: 'insensitive' } },
-          { timeEntryId: { contains: q, mode: 'insensitive' } },
+          // Every task column the Tasks page searches, so both pages resolve the
+          // same task set for the same query.
+          ...timeEntryTaskSearchOr(q),
+          // Entry-specific fields on top — these also keep a task-less entry findable.
+          { userName: match },
+          { userEmail: match },
+          { taskId: match },
+          { timeEntryId: match },
         ],
       });
     }
@@ -408,13 +412,17 @@ export class TimeEntriesReportService {
     else if (billable === 'false') where.billable = false;
     if (search?.trim()) {
       const q = search.trim();
+      const match = { contains: q, mode: 'insensitive' as const };
       and.push({
         OR: [
-          { task: { taskName: { contains: q, mode: 'insensitive' } } },
-          { userName: { contains: q, mode: 'insensitive' } },
-          { userEmail: { contains: q, mode: 'insensitive' } },
-          { taskId: { contains: q, mode: 'insensitive' } },
-          { timeEntryId: { contains: q, mode: 'insensitive' } },
+          // Every task column the Tasks page searches, so both pages resolve the
+          // same task set for the same query.
+          ...timeEntryTaskSearchOr(q),
+          // Entry-specific fields on top — these also keep a task-less entry findable.
+          { userName: match },
+          { userEmail: match },
+          { taskId: match },
+          { timeEntryId: match },
         ],
       });
     }
