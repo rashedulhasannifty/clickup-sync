@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { QueueService } from '../queues/queue.service';
-import { JOBS, QUEUES } from '../queues/queue.constants';
+import { BACKFILL_TIME_ENTRY_PRIORITY, JOBS, QUEUES } from '../queues/queue.constants';
+import { sliceReconcileWindow } from './reconcile-window.util';
+import { subtractDays } from '../common/utils/date-utils';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { SettingsService } from '../settings/settings.service';
 
@@ -117,13 +119,74 @@ export class SyncScheduler {
   }
 
   /**
+   * Deep time-entry reconcile — the ONLY path that repairs an edit or deletion
+   * made in ClickUp to an entry older than a week.
+   *
+   * Both recurring sweeps above pass `timeEntryLookbackDays: 7`, and
+   * `syncTaskTimeEntries` scopes its ClickUp fetch AND its delete-prune to that
+   * same window. So once an entry's `start_time` passes 7 days it is never
+   * re-read and never pruned: it freezes at whatever ClickUp last said. The
+   * task row keeps refreshing (`time_spent` is re-fetched every backfill), so
+   * the Tasks page and the Time Entries page silently drift apart. Observed on
+   * prod: two AIT tasks over-reporting by 0.75h and 1.00h, each stale row's
+   * `synced_at` pinned to the last daily run within 7 days of its `start_time`.
+   *
+   * ClickUp emits no "time entry deleted" event at all, and its
+   * `taskTimeTrackedUpdated` frequently does not fire for manual edits, so
+   * webhooks cannot be relied on to close this gap either.
+   *
+   * Cost control: this uses the windowed reconcile (one team-level call per
+   * space × 30-day slice) rather than the per-task fan-out, runs ONE space per
+   * day in the same rotation as `reconcileArchived`, and enqueues at
+   * `BACKFILL_TIME_ENTRY_PRIORITY` so it can never head-of-line-block a live
+   * webhook. At the 365-day default that is ~13 low-priority jobs per day.
+   *
+   * 02:00 UTC keeps it clear of the 03:00 list-catalog and 04:00 archived crons.
+   */
+  @Cron('0 0 2 * * *')
+  async deepReconcileTimeEntries() {
+    const enabled = CLICKUP_SPACES.filter((s) => this.settings.isSpaceEnabled(s.id));
+    if (!enabled.length) return;
+    // Offset by 1 so this never targets the same space as `reconcileArchived`
+    // on the same day — that cron's per-list archived scan is the heaviest job
+    // the worker runs, and stacking a 13-slice reconcile on top of it would
+    // concentrate two days' work onto one space on a 1.9 GB host.
+    const space = enabled[this.rotationIndex(new Date(), enabled.length, 1)];
+
+    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
+    // Skip while a previous deep reconcile is still draining. These jobs are
+    // deprioritized, so on a slow ClickUp day they can outlive a 24h gap; without
+    // this guard each run would stack another full year of slices on top.
+    const live = await queue.getJobs(['active', 'waiting', 'delayed', 'prioritized']);
+    if (live.some((j) => j.name === JOBS.RECONCILE_TIME_ENTRIES_WINDOW)) {
+      this.logger.warn('Skipping deep time-entry reconcile: a previous windowed reconcile is still in flight');
+      return;
+    }
+
+    const lookbackDays = this.settings.getReconcileLookbackDays();
+    const slices = sliceReconcileWindow(subtractDays(lookbackDays).getTime(), Date.now());
+    const jobOpts = { ...this.queues.defaultJobOptions(), priority: BACKFILL_TIME_ENTRY_PRIORITY };
+
+    for (const slice of slices) {
+      await queue.add(JOBS.RECONCILE_TIME_ENTRIES_WINDOW, { spaceId: space.id, ...slice }, jobOpts);
+    }
+    this.logger.log(
+      `Deep time-entry reconcile enqueued for space ${space.id}: ${slices.length} slice(s) over ${lookbackDays}d (daily rotation)`,
+    );
+  }
+
+  /**
    * Deterministic day-based rotation: returns an index in [0, count) that
    * advances by one each calendar day (UTC) and wraps, so consecutive daily
    * runs cycle through all enabled spaces. Pure for testability.
+   *
+   * `offset` staggers one rotation against another so two daily crons don't
+   * land on the same space on the same day — see `deepReconcileTimeEntries`.
+   * Defaults to 0, leaving every pre-existing caller's sequence unchanged.
    */
-  rotationIndex(date: Date, count: number): number {
+  rotationIndex(date: Date, count: number, offset = 0): number {
     if (count <= 0) return 0;
-    const dayNumber = Math.floor(date.getTime() / 86_400_000);
+    const dayNumber = Math.floor(date.getTime() / 86_400_000) + offset;
     return ((dayNumber % count) + count) % count;
   }
 }

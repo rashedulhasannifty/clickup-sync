@@ -16,6 +16,7 @@ import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
 import { TasksRepository } from '../tasks/tasks.repository';
 import { subtractDays } from '../common/utils/date-utils';
+import { sliceReconcileWindow } from '../sync/reconcile-window.util';
 
 /** Redis key prefix (outside the `bull:` keyspace) for the per-space time-entry
  * backfill progress high-water mark. */
@@ -25,8 +26,6 @@ const PROGRESS_PEAK_PREFIX = 'progress:te-peak:';
  * non-configured admin-override space the idle sweep doesn't iterate). */
 const PROGRESS_PEAK_TTL_S = 48 * 60 * 60;
 
-/** Width of each date-slice fanned out by the windowed reconcile endpoint. */
-const RECONCILE_WINDOW_SLICE_DAYS = 30;
 /** Default lookback when the caller doesn't specify one. */
 const RECONCILE_WINDOW_DEFAULT_LOOKBACK_DAYS = 90;
 /** Sane upper bound on the resolved lookback — an unbounded caller-supplied
@@ -349,20 +348,19 @@ export class AdminSyncController {
 
     const resolvedLookbackDays = dto.lookbackDays && dto.lookbackDays > 0 ? Math.round(dto.lookbackDays) : RECONCILE_WINDOW_DEFAULT_LOOKBACK_DAYS;
     const lookbackDays = Math.min(Math.max(resolvedLookbackDays, 1), RECONCILE_WINDOW_MAX_LOOKBACK_DAYS);
-    const sliceMs = RECONCILE_WINDOW_SLICE_DAYS * 24 * 60 * 60 * 1000;
-    const end = Date.now();
-    const start = subtractDays(lookbackDays).getTime();
+    // Shared with SyncScheduler.deepReconcileTimeEntries so the scheduled sweep
+    // and this manual endpoint slice identically.
+    const slices = sliceReconcileWindow(subtractDays(lookbackDays).getTime(), Date.now());
 
     const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
     const jobOpts = { ...this.queues.defaultJobOptions(), priority: BACKFILL_TIME_ENTRY_PRIORITY };
 
     let queued = 0;
     for (const space of spaces) {
-      for (let sliceStart = start; sliceStart < end; sliceStart += sliceMs) {
-        const sliceEnd = Math.min(sliceStart + sliceMs, end);
+      for (const slice of slices) {
         await queue.add(
           JOBS.RECONCILE_TIME_ENTRIES_WINDOW,
-          { spaceId: space.id, startDate: sliceStart, endDate: sliceEnd },
+          { spaceId: space.id, ...slice },
           jobOpts,
         );
         queued += 1;
