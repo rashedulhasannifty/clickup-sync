@@ -646,7 +646,7 @@ export function TimeEntriesPage() {
             icon={<Search size={14} strokeWidth={1.75} />}
             value={searchRaw}
             onChange={(e) => { setSearchRaw(e.target.value); setPage(1); }}
-            placeholder="Search task, assignee…"
+            placeholder="Search task name, ID, assignee, client…"
             aria-label="Search time entries"
           />
         </div>

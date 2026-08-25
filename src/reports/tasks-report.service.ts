@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { parseDate } from './report-date.util';
-import { csvList, sprintStatusListIds } from './report-filter.util';
+import { csvList, sprintStatusListIds, taskSearchOr } from './report-filter.util';
 
 /** Task-centric report queries (counts, filters, per-space aggregates). */
 @Injectable()
@@ -215,25 +215,12 @@ export class TasksReportService {
     if (fromParam || toParam) {
       where.updatedDate = { gte: parseDate(fromParam, new Date(0)), lte: parseDate(toParam, new Date()) };
     }
-    // Free-text search across short, indexed-friendly fields. Avoid description / raw
-    // JSON — ILIKE on those gets expensive fast. Pushed onto the AND accumulator so
-    // search stacks with the other filters above (mirrors `timeEntriesList`).
+    // Free-text search across short, indexed-friendly fields (see `taskSearchOr`
+    // for the field list and why it is shared with the Time Entries page).
+    // Pushed onto the AND accumulator so search stacks with the other filters
+    // above (mirrors `timeEntriesList`).
     if (search?.trim()) {
-      const q = search.trim();
-      and.push({
-        OR: [
-          { taskName: { contains: q, mode: 'insensitive' } },
-          { taskId: { contains: q, mode: 'insensitive' } },
-          { assigneesNames: { contains: q, mode: 'insensitive' } },
-          { assigneesEmails: { contains: q, mode: 'insensitive' } },
-          { client: { contains: q, mode: 'insensitive' } },
-          { listName: { contains: q, mode: 'insensitive' } },
-          { spaceName: { contains: q, mode: 'insensitive' } },
-          { sprintName: { contains: q, mode: 'insensitive' } },
-          { department: { contains: q, mode: 'insensitive' } },
-          { executiveName: { contains: q, mode: 'insensitive' } },
-        ],
-      });
+      and.push({ OR: taskSearchOr(search.trim()) });
     }
     // Sprint (== clickup_lists row) status filter: 'active'/'completed' scopes
     // to tasks whose list isn't/is archived; 'all'/absent/unrecognized emits
