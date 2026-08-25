@@ -160,12 +160,13 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          WEBHOOK_AUTOHEAL_ENABLED: ${{ secrets.WEBHOOK_AUTOHEAL_ENABLED }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          envs: DOMAIN,DATABASE_URL,POSTGRES_PASSWORD,REDIS_URL,APP_ENCRYPTION_KEY,ADMIN_API_KEY,ALLOWED_ORIGINS,APP_BASE_URL,SMTP_HOST,SMTP_PORT,SMTP_USER,SMTP_PASS,MAIL_FROM
+          envs: DOMAIN,DATABASE_URL,POSTGRES_PASSWORD,REDIS_URL,APP_ENCRYPTION_KEY,ADMIN_API_KEY,ALLOWED_ORIGINS,APP_BASE_URL,SMTP_HOST,SMTP_PORT,SMTP_USER,SMTP_PASS,MAIL_FROM,WEBHOOK_AUTOHEAL_ENABLED
           script: |
             set -euo pipefail
             cd "${{ secrets.DEPLOY_PATH }}"
@@ -186,6 +187,13 @@ jobs:
             SMTP_PASS=${SMTP_PASS}
             MAIL_FROM=${MAIL_FROM}
             EOF
+            # Optional vars are appended only when set. WEBHOOK_AUTOHEAL_ENABLED is
+            # a strict z.enum(['true','false']) in env.validation.ts — writing it
+            # empty fails validation and crashes both web and worker on boot, so an
+            # unset secret must leave the key absent and let the schema default apply.
+            if [ -n "${WEBHOOK_AUTOHEAL_ENABLED:-}" ]; then
+              echo "WEBHOOK_AUTOHEAL_ENABLED=${WEBHOOK_AUTOHEAL_ENABLED}" >> .env.tmp
+            fi
             mv .env.tmp .env
 
       - name: Blue-green deploy
