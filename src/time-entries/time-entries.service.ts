@@ -30,6 +30,15 @@ import { PrismaService } from '../database/prisma.service';
 // (see the windowed-time-entry-reconcile design doc) confirms real volumes.
 const PRUNE_SAFETY_MAX_ENTRIES = 1000;
 
+/**
+ * Kill-switch for delete-reconciliation on the WINDOWED (space_id-scoped) path.
+ *
+ * Hard-disabled after it destroyed live production data on 2026-08-25 — see the
+ * block in `reconcileWindow` for the full incident and the evidence. Flipping
+ * this back on requires proving the space_id filter returns a complete set.
+ */
+const WINDOW_PRUNE_ENABLED = false;
+
 @Injectable()
 export class TimeEntriesService {
   private readonly logger = new Logger(TimeEntriesService.name);
@@ -114,10 +123,10 @@ export class TimeEntriesService {
 
   /**
    * Windowed reconcile: pulls a space's tracked time in [startDate,endDate] in
-   * one team-level call (all members), upserts via the shared pipeline, and
-   * prunes deletions at window granularity. Cheaper than one-job-per-task and
-   * catches deletions on tasks the 30-day space backfill never revisits. The
-   * fetch and prune share one resolved window so they can't drift.
+   * one team-level call (all members) and upserts via the shared pipeline.
+   * Cheaper than one-job-per-task.
+   *
+   * DELETE-RECONCILIATION IS DISABLED HERE — see WINDOW_PRUNE_ENABLED.
    */
   async reconcileWindow(spaceId: string, startDate: number, endDate: number): Promise<number> {
     const teamId = this.settings.getTeamId();
@@ -133,17 +142,42 @@ export class TimeEntriesService {
 
     const { count, upserted } = await this.persistEntries(entries);
 
-    // Delete-reconciliation for exactly this space × window × members. A
-    // suspiciously large slice is treated as possibly-truncated — upsert only,
-    // never prune off a partial read.
-    if (entries.length >= PRUNE_SAFETY_MAX_ENTRIES) {
-      this.logger.warn(
-        `Fetched ${entries.length} time entries for space ${spaceId} (>= ${PRUNE_SAFETY_MAX_ENTRIES}); skipping delete-reconciliation to avoid pruning live rows on a possibly-truncated response`,
-      );
-    } else {
-      const keepIds = upserted.map((u) => u.normalized.timeEntryId);
-      const pruned = await this.repo.pruneWindowOutsideSet({ spaceId, userIds: ids, startMs, endMs, keepIds });
-      if (pruned > 0) this.logger.log(`Pruned ${pruned} time entr${pruned === 1 ? 'y' : 'ies'} deleted in ClickUp for space ${spaceId}`);
+    // Delete-reconciliation is DISABLED on this path. It deleted live data in
+    // production on 2026-08-25: 429 entries removed across 94 slices, six AIT
+    // tasks left short (two lost EVERY entry), and re-syncing the same tasks by
+    // `task_id` restored all of them and matched ClickUp's own `time_spent`
+    // rollup exactly. The rows were never deleted in ClickUp — the fetch simply
+    // did not return them, and the prune treated that partial response as
+    // authoritative.
+    //
+    // Root cause: `GET /team/{team}/time_entries` filtered by `space_id` does
+    // NOT return every entry belonging to that space, so it cannot be used as a
+    // "what still exists" list. `docs/OPERATIONS.md` had already flagged the
+    // space_id filter as an unverified assumption; this is that assumption
+    // failing. The 1000-entry truncation guard did not help — the slices that
+    // destroyed data returned only a few hundred entries each, well under it.
+    //
+    // The per-task path (`syncTaskTimeEntries`) is unaffected and still prunes:
+    // it scopes its fetch by `task_id`, which does return the complete set.
+    // That remains the supported way to detect a deletion.
+    //
+    // Do NOT re-enable without first proving, against a live workspace, that a
+    // space_id-filtered fetch returns exactly the same id set as the union of
+    // per-task fetches for that space. See the windowed-time-entry-reconcile
+    // design doc.
+    if (WINDOW_PRUNE_ENABLED) {
+      if (entries.length >= PRUNE_SAFETY_MAX_ENTRIES) {
+        this.logger.warn(
+          `Fetched ${entries.length} time entries for space ${spaceId} (>= ${PRUNE_SAFETY_MAX_ENTRIES}); skipping delete-reconciliation to avoid pruning live rows on a possibly-truncated response`,
+        );
+      } else {
+        // NOTE: `upserted` excludes entries whose task could not be resolved
+        // (persistEntries skips those), so keepIds under-reports what ClickUp
+        // actually returned — a second way this prune deletes live rows.
+        const keepIds = upserted.map((u) => u.normalized.timeEntryId);
+        const pruned = await this.repo.pruneWindowOutsideSet({ spaceId, userIds: ids, startMs, endMs, keepIds });
+        if (pruned > 0) this.logger.log(`Pruned ${pruned} time entr${pruned === 1 ? 'y' : 'ies'} deleted in ClickUp for space ${spaceId}`);
+      }
     }
 
     await this.enqueueTagReplacements(upserted);

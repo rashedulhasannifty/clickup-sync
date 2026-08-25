@@ -20,7 +20,7 @@ function makeService(overrides: Partial<Record<string, any>> = {}) {
 }
 
 describe('reconcileWindow', () => {
-  it('upserts fetched entries and prunes the same window/space/members it fetched', async () => {
+  it('upserts fetched entries for the window/space/members it fetched', async () => {
     const { svc, clickup, repo, members } = makeService();
     const count = await svc.reconcileWindow('sp1', 1000, 2000);
 
@@ -30,9 +30,26 @@ describe('reconcileWindow', () => {
       spaceId: 'sp1', assigneeIds: ['u1', 'u2'], startDate: 1000, endDate: 2000,
     });
     expect(repo.upsert).toHaveBeenCalledTimes(1);
-    expect(repo.pruneWindowOutsideSet).toHaveBeenCalledWith({
-      spaceId: 'sp1', userIds: ['u1', 'u2'], startMs: 1000, endMs: 2000, keepIds: ['te1'],
-    });
+  });
+
+  // Regression guard for the 2026-08-25 data-loss incident. `reconcileWindow`
+  // deleted 429 live entries in production because it treated a space_id-scoped
+  // ClickUp response as an authoritative "what still exists" list. It is not:
+  // re-syncing the same tasks by task_id restored every row and matched
+  // ClickUp's own time_spent rollup. Deletion on this path is now hard-off.
+  it('NEVER prunes, because a space_id-scoped fetch is not a complete set', async () => {
+    const { svc, repo } = makeService();
+    await svc.reconcileWindow('sp1', 1000, 2000);
+    expect(repo.pruneWindowOutsideSet).not.toHaveBeenCalled();
+  });
+
+  it('does not prune even on a small response — size was never the safeguard', async () => {
+    // The destructive slices returned only a few hundred entries each, far
+    // under PRUNE_SAFETY_MAX_ENTRIES, so the truncation guard never fired.
+    const { svc, clickup, repo } = makeService();
+    clickup.getTimeEntriesWindow.mockResolvedValue([{ id: 'te1', task: { id: 'tk1' } }]);
+    await svc.reconcileWindow('sp1', 1000, 2000);
+    expect(repo.pruneWindowOutsideSet).not.toHaveBeenCalled();
   });
 
   it('skips the prune when the slice looks truncated (>= PRUNE_SAFETY_MAX_ENTRIES)', async () => {
