@@ -23,6 +23,14 @@ async function bootstrap() {
     const app = await NestFactory.create(AppModule, { bufferLogs: true });
     app.enableShutdownHooks();
     await app.init();
+    // `bufferLogs: true` holds every log line until something flushes it. The
+    // web path gets that for free from `app.listen()`; the worker never calls
+    // listen, so without this the container emitted NOTHING for its entire life
+    // — no cron output, no job failures, no dead-letter warnings. That is why
+    // the 2026-08-21 webhook outage went unnoticed for four days: auto-heal was
+    // logging `Auto-heal exhausted ... Manual intervention required` into a
+    // buffer nobody could read.
+    app.flushLogs();
     return;
   }
   const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });

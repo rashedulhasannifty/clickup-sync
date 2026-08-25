@@ -6,6 +6,10 @@ import { SettingsRepository } from './settings.repository';
 const DEFAULT_TEAM_ID = '3450636';
 const DEFAULT_SPIKE_HOURS_CAP = 12;
 const DEFAULT_MAX_BACKFILL_LOOKBACK = 1095; // 3 years
+const DEFAULT_RECONCILE_LOOKBACK = 365; // 1 year
+// Backstop for the scheduled deep reconcile. Each extra 30 days is one more
+// job per space per run, so an absurd stored value must not fan out unbounded.
+const MAX_RECONCILE_LOOKBACK = 1095;
 const MAX_BACKFILL_LOOKBACK_BACKSTOP = 3650; // 10 years — absolute upper bound
 const DEFAULT_EVENTS = 'taskCreated,taskUpdated,taskDeleted,taskTimeTrackedUpdated,taskStatusUpdated';
 
@@ -199,6 +203,22 @@ export class SettingsService implements OnModuleInit {
   getBackfillMaxLookbackDays(): number {
     const v = this.cache.preferences.sync.maxBackfillLookbackDays ?? DEFAULT_MAX_BACKFILL_LOOKBACK;
     return Math.min(MAX_BACKFILL_LOOKBACK_BACKSTOP, Math.max(1, Math.round(v)));
+  }
+
+  /** How far back the scheduled deep time-entry reconcile sweeps, in days.
+   *
+   *  This preference existed (and was surfaced in Settings) but was read by
+   *  nothing — the schedulers hardcoded a 7-day time-entry window, so any entry
+   *  edited or deleted in ClickUp more than 7 days after it was logged was never
+   *  re-fetched and never pruned. `SyncScheduler.deepReconcileTimeEntries` now
+   *  reads this, making the setting real.
+   *
+   *  Clamped to [1, 1095]: a missing or out-of-range stored value falls back to
+   *  the 1-year default rather than fanning out unbounded slices. */
+  getReconcileLookbackDays(): number {
+    const v = this.cache.preferences.sync?.reconcileLookbackDays ?? DEFAULT_RECONCILE_LOOKBACK;
+    if (!Number.isFinite(v)) return DEFAULT_RECONCILE_LOOKBACK;
+    return Math.min(MAX_RECONCILE_LOOKBACK, Math.max(1, Math.round(v)));
   }
 
   /** Whether a space backfill runs a second pass to pull archived tasks (and

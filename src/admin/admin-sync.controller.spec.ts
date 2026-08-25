@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { AdminSyncController } from './admin-sync.controller';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
+import { RECONCILE_WINDOW_SLICE_DAYS } from '../sync/reconcile-window.util';
 
 function makeController(overrides: Partial<Record<string, any>> = {}) {
   const queues = overrides.queues ?? { get: () => ({ add: jest.fn() }), defaultJobOptions: () => ({}) };
@@ -12,13 +13,16 @@ function makeController(overrides: Partial<Record<string, any>> = {}) {
 }
 
 describe('POST reconcile-window', () => {
-  it('enqueues one job per configured space per 30-day slice for a 90-day lookback', async () => {
+  it('enqueues one job per configured space per date-slice for a 90-day lookback', async () => {
     const add = jest.fn().mockResolvedValue(undefined);
     const controller = makeController({ queues: { get: () => ({ add }), defaultJobOptions: () => ({}) } });
 
     const res = await controller.reconcileTimeEntriesWindow({ lookbackDays: 90 });
 
-    const slices = Math.ceil(90 / 30); // 3
+    // Derive from the shared constant rather than hardcoding: the slice width
+    // is sized against PRUNE_SAFETY_MAX_ENTRIES and may shrink again as entry
+    // volume grows.
+    const slices = Math.ceil(90 / RECONCILE_WINDOW_SLICE_DAYS);
     expect(res.queued).toBe(CLICKUP_SPACES.length * slices);
     expect(add).toHaveBeenCalledTimes(CLICKUP_SPACES.length * slices);
     // each add is the windowed reconcile job, deprioritized
@@ -41,7 +45,7 @@ describe('POST reconcile-window', () => {
 
     const res = await controller.reconcileTimeEntriesWindow({ lookbackDays: 100000 });
 
-    const slices = Math.ceil(400 / 30); // 14, clamped from the requested 100000 days
+    const slices = Math.ceil(400 / RECONCILE_WINDOW_SLICE_DAYS); // clamped from the requested 100000 days
     expect(res.queued).toBe(CLICKUP_SPACES.length * slices);
     expect(add).toHaveBeenCalledTimes(CLICKUP_SPACES.length * slices);
   });
