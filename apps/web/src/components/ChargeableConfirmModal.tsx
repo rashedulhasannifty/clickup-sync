@@ -32,18 +32,32 @@ export function ChargeableConfirmModal({
   const label = chargeable ? 'chargeable' : 'non-chargeable';
   const p = preview.data;
 
+  // The title is the first thing read, so it must never claim a count we
+  // don't actually know yet: while the preview is loading or failed, it
+  // stays count-free; once it resolves, it leads with `changing` (how many
+  // would ACTUALLY flip), never `taskIds.length` (how many are selected) —
+  // those two numbers can differ whenever some selected tasks already match.
+  const title = p
+    ? `Mark ${fmt.number(p.changing)} task${p.changing === 1 ? '' : 's'} ${label}?`
+    : `Mark selected tasks ${label}?`;
+
+  // Three states must all keep the confirm button disabled, each for its own
+  // reason: still loading (don't know the count yet), errored (couldn't get
+  // the count at all), or loaded with changing === 0 (there is nothing to do).
+  const confirmDisabled = apply.isPending || preview.isLoading || preview.isError || !p || p.changing === 0;
+
   return (
     <Modal
       open
       onClose={() => onClose(false)}
-      title={`Mark ${taskIds.length} task${taskIds.length === 1 ? '' : 's'} ${label}?`}
+      title={title}
       footer={
         <>
           <Button variant="ghost" onClick={() => onClose(false)}>Cancel</Button>
           <Button
             variant="default"
             loading={apply.isPending}
-            disabled={apply.isPending || preview.isLoading || p?.changing === 0}
+            disabled={confirmDisabled}
             onClick={() => apply.mutate()}
           >
             {`Mark ${label}`}
@@ -52,6 +66,11 @@ export function ChargeableConfirmModal({
       }
     >
       {preview.isLoading && <p style={{ color: 'var(--text-muted)' }}>Checking what this affects…</p>}
+      {preview.isError && (
+        <p style={{ color: 'var(--red, var(--text))', fontSize: 12 }}>
+          Could not load the preview. Try again.
+        </p>
+      )}
       {p && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 13 }}>
           <p>
