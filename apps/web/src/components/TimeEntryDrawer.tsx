@@ -80,6 +80,10 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
               <Pill tone="green" size="xs" icon={<CircleCheck size={11} strokeWidth={2} />}>Cost calculated</Pill>
             ) : entry.status === 'COST_EXCLUDED' ? (
               <Pill tone="gray" size="xs">Excluded</Pill>
+            ) : entry.status === 'NOT_CHARGEABLE' ? (
+              // Gray, not amber: the rate WAS resolved, the cost is zero
+              // because the task is non-chargeable. Nothing to fix.
+              <Pill tone="gray" size="xs">Not chargeable</Pill>
             ) : (
               <Pill tone="amber" size="xs" icon={<AlertTriangle size={11} strokeWidth={2} />}>No rate found</Pill>
             )}
@@ -148,6 +152,21 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
               <div style={{ fontSize: 12, color: 'var(--text)' }}>
                 {firstName} is excluded from costing, so this entry&apos;s cost is $0. Hours still count toward totals.
                 Manage exclusions on the Assignee Rates page.
+              </div>
+            </div>
+          ) : entry.status === 'NOT_CHARGEABLE' ? (
+            // Deliberately NOT the amber no-rate box, and deliberately no "Add
+            // rate" CTA: the rate was resolved and stored, the cost is zero
+            // because the task is non-chargeable. There is no problem to fix.
+            <div style={{ padding: 12, background: 'var(--muted-bg)', borderRadius: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Not chargeable</div>
+              <div style={{ fontSize: 12, color: 'var(--text)' }}>
+                This task is marked non-chargeable, so this entry&apos;s cost is $0. Hours still count toward totals.
+                {/* The rate is stored, but only when one covered the entry date —
+                    don't present a zero as "the resolved rate". */}
+                {entry.hourlyRateCents > 0 && (
+                  <> The resolved rate was {fmt.money(entry.hourlyRateCents, currency)}/h.</>
+                )}
               </div>
             </div>
           ) : (

@@ -47,6 +47,7 @@ const STATUS_OPTIONS = [
   { value: 'COST_CALCULATED', label: 'Cost calculated' },
   { value: 'NO_RATE_FOUND', label: 'No rate found' },
   { value: 'COST_EXCLUDED', label: 'Excluded' },
+  { value: 'NOT_CHARGEABLE', label: 'Not chargeable' },
 ];
 
 // The page's two shapes. Grouped is the default: a task's total is what people
@@ -724,7 +725,11 @@ export function TimeEntriesPage() {
           ? <Pill tone="green" size="xs" icon={<CircleCheck size={10} strokeWidth={2} />}>cost calculated</Pill>
           : row.status === 'COST_EXCLUDED'
             ? <Pill tone="gray" size="xs">excluded</Pill>
-            : <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} strokeWidth={2} />}>no rate found</Pill>,
+            // Gray, not amber: the rate WAS resolved, the cost is zero because
+            // the task is non-chargeable. Nothing here needs fixing.
+            : row.status === 'NOT_CHARGEABLE'
+              ? <Pill tone="gray" size="xs">not chargeable</Pill>
+              : <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} strokeWidth={2} />}>no rate found</Pill>,
     },
     {
       key: 'syncedAt',
