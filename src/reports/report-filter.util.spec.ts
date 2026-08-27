@@ -1,4 +1,4 @@
-import { csvList, taskSearchOr, timeEntryTaskSearchOr } from './report-filter.util';
+import { buildTimeEntryWhere, csvList, NO_TASK_ID, taskSearchOr, timeEntryTaskSearchOr } from './report-filter.util';
 
 /** The task column each clause targets, e.g. `{ taskName: {...} }` -> 'taskName'. */
 const fieldsOf = (clauses: Record<string, unknown>[]) => clauses.map((c) => Object.keys(c)[0]).sort();
@@ -72,5 +72,55 @@ describe('csvList', () => {
 
   it('parses a pre-existing single-value deep-link as a one-element list', () => {
     expect(csvList('Acme')).toEqual(['Acme']);
+  });
+});
+
+describe('buildTimeEntryWhere', () => {
+  const from = new Date('2026-01-01T00:00:00.000Z');
+  const to = new Date('2026-02-01T00:00:00.000Z');
+  /** `sprintStatusListIds` is the only part of the builder that touches the DB. */
+  const prisma = { $queryRaw: jest.fn().mockResolvedValue([]) } as never;
+  const clausesOf = (where: Record<string, unknown>) =>
+    (where.AND ?? []) as Record<string, unknown>[];
+
+  it('matches taskId exactly rather than by substring', async () => {
+    const where = await buildTimeEntryWhere(prisma, { from, to, taskId: '86abc' });
+    expect(where.taskId).toBe('86abc');
+  });
+
+  it('resolves the no-task sentinel to entries with a null taskId', async () => {
+    const where = await buildTimeEntryWhere(prisma, { from, to, taskId: NO_TASK_ID });
+    expect(where.taskId).toBeNull();
+  });
+
+  it('leaves taskId unconstrained when the caller passes none', async () => {
+    const where = await buildTimeEntryWhere(prisma, { from, to });
+    expect(where.taskId).toBeUndefined();
+  });
+
+  it('windows on start_time inclusively at both ends', async () => {
+    const where = await buildTimeEntryWhere(prisma, { from, to });
+    expect(where.startTime).toEqual({ gte: from, lte: to });
+  });
+
+  it('splits comma-separated multi-select params into IN clauses', async () => {
+    const where = await buildTimeEntryWhere(prisma, { from, to, client: 'Acme, Beta', userId: 'u1,u2' });
+    expect(where.userId).toEqual({ in: ['u1', 'u2'] });
+    expect(clausesOf(where)).toContainEqual({ task: { client: { in: ['Acme', 'Beta'] } } });
+  });
+
+  it('lets missingOnly override an explicit status selection', async () => {
+    const where = await buildTimeEntryWhere(prisma, { from, to, status: 'COST_CALCULATED', missingOnly: 'true' });
+    expect(where.status).toBe('NO_RATE_FOUND');
+  });
+
+  it("keeps task-less entries when archived='exclude'", async () => {
+    const where = await buildTimeEntryWhere(prisma, { from, to, archived: 'exclude' });
+    expect(clausesOf(where)).toContainEqual({ NOT: { task: { archived: true } } });
+  });
+
+  it('still constrains to an empty list when sprintStatus matches no sprints', async () => {
+    const where = await buildTimeEntryWhere(prisma, { from, to, sprintStatus: 'completed' });
+    expect(clausesOf(where)).toContainEqual({ task: { listId: { in: [] } } });
   });
 });

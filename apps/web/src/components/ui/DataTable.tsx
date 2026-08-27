@@ -60,6 +60,22 @@ interface DataTableProps<T> {
    */
   hiddenColumns?: string[];
   onHiddenColumnsChange?: (hiddenKeys: string[]) => void;
+  /**
+   * Optional expandable rows (design layout only — the default layout ignores
+   * these). Supply `expandedKeys` + `onToggleExpand` + `renderExpanded`
+   * together; the panel renders in its own full-width row directly beneath its
+   * parent, and a chevron appears in the first cell.
+   *
+   * Expansion is controlled by the parent because what a row expands into is
+   * usually fetched on demand — the table only reports the toggle.
+   *
+   * When expansion is on, clicking a row toggles it and `onRowClick` is not
+   * called: a row that both expands and navigates has no unambiguous click.
+   * Put row-level actions inside the panel instead.
+   */
+  expandedKeys?: (string | number)[];
+  onToggleExpand?: (key: string | number, row: T) => void;
+  renderExpanded?: (row: T) => React.ReactNode;
 }
 
 export function DataTable<T extends { [key: string]: unknown }>({
@@ -84,6 +100,9 @@ export function DataTable<T extends { [key: string]: unknown }>({
   initialSort,
   hiddenColumns,
   onHiddenColumnsChange,
+  expandedKeys,
+  onToggleExpand,
+  renderExpanded,
 }: DataTableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>(initialSort?.key ?? null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialSort?.dir ?? 'asc');
@@ -104,6 +123,9 @@ export function DataTable<T extends { [key: string]: unknown }>({
   const colMenuRef = useRef<HTMLDivElement>(null);
 
   const visibleCols = initialColumns.filter(c => !hiddenKeys.has(c.key));
+
+  const expandable = renderExpanded != null && onToggleExpand != null;
+  const expandedSet = useMemo(() => new Set(expandedKeys ?? []), [expandedKeys]);
 
   // If the caller passes `total` and the visible `data` is only a slice of it,
   // we're on a server-paginated list — client-side sort would only reorder
@@ -291,15 +313,25 @@ export function DataTable<T extends { [key: string]: unknown }>({
                   </tr>
                 ))
               ) : (
-                sorted.map((row, idx) => (
+                sorted.map((row, idx) => {
+                  const id = rowId(row, idx);
+                  const isExpanded = expandable && expandedSet.has(id);
+                  // Expansion wins over onRowClick — see the prop docs.
+                  const activate = expandable
+                    ? () => onToggleExpand(id, row)
+                    : onRowClick
+                      ? () => onRowClick(row)
+                      : undefined;
+                  return (
+                  <React.Fragment key={String(id)}>
                   <tr
-                    key={String(rowId(row, idx))}
-                    className={onRowClick ? 'row-3d' : undefined}
-                    onClick={() => onRowClick?.(row)}
-                    tabIndex={onRowClick ? 0 : undefined}
-                    onKeyDown={onRowClick ? onActivate(() => onRowClick(row)) : undefined}
+                    className={activate ? 'row-3d' : undefined}
+                    onClick={activate}
+                    tabIndex={activate ? 0 : undefined}
+                    onKeyDown={activate ? onActivate(activate) : undefined}
+                    aria-expanded={expandable ? isExpanded : undefined}
                     style={{
-                      cursor: onRowClick ? 'pointer' : 'default',
+                      cursor: activate ? 'pointer' : 'default',
                       height: rowH,
                       background: idx % 2 === 0 ? 'transparent' : 'var(--table-zebra)',
                     }}
@@ -339,12 +371,45 @@ export function DataTable<T extends { [key: string]: unknown }>({
                             zIndex: sticky ? 1 : 0,
                           }}
                         >
-                          {col.render(row)}
+                          {i === 0 && expandable ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
+                              <ChevronDown
+                                size={13}
+                                strokeWidth={2}
+                                aria-hidden
+                                style={{
+                                  flexShrink: 0,
+                                  color: 'var(--text-muted)',
+                                  transform: isExpanded ? 'none' : 'rotate(-90deg)',
+                                  transition: 'transform 120ms ease',
+                                }}
+                              />
+                              {col.render(row)}
+                            </span>
+                          ) : (
+                            col.render(row)
+                          )}
                         </td>
                       );
                     })}
                   </tr>
-                ))
+                  {isExpanded && (
+                    <tr>
+                      <td
+                        colSpan={visibleCols.length}
+                        style={{
+                          padding: 0,
+                          background: 'var(--surface-alt)',
+                          borderBottom: '1px solid var(--border-soft)',
+                        }}
+                      >
+                        {renderExpanded(row)}
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
+                  );
+                })
               )}
             </tbody>
           </table>

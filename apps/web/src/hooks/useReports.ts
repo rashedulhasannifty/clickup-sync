@@ -146,11 +146,54 @@ export function useTimeEntriesByDepartment() {
   });
 }
 
-export function useTimeEntriesList(params: Record<string, string | number | undefined>) {
+export function useTimeEntriesList(
+  params: Record<string, string | number | undefined>,
+  enabled = true,
+) {
   return useQuery({
     queryKey: ['time-entries-list', params],
     queryFn: () => reportsApi.timeEntriesList(params),
     placeholderData: keepPreviousData,
+    enabled,
+  });
+}
+
+export interface TimeEntryTaskGroup {
+  // Index signature so this satisfies DataTable's row constraint, exactly as
+  // `TimeEntryItem` does.
+  [key: string]: unknown;
+  taskId: string;
+  taskName: string | null;
+  client: string | null;
+  listName: string | null;
+  entryCount: number;
+  assigneeCount: number;
+  assignees: { userId: string; userName: string | null }[];
+  totalHours: number;
+  billableHours: number;
+  nonBillableHours: number;
+  costAud: number;
+  missingRateCount: number;
+  excludedCount: number;
+  lastActivity: string | null;
+  currency: string;
+}
+
+/**
+ * The same filtered entry set as `useTimeEntriesList`, rolled up to one row per
+ * task. Grouping is server-side because the list is server-paginated — folding
+ * the 50 rows on screen would total only the entries that landed on this page.
+ * `total` here counts tasks, so it drives the pager directly.
+ */
+export function useTimeEntriesByTask(
+  params: Record<string, string | number | undefined>,
+  enabled = true,
+) {
+  return useQuery<{ items: TimeEntryTaskGroup[]; total: number }>({
+    queryKey: ['time-entries-by-task', params],
+    queryFn: () => reportsApi.timeEntriesByTask(params),
+    placeholderData: keepPreviousData,
+    enabled,
   });
 }
 

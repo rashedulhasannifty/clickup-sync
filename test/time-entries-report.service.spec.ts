@@ -552,3 +552,145 @@ describe('TimeEntriesReportService', () => {
     });
   });
 });
+
+describe('TimeEntriesReportService.timeEntriesByTask', () => {
+  /** One `groupBy` row: the (task, assignee, billable, status) grain the fold reduces. */
+  function group(over: Partial<Record<string, any>> = {}) {
+    return {
+      taskId: 't1', userId: 'u1', userName: 'Alice', billable: true,
+      status: 'COST_CALCULATED', currency: 'USD',
+      _count: 1,
+      _sum: { durationHours: { toNumber: () => 1 }, costCents: BigInt(0) },
+      _max: { startTime: new Date('2026-01-10T09:00:00.000Z') },
+      ...over,
+    };
+  }
+
+  function makePrisma(groups: any[] = [], tasks: any[] = []) {
+    return {
+      clickupTimeEntry: { groupBy: jest.fn().mockResolvedValue(groups) },
+      clickupTask: { findMany: jest.fn().mockResolvedValue(tasks) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
+    } as any;
+  }
+
+  const svc = (prisma: any) => new TimeEntriesReportService(prisma);
+
+  it('collapses a task\'s entries into a single row carrying their summed hours', async () => {
+    const prisma = makePrisma([
+      group({ _count: 2, _sum: { durationHours: { toNumber: () => 2.5 }, costCents: BigInt(5000) } }),
+      group({ userId: 'u2', userName: 'Bob', _count: 1, _sum: { durationHours: { toNumber: () => 1.25 }, costCents: BigInt(2500) } }),
+    ]);
+    const { items } = await svc(prisma).timeEntriesByTask({});
+    expect(items).toHaveLength(1);
+    expect(items[0].totalHours).toBe(3.75);
+    expect(items[0].entryCount).toBe(3);
+    expect(items[0].costAud).toBe(75);
+  });
+
+  it('reports total as the number of tasks, not the number of entries', async () => {
+    const prisma = makePrisma([
+      group({ taskId: 't1', _count: 4 }),
+      group({ taskId: 't2', _count: 6 }),
+    ]);
+    const { total } = await svc(prisma).timeEntriesByTask({});
+    expect(total).toBe(2);
+  });
+
+  it('gathers entries with no task under one bucket instead of dropping them', async () => {
+    const prisma = makePrisma([
+      group({ taskId: null, _count: 2, _sum: { durationHours: { toNumber: () => 4 }, costCents: BigInt(0) } }),
+    ]);
+    const { items, total } = await svc(prisma).timeEntriesByTask({});
+    expect(total).toBe(1);
+    expect(items[0].taskId).toBe('__none__');
+    expect(items[0].taskName).toBeNull();
+    expect(items[0].totalHours).toBe(4);
+  });
+
+  it('never counts a missing-rate entry\'s cost as valid, and flags how many', async () => {
+    const prisma = makePrisma([
+      group({ status: 'COST_CALCULATED', _count: 1, _sum: { durationHours: { toNumber: () => 1 }, costCents: BigInt(9000) } }),
+      group({ status: 'NO_RATE_FOUND', _count: 3, _sum: { durationHours: { toNumber: () => 5 }, costCents: BigInt(123456) } }),
+    ]);
+    const { items } = await svc(prisma).timeEntriesByTask({});
+    expect(items[0].costAud).toBe(90);
+    expect(items[0].missingRateCount).toBe(3);
+    expect(items[0].totalHours).toBe(6);
+  });
+
+  it('splits billable from non-billable hours within the task', async () => {
+    const prisma = makePrisma([
+      group({ billable: true, _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(0) } }),
+      group({ billable: false, _sum: { durationHours: { toNumber: () => 2 }, costCents: BigInt(0) } }),
+    ]);
+    const { items } = await svc(prisma).timeEntriesByTask({});
+    expect(items[0].billableHours).toBe(6);
+    expect(items[0].nonBillableHours).toBe(2);
+  });
+
+  it('lists each assignee once however many entries they logged', async () => {
+    const prisma = makePrisma([
+      group({ userId: 'u1', userName: 'Alice', billable: true }),
+      group({ userId: 'u1', userName: 'Alice', billable: false }),
+      group({ userId: 'u2', userName: 'Bob' }),
+    ]);
+    const { items } = await svc(prisma).timeEntriesByTask({});
+    expect(items[0].assignees).toEqual([
+      { userId: 'u1', userName: 'Alice' },
+      { userId: 'u2', userName: 'Bob' },
+    ]);
+  });
+
+  it('keeps the task\'s most recent entry time as its last activity', async () => {
+    const prisma = makePrisma([
+      group({ _max: { startTime: new Date('2026-01-10T09:00:00.000Z') } }),
+      group({ userId: 'u2', _max: { startTime: new Date('2026-02-02T09:00:00.000Z') } }),
+    ]);
+    const { items } = await svc(prisma).timeEntriesByTask({});
+    expect(items[0].lastActivity).toEqual(new Date('2026-02-02T09:00:00.000Z'));
+  });
+
+  it('orders the heaviest tasks first and paginates over tasks', async () => {
+    const prisma = makePrisma([
+      group({ taskId: 'small', _sum: { durationHours: { toNumber: () => 1 }, costCents: BigInt(0) } }),
+      group({ taskId: 'big', _sum: { durationHours: { toNumber: () => 9 }, costCents: BigInt(0) } }),
+      group({ taskId: 'mid', _sum: { durationHours: { toNumber: () => 5 }, costCents: BigInt(0) } }),
+    ]);
+    const { items, total } = await svc(prisma).timeEntriesByTask({ limit: 1, offset: 1 });
+    expect(total).toBe(3);
+    expect(items.map((i: any) => i.taskId)).toEqual(['mid']);
+  });
+
+  it('resolves task name, client and list for the tasks on this page only', async () => {
+    const prisma = makePrisma(
+      [
+        group({ taskId: 'big', _sum: { durationHours: { toNumber: () => 9 }, costCents: BigInt(0) } }),
+        group({ taskId: 'small', _sum: { durationHours: { toNumber: () => 1 }, costCents: BigInt(0) } }),
+      ],
+      [{ taskId: 'big', taskName: 'Fix webhook dedupe', client: 'Acme', listName: 'Sprint 12' }],
+    );
+    const { items } = await svc(prisma).timeEntriesByTask({ limit: 1 });
+    expect(prisma.clickupTask.findMany.mock.calls[0][0].where).toEqual({ taskId: { in: ['big'] } });
+    expect(items[0]).toMatchObject({ taskName: 'Fix webhook dedupe', client: 'Acme', listName: 'Sprint 12' });
+  });
+
+  it('groups over exactly the entry set the flat list would return for the same filters', async () => {
+    const prisma = makePrisma();
+    const listPrisma = {
+      clickupTimeEntry: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
+    } as any;
+    const filters = {
+      from: '2026-01-01T00:00:00.000Z', to: '2026-02-01T00:00:00.000Z',
+      userId: 'u1,u2', client: 'Acme', billable: 'true', archived: 'exclude', search: 'webhook',
+    };
+    await svc(prisma).timeEntriesByTask(filters);
+    await svc(listPrisma).timeEntriesList(
+      filters.userId, filters.from, filters.to, undefined, 50, 0, filters.billable,
+      filters.search, undefined, undefined, filters.client, undefined, undefined, filters.archived,
+    );
+    expect(prisma.clickupTimeEntry.groupBy.mock.calls[0][0].where)
+      .toEqual(listPrisma.clickupTimeEntry.findMany.mock.calls[0][0].where);
+  });
+});
