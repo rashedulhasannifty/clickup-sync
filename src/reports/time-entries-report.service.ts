@@ -365,7 +365,8 @@ export class TimeEntriesReportService {
    * currency) grain folded in application code, rather than raw SQL, so it reuses
    * the byte-identical `where` object `timeEntriesList` uses. That is what
    * guarantees an expanded row sums to the collapsed total above it. The grain is
-   * bounded by tasks x assignees x 2 x 3, so the fold stays cheap.
+   * bounded by tasks x assignees x 3 (the handful of status values), so the
+   * fold stays cheap.
    *
    * `total` counts TASKS, not entries — it drives the pager.
    *
