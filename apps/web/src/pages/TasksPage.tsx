@@ -570,6 +570,7 @@ export function TasksPage() {
         { header: 'Space',         value: (r) => r.spaceName ?? r.space_name, key: 'space_name' },
         { header: 'List',          value: (r) => r.listName ?? r.list_name, key: 'list_name' },
         { header: 'Status',        value: 'status', key: 'status' },
+        { header: 'Chargeable',    value: (r) => (r.isChargeable === false ? 'No' : 'Yes'), key: 'chargeable' },
         { header: 'Status type',   value: (r) => r.statusType ?? r.status_type },
         { header: 'Priority',      value: 'priority' },
         { header: 'Assignees',     value: 'assigneesNames', key: 'assignees', width: 30 },
@@ -633,6 +634,16 @@ export function TasksPage() {
       header: 'Status',
       width: 120,
       render: (r) => <StatusBadge status={String(r.status ?? '')} color={r.statusColor as string | undefined} />,
+    },
+    {
+      key: 'chargeable',
+      header: 'Charge',
+      width: 120,
+      render: (row) => (
+        row.isChargeable === false
+          ? <Pill tone="gray" size="xs">non-chargeable</Pill>
+          : <Pill tone="green" size="xs">chargeable</Pill>
+      ),
     },
     {
       key: 'space_name',

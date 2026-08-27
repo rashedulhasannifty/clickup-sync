@@ -23,7 +23,7 @@ export interface TimeEntryItem {
   hourlyRateCents: number;
   costAud: number;
   status: string;
-  billable: boolean;
+  chargeable: boolean;
   description: string | null;
   syncedAt: string | null;
   rateId?: string | null;
@@ -83,9 +83,9 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
             ) : (
               <Pill tone="amber" size="xs" icon={<AlertTriangle size={11} strokeWidth={2} />}>No rate found</Pill>
             )}
-            {entry.billable
-              ? <Pill tone="blue">Billable</Pill>
-              : <Pill tone="gray">Non-billable</Pill>}
+            {entry.chargeable
+              ? <Pill tone="blue">Chargeable</Pill>
+              : <Pill tone="gray">Non-chargeable</Pill>}
           </div>
         </div>
         <button
@@ -122,7 +122,7 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
             ['Start', fmt.dateTime(entry.startTime)],
             ['End', entry.endTime ? fmt.dateTime(entry.endTime) : '—'],
             ['Duration', fmt.duration(entry.durationHours)],
-            ['Billable', entry.billable ? 'Yes' : 'No'],
+            ['Chargeable', entry.chargeable ? 'Yes' : 'No'],
           ]}
           />
         </div>

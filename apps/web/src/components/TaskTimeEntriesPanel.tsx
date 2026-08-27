@@ -70,7 +70,7 @@ export function TaskTimeEntriesPanel({ taskId, params, onSelectEntry }: Props) {
             <th style={{ ...head, textAlign: 'left' }}>Assignee</th>
             <th style={{ ...head, textAlign: 'left' }}>Start</th>
             <th style={{ ...head, textAlign: 'right' }}>Duration</th>
-            <th style={{ ...head, textAlign: 'left' }}>Bill</th>
+            <th style={{ ...head, textAlign: 'left' }}>Charge</th>
             <th style={{ ...head, textAlign: 'right' }}>Rate</th>
             <th style={{ ...head, textAlign: 'right' }}>Cost</th>
             <th style={{ ...head, textAlign: 'left' }}>Status</th>
@@ -101,7 +101,7 @@ export function TaskTimeEntriesPanel({ taskId, params, onSelectEntry }: Props) {
                   {fmt.duration(e.durationHours)}
                 </td>
                 <td style={cell}>
-                  {e.billable ? <Pill tone="green" size="xs">billable</Pill> : <Pill tone="gray" size="xs">non</Pill>}
+                  {e.chargeable ? <Pill tone="green" size="xs">chargeable</Pill> : <Pill tone="gray" size="xs">non-chargeable</Pill>}
                 </td>
                 <td style={{ ...cell, textAlign: 'right', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
                   {e.hourlyRateCents > 0 ? `${fmt.money(e.hourlyRateCents, cur)}/h` : '—'}

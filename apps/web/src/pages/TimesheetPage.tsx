@@ -143,7 +143,7 @@ export function TimesheetPage() {
 
   // Open the underlying time entries for a Dhaka day (optionally one task) by
   // deep-linking into the Time Entries page — it already renders entry-level
-  // detail (start, duration, description, billable) and a drawer.
+  // detail (start, duration, description, chargeable) and a drawer.
   const openEntries = useCallback((date: string, taskLabel?: string | null) => {
     const start = new Date(`${date}T00:00:00${DHAKA_OFFSET}`);
     const end = new Date(start.getTime() + 86_400_000 - 1);
