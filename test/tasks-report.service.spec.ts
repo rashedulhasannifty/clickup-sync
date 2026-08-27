@@ -479,15 +479,43 @@ describe('TasksReportService', () => {
   });
 
   describe('chargeablePreview', () => {
+    /** Two distinct `count` results, told apart by the `where` each call got —
+     *  not by call order, so swapping the two queries fails this. */
+    function makePreviewPrisma(existing: number, changing: number) {
+      const count = jest.fn().mockImplementation(({ where }: { where: Record<string, unknown> }) =>
+        Promise.resolve('isChargeable' in where ? changing : existing));
+      return {
+        prisma: {
+          clickupTask: { count },
+          clickupTimeEntry: { aggregate: jest.fn().mockResolvedValue({ _count: 84, _sum: { durationHours: { toNumber: () => 156.5 } } }) },
+        } as never,
+        count,
+      };
+    }
+
     it('reports how many of the given tasks would actually change', async () => {
-      const prisma = {
-        clickupTask: { count: jest.fn().mockResolvedValue(9) },
-        clickupTimeEntry: { aggregate: jest.fn().mockResolvedValue({ _count: 84, _sum: { durationHours: { toNumber: () => 156.5 } } }) },
-      } as never;
+      const { prisma } = makePreviewPrisma(3, 2);
 
       const res = await new TasksReportService(prisma).chargeablePreview(['t1', 't2', 't3'], false);
 
-      expect(res).toEqual({ tasks: 3, changing: 9, timeEntries: 84, hours: 156.5 });
+      expect(res).toEqual({ tasks: 3, changing: 2, timeEntries: 84, hours: 156.5 });
+    });
+
+    // Regression: `tasks` used to be `taskIds.length`, so ids that don't exist
+    // in the database inflated the "of N tasks" denominator in the confirmation
+    // dialog — and `changing` could exceed it, since `changing` only ever counts
+    // rows that exist.
+    it('counts only the tasks that actually exist, not every id given', async () => {
+      const { prisma, count } = makePreviewPrisma(2, 1);
+
+      const res = await new TasksReportService(prisma).chargeablePreview(['t1', 't2', 'ghost'], false);
+
+      expect(res.tasks).toBe(2);
+      expect(res.changing).toBe(1);
+      // `tasks` must be a superset of what `changing` counts, so neither query
+      // may carry a filter the other lacks beyond the flag itself.
+      expect(count).toHaveBeenCalledWith({ where: { taskId: { in: ['t1', 't2', 'ghost'] } } });
+      expect(count).toHaveBeenCalledWith({ where: { taskId: { in: ['t1', 't2', 'ghost'] }, isChargeable: true } });
     });
   });
 });

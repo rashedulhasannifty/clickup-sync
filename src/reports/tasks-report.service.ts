@@ -357,7 +357,14 @@ export class TasksReportService {
    * every given task, since that is the time whose cost is being re-evaluated.
    */
   async chargeablePreview(taskIds: string[], chargeable: boolean) {
-    const [changing, entries] = await Promise.all([
+    const [tasks, changing, entries] = await Promise.all([
+      // The tasks that actually EXIST among the given ids, not `taskIds.length`:
+      // an id with no row inflates the "of N tasks" denominator the dialog
+      // shows, and could even make `changing` exceed it — `changing` only ever
+      // counts rows that exist. Same filter as `changing` apart from the flag,
+      // so `tasks` is always a superset of it. Duplicates are already collapsed
+      // upstream by `csvList`.
+      this.prisma.clickupTask.count({ where: { taskId: { in: taskIds } } }),
       this.prisma.clickupTask.count({ where: { taskId: { in: taskIds }, isChargeable: !chargeable } }),
       this.prisma.clickupTimeEntry.aggregate({
         where: { taskId: { in: taskIds } },
@@ -366,7 +373,7 @@ export class TasksReportService {
       }),
     ]);
     return {
-      tasks: taskIds.length,
+      tasks,
       changing,
       timeEntries: entries._count,
       hours: entries._sum.durationHours?.toNumber() ?? 0,

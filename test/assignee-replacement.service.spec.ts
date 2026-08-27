@@ -80,7 +80,7 @@ function buildMocks(
     replacements,
     costsService,
     timeEntriesRepo,
-    { getTeamId: () => '3450636', getPreferences: () => ({ cost: { rateMatching: 'start', nonBillableZero: false, autoRecalcOnRateChange: true } }) } as any,
+    { getTeamId: () => '3450636', getPreferences: () => ({ cost: { rateMatching: 'start', autoRecalcOnRateChange: true } }) } as any,
     { clickupTask: { findUnique: jest.fn().mockResolvedValue(null) } } as any,
   );
 
