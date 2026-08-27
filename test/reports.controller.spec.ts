@@ -328,6 +328,37 @@ describe('ReportsController', () => {
     });
   });
 
+  describe('chargeablePreview', () => {
+    it('parses the csv taskIds and threads chargeable through to the service', async () => {
+      const tasks = { chargeablePreview: jest.fn().mockResolvedValue({ tasks: 3, changing: 3, timeEntries: 0, hours: 0 }) } as any;
+      const ctrl = makeCtrl({ tasks });
+      await ctrl.chargeablePreview('t1,t2,t3', 'true');
+      expect(tasks.chargeablePreview).toHaveBeenCalledWith(['t1', 't2', 't3'], true);
+    });
+
+    it('defaults chargeable to false when omitted', async () => {
+      const tasks = { chargeablePreview: jest.fn().mockResolvedValue({ tasks: 1, changing: 1, timeEntries: 0, hours: 0 }) } as any;
+      const ctrl = makeCtrl({ tasks });
+      await ctrl.chargeablePreview('t1');
+      expect(tasks.chargeablePreview).toHaveBeenCalledWith(['t1'], false);
+    });
+
+    it('rejects a missing taskIds with BadRequestException', () => {
+      const tasks = { chargeablePreview: jest.fn() } as any;
+      const ctrl = makeCtrl({ tasks });
+      expect(() => ctrl.chargeablePreview()).toThrow(BadRequestException);
+      expect(tasks.chargeablePreview).not.toHaveBeenCalled();
+    });
+
+    it('rejects more than 500 task ids with BadRequestException', () => {
+      const tasks = { chargeablePreview: jest.fn() } as any;
+      const ctrl = makeCtrl({ tasks });
+      const taskIds = Array.from({ length: 501 }, (_, i) => `t${i}`).join(',');
+      expect(() => ctrl.chargeablePreview(taskIds)).toThrow(BadRequestException);
+      expect(tasks.chargeablePreview).not.toHaveBeenCalled();
+    });
+  });
+
   describe('timeEntriesList (sprintStatus passthrough)', () => {
     // Pinned by position rather than "the last argument": `taskId` now trails
     // sprintStatus in the service signature, and any future trailing param
