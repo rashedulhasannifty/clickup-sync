@@ -205,13 +205,24 @@ export class TimeEntriesReportService {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
     const window = { startTime: { gte: from, lte: to } };
-    const [chargeable, nonChargeable] = await Promise.all([
+    // One partition, not two: the total comes from the bare window and the
+    // non-chargeable side is the remainder. Two independently-queried halves
+    // are only correct if they're exhaustive over the window, which nothing
+    // here guarantees for rows with a null task FK — and if they aren't, this
+    // summary quietly disagrees with every other total on the page.
+    const [total, chargeable] = await Promise.all([
+      this.prisma.clickupTimeEntry.aggregate({ where: window, _sum: { durationHours: true } }),
       this.prisma.clickupTimeEntry.aggregate({ where: { AND: [window, { NOT: { task: { isChargeable: false } } }] }, _sum: { durationHours: true } }),
-      this.prisma.clickupTimeEntry.aggregate({ where: { AND: [window, { task: { isChargeable: false } }] }, _sum: { durationHours: true } }),
     ]);
+    const totalHours = total._sum.durationHours?.toNumber() ?? 0;
+    const chargeableHours = chargeable._sum.durationHours?.toNumber() ?? 0;
     return {
-      chargeableHours: chargeable._sum.durationHours?.toNumber() ?? 0,
-      nonChargeableHours: nonChargeable._sum.durationHours?.toNumber() ?? 0,
+      chargeableHours,
+      // The chargeable where is strictly a subset of the window, so in any
+      // single consistent read this can't go negative. The clamp guards the one
+      // case that isn't: these two aggregates aren't in a transaction, so an
+      // entry written between them can make the subset out-count the total.
+      nonChargeableHours: Math.max(0, totalHours - chargeableHours),
     };
   }
 
@@ -243,24 +254,33 @@ export class TimeEntriesReportService {
       client, listId, folderId, archived, sprintStatus,
     });
 
-    // The chargeable/non-chargeable split lives on the joined task, which a
-    // `groupBy` can't reach — so it's two `aggregate` calls over the same
-    // `where` instead of one `groupBy(['billable'])`.
+    // The totals come from the caller's `where` verbatim — the same row set
+    // `timeEntriesList` pages with `count({ where })` and `timeEntriesByTask`
+    // groups over. Deriving them by summing a chargeable and a non-chargeable
+    // partition made these cards the ONLY surface on the page whose numbers
+    // depended on those two halves being exhaustive over the filter (rows with
+    // a null task FK are the case nothing guarantees), so the cards could
+    // disagree with the pager and the table directly beneath them.
+    //
+    // The chargeable split still needs its own call: it lives on the joined
+    // task, which a `groupBy` can't reach. Only that half is queried; the
+    // non-chargeable side is the remainder, so the two can never disagree.
     const chargeableWhere = { AND: [where, { NOT: { task: { isChargeable: false } } }] };
-    const nonChargeableWhere = { AND: [where, { task: { isChargeable: false } }] };
-    const [chargeableAgg, nonChargeableAgg, byStatus] = await Promise.all([
+    const [totalAgg, chargeableAgg, byStatus] = await Promise.all([
+      this.prisma.clickupTimeEntry.aggregate({ where, _count: true, _sum: { durationHours: true, costCents: true } }),
       this.prisma.clickupTimeEntry.aggregate({ where: chargeableWhere, _count: true, _sum: { durationHours: true, costCents: true } }),
-      this.prisma.clickupTimeEntry.aggregate({ where: nonChargeableWhere, _count: true, _sum: { durationHours: true, costCents: true } }),
       this.prisma.clickupTimeEntry.groupBy({ by: ['status'], where, _count: true }),
     ]);
 
+    const totalEntries = totalAgg._count;
+    const totalHours = totalAgg._sum.durationHours?.toNumber() ?? 0;
     const chargeableHours = chargeableAgg._sum.durationHours?.toNumber() ?? 0;
-    const nonChargeableHours = nonChargeableAgg._sum.durationHours?.toNumber() ?? 0;
-    const totalEntries = chargeableAgg._count + nonChargeableAgg._count;
-    const totalHours = chargeableHours + nonChargeableHours;
-    // Non-chargeable cost is always zero, so this equals the chargeable total —
-    // summed from both sides anyway so the number stays honest if that changes.
-    const totalCostCents = Number(chargeableAgg._sum.costCents ?? 0n) + Number(nonChargeableAgg._sum.costCents ?? 0n);
+    // See timeEntriesChargeableSummary: `chargeableWhere` is strictly a subset
+    // of `where`, so only a write landing between these two un-transacted
+    // aggregates can push the subset above the total. Clamp rather than print a
+    // negative figure beside a positive one.
+    const nonChargeableHours = Math.max(0, totalHours - chargeableHours);
+    const totalCostCents = Number(totalAgg._sum.costCents ?? 0n);
     // Weighted-by-hours average rate — matches what users expect from
     // "avg $X/h": effective rate across all logged time in the period.
     const avgRateCents = totalHours > 0 ? Math.round(totalCostCents / totalHours) : 0;
