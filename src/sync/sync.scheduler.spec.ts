@@ -130,21 +130,51 @@ describe('SyncScheduler rotation staggering', () => {
     }
   });
 
-  it('fires both rotating crons on the same UTC day, which the offset relies on', () => {
-    // rotationIndex buckets by UTC day. The staggering guarantee above only
-    // holds if both crons compute the SAME day number — i.e. their firing
-    // instants land on one UTC date. Both now run in Asia/Dhaka (02:00 and
-    // 04:00), which is 20:00 and 22:00 UTC of the previous day: same date.
-    // Moving either cron across Dhaka's 06:00 (= 00:00 UTC) would split them
-    // onto different UTC days and silently collapse the stagger.
+  it('still staggers when fed the real UTC instants the Dhaka crons fire at', async () => {
+    // rotationIndex buckets by UTC day. The stagger above only holds if both
+    // crons compute the SAME day number, and moving them to Asia/Dhaka changed
+    // which UTC day that is: 02:00 and 04:00 Dhaka are 20:00 and 22:00 UTC of
+    // the PREVIOUS day. Same date, so the offset survives — but assert it
+    // against the actual firing instants rather than trusting the arithmetic.
+    // Drives the real cron methods under a pinned clock rather than calling
+    // rotationIndex directly — otherwise the spec restates the offsets instead
+    // of checking the ones the methods actually pass, and a change to either
+    // call site slips through green.
+    const n = CLICKUP_SPACES.length;
     const DHAKA_OFFSET_H = 6;
-    const deepBackfillUtcH = 2 - DHAKA_OFFSET_H; // -4 → 20:00 previous UTC day
-    const archivedUtcH = 4 - DHAKA_OFFSET_H; // -2 → 22:00 previous UTC day
 
-    const utcDayOf = (localHour: number) => Math.floor((localHour - DHAKA_OFFSET_H) / 24);
-    expect(utcDayOf(2)).toBe(utcDayOf(4));
-    expect(deepBackfillUtcH).toBeLessThan(0);
-    expect(archivedUtcH).toBeLessThan(0);
+    try {
+      for (let d = 0; d < n * 3; d++) {
+        const localMidnightUtcMs = Date.UTC(2026, 7, 1 + d) - DHAKA_OFFSET_H * 3600_000;
+        const deepBackfillAt = new Date(localMidnightUtcMs + 2 * 3600_000);
+        const archivedAt = new Date(localMidnightUtcMs + 4 * 3600_000);
+        // Both firing instants must land on one UTC date or rotationIndex,
+        // which buckets by UTC day, would compute different day numbers.
+        expect(archivedAt.getUTCDate()).toBe(deepBackfillAt.getUTCDate());
+
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] });
+
+        jest.setSystemTime(deepBackfillAt);
+        const deep = makeScheduler();
+        await deep.scheduler.deepBackfillTimeEntries();
+        const deepSpace = deep.queue.add.mock.calls
+          .filter((c) => c[0] === JOBS.RECONCILE_TIME_ENTRIES_WINDOW)
+          .map((c) => (c[1] as { spaceId: string }).spaceId)[0];
+
+        jest.setSystemTime(archivedAt);
+        const arch = makeScheduler();
+        await arch.scheduler.reconcileArchived();
+        const archSpace = arch.queue.add.mock.calls
+          .filter((c) => c[0] === JOBS.BACKFILL_CLICKUP_SPACE)
+          .map((c) => (c[1] as { spaceId: string }).spaceId)[0];
+
+        expect(deepSpace).toBeDefined();
+        expect(archSpace).toBeDefined();
+        expect(deepSpace).not.toBe(archSpace);
+      }
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('keeps the pre-existing rotation unchanged when no offset is passed', () => {
