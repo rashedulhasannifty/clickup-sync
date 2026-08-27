@@ -377,6 +377,13 @@ export class TimeEntriesReportService {
    * bounded by tasks x assignees x 2 x 3, so the fold stays cheap.
    *
    * `total` counts TASKS, not entries — it drives the pager.
+   *
+   * Sorting and pagination happen over the folded set in application code, so
+   * cost scales with how many tasks the window holds. That is safe because the
+   * grouped view never sees an unbounded window: the page's only all-time path
+   * is deep-link mode, and deep links force the flat view (`ALL_TIME_FROM` and
+   * `setGroupBy('none')` in TimeEntriesPage). Don't route an all-time query here
+   * without giving this a DB-side ORDER BY / LIMIT first.
    */
   async timeEntriesByTask(params: {
     userId?: string;
@@ -448,6 +455,9 @@ export class TimeEntriesReportService {
       // silently rolled into a total that looks calculated.
       if (g.status === 'NO_RATE_FOUND') b.missingRateCount += count;
       else b.validCostCents += Number(g._sum.costCents ?? 0n);
+      // Excluded entries are stored with cost_cents = 0 (see CostCalculator), so
+      // the branch above adds nothing for them — but they must still be visible,
+      // or a task with nothing but excluded time reads as fully costed.
       if (g.status === 'COST_EXCLUDED') b.excludedCount += count;
       if (g.userId) b.assignees.set(g.userId, g.userName);
       const last = g._max.startTime;
@@ -484,7 +494,6 @@ export class TimeEntriesReportService {
           client: t?.client ?? null,
           listName: t?.listName ?? null,
           entryCount: b.entryCount,
-          assigneeCount: b.assignees.size,
           assignees: [...b.assignees.entries()]
             .map(([userId, userName]) => ({ userId, userName }))
             .sort((x, y) => (x.userName ?? '').localeCompare(y.userName ?? '')),

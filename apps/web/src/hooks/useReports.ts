@@ -167,7 +167,6 @@ export interface TimeEntryTaskGroup {
   client: string | null;
   listName: string | null;
   entryCount: number;
-  assigneeCount: number;
   assignees: { userId: string; userName: string | null }[];
   totalHours: number;
   billableHours: number;

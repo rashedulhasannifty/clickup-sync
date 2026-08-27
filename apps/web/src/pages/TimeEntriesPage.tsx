@@ -51,10 +51,10 @@ const STATUS_OPTIONS = [
 // read the page for, and the individual entries behind it are one click away.
 // The entry-level deep links (Missing Rates, cost buckets, anomalies) point at a
 // specific entry, so they force 'none' — see the URL-param effect below.
-// Mirrors the backend's synthetic id for the "entries with no task" bucket
-// (`NO_TASK_ID` in report-filter.util.ts). Those entries are deliberately kept
-// visible, so the grouped view gives them one row rather than dropping them.
-const NO_TASK_ID = '__none__';
+// Label for the backend's synthetic "entries with no task" bucket (`NO_TASK_ID`
+// in report-filter.util.ts). Those entries are deliberately kept visible, so the
+// grouped view gives them one row rather than dropping them; the row expands
+// like any other because the sentinel round-trips as its `taskId`.
 
 /** Stable empty array so a stale expansion tag doesn't churn the table's props. */
 const EMPTY_EXPANSION: (string | number)[] = [];
@@ -338,6 +338,7 @@ export function TimeEntriesPage() {
           { header: 'Total cost',         value: 'costAud', key: 'costAud', type: 'money' },
           { header: 'Currency',           value: 'currency' },
           { header: 'Entries missing a rate', value: 'missingRateCount', key: 'missingRateCount', type: 'integer' },
+          { header: 'Entries excluded from cost', value: 'excludedCount', key: 'missingRateCount', type: 'integer' },
           { header: 'Last activity',      value: 'lastActivity', key: 'lastActivity', type: 'date' },
         ];
         const visible = cols.filter((c) => !c.key || !hiddenGroupCols.includes(c.key));
@@ -527,11 +528,16 @@ export function TimeEntriesPage() {
       key: 'missingRateCount',
       header: 'Rates',
       width: 120,
-      render: (row) => (
-        row.missingRateCount > 0
-          ? <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} strokeWidth={2} />}>{row.missingRateCount} missing</Pill>
-          : <Pill tone="green" size="xs" icon={<CircleCheck size={10} strokeWidth={2} />}>all costed</Pill>
-      ),
+      render: (row) => {
+        if (row.missingRateCount > 0) {
+          return <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} strokeWidth={2} />}>{row.missingRateCount} missing</Pill>;
+        }
+        // A task with no missing rates still isn't necessarily costed — excluded
+        // assignees contribute zero, so saying "all costed" would overstate it.
+        if (row.excludedCount >= row.entryCount) return <Pill tone="gray" size="xs">excluded</Pill>;
+        if (row.excludedCount > 0) return <Pill tone="gray" size="xs">{row.excludedCount} excluded</Pill>;
+        return <Pill tone="green" size="xs" icon={<CircleCheck size={10} strokeWidth={2} />}>all costed</Pill>;
+      },
     },
     {
       key: 'client',
@@ -909,7 +915,7 @@ export function TimeEntriesPage() {
           })}
           renderExpanded={(row) => (
             <TaskTimeEntriesPanel
-              taskId={row.taskId === NO_TASK_ID ? NO_TASK_ID : row.taskId}
+              taskId={row.taskId}
               params={aggParams}
               onSelectEntry={setSelectedEntry}
             />

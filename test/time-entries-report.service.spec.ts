@@ -619,6 +619,16 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
     expect(items[0].totalHours).toBe(6);
   });
 
+  it('counts cost-excluded entries so a fully-excluded task can\'t read as costed', async () => {
+    const prisma = makePrisma([
+      group({ status: 'COST_EXCLUDED', _count: 4, _sum: { durationHours: { toNumber: () => 7 }, costCents: BigInt(0) } }),
+    ]);
+    const { items } = await svc(prisma).timeEntriesByTask({});
+    expect(items[0].excludedCount).toBe(4);
+    expect(items[0].missingRateCount).toBe(0);
+    expect(items[0].entryCount).toBe(4);
+  });
+
   it('splits billable from non-billable hours within the task', async () => {
     const prisma = makePrisma([
       group({ billable: true, _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(0) } }),
