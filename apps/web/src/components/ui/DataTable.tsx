@@ -9,6 +9,9 @@ import { onActivate } from '../../lib/a11y';
 /** Key of the injected checkbox column; never appears in a caller's `columns`. */
 const SELECT_COL = '__select';
 
+/** rowKeys already reported by the dev-only warning below; warn once each. */
+const warnedRowKeys = new Set<string>();
+
 export interface Column<T> {
   key: string;
   header: string;
@@ -257,6 +260,25 @@ export function DataTable<T extends { [key: string]: unknown }>({
   if (layout === 'design') {
     // Keys for the rows actually on screen — what the header checkbox acts on.
     const pageEntries = sorted.map((row, idx) => ({ key: rowId(row, idx), row }));
+    // `rowId` falls back to the row's index when the rowKey field is missing.
+    // That is harmless for React keys, but selection uses the same value as its
+    // identity ACROSS pages — index 3 on page 1 and index 3 on page 2 would be
+    // the same row as far as the selection is concerned, so its totals and its
+    // export would describe the wrong rows. Loud in dev rather than silent.
+    if (import.meta.env.DEV && selectable) {
+      const k = rowKey as string;
+      const missing = sorted.some((row) => {
+        const v = row[k];
+        return v == null || (typeof v !== 'string' && typeof v !== 'number');
+      });
+      if (missing && !warnedRowKeys.has(k)) {
+        warnedRowKeys.add(k);
+        console.warn(
+          `DataTable: rowKey "${k}" is missing on some rows, so selection is keyed by row index and will collide across pages.`,
+        );
+      }
+    }
+
     const pageSelected = pageEntries.filter(e => selectedSet.has(e.key)).length;
     const allPageSelected = pageEntries.length > 0 && pageSelected === pageEntries.length;
     const somePageSelected = pageSelected > 0 && !allPageSelected;
