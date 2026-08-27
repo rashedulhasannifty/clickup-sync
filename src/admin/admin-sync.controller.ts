@@ -146,10 +146,15 @@ export class AdminSyncController {
   @Get('backfill/active')
   @ApiOperation({ summary: 'Live per-space sync progress (queued + active jobs, with totals from the most recent backfill)' })
   async backfillActive() {
-    const [backfillJobs, timeEntryJobs] = await Promise.all([
+    const [backfillJobs, liveEntryJobs, bulkEntryJobs] = await Promise.all([
       this.queues.get(QUEUES.CLICKUP_BACKFILLS).getJobs(['active', 'waiting', 'delayed', 'prioritized']),
+      // Both queues: the backfill fan-out is on BULK, but a webhook-driven
+      // job on LIVE for the same space is equally 'in flight' for this bar.
       this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES).getJobs(['active', 'waiting', 'delayed', 'prioritized']),
+      this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES_BULK).getJobs(['active', 'waiting', 'delayed', 'prioritized']),
     ]);
+
+    const timeEntryJobs = [...liveEntryJobs, ...bulkEntryJobs];
 
     const fetchingSpaceIds = new Set<string>();
     for (const job of backfillJobs) {
@@ -323,7 +328,7 @@ export class AdminSyncController {
   async syncAllTimeEntries(@Query('lookbackDays') lookbackDaysParam?: string) {
     const tasks = await this.tasksRepo.findAllIds();
     const endDate = Date.now();
-    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
+    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES_BULK);
     // One job per task across the WHOLE table (50k+ tasks). At the default
     // priority those sit in the FIFO `wait` list ahead of every live
     // taskTimeTrackedUpdated job enqueued afterwards — hours of real-time lag.
@@ -357,7 +362,7 @@ export class AdminSyncController {
     // and this manual endpoint slice identically.
     const slices = sliceReconcileWindow(subtractDays(lookbackDays).getTime(), Date.now());
 
-    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
+    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES_BULK);
     const jobOpts = { ...this.queues.defaultJobOptions(), priority: BULK_SWEEP_PRIORITY };
 
     let queued = 0;

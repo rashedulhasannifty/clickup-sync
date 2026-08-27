@@ -48,7 +48,7 @@ export class BackfillService {
     const endDate = Date.now();
     const teLookbackDays = timeEntryLookbackDays ?? Math.max(days, space?.backfillLookbackDays ?? days);
     const teStartDate = subtractDays(teLookbackDays).getTime();
-    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
+    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES_BULK);
     // Deprioritize bulk backfill time-entry jobs so they never head-of-line-block
     // live taskTimeTrackedUpdated webhook jobs on the shared queue. See
     // BULK_SWEEP_PRIORITY for the (counter-intuitive) BullMQ semantics.

@@ -47,6 +47,33 @@ Add a BullMQ job to `clickup-backfills` with payload:
 
 A backfill that hits the task pagination cap is **incomplete** — tasks beyond the cap are not synced. This is now recorded on the run's `sync_job_logs` row as status `partial` (rendered as an amber pill in Sync Logs; the reason shows in the run detail) instead of a clean `completed`. Re-run the backfill with a narrower window if you see it.
 
+## Live vs bulk queue separation
+
+`clickup-time-entries` carries **live** work only (webhook-driven syncs, single-task admin syncs). Every sweep — backfill fan-out, deep backfill, deletion reconcile, rolling sweep, `sync-all`, `reconcile-window` — goes to `clickup-time-entries-bulk`.
+
+**Why priority alone is not enough.** Verified in BullMQ 5.76.6 (`moveToActive-11.js:212-233`):
+
+```lua
+if expireTime > 0 then return {0, 0, expireTime, 0} end   -- ① rate limiter FIRST
+local jobId = rcall("RPOPLPUSH", waitKey, activeKey)      -- ② wait list (priority 0)
+if jobId then ... else
+    jobId = moveJobFromPrioritizedToActive(...)           -- ③ prioritized last
+end
+```
+
+Two consequences. Priority `0` really is the highest — the FIFO `wait` list is drained before the prioritized set, so live jobs already outrank every sweep job behind them; there is no higher priority to ask for. **But the limiter is checked at ① and returns before the wait list is ever inspected.** BullMQ's limiter is per-*worker*, and a worker consumes exactly one queue, so a shared queue means a shared budget: a saturated sweep would delay a live job by up to a full limiter window (60s) despite outranking everything. Only a separate queue fixes that.
+
+| Queue | Limiter | Env |
+|---|---|---|
+| `clickup-time-entries` (live) | 30/min | `CLICKUP_JOB_RATE_MAX` |
+| `clickup-time-entries-bulk` | 20/min | `CLICKUP_BULK_JOB_RATE_MAX` |
+
+Live volume is ~334 webhooks/24h ≈ **0.5 jobs/min**, so the live limiter is a runaway guard, not a throughput constraint. The bulk number is the one that matters: it sets the rolling sweep's wall-clock (3,500 tasks ÷ 20/min ≈ 3 h, inside the 8.5 h closed-office window). Raising it shortens the sweep but spends more of ClickUp's global ~100 req/min token budget, which every queue shares.
+
+`clickup-tasks` is **not** split. A time-entry lookback does not touch it, and its only bulk producers are `tasks/reconcile` and the rolling sweep's task refresh. Split it if that is ever shown to starve webhook task syncs — with evidence, as its own change.
+
+Anything reading queue depth for progress must read **both** queues or it under-reports; `GET /admin/backfill/active` already does.
+
 ## Scheduled reconcile
 
 **Every cron in `SyncScheduler` runs in `Asia/Dhaka`** (`timeZone` on the `@Cron`). The containers run UTC, where 02:00 Dhaka is 20:00 the *previous* day — hand-shifting means changing the hour *and* the weekday, so let the cron library convert. This is operational, not cosmetic: the office works **Mon–Fri 09:00–23:59 local**, so **00:00–09:00 local (and all of Sat/Sun)** is the only window where a heavy sweep isn't competing with live webhook traffic for ClickUp's rate limit. Before this was applied uniformly the two heaviest jobs were firing at 08:00 and 10:00 Dhaka — right as the office opened.

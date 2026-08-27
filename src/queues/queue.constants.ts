@@ -1,7 +1,19 @@
 export const QUEUES = {
   CLICKUP_WEBHOOKS: 'clickup-webhooks',
   CLICKUP_TASKS: 'clickup-tasks',
+  /** LIVE time-entry work only: webhook-driven and single-task admin syncs. */
   CLICKUP_TIME_ENTRIES: 'clickup-time-entries',
+  /**
+   * BULK time-entry work: every sweep, backfill fan-out and reconcile.
+   *
+   * Separate from CLICKUP_TIME_ENTRIES because BullMQ's rate limiter is
+   * per-WORKER and a worker consumes exactly one queue — so sharing a queue
+   * means sharing a rate-limit budget. Priority alone cannot fix that:
+   * `moveToActive` checks the limiter and returns BEFORE it ever inspects the
+   * wait list, so a saturated bulk sweep delays a live webhook job by up to a
+   * full limiter window even though that job outranks every job behind it.
+   */
+  CLICKUP_TIME_ENTRIES_BULK: 'clickup-time-entries-bulk',
   CLICKUP_BACKFILLS: 'clickup-backfills',
   MAINTENANCE: 'maintenance',
   CLICKUP_ASSIGNEE_REPLACEMENT: 'clickup-assignee-replacement',
@@ -17,6 +29,28 @@ export function clickupWorkerOptions() {
   return {
     limiter: {
       max: Number(process.env.CLICKUP_JOB_RATE_MAX || 30),
+      duration: Number(process.env.CLICKUP_JOB_RATE_DURATION_MS || 60_000),
+    },
+  };
+}
+
+/**
+ * Worker options for the BULK time-entry queue.
+ *
+ * Its own limiter — that is the entire point of the queue existing. Measured on
+ * production, live webhook traffic is ~334 events/24h ≈ 0.5 jobs/min, so the
+ * live limiter is a runaway guard rather than a throughput constraint and the
+ * two budgets never meaningfully compete.
+ *
+ * 20/min is what sets the rolling sweep's nightly wall-clock: 3,500 tasks at
+ * 20/min is ~175 minutes, inside the 8.5-hour closed-office window with room to
+ * spare. Raising it shortens the sweep but spends more of ClickUp's global
+ * per-token budget (~100 req/min) which is shared with every other queue.
+ */
+export function clickupBulkWorkerOptions() {
+  return {
+    limiter: {
+      max: Number(process.env.CLICKUP_BULK_JOB_RATE_MAX || 20),
       duration: Number(process.env.CLICKUP_JOB_RATE_DURATION_MS || 60_000),
     },
   };

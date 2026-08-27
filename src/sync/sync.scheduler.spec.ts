@@ -37,7 +37,7 @@ describe('SyncScheduler.deepBackfillTimeEntries', () => {
     const { scheduler, queue, queues } = makeScheduler();
     await scheduler.deepBackfillTimeEntries();
 
-    expect(queues.get).toHaveBeenCalledWith(QUEUES.CLICKUP_TIME_ENTRIES);
+    expect(queues.get).toHaveBeenCalledWith(QUEUES.CLICKUP_TIME_ENTRIES_BULK);
     expect(reconcileCalls(queue).length).toBeGreaterThan(0);
   });
 
@@ -358,5 +358,40 @@ describe('SyncScheduler.rollingVerifySweep', () => {
     const { scheduler, queue } = sweepMake({ candidates: [] });
     await scheduler.rollingVerifySweep();
     expect(queue.add).not.toHaveBeenCalled();
+  });
+});
+
+describe('live queue isolation', () => {
+  // The whole point of CLICKUP_TIME_ENTRIES_BULK: BullMQ's rate limiter is
+  // per-worker and moveToActive checks it BEFORE looking at the wait list, so a
+  // saturated sweep delays a live webhook job by up to a full limiter window no
+  // matter how it is prioritized. Only a separate queue prevents that — and
+  // only for as long as nothing bulk is enqueued onto the live one.
+  const bulkCrons: [string, (s: SyncScheduler) => Promise<void>][] = [
+    ['deepBackfillTimeEntries', (s) => s.deepBackfillTimeEntries()],
+    ['reconcileDeletions', (s) => s.reconcileDeletions()],
+  ];
+
+  it.each(bulkCrons)('%s never enqueues onto the LIVE time-entry queue', async (_name, run) => {
+    const { scheduler, queues } = makeScheduler();
+    await run(scheduler);
+
+    const targets = queues.get.mock.calls.map((c: any[]) => c[0]);
+    expect(targets).toContain(QUEUES.CLICKUP_TIME_ENTRIES_BULK);
+    expect(targets).not.toContain(QUEUES.CLICKUP_TIME_ENTRIES);
+  });
+
+  it('rollingVerifySweep keeps entries on BULK and tasks on the shared task queue', async () => {
+    const base = makeScheduler();
+    base.timeEntriesRepo.findStalestTasksWithEntries = jest.fn().mockResolvedValue([
+      { taskId: 'a', oldestStartMs: 1_000_000, newestStartMs: 2_000_000 },
+    ]);
+    base.timeEntriesRepo.countTasksWithEntries = jest.fn().mockResolvedValue(21780);
+    await base.scheduler.rollingVerifySweep();
+
+    const targets = base.queues.get.mock.calls.map((c: any[]) => c[0]);
+    expect(targets).toContain(QUEUES.CLICKUP_TIME_ENTRIES_BULK);
+    expect(targets).toContain(QUEUES.CLICKUP_TASKS);
+    expect(targets).not.toContain(QUEUES.CLICKUP_TIME_ENTRIES);
   });
 });

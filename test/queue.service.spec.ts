@@ -2,7 +2,7 @@ import { QueueService } from '../src/queues/queue.service';
 
 function makeQueues() {
   const q = {} as any;
-  return [q, q, q, q, q, q] as const;
+  return [q, q, q, q, q, q, q] as const;
 }
 
 describe('QueueService.webhookJobOptions', () => {
