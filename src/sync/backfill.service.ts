@@ -3,7 +3,7 @@ import { ClickupClient } from '../clickup/clickup.client';
 import { TasksService } from '../tasks/tasks.service';
 import { SyncCheckpointsRepository } from './sync-checkpoints.repository';
 import { QueueService } from '../queues/queue.service';
-import { JOBS, QUEUES, BACKFILL_TIME_ENTRY_PRIORITY } from '../queues/queue.constants';
+import { JOBS, QUEUES, BULK_SWEEP_PRIORITY } from '../queues/queue.constants';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { subtractDays } from '../common/utils/date-utils';
 import { SettingsService } from '../settings/settings.service';
@@ -51,8 +51,8 @@ export class BackfillService {
     const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
     // Deprioritize bulk backfill time-entry jobs so they never head-of-line-block
     // live taskTimeTrackedUpdated webhook jobs on the shared queue. See
-    // BACKFILL_TIME_ENTRY_PRIORITY for the (counter-intuitive) BullMQ semantics.
-    const jobOpts = { ...this.queues.defaultJobOptions(), priority: BACKFILL_TIME_ENTRY_PRIORITY };
+    // BULK_SWEEP_PRIORITY for the (counter-intuitive) BullMQ semantics.
+    const jobOpts = { ...this.queues.defaultJobOptions(), priority: BULK_SWEEP_PRIORITY };
 
     // Stream the space and persist each page/list as it arrives. Accumulating a
     // multi-year archived pull in memory (tens of thousands of tasks, each with

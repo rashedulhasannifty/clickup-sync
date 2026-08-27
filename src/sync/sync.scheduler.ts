@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { QueueService } from '../queues/queue.service';
-import { BACKFILL_TIME_ENTRY_PRIORITY, JOBS, QUEUES } from '../queues/queue.constants';
+import { BULK_SWEEP_PRIORITY, JOBS, QUEUES } from '../queues/queue.constants';
 import { sliceReconcileWindow } from './reconcile-window.util';
 import { subtractDays } from '../common/utils/date-utils';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
@@ -145,7 +145,7 @@ export class SyncScheduler {
    * Cost control: this uses the windowed reconcile (one team-level call per
    * space × 30-day slice) rather than the per-task fan-out, runs ONE space per
    * day in the same rotation as `reconcileArchived`, and enqueues at
-   * `BACKFILL_TIME_ENTRY_PRIORITY` so it can never head-of-line-block a live
+   * `BULK_SWEEP_PRIORITY` so it can never head-of-line-block a live
    * webhook. At the 365-day default that is ~13 low-priority jobs per day.
    *
    * 02:00 UTC keeps it clear of the 03:00 list-catalog and 04:00 archived crons.
@@ -172,7 +172,7 @@ export class SyncScheduler {
 
     const lookbackDays = this.settings.getReconcileLookbackDays();
     const slices = sliceReconcileWindow(subtractDays(lookbackDays).getTime(), Date.now());
-    const jobOpts = { ...this.queues.defaultJobOptions(), priority: BACKFILL_TIME_ENTRY_PRIORITY };
+    const jobOpts = { ...this.queues.defaultJobOptions(), priority: BULK_SWEEP_PRIORITY };
 
     for (const slice of slices) {
       await queue.add(JOBS.RECONCILE_TIME_ENTRIES_WINDOW, { spaceId: space.id, ...slice }, jobOpts);
@@ -240,7 +240,7 @@ export class SyncScheduler {
     // The window is passed explicitly: syncTaskTimeEntries scopes BOTH its
     // ClickUp fetch and its prune to it, so a row outside the window is never at
     // risk from this run.
-    const jobOpts = { ...this.queues.defaultJobOptions(), priority: BACKFILL_TIME_ENTRY_PRIORITY };
+    const jobOpts = { ...this.queues.defaultJobOptions(), priority: BULK_SWEEP_PRIORITY };
     for (const taskId of taskIds) {
       await queue.add(JOBS.SYNC_TASK_TIME_ENTRIES, { taskId, startDate, endDate }, jobOpts);
     }

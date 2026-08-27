@@ -9,7 +9,7 @@ import { BackfillReplacementDto } from './dto/backfill-replacement.dto';
 import { SyncListsDto } from './dto/sync-lists.dto';
 import { SettingsService } from '../settings/settings.service';
 import { QueueService } from '../queues/queue.service';
-import { JOBS, QUEUES, BACKFILL_TIME_ENTRY_PRIORITY } from '../queues/queue.constants';
+import { JOBS, QUEUES, BULK_SWEEP_PRIORITY } from '../queues/queue.constants';
 import { replacementJobId } from '../time-entries/assignee-replacement.service';
 import { PrismaService } from '../database/prisma.service';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
@@ -307,7 +307,9 @@ export class AdminSyncController {
         },
         // Same deterministic jobId as the webhook-driven enqueue so a backfill
         // and a live sync can't both spawn a replacement for the same entry.
-        { ...this.queues.defaultJobOptions(), jobId: replacementJobId(entry.time_entry_id) },
+        // Deprioritized: this sweep shares `clickup-assignee-replacement` with
+        // live tag-driven replacements enqueued from a webhook sync.
+        { ...this.queues.defaultJobOptions(), priority: BULK_SWEEP_PRIORITY, jobId: replacementJobId(entry.time_entry_id) },
       );
       queued += 1;
     }
@@ -322,7 +324,10 @@ export class AdminSyncController {
     const tasks = await this.tasksRepo.findAllIds();
     const endDate = Date.now();
     const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
-    const jobOpts = this.queues.defaultJobOptions();
+    // One job per task across the WHOLE table (50k+ tasks). At the default
+    // priority those sit in the FIFO `wait` list ahead of every live
+    // taskTimeTrackedUpdated job enqueued afterwards — hours of real-time lag.
+    const jobOpts = { ...this.queues.defaultJobOptions(), priority: BULK_SWEEP_PRIORITY };
 
     for (const { taskId, spaceId } of tasks) {
       const space = CLICKUP_SPACES.find((s) => s.id === spaceId);
@@ -353,7 +358,7 @@ export class AdminSyncController {
     const slices = sliceReconcileWindow(subtractDays(lookbackDays).getTime(), Date.now());
 
     const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
-    const jobOpts = { ...this.queues.defaultJobOptions(), priority: BACKFILL_TIME_ENTRY_PRIORITY };
+    const jobOpts = { ...this.queues.defaultJobOptions(), priority: BULK_SWEEP_PRIORITY };
 
     let queued = 0;
     for (const space of spaces) {
@@ -385,7 +390,9 @@ export class AdminSyncController {
     const days = lookbackDaysParam ? Number(lookbackDaysParam) : 365;
     const startDate = subtractDays(days).getTime();
     const queue = this.queues.get(QUEUES.CLICKUP_TASKS);
-    const jobOpts = this.queues.defaultJobOptions();
+    // Same head-of-line hazard as sync-all, on the tasks queue: the webhook path
+    // enqueues SYNC_CLICKUP_TASK here, and would queue behind this whole sweep.
+    const jobOpts = { ...this.queues.defaultJobOptions(), priority: BULK_SWEEP_PRIORITY };
 
     for (const { taskId } of tasks) {
       await queue.add(JOBS.RECONCILE_CLICKUP_TASK, { taskId, startDate, endDate }, jobOpts);
