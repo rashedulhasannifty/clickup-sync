@@ -10,6 +10,7 @@ import { AnomalyReportService } from './anomaly-report.service';
 import { OpsReportService } from './ops-report.service';
 import { SprintsReportService } from './sprints-report.service';
 import { csvList } from './report-filter.util';
+import { MAX_CHARGEABLE_TASK_IDS } from '../tasks/task-chargeability.constants';
 
 /** `sprintStatus`/`status` filter accepted by the sprint routes and the
  *  tasks/time-entries list endpoints. Unrecognized values fall back to
@@ -110,7 +111,7 @@ export class ReportsController {
   chargeablePreview(@Query('taskIds') taskIds = '', @Query('chargeable') chargeable?: string) {
     const ids = csvList(taskIds) ?? [];
     if (ids.length === 0) throw new BadRequestException('taskIds is required');
-    if (ids.length > 500) throw new BadRequestException('At most 500 tasks per request');
+    if (ids.length > MAX_CHARGEABLE_TASK_IDS) throw new BadRequestException(`At most ${MAX_CHARGEABLE_TASK_IDS} tasks per request`);
     return this.tasksReports.chargeablePreview(ids, chargeable === 'true');
   }
 
@@ -149,10 +150,10 @@ export class ReportsController {
     return this.timeEntriesReports.timeEntriesByDepartment(from, to);
   }
 
-  @Get('time-entries/billable-summary')
-  @ApiOperation({ summary: 'Billable vs non-billable hours and cost' })
-  timeEntriesBillableSummary(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.timeEntriesReports.timeEntriesBillableSummary(from, to);
+  @Get('time-entries/chargeable-summary')
+  @ApiOperation({ summary: 'Chargeable vs non-chargeable hours' })
+  timeEntriesChargeableSummary(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.timeEntriesReports.timeEntriesChargeableSummary(from, to);
   }
 
   @Get('time-entries/aggregates')
@@ -162,7 +163,7 @@ export class ReportsController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('status') status?: string,
-    @Query('billable') billable?: string,
+    @Query('chargeable') chargeable?: string,
     @Query('search') search?: string,
     @Query('spaceId') spaceId?: string,
     @Query('missingOnly') missingOnly?: string,
@@ -172,7 +173,7 @@ export class ReportsController {
     @Query('archived') archived?: string,
     @Query('sprintStatus') sprintStatus?: string,
   ) {
-    return this.timeEntriesReports.timeEntriesAggregates(userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'));
+    return this.timeEntriesReports.timeEntriesAggregates(userId, from, to, status, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'));
   }
 
   @Get('time-entries/cost-trend')
@@ -235,7 +236,7 @@ export class ReportsController {
     @Query('status') status?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
-    @Query('billable') billable?: string,
+    @Query('chargeable') chargeable?: string,
     @Query('search') search?: string,
     @Query('spaceId') spaceId?: string,
     @Query('missingOnly') missingOnly?: string,
@@ -247,13 +248,13 @@ export class ReportsController {
   ) {
     return this.timeEntriesReports.timeEntriesByTask({
       userId, from, to, status, limit: Number(limit) || 50, offset: Number(offset) || 0,
-      billable, search, spaceId, missingOnly, client, listId, folderId, archived,
+      chargeable, search, spaceId, missingOnly, client, listId, folderId, archived,
       sprintStatus: normalizeSprintStatus(sprintStatus, 'all'),
     });
   }
 
   @Get('time-entries')
-  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId, archived, sprintStatus). `userId`, `status`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `missingOnly=true` overrides `status`. `archived` filters by the joined task: `exclude` (hide archived-task entries + keep task-less entries), `only`, or `include`/omitted (no constraint). `sprintStatus=active|completed|all` (default `all`) scopes to entries whose task\'s list (sprint) is/isn\'t archived, dropping task-less entries. `taskId` matches one task exactly (use `__none__` for entries with no task) — this is how the grouped view expands a row.' })
+  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, sprintStatus). `userId`, `status`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `missingOnly=true` overrides `status`. `archived` filters by the joined task: `exclude` (hide archived-task entries + keep task-less entries), `only`, or `include`/omitted (no constraint). `sprintStatus=active|completed|all` (default `all`) scopes to entries whose task\'s list (sprint) is/isn\'t archived, dropping task-less entries. `taskId` matches one task exactly (use `__none__` for entries with no task) — this is how the grouped view expands a row. `chargeable=true|false` filters on the task\'s Chargeable flag; entries with no task count as chargeable.' })
   timeEntriesList(
     @Query('userId') userId?: string,
     @Query('from') from?: string,
@@ -261,7 +262,7 @@ export class ReportsController {
     @Query('status') status?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
-    @Query('billable') billable?: string,
+    @Query('chargeable') chargeable?: string,
     @Query('search') search?: string,
     @Query('spaceId') spaceId?: string,
     @Query('missingOnly') missingOnly?: string,
@@ -273,7 +274,7 @@ export class ReportsController {
     @Query('taskId') taskId?: string,
   ) {
     return this.timeEntriesReports.timeEntriesList(
-      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), taskId,
+      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), taskId,
     );
   }
 

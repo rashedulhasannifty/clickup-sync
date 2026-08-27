@@ -124,7 +124,8 @@ export interface TimeEntryFilters {
   client?: string;
   listId?: string;
   folderId?: string;
-  billable?: string;
+  /** Our own per-task flag, NOT ClickUp's per-entry `billable` column. */
+  chargeable?: string;
   search?: string;
   spaceId?: string;
   missingOnly?: string;
@@ -197,8 +198,12 @@ export async function buildTimeEntryWhere(
   } else if (statuses) {
     where.status = { in: statuses };
   }
-  if (f.billable === 'true') where.billable = true;
-  else if (f.billable === 'false') where.billable = false;
+  // Chargeability lives on the task. 'true' must keep entries with no task at
+  // all — they have no flag to read and count as chargeable — hence
+  // `NOT { task isChargeable:false }` rather than `task { isChargeable:true }`,
+  // which would drop them. Same shape as the archived filter above.
+  if (f.chargeable === 'true') and.push({ NOT: { task: { isChargeable: false } } });
+  else if (f.chargeable === 'false') and.push({ task: { isChargeable: false } });
   if (f.search?.trim()) {
     const q = f.search.trim();
     const match = { contains: q, mode: 'insensitive' as const };

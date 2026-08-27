@@ -198,21 +198,20 @@ export class TimeEntriesReportService {
     return rows.map(r => ({ department: r.department, totalHours: Number(r.total_hours), totalCostAud: Number(r.total_cost_cents) / 100 }));
   }
 
-  async timeEntriesBillableSummary(fromParam?: string, toParam?: string) {
+  /** Chargeable vs non-chargeable hours for the window. No cost split: a
+   *  non-chargeable entry always costs zero, so one side would be a column of
+   *  zeros and the other would equal total cost. */
+  async timeEntriesChargeableSummary(fromParam?: string, toParam?: string) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
-    const rows = await this.prisma.clickupTimeEntry.groupBy({
-      by: ['billable'],
-      where: { startTime: { gte: from, lte: to } },
-      _sum: { durationHours: true, costCents: true },
-    });
-    const b = rows.find(r => r.billable);
-    const nb = rows.find(r => !r.billable);
+    const window = { startTime: { gte: from, lte: to } };
+    const [chargeable, nonChargeable] = await Promise.all([
+      this.prisma.clickupTimeEntry.aggregate({ where: { AND: [window, { NOT: { task: { isChargeable: false } } }] }, _sum: { durationHours: true } }),
+      this.prisma.clickupTimeEntry.aggregate({ where: { AND: [window, { task: { isChargeable: false } }] }, _sum: { durationHours: true } }),
+    ]);
     return {
-      billableHours: b?._sum.durationHours?.toNumber() ?? 0,
-      nonBillableHours: nb?._sum.durationHours?.toNumber() ?? 0,
-      billableCostAud: Number(b?._sum.costCents ?? 0n) / 100,
-      nonBillableCostAud: Number(nb?._sum.costCents ?? 0n) / 100,
+      chargeableHours: chargeable._sum.durationHours?.toNumber() ?? 0,
+      nonChargeableHours: nonChargeable._sum.durationHours?.toNumber() ?? 0,
     };
   }
 
@@ -227,7 +226,7 @@ export class TimeEntriesReportService {
     fromParam?: string,
     toParam?: string,
     status?: string,
-    billable?: string,
+    chargeable?: string,
     search?: string,
     spaceId?: string,
     missingOnly?: string,
@@ -240,37 +239,28 @@ export class TimeEntriesReportService {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
     const where = await buildTimeEntryWhere(this.prisma, {
-      from, to, userId, status, billable, search, spaceId, missingOnly,
+      from, to, userId, status, chargeable, search, spaceId, missingOnly,
       client, listId, folderId, archived, sprintStatus,
     });
 
-    // Two parallel groupBys are enough:
-    //   • by billable → gives total count, total hours, total cost, and the
-    //     billable/non-billable split in a single query.
-    //   • by status → gives counts for COST_CALCULATED / NO_RATE_FOUND /
-    //     SYNCED (we only surface the first two).
-    const [byBillable, byStatus] = await Promise.all([
-      this.prisma.clickupTimeEntry.groupBy({
-        by: ['billable'],
-        where,
-        _count: true,
-        _sum: { durationHours: true, costCents: true },
-      }),
-      this.prisma.clickupTimeEntry.groupBy({
-        by: ['status'],
-        where,
-        _count: true,
-      }),
+    // The chargeable/non-chargeable split lives on the joined task, which a
+    // `groupBy` can't reach — so it's two `aggregate` calls over the same
+    // `where` instead of one `groupBy(['billable'])`.
+    const chargeableWhere = { AND: [where, { NOT: { task: { isChargeable: false } } }] };
+    const nonChargeableWhere = { AND: [where, { task: { isChargeable: false } }] };
+    const [chargeableAgg, nonChargeableAgg, byStatus] = await Promise.all([
+      this.prisma.clickupTimeEntry.aggregate({ where: chargeableWhere, _count: true, _sum: { durationHours: true, costCents: true } }),
+      this.prisma.clickupTimeEntry.aggregate({ where: nonChargeableWhere, _count: true, _sum: { durationHours: true, costCents: true } }),
+      this.prisma.clickupTimeEntry.groupBy({ by: ['status'], where, _count: true }),
     ]);
 
-    const b = byBillable.find(r => r.billable);
-    const nb = byBillable.find(r => !r.billable);
-    const totalEntries = byBillable.reduce((s, r) => s + r._count, 0);
-    const billableHours = b?._sum.durationHours?.toNumber() ?? 0;
-    const nonBillableHours = nb?._sum.durationHours?.toNumber() ?? 0;
-    const totalHours = billableHours + nonBillableHours;
-    const totalCostCents =
-      Number(b?._sum.costCents ?? 0n) + Number(nb?._sum.costCents ?? 0n);
+    const chargeableHours = chargeableAgg._sum.durationHours?.toNumber() ?? 0;
+    const nonChargeableHours = nonChargeableAgg._sum.durationHours?.toNumber() ?? 0;
+    const totalEntries = chargeableAgg._count + nonChargeableAgg._count;
+    const totalHours = chargeableHours + nonChargeableHours;
+    // Non-chargeable cost is always zero, so this equals the chargeable total —
+    // summed from both sides anyway so the number stays honest if that changes.
+    const totalCostCents = Number(chargeableAgg._sum.costCents ?? 0n) + Number(nonChargeableAgg._sum.costCents ?? 0n);
     // Weighted-by-hours average rate — matches what users expect from
     // "avg $X/h": effective rate across all logged time in the period.
     const avgRateCents = totalHours > 0 ? Math.round(totalCostCents / totalHours) : 0;
@@ -280,8 +270,8 @@ export class TimeEntriesReportService {
     return {
       totalEntries,
       totalHours,
-      billableHours,
-      nonBillableHours,
+      chargeableHours,
+      nonChargeableHours,
       totalCostCents,
       avgRateCents,
       costCalculatedCount,
@@ -296,7 +286,7 @@ export class TimeEntriesReportService {
     status?: string,
     limit = 50,
     offset = 0,
-    billable?: string,
+    chargeable?: string,
     search?: string,
     spaceId?: string,
     missingOnly?: string,
@@ -313,7 +303,7 @@ export class TimeEntriesReportService {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
     const where = await buildTimeEntryWhere(this.prisma, {
-      from, to, userId, status, billable, search, spaceId, missingOnly,
+      from, to, userId, status, chargeable, search, spaceId, missingOnly,
       client, listId, folderId, archived, sprintStatus, taskId,
     });
     const [items, total] = await Promise.all([
@@ -325,9 +315,9 @@ export class TimeEntriesReportService {
         select: {
           timeEntryId: true, taskId: true, userId: true, userName: true, userEmail: true,
           startTime: true, endTime: true, durationHours: true, hourlyRateCents: true,
-          costCents: true, status: true, billable: true, description: true, syncedAt: true,
+          costCents: true, status: true, description: true, syncedAt: true,
           rateId: true, currency: true,
-          task: { select: { taskName: true, client: true, listName: true } },
+          task: { select: { taskName: true, client: true, listName: true, isChargeable: true } },
         },
       }),
       this.prisma.clickupTimeEntry.count({ where }),
@@ -348,7 +338,8 @@ export class TimeEntriesReportService {
         hourlyRateCents: Number(e.hourlyRateCents),
         costAud: Number(e.costCents) / 100,
         status: e.status,
-        billable: e.billable,
+        // No task, no flag — a task-less entry is chargeable.
+        chargeable: e.task?.isChargeable ?? true,
         description: e.description,
         syncedAt: e.syncedAt,
         rateId: e.rateId != null ? e.rateId.toString() : null,
@@ -370,7 +361,7 @@ export class TimeEntriesReportService {
    * land on this page" — a task whose entries straddle a page boundary would show
    * a different figure depending on where you were in the pager.
    *
-   * Implemented as a Prisma `groupBy` at the (task, assignee, billable, status,
+   * Implemented as a Prisma `groupBy` at the (task, assignee, status,
    * currency) grain folded in application code, rather than raw SQL, so it reuses
    * the byte-identical `where` object `timeEntriesList` uses. That is what
    * guarantees an expanded row sums to the collapsed total above it. The grain is
@@ -390,7 +381,7 @@ export class TimeEntriesReportService {
     from?: string;
     to?: string;
     status?: string;
-    billable?: string;
+    chargeable?: string;
     search?: string;
     spaceId?: string;
     missingOnly?: string;
@@ -411,7 +402,7 @@ export class TimeEntriesReportService {
     const where = await buildTimeEntryWhere(this.prisma, { ...params, from, to });
 
     const groups = await this.prisma.clickupTimeEntry.groupBy({
-      by: ['taskId', 'userId', 'userName', 'billable', 'status', 'currency'],
+      by: ['taskId', 'userId', 'userName', 'status', 'currency'],
       where,
       _count: true,
       _sum: { durationHours: true, costCents: true },
@@ -421,8 +412,7 @@ export class TimeEntriesReportService {
     type Bucket = {
       taskId: string;
       entryCount: number;
-      billableHours: number;
-      nonBillableHours: number;
+      hours: number;
       validCostCents: number;
       missingRateCount: number;
       excludedCount: number;
@@ -439,7 +429,7 @@ export class TimeEntriesReportService {
       let b = buckets.get(key);
       if (!b) {
         b = {
-          taskId: key, entryCount: 0, billableHours: 0, nonBillableHours: 0,
+          taskId: key, entryCount: 0, hours: 0,
           validCostCents: 0, missingRateCount: 0, excludedCount: 0,
           lastActivity: null, currency: null, assignees: new Map(),
         };
@@ -448,8 +438,7 @@ export class TimeEntriesReportService {
       const hours = g._sum.durationHours?.toNumber() ?? 0;
       const count = g._count;
       b.entryCount += count;
-      if (g.billable) b.billableHours += hours;
-      else b.nonBillableHours += hours;
+      b.hours += hours;
       // Mirrors `timesheet()` and the data-model rule: an entry with no rate
       // contributes no cost, and is surfaced as a count instead of being
       // silently rolled into a total that looks calculated.
@@ -467,7 +456,7 @@ export class TimeEntriesReportService {
 
     const all = [...buckets.values()].sort(
       (a, b) =>
-        (b.billableHours + b.nonBillableHours) - (a.billableHours + a.nonBillableHours)
+        b.hours - a.hours
         // Stable tie-break so equal-hour tasks don't shuffle between pages.
         || a.taskId.localeCompare(b.taskId),
     );
@@ -480,7 +469,7 @@ export class TimeEntriesReportService {
     const tasks = taskIds.length
       ? await this.prisma.clickupTask.findMany({
           where: { taskId: { in: taskIds } },
-          select: { taskId: true, taskName: true, client: true, listName: true },
+          select: { taskId: true, taskName: true, client: true, listName: true, isChargeable: true },
         })
       : [];
     const taskById = new Map(tasks.map((t) => [t.taskId, t]));
@@ -488,6 +477,8 @@ export class TimeEntriesReportService {
     return {
       items: page.map((b) => {
         const t = taskById.get(b.taskId);
+        // No task, no flag — a task-less entry is chargeable.
+        const chargeable = t?.isChargeable ?? true;
         return {
           taskId: b.taskId,
           taskName: t?.taskName ?? null,
@@ -497,9 +488,11 @@ export class TimeEntriesReportService {
           assignees: [...b.assignees.entries()]
             .map(([userId, userName]) => ({ userId, userName }))
             .sort((x, y) => (x.userName ?? '').localeCompare(y.userName ?? '')),
-          totalHours: b.billableHours + b.nonBillableHours,
-          billableHours: b.billableHours,
-          nonBillableHours: b.nonBillableHours,
+          totalHours: b.hours,
+          chargeable,
+          // A task is wholly chargeable or wholly not, so this is all-or-nothing
+          // rather than a split within the task.
+          chargeableHours: chargeable ? b.hours : 0,
           costAud: b.validCostCents / 100,
           missingRateCount: b.missingRateCount,
           excludedCount: b.excludedCount,

@@ -246,6 +246,7 @@ export class TasksReportService {
           listName: true, dueDate: true, timeEstimate: true, timeSpent: true,
           createdDate: true, closedDate: true, startDate: true, syncCount: true,
           estimation: true, folderName: true, creatorName: true, executiveName: true,
+          isChargeable: true,
         },
       }),
       this.prisma.clickupTask.count({ where }),

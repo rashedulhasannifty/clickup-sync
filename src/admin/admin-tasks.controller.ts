@@ -3,10 +3,11 @@ import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles } from '../auth/decorators';
 import { AuditLogInterceptor } from './audit-log.interceptor';
-import { MAX_CHARGEABLE_TASK_IDS, SetTaskChargeableDto } from './dto/set-task-chargeable.dto';
+import { SetTaskChargeableDto } from './dto/set-task-chargeable.dto';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { TasksRepository } from '../tasks/tasks.repository';
+import { MAX_CHARGEABLE_TASK_IDS } from '../tasks/task-chargeability.constants';
 
 /** Locally-owned task annotations under `/admin`. Today: chargeability. */
 @ApiTags('admin')

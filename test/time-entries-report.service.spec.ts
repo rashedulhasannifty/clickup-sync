@@ -7,6 +7,7 @@ describe('TimeEntriesReportService', () => {
         groupBy: jest.fn().mockResolvedValue([]),
         count: jest.fn().mockResolvedValue(0),
         findMany: jest.fn().mockResolvedValue([]),
+        aggregate: jest.fn().mockResolvedValue({ _count: 0, _sum: { durationHours: null, costCents: null } }),
       },
       $queryRaw: jest.fn().mockResolvedValue([]),
     };
@@ -37,25 +38,20 @@ describe('TimeEntriesReportService', () => {
     });
   });
 
-  describe('timeEntriesBillableSummary', () => {
-    it('separates billable and non-billable rows', async () => {
+  describe('timeEntriesChargeableSummary', () => {
+    it('separates chargeable and non-chargeable hours', async () => {
       const prisma = makePrisma();
-      prisma.clickupTimeEntry.groupBy.mockResolvedValue([
-        { billable: true, _sum: { durationHours: { toNumber: () => 10 }, costCents: BigInt(150000) } },
-        { billable: false, _sum: { durationHours: { toNumber: () => 5 }, costCents: BigInt(0) } },
-      ]);
-      const result = await new TimeEntriesReportService(prisma).timeEntriesBillableSummary();
-      expect(result.billableHours).toBe(10);
-      expect(result.billableCostAud).toBe(1500);
-      expect(result.nonBillableHours).toBe(5);
-      expect(result.nonBillableCostAud).toBe(0);
+      prisma.clickupTimeEntry.aggregate
+        .mockResolvedValueOnce({ _count: 1, _sum: { durationHours: { toNumber: () => 10 }, costCents: BigInt(150000) } })
+        .mockResolvedValueOnce({ _count: 1, _sum: { durationHours: { toNumber: () => 5 }, costCents: BigInt(0) } });
+      const result = await new TimeEntriesReportService(prisma).timeEntriesChargeableSummary();
+      expect(result).toEqual({ chargeableHours: 10, nonChargeableHours: 5 });
     });
 
     it('returns zeros when no entries exist', async () => {
       const prisma = makePrisma();
-      prisma.clickupTimeEntry.groupBy.mockResolvedValue([]);
-      const result = await new TimeEntriesReportService(prisma).timeEntriesBillableSummary();
-      expect(result).toEqual({ billableHours: 0, nonBillableHours: 0, billableCostAud: 0, nonBillableCostAud: 0 });
+      const result = await new TimeEntriesReportService(prisma).timeEntriesChargeableSummary();
+      expect(result).toEqual({ chargeableHours: 0, nonChargeableHours: 0 });
     });
   });
 
@@ -210,6 +206,33 @@ describe('TimeEntriesReportService', () => {
       prisma.clickupTimeEntry.count.mockResolvedValue(1);
       const result = await new TimeEntriesReportService(prisma).timeEntriesList();
       expect(result.items[0].client).toBeNull();
+    });
+  });
+
+  describe('chargeability in reports', () => {
+    it('marks a flat entry chargeable from its task', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.findMany.mockResolvedValue([{
+        timeEntryId: 'e1', taskId: 't1', userId: 'u1', userName: 'Alice', userEmail: null,
+        startTime: new Date(), endTime: null, durationHours: { toNumber: () => 1 },
+        hourlyRateCents: 0n, costCents: 0n, status: 'NOT_CHARGEABLE', billable: true,
+        description: null, syncedAt: new Date(), rateId: null, currency: 'USD',
+        task: { taskName: 'T', client: null, listName: null, isChargeable: false },
+      }]);
+      const { items } = await new TimeEntriesReportService(prisma).timeEntriesList();
+      expect(items[0].chargeable).toBe(false);
+    });
+
+    it('treats a task-less entry as chargeable', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.findMany.mockResolvedValue([{
+        timeEntryId: 'e1', taskId: null, userId: 'u1', userName: 'Alice', userEmail: null,
+        startTime: new Date(), endTime: null, durationHours: { toNumber: () => 1 },
+        hourlyRateCents: 0n, costCents: 0n, status: 'COST_CALCULATED', billable: false,
+        description: null, syncedAt: new Date(), rateId: null, currency: 'USD', task: null,
+      }]);
+      const { items } = await new TimeEntriesReportService(prisma).timeEntriesList();
+      expect(items[0].chargeable).toBe(true);
     });
   });
 
@@ -554,10 +577,10 @@ describe('TimeEntriesReportService', () => {
 });
 
 describe('TimeEntriesReportService.timeEntriesByTask', () => {
-  /** One `groupBy` row: the (task, assignee, billable, status) grain the fold reduces. */
+  /** One `groupBy` row: the (task, assignee, status) grain the fold reduces. */
   function group(over: Partial<Record<string, any>> = {}) {
     return {
-      taskId: 't1', userId: 'u1', userName: 'Alice', billable: true,
+      taskId: 't1', userId: 'u1', userName: 'Alice',
       status: 'COST_CALCULATED', currency: 'USD',
       _count: 1,
       _sum: { durationHours: { toNumber: () => 1 }, costCents: BigInt(0) },
@@ -629,20 +652,32 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
     expect(items[0].entryCount).toBe(4);
   });
 
-  it('splits billable from non-billable hours within the task', async () => {
+  it('sums all entries into chargeableHours when the task is chargeable', async () => {
     const prisma = makePrisma([
-      group({ billable: true, _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(0) } }),
-      group({ billable: false, _sum: { durationHours: { toNumber: () => 2 }, costCents: BigInt(0) } }),
+      group({ _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(0) } }),
+      group({ userId: 'u2', userName: 'Bob', _sum: { durationHours: { toNumber: () => 2 }, costCents: BigInt(0) } }),
     ]);
     const { items } = await svc(prisma).timeEntriesByTask({});
-    expect(items[0].billableHours).toBe(6);
-    expect(items[0].nonBillableHours).toBe(2);
+    expect(items[0].chargeable).toBe(true);
+    expect(items[0].totalHours).toBe(8);
+    expect(items[0].chargeableHours).toBe(8);
+  });
+
+  it('reports a task\'s chargeability and zeroes its chargeable hours when off', async () => {
+    const prisma = makePrisma(
+      [group({ taskId: 't1', _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(0) } })],
+      [{ taskId: 't1', taskName: 'T', client: null, listName: null, isChargeable: false }],
+    );
+    const { items } = await svc(prisma).timeEntriesByTask({});
+    expect(items[0].chargeable).toBe(false);
+    expect(items[0].totalHours).toBe(6);
+    expect(items[0].chargeableHours).toBe(0);
   });
 
   it('lists each assignee once however many entries they logged', async () => {
     const prisma = makePrisma([
-      group({ userId: 'u1', userName: 'Alice', billable: true }),
-      group({ userId: 'u1', userName: 'Alice', billable: false }),
+      group({ userId: 'u1', userName: 'Alice' }),
+      group({ userId: 'u1', userName: 'Alice' }),
       group({ userId: 'u2', userName: 'Bob' }),
     ]);
     const { items } = await svc(prisma).timeEntriesByTask({});
@@ -693,11 +728,11 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
     } as any;
     const filters = {
       from: '2026-01-01T00:00:00.000Z', to: '2026-02-01T00:00:00.000Z',
-      userId: 'u1,u2', client: 'Acme', billable: 'true', archived: 'exclude', search: 'webhook',
+      userId: 'u1,u2', client: 'Acme', chargeable: 'true', archived: 'exclude', search: 'webhook',
     };
     await svc(prisma).timeEntriesByTask(filters);
     await svc(listPrisma).timeEntriesList(
-      filters.userId, filters.from, filters.to, undefined, 50, 0, filters.billable,
+      filters.userId, filters.from, filters.to, undefined, 50, 0, filters.chargeable,
       filters.search, undefined, undefined, filters.client, undefined, undefined, filters.archived,
     );
     expect(prisma.clickupTimeEntry.groupBy.mock.calls[0][0].where)

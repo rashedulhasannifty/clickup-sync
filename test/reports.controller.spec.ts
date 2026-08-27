@@ -413,7 +413,7 @@ describe('ReportsController', () => {
       );
       expect(timeEntries.timeEntriesByTask).toHaveBeenCalledWith({
         userId: 'u1,u2', from: '2026-01-01', to: '2026-02-01', status: 'NO_RATE_FOUND',
-        limit: 25, offset: 50, billable: 'true', search: 'webhook', spaceId: 'space-1',
+        limit: 25, offset: 50, chargeable: 'true', search: 'webhook', spaceId: 'space-1',
         missingOnly: undefined, client: 'Acme', listId: 'list-1', folderId: 'folder-1',
         archived: 'exclude', sprintStatus: 'active',
       });
