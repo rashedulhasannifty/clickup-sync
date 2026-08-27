@@ -37,7 +37,7 @@ export const JOBS = {
 } as const;
 
 /**
- * BullMQ priority for bulk backfill-generated time-entry jobs.
+ * BullMQ priority for ANY bulk sweep that shares a queue with live traffic.
  *
  * Counter-intuitive but load-bearing: in BullMQ, priority `0` (the default) is
  * the HIGHEST priority — non-prioritized jobs sit in the FIFO `wait` list and
@@ -47,10 +47,17 @@ export const JOBS = {
  * webhook jobs enqueued afterwards (also default priority) behind the entire
  * backlog — hours of delay on the same shared queue.
  *
- * Giving backfill jobs an explicit priority (>= 1) moves them into the
- * prioritized set, so they only run when the `wait` list is empty. Live webhook
- * jobs and manual single-task admin syncs stay at the default priority (0) and
- * are always served first. The exact number doesn't matter (nothing else is
- * prioritized); it just has to be non-zero.
+ * Giving bulk jobs an explicit priority (>= 1) moves them into the prioritized
+ * set, so they only run when the `wait` list is empty. Live webhook jobs and
+ * manual single-task admin syncs stay at the default priority (0) and are always
+ * served first. The exact number doesn't matter (nothing else is prioritized);
+ * it just has to be non-zero.
+ *
+ * Applies to EVERY queue a sweep can flood, not just `clickup-time-entries`:
+ * `tasks/reconcile` fans out onto `clickup-tasks`, which the webhook path also
+ * feeds, and the replacement backfill shares `clickup-assignee-replacement` with
+ * live tag-driven replacements. Any new endpoint that enqueues per-task or
+ * per-entry in a loop must set this — the failure is silent, showing up only as
+ * real-time sync mysteriously lagging by hours.
  */
-export const BACKFILL_TIME_ENTRY_PRIORITY = 100;
+export const BULK_SWEEP_PRIORITY = 100;

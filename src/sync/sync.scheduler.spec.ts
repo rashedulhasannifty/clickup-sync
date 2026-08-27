@@ -1,5 +1,5 @@
 import { SyncScheduler } from './sync.scheduler';
-import { JOBS, QUEUES, BACKFILL_TIME_ENTRY_PRIORITY } from '../queues/queue.constants';
+import { JOBS, QUEUES, BULK_SWEEP_PRIORITY } from '../queues/queue.constants';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 
 function makeScheduler(opts: { liveJobs?: { name: string }[]; lookbackDays?: number; enabled?: (id: string) => boolean; candidateTasks?: string[] } = {}) {
@@ -62,7 +62,7 @@ describe('SyncScheduler.deepBackfillTimeEntries', () => {
     const { scheduler, queue } = makeScheduler();
     await scheduler.deepBackfillTimeEntries();
 
-    reconcileCalls(queue).forEach((c) => expect(c[2]).toMatchObject({ priority: BACKFILL_TIME_ENTRY_PRIORITY }));
+    reconcileCalls(queue).forEach((c) => expect(c[2]).toMatchObject({ priority: BULK_SWEEP_PRIORITY }));
   });
 
   it('targets exactly one space per run (bounded load on a small host)', async () => {
@@ -183,7 +183,7 @@ describe('SyncScheduler deletion reconcile', () => {
   it('deprioritizes its jobs so they cannot block live webhooks', async () => {
     const { scheduler, queue } = makeScheduler();
     await scheduler.reconcileDeletions7d();
-    syncCalls(queue).forEach((c) => expect(c[2]).toMatchObject({ priority: BACKFILL_TIME_ENTRY_PRIORITY }));
+    syncCalls(queue).forEach((c) => expect(c[2]).toMatchObject({ priority: BULK_SWEEP_PRIORITY }));
   });
 
   it('enqueues one job per candidate task', async () => {

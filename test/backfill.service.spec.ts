@@ -1,5 +1,5 @@
 import { BackfillService } from '../src/sync/backfill.service';
-import { JOBS, BACKFILL_TIME_ENTRY_PRIORITY } from '../src/queues/queue.constants';
+import { JOBS, BULK_SWEEP_PRIORITY } from '../src/queues/queue.constants';
 
 describe('BackfillService.backfillSpace — time-entry lookback window', () => {
   const RD_APPS_ID = '3589129'; // configured backfillLookbackDays = 30
@@ -172,7 +172,7 @@ describe('BackfillService.backfillSpace — time-entry lookback window', () => {
     const calls = timeEntryJobs(queueAdd);
     expect(calls).toHaveLength(1);
     const jobOpts = calls[0][2];
-    expect(jobOpts.priority).toBe(BACKFILL_TIME_ENTRY_PRIORITY);
+    expect(jobOpts.priority).toBe(BULK_SWEEP_PRIORITY);
     expect(jobOpts.priority).toBeGreaterThanOrEqual(1);
   });
 

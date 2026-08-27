@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { AdminSyncController } from './admin-sync.controller';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { RECONCILE_WINDOW_SLICE_DAYS } from '../sync/reconcile-window.util';
+import { BULK_SWEEP_PRIORITY } from '../queues/queue.constants';
 
 function makeController(overrides: Partial<Record<string, any>> = {}) {
   const queues = overrides.queues ?? { get: () => ({ add: jest.fn() }), defaultJobOptions: () => ({}) };
@@ -48,5 +49,57 @@ describe('POST reconcile-window', () => {
     const slices = Math.ceil(400 / RECONCILE_WINDOW_SLICE_DAYS); // clamped from the requested 100000 days
     expect(res.queued).toBe(CLICKUP_SPACES.length * slices);
     expect(add).toHaveBeenCalledTimes(CLICKUP_SPACES.length * slices);
+  });
+});
+
+/**
+ * BullMQ treats priority 0 (the default) as the HIGHEST priority: unprioritized
+ * jobs sit in the FIFO `wait` list, which is drained before the prioritized set.
+ * A bulk sweep left at the default therefore head-of-line-blocks every live
+ * webhook job enqueued after it — 50k tasks at the 30 jobs/min ClickUp limiter
+ * is ~28 hours of real-time sync lag, with nothing logged or failing to show it.
+ */
+describe('bulk sweeps must not head-of-line-block live webhook jobs', () => {
+  const TASKS = [
+    { taskId: 't1', spaceId: CLICKUP_SPACES[0].id },
+    { taskId: 't2', spaceId: CLICKUP_SPACES[1].id },
+  ];
+
+  it('sync-all deprioritizes every job (shares clickup-time-entries with webhooks)', async () => {
+    const add = jest.fn().mockResolvedValue(undefined);
+    const controller = makeController({
+      queues: { get: () => ({ add }), defaultJobOptions: () => ({ attempts: 5 }) },
+      tasksRepo: { findAllIds: jest.fn().mockResolvedValue(TASKS) },
+    });
+
+    await controller.syncAllTimeEntries();
+
+    expect(add).toHaveBeenCalledTimes(TASKS.length);
+    add.mock.calls.forEach(([, , opts]) => expect(opts).toMatchObject({ priority: BULK_SWEEP_PRIORITY }));
+  });
+
+  it('tasks/reconcile deprioritizes every job (shares clickup-tasks with webhooks)', async () => {
+    const add = jest.fn().mockResolvedValue(undefined);
+    const controller = makeController({
+      queues: {
+        get: () => ({ add, getJobs: jest.fn().mockResolvedValue([]) }),
+        defaultJobOptions: () => ({ attempts: 5 }),
+      },
+      tasksRepo: { findAllIds: jest.fn().mockResolvedValue(TASKS) },
+    });
+
+    await controller.reconcileTasks();
+
+    expect(add).toHaveBeenCalledTimes(TASKS.length);
+    add.mock.calls.forEach(([, , opts]) => expect(opts).toMatchObject({ priority: BULK_SWEEP_PRIORITY }));
+  });
+
+  it('the windowed reconcile stays deprioritized', async () => {
+    const add = jest.fn().mockResolvedValue(undefined);
+    const controller = makeController({ queues: { get: () => ({ add }), defaultJobOptions: () => ({}) } });
+
+    await controller.reconcileTimeEntriesWindow({ lookbackDays: 30 });
+
+    add.mock.calls.forEach(([, , opts]) => expect(opts).toMatchObject({ priority: BULK_SWEEP_PRIORITY }));
   });
 });
