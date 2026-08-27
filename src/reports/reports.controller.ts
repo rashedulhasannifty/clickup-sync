@@ -9,6 +9,7 @@ import { CycleTimeReportService } from './cycle-time-report.service';
 import { AnomalyReportService } from './anomaly-report.service';
 import { OpsReportService } from './ops-report.service';
 import { SprintsReportService } from './sprints-report.service';
+import { csvList } from './report-filter.util';
 
 /** `sprintStatus`/`status` filter accepted by the sprint routes and the
  *  tasks/time-entries list endpoints. Unrecognized values fall back to
@@ -102,6 +103,15 @@ export class ReportsController {
   @ApiOperation({ summary: 'Rich (markdown) + plain description for a single task. Fetched on demand by the task drawer; kept off the paged list/export payload on purpose.' })
   taskDescription(@Param('taskId') taskId: string) {
     return this.tasksReports.taskDescription(taskId);
+  }
+
+  @Get('tasks/chargeable-preview')
+  @ApiOperation({ summary: 'Counts behind the chargeability confirmation dialog: tasks given, tasks that would actually change, and the time entries + hours affected. `taskIds` is a comma-separated list, max 500.' })
+  chargeablePreview(@Query('taskIds') taskIds = '', @Query('chargeable') chargeable?: string) {
+    const ids = csvList(taskIds) ?? [];
+    if (ids.length === 0) throw new BadRequestException('taskIds is required');
+    if (ids.length > 500) throw new BadRequestException('At most 500 tasks per request');
+    return this.tasksReports.chargeablePreview(ids, chargeable === 'true');
   }
 
   @Get('anomalies')

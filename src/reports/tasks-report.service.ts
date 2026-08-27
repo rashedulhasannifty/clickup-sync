@@ -346,4 +346,29 @@ export class TasksReportService {
       costAud: Number(r.cost_cents) / 100,
     }));
   }
+
+  /**
+   * Numbers behind the chargeability confirmation dialog.
+   *
+   * `changing` counts only the tasks whose flag would actually flip — marking
+   * twelve tasks non-chargeable when three already are should say nine, or the
+   * dialog overstates what is about to happen. The entry count and hours cover
+   * every given task, since that is the time whose cost is being re-evaluated.
+   */
+  async chargeablePreview(taskIds: string[], chargeable: boolean) {
+    const [changing, entries] = await Promise.all([
+      this.prisma.clickupTask.count({ where: { taskId: { in: taskIds }, isChargeable: !chargeable } }),
+      this.prisma.clickupTimeEntry.aggregate({
+        where: { taskId: { in: taskIds } },
+        _count: true,
+        _sum: { durationHours: true },
+      }),
+    ]);
+    return {
+      tasks: taskIds.length,
+      changing,
+      timeEntries: entries._count,
+      hours: entries._sum.durationHours?.toNumber() ?? 0,
+    };
+  }
 }

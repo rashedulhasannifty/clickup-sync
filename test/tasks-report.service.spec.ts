@@ -477,4 +477,17 @@ describe('TasksReportService', () => {
       expect(result).toEqual([]);
     });
   });
+
+  describe('chargeablePreview', () => {
+    it('reports how many of the given tasks would actually change', async () => {
+      const prisma = {
+        clickupTask: { count: jest.fn().mockResolvedValue(9) },
+        clickupTimeEntry: { aggregate: jest.fn().mockResolvedValue({ _count: 84, _sum: { durationHours: { toNumber: () => 156.5 } } }) },
+      } as never;
+
+      const res = await new TasksReportService(prisma).chargeablePreview(['t1', 't2', 't3'], false);
+
+      expect(res).toEqual({ tasks: 3, changing: 9, timeEntries: 84, hours: 156.5 });
+    });
+  });
 });

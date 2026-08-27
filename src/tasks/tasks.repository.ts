@@ -74,4 +74,16 @@ export class TasksRepository {
     const existing = new Set(rows.map((r) => r.taskId));
     return parentIds.filter((id) => !existing.has(id));
   }
+
+  /**
+   * Set the locally-owned chargeability flag. Only rows whose value actually
+   * changes are counted, so the caller can skip a pointless recalculation —
+   * and the returned count is what the UI reports back to the user.
+   */
+  setChargeable(taskIds: string[], chargeable: boolean) {
+    return this.prisma.clickupTask.updateMany({
+      where: { taskId: { in: taskIds }, isChargeable: !chargeable },
+      data: { isChargeable: chargeable },
+    });
+  }
 }
