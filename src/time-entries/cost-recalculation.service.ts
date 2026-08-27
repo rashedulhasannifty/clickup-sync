@@ -18,7 +18,8 @@ export class CostRecalculationService {
   /**
    * Recompute cost_cents/rate_id/status for existing time entries using the
    * current assignee rates. Scoped to one assignee when assigneeId is given,
-   * otherwise every entry. Idempotent.
+   * to a set of tasks when taskIds is given (what a chargeability toggle
+   * enqueues), or every entry when neither is given. Idempotent.
    *
    * Streams the table in id-ordered cursor batches instead of loading every
    * row into memory, and threads one short-lived RateCache through the whole
@@ -26,8 +27,13 @@ export class CostRecalculationService {
    * entry (the recalc-all path could otherwise issue 2N serial DB round-trips
    * on a growing table).
    */
-  async recalculate(opts: { assigneeId?: string }): Promise<{ scanned: number; updated: number }> {
-    const where = opts.assigneeId ? { userId: opts.assigneeId } : {};
+  async recalculate(opts: { assigneeId?: string; taskIds?: string[] }): Promise<{ scanned: number; updated: number }> {
+    // Scopes are independent: an assignee, a set of tasks (what a chargeability
+    // toggle enqueues), or everything.
+    const where = {
+      ...(opts.assigneeId ? { userId: opts.assigneeId } : {}),
+      ...(opts.taskIds?.length ? { taskId: { in: opts.taskIds } } : {}),
+    };
     const cache: RateCache = new Map();
 
     let scanned = 0;
@@ -41,12 +47,13 @@ export class CostRecalculationService {
         take: BATCH_SIZE,
         ...(cursor ? { skip: 1, cursor: { timeEntryId: cursor } } : {}),
         orderBy: { timeEntryId: 'asc' },
-        select: { timeEntryId: true, userId: true, startTime: true, durationHours: true, billable: true, task: { select: { dueDate: true } } },
+        select: { timeEntryId: true, userId: true, startTime: true, durationHours: true, task: { select: { dueDate: true, isChargeable: true } } },
       });
       if (entries.length === 0) break;
 
       for (const e of entries) {
-        const cost = await this.costs.calculate(e.userId, e.startTime, e.durationHours.toNumber(), cache, { billable: e.billable, dueDate: e.task?.dueDate ?? null });
+        // No task means no flag to read — those entries are chargeable.
+        const cost = await this.costs.calculate(e.userId, e.startTime, e.durationHours.toNumber(), cache, { chargeable: e.task?.isChargeable ?? true, dueDate: e.task?.dueDate ?? null });
         await this.prisma.clickupTimeEntry.update({
           where: { timeEntryId: e.timeEntryId },
           data: {

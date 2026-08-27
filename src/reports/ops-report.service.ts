@@ -185,7 +185,7 @@ export class OpsReportService {
       this.prisma.clickupWebhookEvent.count({ where: { receivedAt: { gte: since24h } } }),
       this.prisma.clickupTimeEntry.count({
         where: {
-          status: { notIn: ['COST_CALCULATED', 'COST_EXCLUDED'] },
+          status: { notIn: ['COST_CALCULATED', 'COST_EXCLUDED', 'NOT_CHARGEABLE'] },
           ...(excludedIds.length ? { OR: [{ userId: null }, { userId: { notIn: excludedIds } }] } : {}),
         },
       }),
