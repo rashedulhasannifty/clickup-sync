@@ -58,6 +58,9 @@ export const reportsApi = {
     apiClient.get('/reports/sprints/velocity', { params }).then((r) => r.data),
   sprintDetail: (listId: string) =>
     apiClient.get(`/reports/sprints/${listId}`).then((r) => r.data),
+  chargeablePreview: (taskIds: string[], chargeable: boolean) =>
+    apiClient.get('/reports/tasks/chargeable-preview', { params: { taskIds: taskIds.join(','), chargeable } })
+      .then(r => r.data as { tasks: number; changing: number; timeEntries: number; hours: number }),
 };
 
 export interface CycleTimeItem { bucket: string; meanHours: number; medianHours: number; p90Hours: number; taskCount: number; }

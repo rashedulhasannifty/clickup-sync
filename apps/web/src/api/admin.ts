@@ -116,4 +116,6 @@ export const adminApi = {
     put: (assignees: ExcludedAssignee[]) =>
       apiClient.put('/admin/excluded-assignees', { assignees }).then((r) => r.data as { assignees: ExcludedAssignee[]; recalculated: string[] }),
   },
+  setTasksChargeable: (taskIds: string[], chargeable: boolean) =>
+    apiClient.patch('/admin/tasks/chargeable', { taskIds, chargeable }).then(r => r.data as { updated: number; requested: number; queued: boolean }),
 };
