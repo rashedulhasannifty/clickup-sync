@@ -48,6 +48,32 @@ export class TimeEntriesRepository {
    * window (and, incidentally, replacement entries — which live under a
    * different, mapped user than the webhook's logged user). Returns rows deleted.
    */
+  /**
+   * Distinct task ids that have at least one LOCAL time entry starting in
+   * [startMs, endMs] — the candidate set for delete-detection.
+   *
+   * ClickUp emits no "time entry deleted" event, so a deletion is only visible
+   * by re-fetching a task and noticing a row we hold is gone. That means we need
+   * the tasks we currently hold entries for, not the tasks ClickUp returns:
+   * a task whose entries were ALL deleted upstream would never appear in a
+   * ClickUp-driven list, yet it is exactly the one that must be checked.
+   *
+   * Cheap by design — this drives the nightly reconcile's candidate list, and
+   * only a few hundred tasks are touched in any recent window, versus 50k+ if
+   * every task were swept.
+   */
+  async findTaskIdsWithEntriesInWindow(startMs: number, endMs: number): Promise<string[]> {
+    const rows = await this.prisma.clickupTimeEntry.findMany({
+      where: {
+        taskId: { not: null },
+        startTime: { gte: new Date(startMs), lte: new Date(endMs) },
+      },
+      select: { taskId: true },
+      distinct: ['taskId'],
+    });
+    return rows.map((r) => r.taskId).filter((id): id is string => !!id);
+  }
+
   async pruneTaskEntriesOutsideSet(args: {
     taskId: string;
     userIds: string[];

@@ -6,6 +6,10 @@ import { sliceReconcileWindow } from './reconcile-window.util';
 import { subtractDays } from '../common/utils/date-utils';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { SettingsService } from '../settings/settings.service';
+import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
+
+/** The team works Asia/Dhaka hours; crons that mean "2am" mean 2am there. */
+const DHAKA = 'Asia/Dhaka';
 
 @Injectable()
 export class SyncScheduler {
@@ -13,6 +17,7 @@ export class SyncScheduler {
   constructor(
     private readonly queues: QueueService,
     private readonly settings: SettingsService,
+    private readonly timeEntriesRepo: TimeEntriesRepository,
   ) {}
 
   // Recurring reconciliation: every 12 hours, syncs tasks updated in the last
@@ -119,8 +124,10 @@ export class SyncScheduler {
   }
 
   /**
-   * Deep time-entry reconcile — the ONLY path that repairs an edit or deletion
-   * made in ClickUp to an entry older than a week.
+   * Deep time-entry BACKFILL — upsert-only. Recovers entries we never synced
+   * and repairs edits, but it CANNOT detect a deletion: its delete-prune was
+   * disabled after destroying live data (see WINDOW_PRUNE_ENABLED in
+   * TimeEntriesService). Deletion detection lives in the per-task crons below.
    *
    * Both recurring sweeps above pass `timeEntryLookbackDays: 7`, and
    * `syncTaskTimeEntries` scopes its ClickUp fetch AND its delete-prune to that
@@ -144,7 +151,7 @@ export class SyncScheduler {
    * 02:00 UTC keeps it clear of the 03:00 list-catalog and 04:00 archived crons.
    */
   @Cron('0 0 2 * * *')
-  async deepReconcileTimeEntries() {
+  async deepBackfillTimeEntries() {
     const enabled = CLICKUP_SPACES.filter((s) => this.settings.isSpaceEnabled(s.id));
     if (!enabled.length) return;
     // Offset by 1 so this never targets the same space as `reconcileArchived`
@@ -172,6 +179,73 @@ export class SyncScheduler {
     }
     this.logger.log(
       `Deep time-entry reconcile enqueued for space ${space.id}: ${slices.length} slice(s) over ${lookbackDays}d (daily rotation)`,
+    );
+  }
+
+  /**
+   * Deletion reconcile — the ONLY mechanism that notices a time entry deleted in
+   * ClickUp, which emits no event for it.
+   *
+   * Runs the PER-TASK sync (`task_id`-scoped), whose prune is sound: a task_id
+   * fetch returns that task's complete set, so anything we hold and ClickUp did
+   * not return really is gone. The cheap space_id-scoped windowed path cannot be
+   * used here — its response is incomplete and pruning off it deleted 429 live
+   * entries on 2026-08-25.
+   *
+   * The candidate list is "tasks we hold entries for in the window", NOT tasks
+   * ClickUp returns. A task whose entries were all deleted upstream would be
+   * absent from any ClickUp-driven list, yet it is precisely the one to check.
+   *
+   * Cost is small because recent windows touch few tasks: ~186 tasks over 7 days
+   * and ~650 over 30, versus 50k+ for a blanket sweep. At the 30 jobs/min
+   * ClickUp limiter that is roughly 6 and 22 minutes.
+   *
+   * Schedule (Asia/Dhaka, so it really is 02:00 local — the containers run UTC,
+   * where 02:00 Dhaka is 20:00 the PREVIOUS day; letting the cron library do the
+   * conversion avoids hand-shifting both the hour and the weekday):
+   *   Mon-Thu 02:00 → 7 days
+   *   Fri     02:00 → 30 days
+   *
+   * 30 days is the deep pass because the team's working rule is that entries
+   * older than 30 days are never edited or deleted. If that rule slips, an older
+   * deletion goes unnoticed — widen the Friday window rather than adding a
+   * nightly cost.
+   */
+  @Cron('0 0 2 * * 1-4', { name: 'reconcile-deletions-7d', timeZone: DHAKA })
+  async reconcileDeletions7d() {
+    await this.enqueueDeletionReconcile(7);
+  }
+
+  @Cron('0 0 2 * * 5', { name: 'reconcile-deletions-30d', timeZone: DHAKA })
+  async reconcileDeletions30d() {
+    await this.enqueueDeletionReconcile(30);
+  }
+
+  /**
+   * Enqueues one per-task time-entry sync for every task holding an entry in the
+   * last `lookbackDays`. Shared by both deletion-reconcile crons.
+   */
+  private async enqueueDeletionReconcile(lookbackDays: number): Promise<void> {
+    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
+    const endDate = Date.now();
+    const startDate = subtractDays(lookbackDays).getTime();
+
+    const taskIds = await this.timeEntriesRepo.findTaskIdsWithEntriesInWindow(startDate, endDate);
+    if (!taskIds.length) {
+      this.logger.log(`Deletion reconcile (${lookbackDays}d): no tasks hold entries in the window — nothing to check`);
+      return;
+    }
+
+    // Deprioritized so a long sweep can never head-of-line-block a live webhook.
+    // The window is passed explicitly: syncTaskTimeEntries scopes BOTH its
+    // ClickUp fetch and its prune to it, so a row outside the window is never at
+    // risk from this run.
+    const jobOpts = { ...this.queues.defaultJobOptions(), priority: BACKFILL_TIME_ENTRY_PRIORITY };
+    for (const taskId of taskIds) {
+      await queue.add(JOBS.SYNC_TASK_TIME_ENTRIES, { taskId, startDate, endDate }, jobOpts);
+    }
+    this.logger.log(
+      `Deletion reconcile (${lookbackDays}d): enqueued ${taskIds.length} per-task sync(s) to detect entries deleted in ClickUp`,
     );
   }
 

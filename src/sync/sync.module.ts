@@ -4,6 +4,7 @@ import { QueuesModule } from '../queues/queues.module';
 import { ClickupModule } from '../clickup/clickup.module';
 import { TasksModule } from '../tasks/tasks.module';
 import { ListsModule } from '../lists/lists.module';
+import { TimeEntriesModule } from '../time-entries/time-entries.module';
 import { SyncCheckpointsRepository } from './sync-checkpoints.repository';
 import { BackfillService } from './backfill.service';
 import { SyncScheduler } from './sync.scheduler';
@@ -16,7 +17,9 @@ const worker = isWorker();
 // SyncScheduler stay worker-gated so the daily crons fire in the single worker
 // container, never in the web colors.
 @Module({
-  imports: [...(worker ? [ScheduleModule] : []), QueuesModule, ClickupModule, TasksModule, ListsModule],
+  // TimeEntriesModule supplies TimeEntriesRepository, which the deletion-reconcile
+  // crons use to find which tasks currently hold entries in the window.
+  imports: [...(worker ? [ScheduleModule] : []), QueuesModule, ClickupModule, TasksModule, ListsModule, TimeEntriesModule],
   providers: [SyncCheckpointsRepository, BackfillService, ...(worker ? [SyncScheduler] : [])],
   exports: [SyncCheckpointsRepository, BackfillService],
 })
