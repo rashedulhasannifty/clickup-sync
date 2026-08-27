@@ -275,7 +275,7 @@ describe('OpsReportService', () => {
       await new OpsReportService(prisma).stats(['u1']);
       // 4th count call (missingRateEntries) is on clickupTimeEntry.count
       const where = prisma.clickupTimeEntry.count.mock.calls[0][0].where;
-      expect(where.status).toEqual({ notIn: ['COST_CALCULATED', 'COST_EXCLUDED'] });
+      expect(where.status).toEqual({ notIn: ['COST_CALCULATED', 'COST_EXCLUDED', 'NOT_CHARGEABLE'] });
       expect(where.OR).toEqual([{ userId: null }, { userId: { notIn: ['u1'] } }]);
     });
 
