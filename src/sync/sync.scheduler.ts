@@ -77,8 +77,9 @@ export const DELETION_RECONCILE_DAYS = 45;
  * Sizing (production, 2026-08-27): 21,780 tasks hold at least one time entry.
  * At 3,500/night a full cycle completes every 7 nights. Each task costs one
  * task fetch plus one time-entries fetch, on two queues with independent
- * limiters, so wall-clock is ~3,500/30 ≈ 2 hours — comfortably inside the
- * 00:00-09:00 local window, and both queues are empty at 01:00.
+ * limiters, so they run in parallel: wall-clock is ~3,500/20 ≈ 3 hours at the
+ * bulk limiter — comfortably inside the 00:00-09:00 local window, and both
+ * queues are empty at 01:00.
  */
 export const ROLLING_SWEEP_TASKS_PER_NIGHT = 3500;
 
@@ -280,7 +281,7 @@ export class SyncScheduler {
     // still compute the same day number and the offset still separates them.
     const space = enabled[this.rotationIndex(new Date(), enabled.length, 1)];
 
-    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
+    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES_BULK);
     // Skip while a previous deep reconcile is still draining. These jobs are
     // deprioritized, so on a slow ClickUp day they can outlive a 24h gap; without
     // this guard each run would stack another full year of slices on top.
@@ -384,7 +385,7 @@ export class SyncScheduler {
       return;
     }
 
-    const entriesQueue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
+    const entriesQueue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES_BULK);
     const tasksQueue = this.queues.get(QUEUES.CLICKUP_TASKS);
     const jobOpts = { ...this.queues.defaultJobOptions(), priority: BULK_SWEEP_PRIORITY };
     const padMs = ROLLING_SWEEP_WINDOW_PAD_DAYS * 24 * 60 * 60 * 1000;
@@ -416,7 +417,7 @@ export class SyncScheduler {
    * last `lookbackDays`.
    */
   private async enqueueDeletionReconcile(lookbackDays: number): Promise<void> {
-    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
+    const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES_BULK);
     const endDate = Date.now();
     const startDate = subtractDays(lookbackDays).getTime();
 

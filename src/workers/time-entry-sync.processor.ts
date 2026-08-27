@@ -1,17 +1,51 @@
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import type { Job } from 'bullmq';
-import { JOBS, QUEUES, clickupWorkerOptions } from '../queues/queue.constants';
-import { TimeEntriesService } from '../time-entries/time-entries.service';
-import { JobLogsRepository } from '../jobs/job-logs.repository';
+import { QUEUES, clickupWorkerOptions, clickupBulkWorkerOptions } from '../queues/queue.constants';
 import { DeadLetterService } from '../jobs/dead-letter.service';
+import { TimeEntrySyncHandler, TimeEntryJobData } from './time-entry-sync.handler';
 
+/**
+ * LIVE time-entry work: webhook-driven syncs and single-task admin syncs.
+ *
+ * Kept on its own queue so a bulk sweep can never consume its rate-limit
+ * budget. BullMQ's limiter is per-worker and is checked in `moveToActive`
+ * BEFORE the wait list is inspected, so priority alone does not protect a live
+ * job from a saturated sweep — only a separate queue does.
+ */
 @Injectable()
 @Processor(QUEUES.CLICKUP_TIME_ENTRIES, clickupWorkerOptions())
 export class TimeEntrySyncProcessor extends WorkerHost {
   constructor(
-    private readonly timeEntries: TimeEntriesService,
-    private readonly jobLogs: JobLogsRepository,
+    private readonly handler: TimeEntrySyncHandler,
+    private readonly deadLetters: DeadLetterService,
+  ) { super(); }
+
+  // NB: @OnWorkerEvent is not reliably inherited, so each processor declares
+  // its own. Without it `recordIfExhausted` never runs and failures stop being
+  // dead-lettered — silently, since nothing else calls it.
+  @OnWorkerEvent('failed')
+  async onFailed(job: Job, err: Error) {
+    await this.deadLetters.recordIfExhausted(job, err);
+  }
+
+  async process(job: Job<TimeEntryJobData>) {
+    return this.handler.handle(job, QUEUES.CLICKUP_TIME_ENTRIES);
+  }
+}
+
+/**
+ * BULK time-entry work: sweeps, backfill fan-out, reconciles.
+ *
+ * Identical behaviour to the live processor — same handler — but bound to a
+ * different queue with its own, smaller limiter. See
+ * QUEUES.CLICKUP_TIME_ENTRIES_BULK.
+ */
+@Injectable()
+@Processor(QUEUES.CLICKUP_TIME_ENTRIES_BULK, clickupBulkWorkerOptions())
+export class TimeEntrySyncBulkProcessor extends WorkerHost {
+  constructor(
+    private readonly handler: TimeEntrySyncHandler,
     private readonly deadLetters: DeadLetterService,
   ) { super(); }
 
@@ -20,44 +54,7 @@ export class TimeEntrySyncProcessor extends WorkerHost {
     await this.deadLetters.recordIfExhausted(job, err);
   }
 
-  async process(
-    job: Job<{
-      taskId?: string;
-      assigneeIds?: string[];
-      startDate?: number;
-      endDate?: number;
-      spaceId?: string;
-      pruneMode?: 'delete' | 'report';
-    }>,
-  ) {
-    if (job.name === JOBS.RECONCILE_TIME_ENTRIES_WINDOW) {
-      const log = await this.jobLogs.started({ jobId: job.id?.toString(), queueName: QUEUES.CLICKUP_TIME_ENTRIES, jobName: job.name, entityType: 'space', entityId: job.data.spaceId });
-      try {
-        const result = await this.timeEntries.reconcileWindow(job.data.spaceId!, job.data.startDate!, job.data.endDate!);
-        await this.jobLogs.finished(log.id, { timeEntriesSynced: result });
-        return result;
-      } catch (e) {
-        await this.jobLogs.failed(log.id, e);
-        throw e;
-      }
-    }
-
-    const log = await this.jobLogs.started({ jobId: job.id?.toString(), queueName: QUEUES.CLICKUP_TIME_ENTRIES, jobName: job.name, entityType: 'task', entityId: job.data.taskId });
-    try {
-      // pruneMode defaults to 'delete' — only the rolling verification sweep
-      // opts into 'report' while it is being observed against real data.
-      const result = await this.timeEntries.syncTaskTimeEntries(
-        job.data.taskId!,
-        job.data.assigneeIds,
-        job.data.startDate,
-        job.data.endDate,
-        job.data.pruneMode ?? 'delete',
-      );
-      await this.jobLogs.finished(log.id, { timeEntriesSynced: result });
-      return result;
-    } catch (e) {
-      await this.jobLogs.failed(log.id, e);
-      throw e;
-    }
+  async process(job: Job<TimeEntryJobData>) {
+    return this.handler.handle(job, QUEUES.CLICKUP_TIME_ENTRIES_BULK);
   }
 }
