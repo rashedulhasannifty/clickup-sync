@@ -53,6 +53,13 @@ model ClickupTask {
   customTags      String?  @map("custom_tags")
   raw             Json?
 
+  // ── Local annotations ───────────────────────────────────────────────────
+  // Owned by THIS app, not mirrored from ClickUp. No sync path may write
+  // these: `TasksRepository.upsert` spreads `NormalizedTask`, which contains
+  // none of them, and a test enforces that. Anything added here inherits the
+  // same rule — a sync that writes these silently reverts what a user set.
+  isChargeable    Boolean  @default(true) @map("is_chargeable")
+
   timeEntries     ClickupTimeEntry[]
 
   @@index([parentTaskId])

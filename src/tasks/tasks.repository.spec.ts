@@ -51,3 +51,16 @@ describe('TasksRepository.upsert', () => {
     expect(create.isDeleted).toBe(false);
   });
 });
+
+describe('local annotations', () => {
+  it('never writes is_chargeable, so a resync cannot revert a user-set flag', async () => {
+    const upsert = jest.fn().mockResolvedValue({});
+    const repo = new TasksRepository({ clickupTask: { upsert } } as never);
+
+    await repo.upsert({ taskId: 't1', taskName: 'Fix webhook dedupe', raw: {} } as never);
+
+    const call = upsert.mock.calls[0][0];
+    expect(call.create).not.toHaveProperty('isChargeable');
+    expect(call.update).not.toHaveProperty('isChargeable');
+  });
+});
