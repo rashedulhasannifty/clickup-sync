@@ -20,7 +20,16 @@ export class TimeEntrySyncProcessor extends WorkerHost {
     await this.deadLetters.recordIfExhausted(job, err);
   }
 
-  async process(job: Job<{ taskId?: string; assigneeIds?: string[]; startDate?: number; endDate?: number; spaceId?: string }>) {
+  async process(
+    job: Job<{
+      taskId?: string;
+      assigneeIds?: string[];
+      startDate?: number;
+      endDate?: number;
+      spaceId?: string;
+      pruneMode?: 'delete' | 'report';
+    }>,
+  ) {
     if (job.name === JOBS.RECONCILE_TIME_ENTRIES_WINDOW) {
       const log = await this.jobLogs.started({ jobId: job.id?.toString(), queueName: QUEUES.CLICKUP_TIME_ENTRIES, jobName: job.name, entityType: 'space', entityId: job.data.spaceId });
       try {
@@ -35,7 +44,15 @@ export class TimeEntrySyncProcessor extends WorkerHost {
 
     const log = await this.jobLogs.started({ jobId: job.id?.toString(), queueName: QUEUES.CLICKUP_TIME_ENTRIES, jobName: job.name, entityType: 'task', entityId: job.data.taskId });
     try {
-      const result = await this.timeEntries.syncTaskTimeEntries(job.data.taskId!, job.data.assigneeIds, job.data.startDate, job.data.endDate);
+      // pruneMode defaults to 'delete' — only the rolling verification sweep
+      // opts into 'report' while it is being observed against real data.
+      const result = await this.timeEntries.syncTaskTimeEntries(
+        job.data.taskId!,
+        job.data.assigneeIds,
+        job.data.startDate,
+        job.data.endDate,
+        job.data.pruneMode ?? 'delete',
+      );
       await this.jobLogs.finished(log.id, { timeEntriesSynced: result });
       return result;
     } catch (e) {

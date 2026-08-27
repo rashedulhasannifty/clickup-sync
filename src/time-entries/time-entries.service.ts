@@ -56,7 +56,22 @@ export class TimeEntriesService {
     private readonly prisma: PrismaService,
   ) {}
 
-  async syncTaskTimeEntries(taskId: string, assigneeIds?: string[], startDate?: number, endDate?: number) {
+  /**
+   * `delete` — prune rows ClickUp did not return (the long-standing behaviour).
+   * `report` — log exactly what would have been pruned and delete nothing.
+   *
+   * `report` exists so a newly-introduced sweep can be observed against real
+   * production data before it is trusted to remove anything. The windowed prune
+   * passed review and tests and still destroyed 429 live rows; the only check
+   * that would have caught it was watching its intended deletions first.
+   */
+  async syncTaskTimeEntries(
+    taskId: string,
+    assigneeIds?: string[],
+    startDate?: number,
+    endDate?: number,
+    pruneMode: 'delete' | 'report' = 'delete',
+  ) {
     const teamId = this.settings.getTeamId();
 
     // Ensure the task row exists before upserting any time entries — otherwise
@@ -107,8 +122,20 @@ export class TimeEntriesService {
       );
     } else {
       const keepIds = upserted.map((u) => u.normalized.timeEntryId);
-      const pruned = await this.repo.pruneTaskEntriesOutsideSet({ taskId, userIds: ids, startMs, endMs, keepIds });
-      if (pruned > 0) this.logger.log(`Pruned ${pruned} time entr${pruned === 1 ? 'y' : 'ies'} deleted in ClickUp for task ${taskId}`);
+      if (pruneMode === 'report') {
+        // Dry run: name the rows and their count so a real sweep's blast radius
+        // is measurable from the logs before it is ever allowed to delete.
+        const would = await this.repo.findTaskEntriesOutsideSet({ taskId, userIds: ids, startMs, endMs, keepIds });
+        if (would.length > 0) {
+          this.logger.warn(
+            `[prune-dry-run] task ${taskId}: would prune ${would.length} entr${would.length === 1 ? 'y' : 'ies'} ` +
+              `(${would.slice(0, 20).join(',')}${would.length > 20 ? ',…' : ''}) — fetched ${entries.length}, kept ${keepIds.length}`,
+          );
+        }
+      } else {
+        const pruned = await this.repo.pruneTaskEntriesOutsideSet({ taskId, userIds: ids, startMs, endMs, keepIds });
+        if (pruned > 0) this.logger.log(`Pruned ${pruned} time entr${pruned === 1 ? 'y' : 'ies'} deleted in ClickUp for task ${taskId}`);
+      }
     }
 
     // Tag-based assignee replacement. Triggered by the *time entry's own tags*

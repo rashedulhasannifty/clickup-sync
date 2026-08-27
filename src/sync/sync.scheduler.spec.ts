@@ -3,6 +3,9 @@ import {
   DELETION_RECONCILE_DAYS,
   DELETION_RECONCILE_MAX_GAP_DAYS,
   EDIT_HORIZON_DAYS,
+  ROLLING_SWEEP_PRUNE_ENABLED,
+  ROLLING_SWEEP_TASKS_PER_NIGHT,
+  ROLLING_SWEEP_WINDOW_PAD_DAYS,
 } from './sync.scheduler';
 import { JOBS, QUEUES, BULK_SWEEP_PRIORITY } from '../queues/queue.constants';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
@@ -283,5 +286,77 @@ describe('SyncScheduler deletion-reconcile coverage guarantee', () => {
       SyncScheduler.prototype.reconcileDeletions,
     )?.cronTime ?? '';
     expect(cron).toBe('0 30 0 * * *');
+  });
+});
+
+describe('SyncScheduler.rollingVerifySweep', () => {
+  const sweepMake = (opts: { candidates?: { taskId: string; oldestStartMs: number; newestStartMs: number }[]; total?: number } = {}) => {
+    const base = makeScheduler();
+    base.timeEntriesRepo.findStalestTasksWithEntries = jest.fn().mockResolvedValue(
+      opts.candidates ?? [{ taskId: 'a', oldestStartMs: 1_000_000, newestStartMs: 2_000_000 }],
+    );
+    base.timeEntriesRepo.countTasksWithEntries = jest.fn().mockResolvedValue(opts.total ?? 21780);
+    return base;
+  };
+  const teCalls = (q: { add: jest.Mock }) => q.add.mock.calls.filter((c) => c[0] === JOBS.SYNC_TASK_TIME_ENTRIES);
+  const taskCalls = (q: { add: jest.Mock }) => q.add.mock.calls.filter((c) => c[0] === JOBS.SYNC_CLICKUP_TASK);
+
+  it('does NOT delete on introduction — it reports what it would prune', async () => {
+    // The windowed prune passed review and tests and still destroyed 429 live
+    // rows. A new sweep must be observed against real data before it deletes.
+    expect(ROLLING_SWEEP_PRUNE_ENABLED).toBe(false);
+    const { scheduler, queue } = sweepMake();
+    await scheduler.rollingVerifySweep();
+    teCalls(queue).forEach((c) => expect((c[1] as { pruneMode: string }).pruneMode).toBe('report'));
+  });
+
+  it('pads the window far enough that a re-dated entry is not falsely pruned', async () => {
+    // The window is derived from rows we already hold — the same rows the prune
+    // judges. If someone re-dates an entry in ClickUp to outside the window the
+    // fetch cannot return it, it is missing from keepIds, and the stale local
+    // row gets deleted while alive upstream. The pad is what prevents that, so
+    // it must comfortably exceed any realistic re-dating.
+    const oldest = Date.UTC(2026, 0, 10);
+    const newest = Date.UTC(2026, 0, 20);
+    const { scheduler, queue } = sweepMake({ candidates: [{ taskId: 'a', oldestStartMs: oldest, newestStartMs: newest }] });
+    await scheduler.rollingVerifySweep();
+
+    const { startDate, endDate } = teCalls(queue)[0][1] as { startDate: number; endDate: number };
+    expect((oldest - startDate) / DAY_MS).toBeCloseTo(ROLLING_SWEEP_WINDOW_PAD_DAYS, 1);
+    expect((endDate - newest) / DAY_MS).toBeCloseTo(ROLLING_SWEEP_WINDOW_PAD_DAYS, 1);
+    expect(ROLLING_SWEEP_WINDOW_PAD_DAYS).toBeGreaterThanOrEqual(30);
+  });
+
+  it('refreshes the task too, so the free time_spent cross-check is not comparing two stale numbers', async () => {
+    const { scheduler, queue } = sweepMake();
+    await scheduler.rollingVerifySweep();
+    expect(taskCalls(queue)).toHaveLength(1);
+    expect(teCalls(queue)).toHaveLength(1);
+  });
+
+  it('orders by least-recently-verified so no task can be starved', async () => {
+    const { scheduler, timeEntriesRepo } = sweepMake();
+    await scheduler.rollingVerifySweep();
+    expect(timeEntriesRepo.findStalestTasksWithEntries).toHaveBeenCalledWith(ROLLING_SWEEP_TASKS_PER_NIGHT);
+  });
+
+  it('deprioritizes every job it enqueues', async () => {
+    const { scheduler, queue } = sweepMake();
+    await scheduler.rollingVerifySweep();
+    queue.add.mock.calls.forEach((c) => expect(c[2]).toMatchObject({ priority: BULK_SWEEP_PRIORITY }));
+  });
+
+  it('completes a full cycle fast enough to be a real guarantee, not a formality', async () => {
+    // 21,780 tasks at the configured budget must wrap in about a week. A cycle
+    // measured in months would make "verified at any age" technically true and
+    // operationally useless.
+    const cycleDays = Math.ceil(21780 / ROLLING_SWEEP_TASKS_PER_NIGHT);
+    expect(cycleDays).toBeLessThanOrEqual(10);
+  });
+
+  it('does nothing when no task holds an entry', async () => {
+    const { scheduler, queue } = sweepMake({ candidates: [] });
+    await scheduler.rollingVerifySweep();
+    expect(queue.add).not.toHaveBeenCalled();
   });
 });

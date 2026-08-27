@@ -74,6 +74,93 @@ export class TimeEntriesRepository {
     return rows.map((r) => r.taskId).filter((id): id is string => !!id);
   }
 
+  /**
+   * Candidates for the rolling verification sweep: the tasks we hold entries
+   * for, **least-recently-verified first**, with the span their entries cover.
+   *
+   * Ordered by `clickup_tasks.synced_at` rather than by the entries' own
+   * `synced_at`, and that choice is load-bearing. A task whose entries all
+   * belong to a departed workspace member can never be re-fetched (ClickUp's
+   * `assignee=` filter only accepts current members), so nothing is ever
+   * upserted and the entries' `synced_at` never moves — ordering on it would
+   * park those tasks permanently at the head of the queue and starve the
+   * rotation. The task row is refreshed by the sweep unconditionally, so
+   * ordering on it advances even when a task yields no entries.
+   *
+   * That the sweep bumps the very column it orders by is what makes the
+   * rotation self-healing: no cursor to persist, no shard arithmetic, and a
+   * missed night simply leaves those tasks at the front of the next one.
+   * Actively-updated tasks are pushed to the back by their own webhook syncs,
+   * so the sweep naturally concentrates on dormant data.
+   *
+   * Soft-deleted tasks are excluded — they are gone in ClickUp and re-fetching
+   * them would 404 forever without ever advancing.
+   */
+  async findStalestTasksWithEntries(
+    limit: number,
+  ): Promise<{ taskId: string; oldestStartMs: number; newestStartMs: number }[]> {
+    const rows = await this.prisma.$queryRaw<
+      { task_id: string; oldest: Date | null; newest: Date | null }[]
+    >(Prisma.sql`
+      SELECT t.task_id, MIN(te.start_time) AS oldest, MAX(te.start_time) AS newest
+      FROM clickup_tasks t
+      JOIN clickup_time_entries te ON te.task_id = t.task_id
+      WHERE t.is_deleted = false
+      GROUP BY t.task_id, t.synced_at
+      ORDER BY t.synced_at ASC
+      LIMIT ${limit}
+    `);
+    return rows
+      .filter((r) => r.oldest && r.newest)
+      .map((r) => ({
+        taskId: r.task_id,
+        oldestStartMs: r.oldest!.getTime(),
+        newestStartMs: r.newest!.getTime(),
+      }));
+  }
+
+  /** Total tasks the rolling sweep must cover, for cycle-length reporting. */
+  async countTasksWithEntries(): Promise<number> {
+    const rows = await this.prisma.$queryRaw<{ n: bigint }[]>(Prisma.sql`
+      SELECT COUNT(DISTINCT te.task_id) AS n
+      FROM clickup_time_entries te
+      JOIN clickup_tasks t ON t.task_id = te.task_id
+      WHERE t.is_deleted = false
+    `);
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  /**
+   * The rows `pruneTaskEntriesOutsideSet` WOULD delete, without deleting them.
+   *
+   * Exists so a new sweep can run its delete-reconciliation in report-only mode
+   * against real production data before it is ever allowed to remove a row. The
+   * windowed prune looked correct in review and in tests, and still destroyed
+   * 429 live entries on 2026-08-25 — the only thing that would have caught it
+   * was observing what it intended to delete first.
+   *
+   * MUST stay filter-identical to `pruneTaskEntriesOutsideSet`, or the dry run
+   * stops predicting the deletion it exists to de-risk. Pinned by a spec.
+   */
+  async findTaskEntriesOutsideSet(args: {
+    taskId: string;
+    userIds: string[];
+    startMs: number;
+    endMs: number;
+    keepIds: string[];
+  }): Promise<string[]> {
+    const rows = await this.prisma.clickupTimeEntry.findMany({
+      where: {
+        taskId: args.taskId,
+        userId: { in: args.userIds },
+        startTime: { gte: new Date(args.startMs), lte: new Date(args.endMs) },
+        timeEntryId: { notIn: args.keepIds },
+      },
+      select: { timeEntryId: true },
+    });
+    return rows.map((r) => r.timeEntryId);
+  }
+
   async pruneTaskEntriesOutsideSet(args: {
     taskId: string;
     userIds: string[];

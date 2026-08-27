@@ -71,6 +71,52 @@ export const DELETION_RECONCILE_MAX_GAP_DAYS = 3;
  */
 export const DELETION_RECONCILE_DAYS = 45;
 
+/**
+ * Tasks the rolling verification sweep re-checks each night.
+ *
+ * Sizing (production, 2026-08-27): 21,780 tasks hold at least one time entry.
+ * At 3,500/night a full cycle completes every 7 nights. Each task costs one
+ * task fetch plus one time-entries fetch, on two queues with independent
+ * limiters, so wall-clock is ~3,500/30 ≈ 2 hours — comfortably inside the
+ * 00:00-09:00 local window, and both queues are empty at 01:00.
+ */
+export const ROLLING_SWEEP_TASKS_PER_NIGHT = 3500;
+
+/**
+ * Padding applied either side of a task's known entry span when the rolling
+ * sweep fetches it.
+ *
+ * NOT cosmetic. The window is derived from the `start_time` of rows we already
+ * hold — the very rows the prune would judge — so a tight window reintroduces
+ * the false-delete this codebase has already shipped once: if someone re-dates
+ * an entry in ClickUp to outside the window, the fetch cannot return it, it is
+ * absent from `keepIds`, and the stale local row (still inside the window) is
+ * deleted while alive upstream.
+ *
+ * 60 days each side absorbs any realistic re-dating. It is nearly free:
+ * measured on production, 21,763 of 21,780 tasks (99.92%) have all their
+ * entries inside a 30-day span, and ClickUp's time-entries endpoint only splits
+ * a request when the window exceeds a year — so the padded window is still a
+ * single call for essentially every task.
+ */
+export const ROLLING_SWEEP_WINDOW_PAD_DAYS = 60;
+
+/**
+ * Whether the rolling sweep may DELETE rows ClickUp did not return, or only
+ * report them.
+ *
+ * Deliberately `false` on introduction. The windowed prune passed review and
+ * tests and still destroyed 429 live entries, and the only check that would
+ * have caught it was observing its intended deletions against real data first.
+ * While this is false the sweep still does its most valuable work — it
+ * re-fetches and repairs every entry on a fixed cycle — and logs
+ * `[prune-dry-run]` lines showing exactly what it would have removed.
+ *
+ * Flip to true only after those logs have been reviewed across a full cycle and
+ * the reported deletions have been confirmed genuinely absent in ClickUp.
+ */
+export const ROLLING_SWEEP_PRUNE_ENABLED = false;
+
 @Injectable()
 export class SyncScheduler {
   private readonly logger = new Logger(SyncScheduler.name);
@@ -293,6 +339,76 @@ export class SyncScheduler {
   @Cron('0 30 0 * * *', { name: 'reconcile-deletions', timeZone: DHAKA })
   async reconcileDeletions() {
     await this.enqueueDeletionReconcile(DELETION_RECONCILE_DAYS);
+  }
+
+  /**
+   * Rolling verification sweep — removes the *age horizon* entirely.
+   *
+   * The cron above is only correct while the team's "nobody touches an entry
+   * older than 30 days" rule holds. That is a human promise, not an invariant:
+   * break it once and the deletion is never detected, because the entry has
+   * aged out of every window that will ever run. This sweep exists so the
+   * guarantee no longer depends on anyone keeping a promise.
+   *
+   * It walks EVERY task we hold entries for, least-recently-verified first, at
+   * a fixed budget per night, wrapping forever. Ordering is by
+   * `clickup_tasks.synced_at`, which this sweep itself bumps — so the rotation
+   * is self-healing with no cursor to persist and no shard arithmetic, and a
+   * missed night just leaves those tasks at the front of the next one.
+   *
+   * GUARANTEE — stated precisely, because the obvious wording is wrong:
+   * every entry belonging to a **current workspace member** is re-fetched from
+   * ClickUp at least every `ceil(tasks / ROLLING_SWEEP_TASKS_PER_NIGHT)` days,
+   * at any age. Entries logged by a **departed** member are excluded: ClickUp's
+   * `assignee=` filter only accepts current members, so those rows can neither
+   * be re-fetched nor pruned. They are frozen, not verified — on production
+   * that is ~22,383 hours across ~9,000 dormant tasks, and no schedule can fix
+   * it (see the assignee-harvesting note in docs/OPERATIONS.md).
+   *
+   * Each task gets TWO jobs, on different queues with independent limiters (so
+   * this costs no extra wall-clock):
+   *   - `SYNC_CLICKUP_TASK`   — refreshes `time_spent`, which is what makes the
+   *                             free `SUM(entries) == time_spent` cross-check
+   *                             meaningful rather than comparing two stale
+   *                             numbers.
+   *   - `SYNC_TASK_TIME_ENTRIES` — re-fetches the entries themselves.
+   *
+   * 01:00 local sits between the 00:30 deletion reconcile and the 02:00 deep
+   * backfill, inside the closed-office window.
+   */
+  @Cron('0 0 1 * * *', { name: 'rolling-verify-sweep', timeZone: DHAKA })
+  async rollingVerifySweep(): Promise<void> {
+    const candidates = await this.timeEntriesRepo.findStalestTasksWithEntries(ROLLING_SWEEP_TASKS_PER_NIGHT);
+    if (!candidates.length) {
+      this.logger.log('Rolling verify sweep: no tasks hold entries — nothing to verify');
+      return;
+    }
+
+    const entriesQueue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
+    const tasksQueue = this.queues.get(QUEUES.CLICKUP_TASKS);
+    const jobOpts = { ...this.queues.defaultJobOptions(), priority: BULK_SWEEP_PRIORITY };
+    const padMs = ROLLING_SWEEP_WINDOW_PAD_DAYS * 24 * 60 * 60 * 1000;
+    const pruneMode = ROLLING_SWEEP_PRUNE_ENABLED ? 'delete' : 'report';
+
+    for (const c of candidates) {
+      await tasksQueue.add(JOBS.SYNC_CLICKUP_TASK, { taskId: c.taskId }, jobOpts);
+      await entriesQueue.add(
+        JOBS.SYNC_TASK_TIME_ENTRIES,
+        {
+          taskId: c.taskId,
+          startDate: c.oldestStartMs - padMs,
+          endDate: c.newestStartMs + padMs,
+          pruneMode,
+        },
+        jobOpts,
+      );
+    }
+
+    const total = await this.timeEntriesRepo.countTasksWithEntries();
+    const cycleDays = Math.ceil(total / ROLLING_SWEEP_TASKS_PER_NIGHT);
+    this.logger.log(
+      `Rolling verify sweep: ${candidates.length} task(s) of ${total} (full cycle ≈ ${cycleDays} day(s), prune=${pruneMode})`,
+    );
   }
 
   /**

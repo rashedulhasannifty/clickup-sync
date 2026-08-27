@@ -1,3 +1,4 @@
+import { TimeEntriesRepository } from './time-entries.repository';
 import { TimeEntriesService } from './time-entries.service';
 
 function makeService(overrides: Partial<Record<string, any>> = {}) {
@@ -60,5 +61,44 @@ describe('reconcileWindow', () => {
     await svc.reconcileWindow('sp1', 1000, 2000);
 
     expect(repo.pruneWindowOutsideSet).not.toHaveBeenCalled();
+  });
+});
+
+describe('prune preview / prune parity', () => {
+  // findTaskEntriesOutsideSet exists purely to PREVIEW what
+  // pruneTaskEntriesOutsideSet will delete. If their WHERE clauses ever
+  // diverge, the dry run stops predicting the deletion it is meant to de-risk —
+  // and the whole reason the sweep ships in report-only mode evaporates.
+  it('selects with exactly the same filter as the delete', async () => {
+    let selectWhere: any, deleteWhere: any;
+    const prisma: any = {
+      clickupTimeEntry: {
+        findMany: jest.fn((a: any) => { selectWhere = a.where; return Promise.resolve([]); }),
+        deleteMany: jest.fn((a: any) => { deleteWhere = a.where; return Promise.resolve({ count: 0 }); }),
+      },
+    };
+    const repo = new TimeEntriesRepository(prisma);
+    const args = { taskId: 't1', userIds: ['u1', 'u2'], startMs: 1_000, endMs: 9_000, keepIds: ['k1'] };
+
+    await repo.findTaskEntriesOutsideSet({ ...args });
+    await repo.pruneTaskEntriesOutsideSet({ ...args });
+
+    expect(selectWhere).toEqual(deleteWhere);
+  });
+
+  it('scopes to the task, the given users, the given window, and spares keepIds', async () => {
+    let where: any;
+    const prisma: any = {
+      clickupTimeEntry: { findMany: jest.fn((a: any) => { where = a.where; return Promise.resolve([]); }) },
+    };
+    await new TimeEntriesRepository(prisma).findTaskEntriesOutsideSet({
+      taskId: 't1', userIds: ['u1'], startMs: 1_000, endMs: 9_000, keepIds: ['k1'],
+    });
+
+    expect(where.taskId).toBe('t1');
+    expect(where.userId).toEqual({ in: ['u1'] });
+    expect(where.timeEntryId).toEqual({ notIn: ['k1'] });
+    expect(where.startTime.gte.getTime()).toBe(1_000);
+    expect(where.startTime.lte.getTime()).toBe(9_000);
   });
 });
