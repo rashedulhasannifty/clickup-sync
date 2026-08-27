@@ -13,6 +13,7 @@ function makeService(overrides: Partial<{
   upsert: jest.Mock;
   costs: jest.Mock;
   findAllActive: jest.Mock;
+  taskRows: { taskId: string; dueDate: Date | null; isChargeable: boolean }[];
 }> = {}) {
   const exists = overrides.exists ?? jest.fn().mockResolvedValue(true);
   const syncTask = overrides.syncTask ?? jest.fn().mockResolvedValue({});
@@ -42,10 +43,10 @@ function makeService(overrides: Partial<{
   const tasksRepo = { exists } as any;
   const tasksService = { syncTask } as any;
 
-  const prisma = { clickupTask: { findMany: jest.fn().mockResolvedValue([]) } } as any;
+  const prisma = { clickupTask: { findMany: jest.fn().mockResolvedValue(overrides.taskRows ?? []) } } as any;
   const service = new TimeEntriesService(
     clickup, normalizer, repo, costsService, queues, members, tagAssigneeMap, tasksRepo, tasksService,
-    { getTeamId: () => '3450636', getPreferences: () => ({ cost: { rateMatching: 'start', nonBillableZero: false, autoRecalcOnRateChange: true } }) } as any,
+    { getTeamId: () => '3450636', getPreferences: () => ({ cost: { rateMatching: 'start', autoRecalcOnRateChange: true } }) } as any,
     prisma,
   );
 
@@ -261,5 +262,29 @@ describe('TimeEntriesService.syncTaskTimeEntries — prune safety valve', () => 
     await service.syncTaskTimeEntries('PARENT');
 
     expect(pruneTaskEntriesOutsideSet).toHaveBeenCalled();
+  });
+});
+
+describe('TimeEntriesService.syncTaskTimeEntries — chargeability', () => {
+  it('passes chargeable: false through to the calculator even with rateMatching=start', async () => {
+    const { service, costs } = makeService({
+      getTimeEntries: jest.fn().mockResolvedValue([{ id: 'e1', task: { id: 't1' }, user: { id: 'u1' } }]),
+      taskRows: [{ taskId: 't1', dueDate: null, isChargeable: false }],
+    });
+
+    await service.syncTaskTimeEntries('t1');
+
+    expect(costs.mock.calls[0][4]).toMatchObject({ chargeable: false });
+  });
+
+  it('treats an entry whose task row is missing as chargeable', async () => {
+    const { service, costs } = makeService({
+      getTimeEntries: jest.fn().mockResolvedValue([{ id: 'e1', task: { id: 't1' }, user: { id: 'u1' } }]),
+      taskRows: [],
+    });
+
+    await service.syncTaskTimeEntries('t1');
+
+    expect(costs.mock.calls[0][4]).toMatchObject({ chargeable: true });
   });
 });

@@ -231,18 +231,14 @@ export class TimeEntriesService {
       else this.logger.warn(`Time entry references task ${tid} not resolvable in ClickUp — its entries will be skipped`);
     }
 
-    // When rateMatching='due', pre-fetch the task due dates for all resolvable
-    // tasks so we can pass dueDate to the cost calculator without a per-entry
-    // DB round-trip. Skip the query entirely when using the default 'start'
-    // matching to keep the hot path unchanged.
-    let dueByTask: Map<string, Date | null> | null = null;
-    if (this.settings.getPreferences().cost.rateMatching === 'due') {
-      const taskRows = await this.prisma.clickupTask.findMany({
-        where: { taskId: { in: [...resolvableTaskIds] } },
-        select: { taskId: true, dueDate: true },
-      });
-      dueByTask = new Map(taskRows.map((t) => [t.taskId, t.dueDate]));
-    }
+    // Task attributes the cost calculator needs, fetched once per batch rather
+    // than once per entry. Unconditional now: `dueDate` matters only under
+    // rateMatching='due', but `isChargeable` is always required.
+    const taskRows = await this.prisma.clickupTask.findMany({
+      where: { taskId: { in: [...resolvableTaskIds] } },
+      select: { taskId: true, dueDate: true, isChargeable: true },
+    });
+    const taskAttrs = new Map(taskRows.map((t) => [t.taskId, t]));
 
     let count = 0;
     const upserted: { normalized: NormalizedTimeEntry; rawTags: string[] }[] = [];
@@ -260,7 +256,10 @@ export class TimeEntriesService {
       }
       const rawTags = extractEntryTagNames(entry);
       upserted.push({ normalized, rawTags });
-      const cost = await this.costs.calculate(normalized.userId, normalized.startTime, normalized.durationHours, rateCache, { billable: normalized.billable, dueDate: dueByTask?.get(normalized.taskId ?? '') ?? null });
+      const attrs = normalized.taskId ? taskAttrs.get(normalized.taskId) : undefined;
+      // No task, or a task we couldn't read: chargeable. That matches the
+      // column default and keeps task-less entries in the chargeable bucket.
+      const cost = await this.costs.calculate(normalized.userId, normalized.startTime, normalized.durationHours, rateCache, { chargeable: attrs?.isChargeable ?? true, dueDate: attrs?.dueDate ?? null });
       await this.repo.upsert(normalized, cost);
       if (cost.status === 'NO_RATE_FOUND') this.logger.warn(`Missing rate for user ${normalized.userId} on time entry ${normalized.timeEntryId}`);
       count += 1;
