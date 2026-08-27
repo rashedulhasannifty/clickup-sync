@@ -54,6 +54,7 @@ A backfill that hits the task pagination cap is **incomplete** — tasks beyond 
 | Local (Dhaka) | Cron | Job |
 |---|---|---|
 | 00:30 daily | `0 30 0 * * *` | Deletion reconcile — 45-day window |
+| 01:00 daily | `0 0 1 * * *` | Rolling verification sweep — no age horizon |
 | 02:00 daily | `0 0 2 * * *` | Deep time-entry backfill — one space, rotating |
 | 03:00 daily | `0 0 3 * * *` | List catalog |
 | 04:00 daily | `0 0 4 * * *` | Archived reconcile — one space, rotating |
@@ -71,6 +72,45 @@ Recurring crons run as safety nets for events ClickUp never delivered (real-time
   Candidates are *tasks we currently hold entries for* in the window, not tasks ClickUp returns: a task whose entries were all deleted upstream is absent from any ClickUp-driven list yet is exactly the one to check. Measured on production: **972 candidate tasks at 45 days ≈ 32 minutes** at the 30 jobs/min limiter (vs 50k+ tasks / ≈28 h for a blanket sweep). Jobs are deprioritized and the queue is idle at 00:30, so the cost is effectively free.
 
   **The window must satisfy `DELETION_RECONCILE_DAYS > EDIT_HORIZON_DAYS + DELETION_RECONCILE_MAX_GAP_DAYS` (45 > 30 + 3).** An entry is only a candidate while its `start_time` is inside the window, so the last run that can ever examine it is the last one before it ages out — a deletion after that run is **never** detected, not merely late. The original schedule (7-day window Mon–Thu, 30-day window Fri) violated this: a 30-day window on a 7-day period meant an entry's final examination could fall as early as day 24, so deleting a 25-day-old entry went unnoticed roughly six days out of seven. Running daily makes the period 1 day; `MAX_GAP = 3` allows for a deploy restarting the worker across the cron minute, a night the worker was down, and a failed run. **Do not move this cron to a longer period without widening the window**, and do not shrink `MAX_GAP` to 1 "because the cron is daily" — the failure mode is permanent and silent.
+- **Rolling verification sweep** — `rollingVerifySweep()` daily at 01:00 local. **This is what makes correctness independent of the team's 30-day rule.**
+
+  The deletion reconcile above is only correct while nobody touches an entry older than `EDIT_HORIZON_DAYS`. That is a human promise, not an invariant — break it once and the deletion is never detected, because the entry has aged out of every window that will ever run. This sweep removes the horizon.
+
+  It walks **every** task holding entries, least-recently-verified first, `ROLLING_SWEEP_TASKS_PER_NIGHT` (3,500) per night, wrapping forever. Ordering is by `clickup_tasks.synced_at`, which the sweep itself bumps — so the rotation is self-healing: no cursor to persist, no shard arithmetic, and a missed night just leaves those tasks at the front of the next one. Actively-updated tasks are pushed to the back by their own webhook syncs, so it naturally concentrates on dormant data.
+
+  Each task gets two jobs on different queues (independent limiters, so no extra wall-clock): `sync-clickup-task` to refresh `time_spent`, and `sync-task-time-entries` to re-fetch the entries. Refreshing both is what makes the free cross-check below meaningful instead of a comparison of two stale numbers.
+
+  **Guarantee, stated precisely — the obvious wording is wrong:** every entry belonging to a **current workspace member** is re-fetched at least every `ceil(tasks / 3500)` days ≈ **7 days**, at any age. Entries logged by a **departed** member are excluded and cannot be verified at all (see "Departed-member data" below).
+
+  **Window padding matters.** The fetch window comes from the `start_time` of rows we already hold — the same rows the prune judges. A tight window would reintroduce the false-delete: re-date an entry in ClickUp to outside the window, the fetch can't return it, it's missing from `keepIds`, and the stale local row gets deleted while alive upstream. `ROLLING_SWEEP_WINDOW_PAD_DAYS` (60 each side) absorbs that, and is nearly free — 21,763 of 21,780 tasks (99.92%) have all entries inside a 30-day span, and ClickUp only splits a request past one year.
+
+  **It ships with pruning OFF** (`ROLLING_SWEEP_PRUNE_ENABLED = false`). It re-fetches and repairs, and logs `[prune-dry-run] task X: would prune N entries (…)` instead of deleting. The windowed prune passed review and tests and still destroyed 429 live rows; the only check that would have caught it was watching its intended deletions against real data first. **Review a full cycle of those logs and confirm the reported entries are genuinely absent in ClickUp before flipping it on.**
+
+### Free cross-check: `SUM(entries) == time_spent`
+
+Both numbers are already in our database, so this costs **zero** API calls. For **leaf** tasks it is a reliable defect detector (measured 2026-08-27: 21,077 agree, 9,002 we-have-less, **0 we-have-more**). Restrict it to leaf tasks — parents are noisy: of 904 parents, 714 match their own time, 455 match the rollup, and 187 match neither.
+
+```sql
+SELECT t.task_id, t.time_spent/3600000.0 AS clickup_h, COALESCE(SUM(te.duration_hours),0) AS our_h
+FROM clickup_tasks t LEFT JOIN clickup_time_entries te ON te.task_id = t.task_id
+WHERE t.is_deleted = false AND t.time_spent > 0
+  AND NOT EXISTS (SELECT 1 FROM clickup_tasks c WHERE c.parent_task_id = t.task_id)
+GROUP BY t.task_id, t.time_spent
+HAVING ABS(t.time_spent/3600000.0 - COALESCE(SUM(te.duration_hours),0)) > 0.02;
+```
+
+It is only as fresh as the last task sync, which is why the rolling sweep refreshes `time_spent` alongside the entries.
+
+### Departed-member data (not fixable by any schedule)
+
+ClickUp's `/team/{id}/time_entries` returns nothing unless `assignee=` is supplied, and it only accepts **current** members. So entries logged by someone who has left the workspace can be neither re-fetched nor pruned — they are frozen at whatever we last stored.
+
+Measured 2026-08-27: **9,002 leaf tasks / ~22,383 hours** where ClickUp reports time we hold no entry for; 8,952 of them have *zero* entries locally, and only 2 were updated in the last 45 days. The backlog is dominated by departed members — `(unassigned)` 3,436 tasks/7,651h, `MOHAMMAD MOHIUDDIN` 945/2,742h, plus `Srinidhi Atmakuru`, `Ashraful Kabir`, `Akib Hayat`, `Imran` — none of whom appear in the 37 current members. This is historical, not an ongoing sync failure.
+
+Treat it as a **known, classified gap**: any alarm built on the cross-check above must exclude it, or it sits permanently red and stops being an alarm.
+
+**Untested hypothesis worth one experiment:** the assignee ids are recoverable from `clickup_tasks.raw` (task `assignees[]`) and from `clickup_time_entries.user_id`. If ClickUp's `assignee=` filter honours *deactivated* user ids rather than rejecting them, passing a harvested historical id set instead of just `getMemberIds()` would recover much of the 22,383 hours. Test it on one task before building anything on it.
+
 - **Deep time-entry backfill** — `deepBackfillTimeEntries()` daily at 02:00 local (`@Cron('0 0 2 * * *')`): upsert-only. It recovers entries never synced and repairs edits, but **cannot detect a deletion** — its delete-prune is disabled (see `WINDOW_PRUNE_ENABLED`). Deletion detection is the per-task cron above. The recurring and 04:00 crons both pass `timeEntryLookbackDays: 7`, and `syncTaskTimeEntries` scopes its ClickUp fetch *and* its delete-prune to that same window — so once an entry's `start_time` passes 7 days it is never re-read and never pruned, while the task row keeps refreshing `time_spent`. The Tasks page and Time Entries page then drift apart silently (observed on prod 2026-08-25: two tasks over-reporting by 0.75h and 1.00h). ClickUp emits no "time entry deleted" event at all and its `taskTimeTrackedUpdated` often doesn't fire for manual edits, so webhooks can't close this gap either.
 
   Scope is read from Settings → Sync → `reconcileLookbackDays` (default 365, clamped to [1, 1095]) — a preference that previously existed but was read by nothing. It runs the **windowed** reconcile (one team-level call per space × slice), covers **one enabled space per day** in rotation, and enqueues at `BULK_SWEEP_PRIORITY` so it can never head-of-line-block a live webhook. Its rotation is offset by one day from `reconcileArchived` so the two never target the same space on the same day. Skipped while a previous windowed reconcile is still draining.
