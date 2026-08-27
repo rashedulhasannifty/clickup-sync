@@ -8,8 +8,68 @@ import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { SettingsService } from '../settings/settings.service';
 import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
 
-/** The team works Asia/Dhaka hours; crons that mean "2am" mean 2am there. */
+/**
+ * Every cron in this file is expressed in the team's local time.
+ *
+ * The containers run UTC, where Dhaka's 02:00 is 20:00 the PREVIOUS day — so a
+ * schedule hand-shifted into UTC has to shift the hour AND the weekday, which is
+ * exactly the kind of arithmetic that silently drifts. Letting the cron library
+ * do the conversion means the expression reads the way the team thinks about it.
+ *
+ * This matters operationally, not just cosmetically: the office works
+ * Mon-Fri 09:00-23:59 local, so 00:00-09:00 (and all of Sat/Sun) is the only
+ * window where a heavy sweep cannot compete with live webhook traffic for
+ * ClickUp's rate limit. Before this was applied uniformly, the two heaviest
+ * jobs — the deep backfill (02:00 UTC) and the archived per-list scan
+ * (04:00 UTC) — were actually firing at 08:00 and 10:00 Dhaka, i.e. right as
+ * the office opened.
+ */
 const DHAKA = 'Asia/Dhaka';
+
+/**
+ * Oldest age at which a time entry may still be edited or deleted in ClickUp.
+ *
+ * This is a *team working rule*, not something ClickUp enforces: nobody touches
+ * an entry more than 30 days old. Every deletion-detection guarantee below is
+ * derived from it, so if the rule changes this constant must change with it.
+ */
+export const EDIT_HORIZON_DAYS = 30;
+
+/**
+ * Worst-case whole days that can pass between two consecutive deletion-reconcile
+ * runs, used to size the window below. The cron is daily, so the nominal gap is
+ * 1 — but a run can be lost to a deploy that restarts the worker across the
+ * cron minute, to the worker being down for a night, or to a run that fails
+ * outright. Three days is a deliberately pessimistic allowance for a stacked
+ * run of those.
+ *
+ * Do NOT lower this to 1 "because the cron is daily". The nominal gap is not
+ * the worst case, and the failure it protects against is invisible: a deletion
+ * missed once is missed permanently, because the entry ages out of every
+ * subsequent window.
+ */
+export const DELETION_RECONCILE_MAX_GAP_DAYS = 3;
+
+/**
+ * Lookback for the deletion reconcile, in days.
+ *
+ * INVARIANT: this must exceed `EDIT_HORIZON_DAYS + DELETION_RECONCILE_MAX_GAP_DAYS`.
+ *
+ * Why: an entry is only a candidate while its `start_time` is inside the window,
+ * so the last run that can ever examine it is the last one before it ages out.
+ * A deletion happening after that run is never detected — not late, never. The
+ * previous schedule (7-day window Mon-Thu, 30-day window Fri) violated this: the
+ * 30-day window ran on a 7-day period, so an entry's final examination could
+ * fall as early as day 24, and anything deleted between then and day 30 was lost
+ * silently. Deleting a 25-day-old entry — the exact case that surfaced this —
+ * went undetected roughly six days out of seven.
+ *
+ * 45 satisfies the invariant with 12 days to spare, which also absorbs the team
+ * rule slipping (an entry edited at 40 days is still caught). Measured cost on
+ * production: 972 candidate tasks, ~32 minutes at the 30 jobs/min ClickUp
+ * limiter, on a queue that is otherwise idle at 00:30 local.
+ */
+export const DELETION_RECONCILE_DAYS = 45;
 
 @Injectable()
 export class SyncScheduler {
@@ -20,17 +80,24 @@ export class SyncScheduler {
     private readonly timeEntriesRepo: TimeEntriesRepository,
   ) {}
 
-  // Recurring reconciliation: every 12 hours, syncs tasks updated in the last
-  // day and scans a bounded 7-day time-entry window (rather than re-draining the
-  // full per-space window each run) — enough to recover time entries whose
-  // webhook was missed within the last week. Manual backfills use the full
-  // window. This is only a safety net for webhooks ClickUp never delivered;
-  // real-time updates still arrive via webhooks.
-  @Cron('0 0 */12 * * *')
+  // Recurring reconciliation: every 6 hours (00:00 / 06:00 / 12:00 / 18:00
+  // local), syncs tasks updated in the last day and scans a bounded 7-day
+  // time-entry window (rather than re-draining the full per-space window each
+  // run) — enough to recover time entries whose webhook was missed within the
+  // last week. Manual backfills use the full window. This is only a safety net
+  // for webhooks ClickUp never delivered; real-time updates still arrive via
+  // webhooks.
+  //
+  // Two of the four daily runs land inside office hours by design: this is the
+  // path that recovers a webhook ClickUp dropped, and waiting until midnight to
+  // notice would leave the dashboard wrong for a full working day. It stays
+  // affordable because `lookbackDays: 1` keeps the task fan-out small and the
+  // time-entry jobs it produces are deprioritized.
+  @Cron('0 0 */6 * * *', { name: 'reconcile-recent-updates', timeZone: DHAKA })
   async reconcileRecentUpdates() {
     const queue = this.queues.get(QUEUES.CLICKUP_BACKFILLS);
     // Skip a space whose previous backfill hasn't drained yet — under ClickUp
-    // slowness an hourly run that outpaces the drain would otherwise stack
+    // slowness a run that outpaces the drain would otherwise stack
     // duplicate per-space backfills (and their per-task time-entry fan-out).
     // jobId dedup can't help here: cron never re-adds an identical id, and a
     // stable id would be blocked forever by the kept completed job.
@@ -57,7 +124,7 @@ export class SyncScheduler {
         JOBS.BACKFILL_CLICKUP_SPACE,
         // includeArchived: false — the archived pass is an expensive per-list
         // scan (ClickUp's team endpoint can't paginate archived tasks). Running
-        // it on every 12h reconcile across all spaces would add minutes of
+        // it on every recurring reconcile across all spaces would add minutes of
         // sequential API calls and risk rate-limiting the webhook/time-entry
         // queues. Archiving fires no webhook anyway, so archived status can't be
         // real-time; it's refreshed on manual space backfills instead.
@@ -72,7 +139,7 @@ export class SyncScheduler {
   // space can go a while between backfills/reconciles for lists that changed
   // out-of-band (renamed, moved to a different folder, archived) without any
   // task in that list being touched — this cron is the backstop.
-  @Cron('0 0 3 * * *')
+  @Cron('0 0 3 * * *', { name: 'sync-list-catalogs', timeZone: DHAKA })
   async syncListCatalogs() {
     const queue = this.queues.get(QUEUES.CLICKUP_BACKFILLS);
     for (const space of CLICKUP_SPACES) {
@@ -84,7 +151,7 @@ export class SyncScheduler {
     }
   }
 
-  // Staggered archived reconcile. The 12h reconcile deliberately skips the
+  // Staggered archived reconcile. The recurring reconcile deliberately skips the
   // archived per-list scan (too heavy across all spaces every run) and archiving
   // fires no webhook — so a task inside a just-completed (archived) sprint whose
   // final state changed after its list was archived never re-syncs until a
@@ -93,7 +160,7 @@ export class SyncScheduler {
   // with bounded per-run load on the small (1.9GB) host. (The daily list-catalog
   // cron already keeps list-level archived state fresh; this closes the
   // task-level content gap.)
-  @Cron('0 0 4 * * *')
+  @Cron('0 0 4 * * *', { name: 'reconcile-archived', timeZone: DHAKA })
   async reconcileArchived() {
     const enabled = CLICKUP_SPACES.filter((s) => this.settings.isSpaceEnabled(s.id));
     if (!enabled.length) return;
@@ -143,21 +210,28 @@ export class SyncScheduler {
    * webhooks cannot be relied on to close this gap either.
    *
    * Cost control: this uses the windowed reconcile (one team-level call per
-   * space × 30-day slice) rather than the per-task fan-out, runs ONE space per
-   * day in the same rotation as `reconcileArchived`, and enqueues at
-   * `BULK_SWEEP_PRIORITY` so it can never head-of-line-block a live
-   * webhook. At the 365-day default that is ~13 low-priority jobs per day.
+   * space × RECONCILE_WINDOW_SLICE_DAYS-day slice) rather than the per-task
+   * fan-out, runs ONE space per day in the same rotation as `reconcileArchived`,
+   * and enqueues at `BULK_SWEEP_PRIORITY` so it can never head-of-line-block a
+   * live webhook. At the 7-day slice width and the 365-day default lookback that
+   * is ~53 low-priority jobs per day.
    *
-   * 02:00 UTC keeps it clear of the 03:00 list-catalog and 04:00 archived crons.
+   * 02:00 local keeps it clear of the 00:30 deletion reconcile, the 03:00
+   * list-catalog cron and the 04:00 archived cron — all inside the 00:00-09:00
+   * window where the office is closed.
    */
-  @Cron('0 0 2 * * *')
+  @Cron('0 0 2 * * *', { name: 'deep-backfill-time-entries', timeZone: DHAKA })
   async deepBackfillTimeEntries() {
     const enabled = CLICKUP_SPACES.filter((s) => this.settings.isSpaceEnabled(s.id));
     if (!enabled.length) return;
     // Offset by 1 so this never targets the same space as `reconcileArchived`
     // on the same day — that cron's per-list archived scan is the heaviest job
-    // the worker runs, and stacking a 13-slice reconcile on top of it would
+    // the worker runs, and stacking a full year of slices on top of it would
     // concentrate two days' work onto one space on a 1.9 GB host.
+    //
+    // Both crons now run in DHAKA, at 02:00 and 04:00 — 20:00 and 22:00 UTC of
+    // the same (previous) UTC day. `rotationIndex` buckets by UTC day, so they
+    // still compute the same day number and the offset still separates them.
     const space = enabled[this.rotationIndex(new Date(), enabled.length, 1)];
 
     const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
@@ -196,34 +270,34 @@ export class SyncScheduler {
    * ClickUp returns. A task whose entries were all deleted upstream would be
    * absent from any ClickUp-driven list, yet it is precisely the one to check.
    *
-   * Cost is small because recent windows touch few tasks: ~186 tasks over 7 days
-   * and ~650 over 30, versus 50k+ for a blanket sweep. At the 30 jobs/min
-   * ClickUp limiter that is roughly 6 and 22 minutes.
+   * ONE cron, EVERY day, ONE window — deliberately, and not how this started.
    *
-   * Schedule (Asia/Dhaka, so it really is 02:00 local — the containers run UTC,
-   * where 02:00 Dhaka is 20:00 the PREVIOUS day; letting the cron library do the
-   * conversion avoids hand-shifting both the hour and the weekday):
-   *   Mon-Thu 02:00 → 7 days
-   *   Fri     02:00 → 30 days
+   * The first version split the work (7-day window Mon-Thu, 30-day window Fri)
+   * to save API calls. That split was the bug: a 30-day window running on a
+   * 7-day period means an entry's LAST possible examination is the final Friday
+   * before it ages out, which can fall as early as day 24. Anything deleted
+   * between then and day 30 is never seen again, because every later run's
+   * window has already moved past it. A deletion missed once is missed forever.
    *
-   * 30 days is the deep pass because the team's working rule is that entries
-   * older than 30 days are never edited or deleted. If that rule slips, an older
-   * deletion goes unnoticed — widen the Friday window rather than adding a
-   * nightly cost.
+   * Running daily makes the period 1 day (worst case
+   * DELETION_RECONCILE_MAX_GAP_DAYS), which the window comfortably clears. It
+   * also removes the whole class of bug: with a single window there is no
+   * second schedule whose coverage has to be reasoned about separately.
+   *
+   * The saving was never worth it. Measured on production: 972 candidate tasks
+   * at 45 days, ~32 minutes at the 30 jobs/min ClickUp limiter, deprioritized,
+   * at 00:30 local when the office is closed and every queue is empty. A blanket
+   * sweep would be 50k+ tasks and ~28 hours — that is the cost this window
+   * exists to avoid, and 32 minutes is nowhere near it.
    */
-  @Cron('0 0 2 * * 1-4', { name: 'reconcile-deletions-7d', timeZone: DHAKA })
-  async reconcileDeletions7d() {
-    await this.enqueueDeletionReconcile(7);
-  }
-
-  @Cron('0 0 2 * * 5', { name: 'reconcile-deletions-30d', timeZone: DHAKA })
-  async reconcileDeletions30d() {
-    await this.enqueueDeletionReconcile(30);
+  @Cron('0 30 0 * * *', { name: 'reconcile-deletions', timeZone: DHAKA })
+  async reconcileDeletions() {
+    await this.enqueueDeletionReconcile(DELETION_RECONCILE_DAYS);
   }
 
   /**
    * Enqueues one per-task time-entry sync for every task holding an entry in the
-   * last `lookbackDays`. Shared by both deletion-reconcile crons.
+   * last `lookbackDays`.
    */
   private async enqueueDeletionReconcile(lookbackDays: number): Promise<void> {
     const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES);
