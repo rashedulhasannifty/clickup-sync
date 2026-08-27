@@ -25,6 +25,8 @@ import { ClickupAvatar } from '../components/ui/ClickupAvatar';
 import { Pill } from '../components/ui/Pill';
 import { TimeEntryDrawer } from '../components/TimeEntryDrawer';
 import { TaskTimeEntriesPanel } from '../components/TaskTimeEntriesPanel';
+import { SelectionBar, type SelectionStat } from '../components/SelectionBar';
+import { useRowSelection } from '../hooks/useRowSelection';
 import type { TimeEntryItem } from '../components/TimeEntryDrawer';
 
 const BILLABLE_OPTIONS = [
@@ -310,6 +312,17 @@ export function TimeEntriesPage() {
 
   const grouped = groupBy === 'task';
   const paramsKey = useMemo(() => JSON.stringify(params), [params]);
+  // Selection is scoped to the FILTERS, not the page: paging must not drop a
+  // selection being built across pages, but a filter change must (its totals
+  // would otherwise count rows the table can no longer show). Switching group
+  // mode changes what a row even is, so that resets it too.
+  const selectionScope = useMemo(
+    () => `${groupBy}|${JSON.stringify({ ...params, limit: undefined, offset: undefined })}`,
+    [params, groupBy],
+  );
+  const entrySelection = useRowSelection<TimeEntryItem>(selectionScope);
+  const groupSelection = useRowSelection<TimeEntryTaskGroup>(selectionScope);
+  const selectionCount = grouped ? groupSelection.count : entrySelection.count;
   const expandedTasks = expanded.key === paramsKey ? expanded.ids : EMPTY_EXPANSION;
   // Only one of the two runs — `params` is identical for both, so the grouped
   // totals and the flat rows always describe the same filtered entry set.
@@ -322,7 +335,11 @@ export function TimeEntriesPage() {
       // The export mirrors what's on screen: grouped mode exports one row per
       // task carrying its total, never the individual entries behind it.
       if (grouped) {
-        const { items } = await reportsApi.timeEntriesByTask({ ...params, limit: 5000, offset: 0 });
+        // A selection exports itself — the rows are already in hand, so there's
+        // nothing to re-fetch and no risk of the export drifting from the table.
+        const items = groupSelection.count > 0
+          ? groupSelection.selectedRows
+          : (await reportsApi.timeEntriesByTask({ ...params, limit: 5000, offset: 0 })).items;
         const cols: XlsxColumn<TimeEntryTaskGroup>[] = [
           { header: 'Task ID',            value: 'taskId' },
           { header: 'Task name',          value: (r) => r.taskName ?? NO_TASK_LABEL, key: 'taskName', width: 42 },
@@ -345,7 +362,9 @@ export function TimeEntriesPage() {
         await exportXlsx({ filename: 'time-by-task', sheetName: 'Time by task', rows: items, columns: visible });
         return { rows: items.length };
       }
-      const { items } = await reportsApi.timeEntriesList({ ...params, limit: 5000, offset: 0 });
+      const items = entrySelection.count > 0
+        ? entrySelection.selectedRows
+        : (await reportsApi.timeEntriesList({ ...params, limit: 5000, offset: 0 })).items as TimeEntryItem[];
       // `key` ties a column to its DataTable column so columns hidden via the
       // table's "Columns" menu are dropped here too. Columns with no `key` are
       // export-only (not hideable in the table) and always export.
@@ -720,6 +739,35 @@ export function TimeEntriesPage() {
     },
   ], []);
 
+  // Summed from the selected rows themselves — every row carries its own hours
+  // and cost, so these are exact rather than a second opinion from the server.
+  const selectionStats: SelectionStat[] = useMemo(() => {
+    const sum = <T,>(rows: T[], pick: (r: T) => number) => rows.reduce((n, r) => n + (pick(r) || 0), 0);
+    if (grouped) {
+      const rows = groupSelection.selectedRows;
+      const missing = sum(rows, r => r.missingRateCount);
+      return [
+        { label: 'entries', value: fmt.number(sum(rows, r => r.entryCount)) },
+        { label: 'total', value: fmt.hours(sum(rows, r => r.totalHours)) },
+        { label: 'billable', value: fmt.hours(sum(rows, r => r.billableHours)) },
+        { label: 'non-billable', value: fmt.hours(sum(rows, r => r.nonBillableHours)) },
+        { label: 'cost', value: fmt.money(sum(rows, r => r.costAud) * 100) },
+        ...(missing > 0 ? [{ label: 'missing rate', value: fmt.number(missing), warn: true }] : []),
+      ];
+    }
+    const rows = entrySelection.selectedRows;
+    const missing = rows.filter(r => r.status === 'NO_RATE_FOUND').length;
+    return [
+      { label: 'total', value: fmt.hours(sum(rows, r => r.durationHours)) },
+      { label: 'billable', value: fmt.hours(sum(rows.filter(r => r.billable), r => r.durationHours)) },
+      { label: 'non-billable', value: fmt.hours(sum(rows.filter(r => !r.billable), r => r.durationHours)) },
+      // Mirrors the grouped row and the data-model rule: an entry with no rate
+      // contributes no cost, and is called out separately instead.
+      { label: 'cost', value: fmt.money(sum(rows.filter(r => r.status !== 'NO_RATE_FOUND'), r => r.costAud) * 100) },
+      ...(missing > 0 ? [{ label: 'missing rate', value: fmt.number(missing), warn: true }] : []),
+    ];
+  }, [grouped, groupSelection.selectedRows, entrySelection.selectedRows]);
+
   const billablePct = totalHours > 0 ? Math.round((billableHours / totalHours) * 100) : 0;
 
   return (
@@ -736,7 +784,7 @@ export function TimeEntriesPage() {
             disabled={exportExcel.isPending || isLoading}
             onClick={() => exportExcel.mutate()}
           >
-            Export Excel
+            {selectionCount > 0 ? `Export selected (${selectionCount})` : 'Export Excel'}
           </Button>
         }
       />
@@ -882,6 +930,14 @@ export function TimeEntriesPage() {
         )}
       </div>
 
+      <SelectionBar
+        count={selectionCount}
+        noun={grouped ? 'task' : 'entry'}
+        nounPlural={grouped ? 'tasks' : 'entries'}
+        stats={selectionStats}
+        onClear={grouped ? groupSelection.clear : entrySelection.clear}
+      />
+
       <QueryError query={grouped ? byTaskQuery : timeEntriesQuery} what="time entries" />
 
       {grouped ? (
@@ -905,6 +961,9 @@ export function TimeEntriesPage() {
           initialSort={{ key: 'totalHours', dir: 'desc' }}
           hiddenColumns={hiddenGroupCols}
           onHiddenColumnsChange={setHiddenGroupCols}
+          selectedKeys={groupSelection.selectedKeys}
+          onToggleRow={groupSelection.toggleRow}
+          onTogglePage={groupSelection.togglePage}
           expandedKeys={expandedTasks}
           onToggleExpand={(key) => setExpanded(prev => {
             const ids = prev.key === paramsKey ? prev.ids : [];
@@ -943,6 +1002,9 @@ export function TimeEntriesPage() {
         initialSort={{ key: 'startTime', dir: 'desc' }}
         hiddenColumns={hiddenCols}
         onHiddenColumnsChange={setHiddenCols}
+        selectedKeys={entrySelection.selectedKeys}
+        onToggleRow={entrySelection.toggleRow}
+        onTogglePage={entrySelection.togglePage}
       />
       )}
 

@@ -26,6 +26,8 @@ import { TaskTimeline, type TaskTimelineEvent } from '../components/tasks/TaskTi
 import { fmt } from '../lib/formatters';
 import { reportsApi } from '../api/reports';
 import { exportXlsx, type XlsxColumn } from '../lib/xlsx';
+import { SelectionBar, type SelectionStat } from '../components/SelectionBar';
+import { useRowSelection } from '../hooks/useRowSelection';
 
 type Task = Record<string, unknown>;
 
@@ -494,6 +496,36 @@ export function TasksPage() {
   const items: Task[] = (data?.items ?? []) as Task[];
   const total: number = data?.total ?? 0;
 
+  // Scoped to the FILTERS, not the page — a selection can be built across pages,
+  // but a filter change drops it rather than totalling rows the table no longer
+  // shows. See useRowSelection for why this is a tag rather than an effect.
+  const selectionScope = useMemo(
+    () => JSON.stringify({ ...taskParams, limit: undefined, offset: undefined }),
+    [taskParams],
+  );
+  const selection = useRowSelection<Task>(selectionScope);
+
+  // Tasks carry both camelCase and snake_case spellings depending on the query
+  // path, exactly as the columns and the export below do.
+  const selectionStats: SelectionStat[] = useMemo(() => {
+    const num = (row: Task, ...keys: string[]) => {
+      for (const k of keys) {
+        const v = row[k];
+        if (typeof v === 'number') return v;
+        if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v);
+      }
+      return 0;
+    };
+    const rows = selection.selectedRows;
+    const sum = (...keys: string[]) => rows.reduce((n, r) => n + num(r, ...keys), 0);
+    const points = sum('sprintPoints', 'sprint_points');
+    return [
+      { label: 'estimated', value: fmt.hours(sum('timeEstimateHours', 'time_estimate_hours')) },
+      { label: 'spent', value: fmt.hours(sum('timeSpentHours', 'time_spent_hours')) },
+      ...(points > 0 ? [{ label: 'points', value: fmt.number(points) }] : []),
+    ];
+  }, [selection.selectedRows]);
+
   const hasFilters = !!(
     searchRaw || search || statusFilter.length || priorityFilter.length || typeFilter
     || assigneeFilter.length || clientFilter.length || listFilter.length || folderFilter.length
@@ -523,7 +555,11 @@ export function TasksPage() {
   // truncates and we'd need to paginate here.
   const exportExcel = useMutation({
     mutationFn: async () => {
-      const { items } = await reportsApi.tasks({ ...taskParams, limit: 5000, offset: 0 });
+      // A selection exports itself: the rows are already in hand, so there's
+      // nothing to re-fetch and no chance of the export drifting from the table.
+      const items = selection.count > 0
+        ? selection.selectedRows
+        : (await reportsApi.tasks({ ...taskParams, limit: 5000, offset: 0 })).items;
       // `key` ties a column to its DataTable column so columns hidden via the
       // table's "Columns" menu are dropped here too. Columns with no `key` are
       // export-only (not hideable in the table) and always export.
@@ -749,7 +785,7 @@ export function TasksPage() {
             disabled={exportExcel.isPending || isLoading}
             onClick={() => exportExcel.mutate()}
           >
-            Export Excel
+            {selection.count > 0 ? `Export selected (${selection.count})` : 'Export Excel'}
           </Button>
         }
       />
@@ -812,6 +848,13 @@ export function TasksPage() {
         )}
       </div>
 
+      <SelectionBar
+        count={selection.count}
+        noun="task"
+        stats={selectionStats}
+        onClear={selection.clear}
+      />
+
       <QueryError query={tasksQuery} what="tasks" />
 
       <DataTable
@@ -835,6 +878,9 @@ export function TasksPage() {
         initialSort={{ key: 'updated_date', dir: 'desc' }}
         hiddenColumns={hiddenCols}
         onHiddenColumnsChange={setHiddenCols}
+        selectedKeys={selection.selectedKeys}
+        onToggleRow={selection.toggleRow}
+        onTogglePage={selection.togglePage}
       />
 
       <TaskDetailDrawer task={selectedTask} onClose={() => setSelectedTask(null)} />

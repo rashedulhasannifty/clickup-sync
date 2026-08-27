@@ -1,10 +1,16 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { ChevronDown, Check } from 'lucide-react';
+import { ChevronDown, Check, Square, SquareCheck, SquareMinus } from 'lucide-react';
 import { Button } from './Button';
 import { EmptyState } from './EmptyState';
 import { Select } from './Select';
 import { Skeleton } from './Skeleton';
 import { onActivate } from '../../lib/a11y';
+
+/** Key of the injected checkbox column; never appears in a caller's `columns`. */
+const SELECT_COL = '__select';
+
+/** rowKeys already reported by the dev-only warning below; warn once each. */
+const warnedRowKeys = new Set<string>();
 
 export interface Column<T> {
   key: string;
@@ -76,6 +82,23 @@ interface DataTableProps<T> {
   expandedKeys?: (string | number)[];
   onToggleExpand?: (key: string | number, row: T) => void;
   renderExpanded?: (row: T) => React.ReactNode;
+  /**
+   * Optional row selection (design layout only). Supply `selectedKeys` +
+   * `onToggleRow` + `onTogglePage` together; a checkbox column is injected
+   * ahead of every other column and frozen with them, and the header carries a
+   * tri-state box covering the rows currently on screen.
+   *
+   * Selection is controlled by the parent because it outlives this table: the
+   * pages keep the selected ROWS so their totals and exports survive paging.
+   * `onTogglePage` reports the whole visible page at once, with `select` saying
+   * which way the header box was headed.
+   *
+   * Checkbox clicks never reach the row, so selecting stays a separate gesture
+   * from opening or expanding a row.
+   */
+  selectedKeys?: (string | number)[];
+  onToggleRow?: (key: string | number, row: T) => void;
+  onTogglePage?: (entries: { key: string | number; row: T }[], select: boolean) => void;
 }
 
 export function DataTable<T extends { [key: string]: unknown }>({
@@ -103,6 +126,9 @@ export function DataTable<T extends { [key: string]: unknown }>({
   expandedKeys,
   onToggleExpand,
   renderExpanded,
+  selectedKeys,
+  onToggleRow,
+  onTogglePage,
 }: DataTableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>(initialSort?.key ?? null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialSort?.dir ?? 'asc');
@@ -126,6 +152,9 @@ export function DataTable<T extends { [key: string]: unknown }>({
 
   const expandable = renderExpanded != null && onToggleExpand != null;
   const expandedSet = useMemo(() => new Set(expandedKeys ?? []), [expandedKeys]);
+
+  const selectable = selectedKeys != null && onToggleRow != null && onTogglePage != null;
+  const selectedSet = useMemo(() => new Set(selectedKeys ?? []), [selectedKeys]);
 
   // If the caller passes `total` and the visible `data` is only a slice of it,
   // we're on a server-paginated list — client-side sort would only reorder
@@ -153,22 +182,35 @@ export function DataTable<T extends { [key: string]: unknown }>({
     return 120;
   };
 
+  // The checkbox column is a real column for layout purposes — that keeps the
+  // frozen-column offsets and the table's min width correct without a special
+  // case — but it renders through the cell loop below, not `col.render`, since
+  // it needs each row's key. It is deliberately absent from `initialColumns`,
+  // so the Columns menu can't hide it.
+  const renderCols: Column<T>[] = useMemo(
+    () => (selectable
+      ? [{ key: SELECT_COL, header: '', width: 40, sortable: false, render: () => null } as Column<T>, ...visibleCols]
+      : visibleCols),
+    [selectable, visibleCols],
+  );
+
   const tableMinWidth = useMemo(() => {
     if (layout !== 'design') return undefined;
-    return visibleCols.reduce((sum, c) => sum + colPx(c.width), 0);
-  }, [layout, visibleCols]);
+    return renderCols.reduce((sum, c) => sum + colPx(c.width), 0);
+  }, [layout, renderCols]);
 
   // How many leading columns to freeze, and each one's cumulative left offset.
-  const stickyCount = stickyColumns ?? (stickyFirstColumn ? 1 : 0);
+  // The checkbox column freezes along with whatever the caller asked for.
+  const stickyCount = (stickyColumns ?? (stickyFirstColumn ? 1 : 0)) + (selectable ? 1 : 0);
   const stickyLefts = useMemo(() => {
     const lefts: number[] = [];
     let acc = 0;
     for (let i = 0; i < stickyCount; i++) {
       lefts[i] = acc;
-      acc += colPx(visibleCols[i]?.width);
+      acc += colPx(renderCols[i]?.width);
     }
     return lefts;
-  }, [stickyCount, visibleCols]);
+  }, [stickyCount, renderCols]);
 
   // The frozen-column edge shadow should appear only once the table is scrolled
   // horizontally — at rest it would bleed onto the first scrollable column.
@@ -216,6 +258,31 @@ export function DataTable<T extends { [key: string]: unknown }>({
   }
 
   if (layout === 'design') {
+    // Keys for the rows actually on screen — what the header checkbox acts on.
+    const pageEntries = sorted.map((row, idx) => ({ key: rowId(row, idx), row }));
+    // `rowId` falls back to the row's index when the rowKey field is missing.
+    // That is harmless for React keys, but selection uses the same value as its
+    // identity ACROSS pages — index 3 on page 1 and index 3 on page 2 would be
+    // the same row as far as the selection is concerned, so its totals and its
+    // export would describe the wrong rows. Loud in dev rather than silent.
+    if (import.meta.env.DEV && selectable) {
+      const k = rowKey as string;
+      const missing = sorted.some((row) => {
+        const v = row[k];
+        return v == null || (typeof v !== 'string' && typeof v !== 'number');
+      });
+      if (missing && !warnedRowKeys.has(k)) {
+        warnedRowKeys.add(k);
+        console.warn(
+          `DataTable: rowKey "${k}" is missing on some rows, so selection is keyed by row index and will collide across pages.`,
+        );
+      }
+    }
+
+    const pageSelected = pageEntries.filter(e => selectedSet.has(e.key)).length;
+    const allPageSelected = pageEntries.length > 0 && pageSelected === pageEntries.length;
+    const somePageSelected = pageSelected > 0 && !allPageSelected;
+
     const headPad = '8px 12px';
     const cellPad = '6px 12px';
     const rowH = 36;
@@ -240,7 +307,7 @@ export function DataTable<T extends { [key: string]: unknown }>({
           >
             <thead>
               <tr style={{ background: 'var(--table-head-bg)' }}>
-                {visibleCols.map((col, i) => {
+                {renderCols.map((col, i) => {
                   const w = col.width != null ? (typeof col.width === 'number' ? `${col.width}px` : col.width) : undefined;
                   const align = col.align || 'left';
                   const sticky = i < stickyCount;
@@ -285,6 +352,26 @@ export function DataTable<T extends { [key: string]: unknown }>({
                         width: w,
                       }}
                     >
+                      {col.key === SELECT_COL ? (
+                        <button
+                          type="button"
+                          aria-label={allPageSelected ? 'Clear selection on this page' : 'Select every row on this page'}
+                          aria-checked={allPageSelected ? 'true' : somePageSelected ? 'mixed' : 'false'}
+                          role="checkbox"
+                          onClick={() => onTogglePage?.(pageEntries, !allPageSelected)}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                            color: allPageSelected || somePageSelected ? 'var(--accent, var(--text))' : 'var(--text-muted)',
+                          }}
+                        >
+                          {allPageSelected
+                            ? <SquareCheck size={15} strokeWidth={2} />
+                            : somePageSelected
+                              ? <SquareMinus size={15} strokeWidth={2} />
+                              : <Square size={15} strokeWidth={2} />}
+                        </button>
+                      ) : (
                       <span style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -296,6 +383,7 @@ export function DataTable<T extends { [key: string]: unknown }>({
                         {col.header}
                         {sortKey === col.key && (sortDir === 'asc' ? '↑' : '↓')}
                       </span>
+                      )}
                     </th>
                   );
                 })}
@@ -305,7 +393,7 @@ export function DataTable<T extends { [key: string]: unknown }>({
               {loading ? (
                 Array.from({ length: 8 }).map((_, r) => (
                   <tr key={`sk-${r}`} style={{ height: rowH }}>
-                    {visibleCols.map((col, c) => (
+                    {renderCols.map((col, c) => (
                       <td key={col.key} style={{ padding: cellPad, borderBottom: '1px solid var(--border-soft)' }}>
                         <Skeleton height={12} width={c === 0 ? '70%' : '45%'} />
                       </td>
@@ -316,6 +404,9 @@ export function DataTable<T extends { [key: string]: unknown }>({
                 sorted.map((row, idx) => {
                   const id = rowId(row, idx);
                   const isExpanded = expandable && expandedSet.has(id);
+                  const baseBg = selectedSet.has(id)
+                    ? 'var(--selected-bg, var(--table-zebra))'
+                    : idx % 2 === 0 ? 'transparent' : 'var(--table-zebra)';
                   // Expansion wins over onRowClick — see the prop docs.
                   const activate = expandable
                     ? () => onToggleExpand(id, row)
@@ -333,14 +424,12 @@ export function DataTable<T extends { [key: string]: unknown }>({
                     style={{
                       cursor: activate ? 'pointer' : 'default',
                       height: rowH,
-                      background: idx % 2 === 0 ? 'transparent' : 'var(--table-zebra)',
+                      background: baseBg,
                     }}
                     onMouseEnter={e => { e.currentTarget.style.background = 'var(--hover)'; }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.background = idx % 2 === 0 ? 'transparent' : 'var(--table-zebra)';
-                    }}
+                    onMouseLeave={e => { e.currentTarget.style.background = baseBg; }}
                   >
-                    {visibleCols.map((col, i) => {
+                    {renderCols.map((col, i) => {
                       const align = col.align || 'left';
                       const sticky = i < stickyCount;
                       const isLastSticky = sticky && i === stickyCount - 1;
@@ -371,7 +460,26 @@ export function DataTable<T extends { [key: string]: unknown }>({
                             zIndex: sticky ? 1 : 0,
                           }}
                         >
-                          {i === 0 && expandable ? (
+                          {col.key === SELECT_COL ? (
+                            <button
+                              type="button"
+                              role="checkbox"
+                              aria-checked={selectedSet.has(id)}
+                              aria-label={selectedSet.has(id) ? 'Deselect row' : 'Select row'}
+                              // The row itself opens a drawer or expands; keep
+                              // the two gestures from firing together.
+                              onClick={(e) => { e.stopPropagation(); onToggleRow?.(id, row); }}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                                color: selectedSet.has(id) ? 'var(--accent, var(--text))' : 'var(--text-muted)',
+                              }}
+                            >
+                              {selectedSet.has(id)
+                                ? <SquareCheck size={15} strokeWidth={2} />
+                                : <Square size={15} strokeWidth={2} />}
+                            </button>
+                          ) : col.key === renderCols[selectable ? 1 : 0]?.key && expandable ? (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
                               <ChevronDown
                                 size={13}
@@ -396,7 +504,7 @@ export function DataTable<T extends { [key: string]: unknown }>({
                   {isExpanded && (
                     <tr>
                       <td
-                        colSpan={visibleCols.length}
+                        colSpan={renderCols.length}
                         style={{
                           padding: 0,
                           background: 'var(--surface-alt)',
