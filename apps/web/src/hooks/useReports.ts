@@ -169,8 +169,8 @@ export interface TimeEntryTaskGroup {
   entryCount: number;
   assignees: { userId: string; userName: string | null }[];
   totalHours: number;
-  billableHours: number;
-  nonBillableHours: number;
+  chargeable: boolean;
+  chargeableHours: number;
   costAud: number;
   missingRateCount: number;
   excludedCount: number;
@@ -199,8 +199,8 @@ export function useTimeEntriesByTask(
 export interface TimeEntriesAggregates {
   totalEntries: number;
   totalHours: number;
-  billableHours: number;
-  nonBillableHours: number;
+  chargeableHours: number;
+  nonChargeableHours: number;
   totalCostCents: number;
   avgRateCents: number;
   costCalculatedCount: number;
@@ -209,7 +209,7 @@ export interface TimeEntriesAggregates {
 
 /**
  * Aggregates across the *entire* filtered set, not just the current page.
- * The Time Entries page's metric cards (Total hours, Billable, cost, etc.)
+ * The Time Entries page's metric cards (Total hours, Chargeable, cost, etc.)
  * should use this — computing them from the 50-row page produced misleading
  * numbers that didn't react to the date filter.
  */

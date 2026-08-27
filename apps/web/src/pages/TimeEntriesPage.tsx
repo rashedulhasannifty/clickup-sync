@@ -29,10 +29,10 @@ import { SelectionBar, type SelectionStat } from '../components/SelectionBar';
 import { useRowSelection } from '../hooks/useRowSelection';
 import type { TimeEntryItem } from '../components/TimeEntryDrawer';
 
-const BILLABLE_OPTIONS = [
-  { value: '', label: 'Billable + non' },
-  { value: 'true', label: 'Billable only' },
-  { value: 'false', label: 'Non-billable only' },
+const CHARGEABLE_OPTIONS = [
+  { value: '', label: 'Chargeable + non' },
+  { value: 'true', label: 'Chargeable only' },
+  { value: 'false', label: 'Non-chargeable only' },
 ];
 
 // Mirrors the Tasks page. Time entries carry no archived column of their own —
@@ -47,6 +47,7 @@ const STATUS_OPTIONS = [
   { value: 'COST_CALCULATED', label: 'Cost calculated' },
   { value: 'NO_RATE_FOUND', label: 'No rate found' },
   { value: 'COST_EXCLUDED', label: 'Excluded' },
+  { value: 'NOT_CHARGEABLE', label: 'Not chargeable' },
 ];
 
 // The page's two shapes. Grouped is the default: a task's total is what people
@@ -102,7 +103,7 @@ export function TimeEntriesPage() {
   const [search, setSearch] = useState('');
 
   const [userId, setUserId] = useState<string[]>([]);
-  const [billable, setBillable] = useState('');
+  const [chargeable, setChargeable] = useState('');
   const [status, setStatus] = useState<string[]>([]);
   const [missingOnly, setMissingOnly] = useState(false);
   const [clientFilter, setClientFilter] = useState<string[]>([]);
@@ -288,7 +289,7 @@ export function TimeEntriesPage() {
     client: clientFilter.length ? clientFilter.join(',') : undefined,
     listId: listFilter.length ? listFilter.join(',') : undefined,
     folderId: folderFilter.length ? folderFilter.join(',') : undefined,
-    billable: billable === 'true' || billable === 'false' ? billable : undefined,
+    chargeable: chargeable === 'true' || chargeable === 'false' ? chargeable : undefined,
     status: missingOnly ? undefined : (status.length ? status.join(',') : undefined),
     missingOnly: missingOnly ? 'true' : undefined,
     // 'include' is the neutral default (no backend constraint) — omit it so it
@@ -308,7 +309,7 @@ export function TimeEntriesPage() {
     // backend defaults a missing `to` to now(), which is what we want.
     from: deepLinkActive ? ALL_TIME_FROM : (linkFrom ?? (fromDate || undefined)),
     to: deepLinkActive ? undefined : (linkTo ?? (toDate || undefined)),
-  }), [pageSize, page, search, userId, clientFilter, listFilter, folderFilter, billable, status, missingOnly, archivedFilter, sprintStatus, deepLinkActive, bypassSpace, space, fromDate, toDate, linkFrom, linkTo]);
+  }), [pageSize, page, search, userId, clientFilter, listFilter, folderFilter, chargeable, status, missingOnly, archivedFilter, sprintStatus, deepLinkActive, bypassSpace, space, fromDate, toDate, linkFrom, linkTo]);
 
   const grouped = groupBy === 'task';
   const paramsKey = useMemo(() => JSON.stringify(params), [params]);
@@ -348,8 +349,8 @@ export function TimeEntriesPage() {
           { header: 'Assignees',          value: (r) => r.assignees.map(a => a.userName).filter(Boolean).join(', '), key: 'assignees', width: 30 },
           { header: 'Entries',            value: 'entryCount', key: 'entryCount', type: 'integer' },
           { header: 'Total hours',        value: 'totalHours', key: 'totalHours', type: 'number' },
-          { header: 'Billable hours',     value: 'billableHours', key: 'billableHours', type: 'number' },
-          { header: 'Non-billable hours', value: 'nonBillableHours', type: 'number' },
+          { header: 'Chargeable',       value: (r) => (r.chargeable ? 'Yes' : 'No'), key: 'chargeable' },
+          { header: 'Chargeable hours', value: 'chargeableHours', key: 'chargeableHours', type: 'number' },
           // Cost of the entries that HAVE a rate. `Entries missing a rate` is the
           // caveat on it — an uncosted entry is never rolled in silently.
           { header: 'Total cost',         value: 'costAud', key: 'costAud', type: 'money' },
@@ -380,7 +381,7 @@ export function TimeEntriesPage() {
         { header: 'Start',         value: 'startTime', key: 'startTime', type: 'date' },
         { header: 'End',           value: 'endTime', type: 'date' },
         { header: 'Duration (h)', value: 'durationHours', key: 'durationHours', type: 'number' },
-        { header: 'Billable',      value: 'billable', key: 'billable' },
+        { header: 'Chargeable',    value: (r) => (r.chargeable ? 'Yes' : 'No'), key: 'chargeable' },
         // Both money columns export in dollars (matching the UI). `hourlyRateCents`
         // is stored in cents, so divide by 100; `costAud` is already dollars.
         { header: 'Hourly rate',   value: (r) => (r.hourlyRateCents != null ? r.hourlyRateCents / 100 : null), key: 'hourlyRateCents', type: 'money' },
@@ -415,8 +416,8 @@ export function TimeEntriesPage() {
   // entire filtered set, not the 50-row page. Without this the cards looked
   // frozen across date-range changes.
   const totalHours = agg?.totalHours ?? 0;
-  const billableHours = agg?.billableHours ?? 0;
-  const nonBillableHours = agg?.nonBillableHours ?? 0;
+  const chargeableHours = agg?.chargeableHours ?? 0;
+  const nonChargeableHours = agg?.nonChargeableHours ?? 0;
   const totalCostCents = agg?.totalCostCents ?? 0;
   const avgRateCents = agg?.avgRateCents ?? 0;
   const missingRateCount = agg?.noRateFoundCount ?? 0;
@@ -427,7 +428,7 @@ export function TimeEntriesPage() {
 
   const hasFilters = !!(
     search || userId.length || clientFilter.length || listFilter.length
-    || folderFilter.length || billable || status.length || missingOnly
+    || folderFilter.length || chargeable || status.length || missingOnly
     || archivedFilter !== 'include' || sprintStatus !== 'all'
   );
 
@@ -438,7 +439,7 @@ export function TimeEntriesPage() {
     setClientFilter([]);
     setListFilter([]);
     setFolderFilter([]);
-    setBillable('');
+    setChargeable('');
     setStatus([]);
     setMissingOnly(false);
     setArchivedFilter('include');
@@ -520,14 +521,13 @@ export function TimeEntriesPage() {
       ),
     },
     {
-      key: 'billableHours',
-      header: 'Billable',
-      width: 90,
-      align: 'right',
+      key: 'chargeable',
+      header: 'Charge',
+      width: 120,
       render: (row) => (
-        row.billableHours > 0
-          ? <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)', fontSize: 12 }}>{fmt.duration(row.billableHours)}</span>
-          : <span style={{ color: 'var(--text-faint)' }}>—</span>
+        row.chargeable
+          ? <Pill tone="green" size="xs">chargeable</Pill>
+          : <Pill tone="gray" size="xs">non-chargeable</Pill>
       ),
     },
     {
@@ -548,6 +548,7 @@ export function TimeEntriesPage() {
       header: 'Rates',
       width: 120,
       render: (row) => {
+        if (!row.chargeable) return <span style={{ color: 'var(--text-faint)' }}>n/a</span>;
         if (row.missingRateCount > 0) {
           return <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} strokeWidth={2} />}>{row.missingRateCount} missing</Pill>;
         }
@@ -672,14 +673,14 @@ export function TimeEntriesPage() {
       ),
     },
     {
-      key: 'billable',
-      header: 'Bill',
-      width: 70,
+      key: 'chargeable',
+      header: 'Charge',
+      width: 110,
       sortable: false,
       render: (row) => (
-        row.billable
-          ? <Pill tone="green" size="xs">billable</Pill>
-          : <Pill tone="gray" size="xs">non</Pill>
+        row.chargeable
+          ? <Pill tone="green" size="xs">chargeable</Pill>
+          : <Pill tone="gray" size="xs">non-chargeable</Pill>
       ),
     },
     {
@@ -724,7 +725,11 @@ export function TimeEntriesPage() {
           ? <Pill tone="green" size="xs" icon={<CircleCheck size={10} strokeWidth={2} />}>cost calculated</Pill>
           : row.status === 'COST_EXCLUDED'
             ? <Pill tone="gray" size="xs">excluded</Pill>
-            : <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} strokeWidth={2} />}>no rate found</Pill>,
+            // Gray, not amber: the rate WAS resolved, the cost is zero because
+            // the task is non-chargeable. Nothing here needs fixing.
+            : row.status === 'NOT_CHARGEABLE'
+              ? <Pill tone="gray" size="xs">not chargeable</Pill>
+              : <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} strokeWidth={2} />}>no rate found</Pill>,
     },
     {
       key: 'syncedAt',
@@ -749,8 +754,8 @@ export function TimeEntriesPage() {
       return [
         { label: 'entries', value: fmt.number(sum(rows, r => r.entryCount)) },
         { label: 'total', value: fmt.hours(sum(rows, r => r.totalHours)) },
-        { label: 'billable', value: fmt.hours(sum(rows, r => r.billableHours)) },
-        { label: 'non-billable', value: fmt.hours(sum(rows, r => r.nonBillableHours)) },
+        { label: 'chargeable', value: fmt.hours(sum(rows, r => r.chargeableHours)) },
+        { label: 'non-chargeable', value: fmt.hours(sum(rows, r => r.totalHours - r.chargeableHours)) },
         { label: 'cost', value: fmt.money(sum(rows, r => r.costAud) * 100) },
         ...(missing > 0 ? [{ label: 'missing rate', value: fmt.number(missing), warn: true }] : []),
       ];
@@ -759,8 +764,8 @@ export function TimeEntriesPage() {
     const missing = rows.filter(r => r.status === 'NO_RATE_FOUND').length;
     return [
       { label: 'total', value: fmt.hours(sum(rows, r => r.durationHours)) },
-      { label: 'billable', value: fmt.hours(sum(rows.filter(r => r.billable), r => r.durationHours)) },
-      { label: 'non-billable', value: fmt.hours(sum(rows.filter(r => !r.billable), r => r.durationHours)) },
+      { label: 'chargeable', value: fmt.hours(sum(rows.filter(r => r.chargeable), r => r.durationHours)) },
+      { label: 'non-chargeable', value: fmt.hours(sum(rows.filter(r => !r.chargeable), r => r.durationHours)) },
       // Mirrors the grouped row and the data-model rule: an entry with no rate
       // contributes no cost, and is called out separately instead.
       { label: 'cost', value: fmt.money(sum(rows.filter(r => r.status !== 'NO_RATE_FOUND'), r => r.costAud) * 100) },
@@ -768,7 +773,7 @@ export function TimeEntriesPage() {
     ];
   }, [grouped, groupSelection.selectedRows, entrySelection.selectedRows]);
 
-  const billablePct = totalHours > 0 ? Math.round((billableHours / totalHours) * 100) : 0;
+  const chargeablePct = totalHours > 0 ? Math.round((chargeableHours / totalHours) * 100) : 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -802,12 +807,12 @@ export function TimeEntriesPage() {
         />
         <MetricCard
           dense
-          label="Billable"
-          value={fmt.hours(billableHours)}
-          sublabel={`${billablePct}%`}
+          label="Chargeable"
+          value={fmt.hours(chargeableHours)}
+          sublabel={`${chargeablePct}%`}
           icon={<DollarSign size={13} strokeWidth={1.75} />}
         />
-        <MetricCard dense label="Non-billable" value={fmt.hours(nonBillableHours)} icon={<Clock size={13} strokeWidth={1.75} />} />
+        <MetricCard dense label="Non-chargeable" value={fmt.hours(nonChargeableHours)} icon={<Clock size={13} strokeWidth={1.75} />} />
         <MetricCard
           dense
           label="Total cost"
@@ -917,7 +922,7 @@ export function TimeEntriesPage() {
         <MultiSelect ariaLabel="Filter by client" size="md" allLabel="Any client" options={clientOptions} value={clientFilter} onChange={(v) => { setClientFilter(v); setPage(1); }} />
         <MultiSelect ariaLabel="Filter by folder" size="md" allLabel="Any folder" options={folderOptions} value={folderFilter} onChange={(v) => { setFolderFilter(v); setPage(1); }} />
         <MultiSelect ariaLabel="Filter by list" size="md" allLabel="Any list" options={listOptions} value={listFilter} onChange={(v) => { setListFilter(v); setPage(1); }} />
-        <Select ariaLabel="Filter by billable state" size="md" options={BILLABLE_OPTIONS} value={billable} onChange={(v) => { setBillable(v); setPage(1); }} />
+        <Select ariaLabel="Filter by chargeable state" size="md" options={CHARGEABLE_OPTIONS} value={chargeable} onChange={(v) => { setChargeable(v); setPage(1); }} />
         <Select ariaLabel="Filter by archived state" size="md" options={ARCHIVED_OPTIONS} value={archivedFilter} onChange={(v) => { setArchivedFilter(v); setPage(1); }} />
         <Select ariaLabel="Filter by sprint status" size="md" value={sprintStatus} onChange={(v) => { setSprintStatus(v); setPage(1); }} options={SPRINT_STATUS_OPTIONS} />
         <MultiSelect ariaLabel="Filter by cost status" size="md" allLabel="Any status" options={STATUS_OPTIONS} value={status} onChange={(v) => { setStatus(v); setPage(1); }} disabled={missingOnly} />

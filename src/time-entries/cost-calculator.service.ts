@@ -24,19 +24,30 @@ export class CostCalculatorService {
     startTime: Date | null,
     durationHours: number,
     cache?: RateCache,
-    opts?: { billable?: boolean; dueDate?: Date | null },
+    opts?: { chargeable?: boolean; dueDate?: Date | null },
   ) {
     if (!userId || !startTime) return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND' };
     if (this.settings.getExcludedAssigneeIds().has(userId)) {
       return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'COST_EXCLUDED' };
     }
     const cost = this.settings.getPreferences().cost;
-    if (cost.nonBillableZero && opts?.billable === false) {
-      return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'COST_CALCULATED' };
-    }
     const basis = cost.rateMatching === 'due' && opts?.dueDate ? opts.dueDate : startTime;
     const entryDate = new Date(Date.UTC(basis.getUTCFullYear(), basis.getUTCMonth(), basis.getUTCDate()));
     const rate = await this.resolveRate(userId, entryDate, cache);
+    // Non-chargeable work costs nothing — but the rate is still resolved and
+    // stored, so "what would this unbilled work have cost us" stays answerable
+    // as hours x rate. A missing rate is not a problem to fix here either, so
+    // NOT_CHARGEABLE wins over NO_RATE_FOUND and keeps this work out of the
+    // Missing Rates report.
+    if (opts?.chargeable === false) {
+      return {
+        rateId: rate?.rateId ?? null,
+        currency: rate?.currency ?? 'USD',
+        hourlyRateCents: rate?.hourlyRateCents ?? 0n,
+        costCents: 0n,
+        status: 'NOT_CHARGEABLE',
+      };
+    }
     if (!rate) return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND' };
     return { rateId: rate.rateId, currency: rate.currency, hourlyRateCents: rate.hourlyRateCents, costCents: BigInt(Math.round(Number(rate.hourlyRateCents) * durationHours)), status: 'COST_CALCULATED' };
   }

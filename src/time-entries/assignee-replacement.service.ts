@@ -120,11 +120,10 @@ export class AssigneeReplacementService {
 
     // 7. Upsert replacement entry into local DB with recalculated cost
     const startTime = new Date(data.startMs);
-    const dueDate =
-      this.settings.getPreferences().cost.rateMatching === 'due'
-        ? (await this.prisma.clickupTask.findUnique({ where: { taskId: data.taskId }, select: { dueDate: true } }))?.dueDate ?? null
-        : null;
-    const cost = await this.costs.calculate(realUserId, startTime, data.durationHours, undefined, { billable: data.billable, dueDate });
+    const task = data.taskId
+      ? await this.prisma.clickupTask.findUnique({ where: { taskId: data.taskId }, select: { dueDate: true, isChargeable: true } })
+      : null;
+    const cost = await this.costs.calculate(realUserId, startTime, data.durationHours, undefined, { chargeable: task?.isChargeable ?? true, dueDate: task?.dueDate ?? null });
     const normalized: NormalizedTimeEntry = {
       timeEntryId: created.id,
       taskId: data.taskId,

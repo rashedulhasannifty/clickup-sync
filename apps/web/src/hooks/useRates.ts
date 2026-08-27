@@ -72,7 +72,6 @@ export function useRecalcCosts() {
       qc.invalidateQueries({ queryKey: ['time-entries-by-user'] });
       qc.invalidateQueries({ queryKey: ['time-entries-by-client'] });
       qc.invalidateQueries({ queryKey: ['time-entries-by-dept'] });
-      qc.invalidateQueries({ queryKey: ['billable-summary'] });
       qc.invalidateQueries({ queryKey: ['stats'] });
       qc.invalidateQueries({ queryKey: ['missing-rates'] });
     },

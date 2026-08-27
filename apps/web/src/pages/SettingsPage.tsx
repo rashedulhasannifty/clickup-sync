@@ -969,8 +969,8 @@ export function SettingsPage() {
             Most settings here are live: changes persist and take effect. The
             exceptions still in preview are <strong>Default currency</strong> and{' '}
             <strong>Pause syncing on repeated failure</strong>. Changing{' '}
-            <strong>Rate matching</strong> or <strong>Treat non-billable as zero</strong>{' '}
-            applies to new entries immediately; run <strong>Recalculate costs</strong>{' '}
+            <strong>Rate matching</strong> applies to new entries immediately;
+            run <strong>Recalculate costs</strong>{' '}
             (Assignee Rates) to apply it to existing ones.
           </Callout>
 
@@ -1243,17 +1243,6 @@ export function SettingsPage() {
                     checked={prefs?.cost.autoRecalcOnRateChange ?? true}
                     disabled={!isOwner || updateSettings.isPending}
                     onChange={(v) => patchPrefs({ cost: { autoRecalcOnRateChange: v } })}
-                  />
-                }
-              />
-              <SettingRow
-                label="Treat non-billable as zero cost"
-                desc="When on, non-billable time entries are costed at 0. Recalculate to apply to existing entries."
-                control={
-                  <Switch
-                    checked={prefs?.cost.nonBillableZero ?? false}
-                    disabled={!isOwner || updateSettings.isPending}
-                    onChange={(v) => patchPrefs({ cost: { nonBillableZero: v } })}
                   />
                 }
               />

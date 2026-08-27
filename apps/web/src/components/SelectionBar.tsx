@@ -1,3 +1,4 @@
+import React from 'react';
 import { X } from 'lucide-react';
 import { Button } from './ui/Button';
 import { Pill } from './ui/Pill';
@@ -26,9 +27,11 @@ interface Props {
   nounPlural?: string;
   stats: SelectionStat[];
   onClear: () => void;
+  /** Bulk actions for the selection, rendered before Clear. */
+  actions?: React.ReactNode;
 }
 
-export function SelectionBar({ count, noun, nounPlural, stats, onClear }: Props) {
+export function SelectionBar({ count, noun, nounPlural, stats, onClear, actions }: Props) {
   if (count === 0) return null;
   return (
     <div
@@ -60,6 +63,7 @@ export function SelectionBar({ count, noun, nounPlural, stats, onClear }: Props)
         </span>
       ))}
       <span style={{ flex: 1 }} />
+      {actions}
       <Button size="sm" variant="ghost" icon={<X size={12} strokeWidth={1.75} />} onClick={onClear}>
         Clear
       </Button>

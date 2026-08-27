@@ -16,6 +16,7 @@ import { AdminSpikesController } from './admin-spikes.controller';
 import { AdminRatesController } from './admin-rates.controller';
 import { AdminBudgetsController } from './admin-budgets.controller';
 import { AdminTagsController } from './admin-tags.controller';
+import { AdminTasksController } from './admin-tasks.controller';
 import { AuditLogRepository } from './audit-log.repository';
 import { AuditLogInterceptor } from './audit-log.interceptor';
 import { SpikeNotificationService } from './spike-notification.service';
@@ -35,6 +36,7 @@ import { TaskHistoryRepository } from './task-history.repository';
     AdminRatesController,
     AdminBudgetsController,
     AdminTagsController,
+    AdminTasksController,
   ],
   exports: [AuditLogRepository, AuditLogInterceptor],
 })

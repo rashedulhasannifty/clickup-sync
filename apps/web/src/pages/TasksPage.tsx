@@ -22,12 +22,15 @@ import { ClickupAvatar, ClickupAvatarStack } from '../components/ui/ClickupAvata
 import { Drawer } from '../components/ui/Drawer';
 import { Markdown } from '../components/ui/Markdown';
 import { Tabs } from '../components/ui/Tabs';
+import { Field } from '../components/ui/Field';
 import { TaskTimeline, type TaskTimelineEvent } from '../components/tasks/TaskTimeline';
+import { ChargeableConfirmModal } from '../components/ChargeableConfirmModal';
 import { fmt } from '../lib/formatters';
 import { reportsApi } from '../api/reports';
 import { exportXlsx, type XlsxColumn } from '../lib/xlsx';
 import { SelectionBar, type SelectionStat } from '../components/SelectionBar';
 import { useRowSelection } from '../hooks/useRowSelection';
+import { useAuth } from '../hooks/useAuth';
 
 type Task = Record<string, unknown>;
 
@@ -105,7 +108,15 @@ function cell(v: unknown): ReactNode {
   return v as ReactNode;
 }
 
-function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () => void }) {
+function TaskDetailDrawer({
+  task, onClose, canEdit, onSetChargeable,
+}: {
+  task: Task | null;
+  onClose: () => void;
+  canEdit: boolean;
+  /** Opens the shared confirmation modal to flip this task's chargeability. */
+  onSetChargeable: (taskId: string, next: boolean) => void;
+}) {
   const [tab, setTab] = useState('overview');
   const [copied, setCopied] = useState(false);
 
@@ -247,6 +258,20 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
                 ['Sprint', task.sprintName ?? task.sprint_name],
                 ['Sprint points', task.sprintPoints ?? task.sprint_points],
               ] as [string, ReactNode][]} />
+              <div style={{ marginTop: 12 }}>
+                <Field label="Chargeable">
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    {task.isChargeable === false
+                      ? <Pill tone="gray" size="xs">non-chargeable</Pill>
+                      : <Pill tone="green" size="xs">chargeable</Pill>}
+                    {canEdit && (
+                      <Button size="sm" variant="ghost" onClick={() => onSetChargeable(taskId, task.isChargeable === false)}>
+                        {task.isChargeable === false ? 'Mark chargeable' : 'Mark non-chargeable'}
+                      </Button>
+                    )}
+                  </span>
+                </Field>
+              </div>
             </div>
             <div>
               <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Dates</h3>
@@ -318,6 +343,8 @@ function TaskDetailDrawer({ task, onClose }: { task: Task | null; onClose: () =>
 }
 
 export function TasksPage() {
+  const { hasRole } = useAuth();
+  const canEdit = hasRole('ADMIN');
   const { space, fromDate, toDate } = useGlobalFilters();
   const { data: assigneesData } = useTasksAssignees();
   const { data: summary } = useTasksSummary();
@@ -346,6 +373,10 @@ export function TasksPage() {
   // — wiping page/pageSize/filters and leaving the drawer unable to find the
   // clicked row when it lived past page 1 / row 50.
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  // Backs the single confirmation dialog shared by the bulk action and the
+  // drawer toggle — `clearSelectionOnApply` only clears the row selection for
+  // the bulk path; the drawer's own single-task toggle leaves it alone.
+  const [chargeableTarget, setChargeableTarget] = useState<{ taskIds: string[]; chargeable: boolean; clearSelectionOnApply: boolean } | null>(null);
   // Mirror the DataTable's column show/hide state here so CSV export can drop
   // the same hidden columns (keys match the `columns` defs below).
   const [hiddenCols, setHiddenCols] = useState<string[]>([]);
@@ -570,6 +601,7 @@ export function TasksPage() {
         { header: 'Space',         value: (r) => r.spaceName ?? r.space_name, key: 'space_name' },
         { header: 'List',          value: (r) => r.listName ?? r.list_name, key: 'list_name' },
         { header: 'Status',        value: 'status', key: 'status' },
+        { header: 'Chargeable',    value: (r) => (r.isChargeable === false ? 'No' : 'Yes'), key: 'chargeable' },
         { header: 'Status type',   value: (r) => r.statusType ?? r.status_type },
         { header: 'Priority',      value: 'priority' },
         { header: 'Assignees',     value: 'assigneesNames', key: 'assignees', width: 30 },
@@ -633,6 +665,16 @@ export function TasksPage() {
       header: 'Status',
       width: 120,
       render: (r) => <StatusBadge status={String(r.status ?? '')} color={r.statusColor as string | undefined} />,
+    },
+    {
+      key: 'chargeable',
+      header: 'Charge',
+      width: 120,
+      render: (row) => (
+        row.isChargeable === false
+          ? <Pill tone="gray" size="xs">non-chargeable</Pill>
+          : <Pill tone="green" size="xs">chargeable</Pill>
+      ),
     },
     {
       key: 'space_name',
@@ -853,6 +895,32 @@ export function TasksPage() {
         noun="task"
         stats={selectionStats}
         onClear={selection.clear}
+        actions={canEdit ? (
+          <>
+            <Button
+              size="sm"
+              variant="subtle"
+              onClick={() => setChargeableTarget({
+                taskIds: selection.selectedRows.map((r) => String(r.taskId ?? r.task_id ?? '')),
+                chargeable: true,
+                clearSelectionOnApply: true,
+              })}
+            >
+              Mark chargeable
+            </Button>
+            <Button
+              size="sm"
+              variant="subtle"
+              onClick={() => setChargeableTarget({
+                taskIds: selection.selectedRows.map((r) => String(r.taskId ?? r.task_id ?? '')),
+                chargeable: false,
+                clearSelectionOnApply: true,
+              })}
+            >
+              Mark non-chargeable
+            </Button>
+          </>
+        ) : undefined}
       />
 
       <QueryError query={tasksQuery} what="tasks" />
@@ -883,7 +951,32 @@ export function TasksPage() {
         onTogglePage={selection.togglePage}
       />
 
-      <TaskDetailDrawer task={selectedTask} onClose={() => setSelectedTask(null)} />
+      <TaskDetailDrawer
+        task={selectedTask}
+        onClose={() => setSelectedTask(null)}
+        canEdit={canEdit}
+        onSetChargeable={(taskId, next) => setChargeableTarget({ taskIds: [taskId], chargeable: next, clearSelectionOnApply: false })}
+      />
+
+      {chargeableTarget && (
+        <ChargeableConfirmModal
+          taskIds={chargeableTarget.taskIds}
+          chargeable={chargeableTarget.chargeable}
+          onClose={(changed) => {
+            const { taskIds, chargeable, clearSelectionOnApply } = chargeableTarget;
+            setChargeableTarget(null);
+            if (!changed) return;
+            if (clearSelectionOnApply) selection.clear();
+            // The drawer's snapshot of the task predates the change — patch it
+            // in place so a still-open drawer doesn't show a stale flag/button.
+            setSelectedTask((prev) => {
+              if (!prev) return prev;
+              const id = String(prev.taskId ?? prev.task_id ?? '');
+              return taskIds.includes(id) ? { ...prev, isChargeable: chargeable } : prev;
+            });
+          }}
+        />
+      )}
     </div>
   );
 }

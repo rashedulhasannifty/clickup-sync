@@ -8,6 +8,11 @@ export class TasksRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   upsert(task: NormalizedTask) {
+    // `shared` is built from NormalizedTask alone, which deliberately carries
+    // no local annotations (see the "Local annotations" block in
+    // schema.prisma). Do NOT switch this to writing every column: user-set
+    // flags like `isChargeable` would revert on each task's next resync, with
+    // no error anywhere. `tasks.repository.spec.ts` enforces this.
     const shared = { ...task, raw: task.raw as Prisma.InputJsonValue, isDeleted: false };
     const update: Prisma.ClickupTaskUpdateInput = { ...shared, deletedAt: null, syncCount: { increment: 1 } };
     // The single-task fetch (GET /task/{id}, used by webhooks and manual sync)
@@ -68,5 +73,17 @@ export class TasksRepository {
     const rows = await this.prisma.clickupTask.findMany({ where: { taskId: { in: parentIds } }, select: { taskId: true } });
     const existing = new Set(rows.map((r) => r.taskId));
     return parentIds.filter((id) => !existing.has(id));
+  }
+
+  /**
+   * Set the locally-owned chargeability flag. Only rows whose value actually
+   * changes are counted, so the caller can skip a pointless recalculation —
+   * and the returned count is what the UI reports back to the user.
+   */
+  setChargeable(taskIds: string[], chargeable: boolean) {
+    return this.prisma.clickupTask.updateMany({
+      where: { taskId: { in: taskIds }, isChargeable: !chargeable },
+      data: { isChargeable: chargeable },
+    });
   }
 }

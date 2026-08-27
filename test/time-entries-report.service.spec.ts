@@ -1,4 +1,5 @@
 import { TimeEntriesReportService } from '../src/reports/time-entries-report.service';
+import { buildTimeEntryWhere } from '../src/reports/report-filter.util';
 
 describe('TimeEntriesReportService', () => {
   function makePrisma(overrides: Partial<Record<string, any>> = {}) {
@@ -7,6 +8,7 @@ describe('TimeEntriesReportService', () => {
         groupBy: jest.fn().mockResolvedValue([]),
         count: jest.fn().mockResolvedValue(0),
         findMany: jest.fn().mockResolvedValue([]),
+        aggregate: jest.fn().mockResolvedValue({ _count: 0, _sum: { durationHours: null, costCents: null } }),
       },
       $queryRaw: jest.fn().mockResolvedValue([]),
     };
@@ -37,25 +39,42 @@ describe('TimeEntriesReportService', () => {
     });
   });
 
-  describe('timeEntriesBillableSummary', () => {
-    it('separates billable and non-billable rows', async () => {
+  describe('timeEntriesChargeableSummary', () => {
+    // The non-chargeable half is DERIVED (total - chargeable), never queried as
+    // its own partition: two independently-queried halves can disagree with the
+    // window's real total whenever a row belongs to neither (e.g. a null task
+    // FK), and then this summary contradicts every other surface on the page.
+    it('separates chargeable and non-chargeable hours', async () => {
       const prisma = makePrisma();
-      prisma.clickupTimeEntry.groupBy.mockResolvedValue([
-        { billable: true, _sum: { durationHours: { toNumber: () => 10 }, costCents: BigInt(150000) } },
-        { billable: false, _sum: { durationHours: { toNumber: () => 5 }, costCents: BigInt(0) } },
-      ]);
-      const result = await new TimeEntriesReportService(prisma).timeEntriesBillableSummary();
-      expect(result.billableHours).toBe(10);
-      expect(result.billableCostAud).toBe(1500);
-      expect(result.nonBillableHours).toBe(5);
-      expect(result.nonBillableCostAud).toBe(0);
+      prisma.clickupTimeEntry.aggregate
+        .mockResolvedValueOnce({ _count: 2, _sum: { durationHours: { toNumber: () => 15 }, costCents: BigInt(150000) } })
+        .mockResolvedValueOnce({ _count: 1, _sum: { durationHours: { toNumber: () => 10 }, costCents: BigInt(150000) } });
+      const result = await new TimeEntriesReportService(prisma).timeEntriesChargeableSummary();
+      expect(result).toEqual({ chargeableHours: 10, nonChargeableHours: 5 });
     });
 
     it('returns zeros when no entries exist', async () => {
       const prisma = makePrisma();
-      prisma.clickupTimeEntry.groupBy.mockResolvedValue([]);
-      const result = await new TimeEntriesReportService(prisma).timeEntriesBillableSummary();
-      expect(result).toEqual({ billableHours: 0, nonBillableHours: 0, billableCostAud: 0, nonBillableCostAud: 0 });
+      const result = await new TimeEntriesReportService(prisma).timeEntriesChargeableSummary();
+      expect(result).toEqual({ chargeableHours: 0, nonChargeableHours: 0 });
+    });
+
+    // Regression: the two aggregate calls are distinguished ONLY by whether the
+    // chargeable clause is present. A mutation that swaps them (or drops the
+    // window from either one) makes every figure wrong while every other test
+    // here — which only tells the calls apart by mockResolvedValueOnce
+    // ordering — keeps passing. Call 0 MUST be the bare window: the total has
+    // to be the same set every other surface counts, not the sum of two halves.
+    it('takes the total from the bare window and narrows only the chargeable half', async () => {
+      const prisma = makePrisma();
+      const from = '2026-01-01T00:00:00.000Z';
+      const to = '2026-02-01T00:00:00.000Z';
+      await new TimeEntriesReportService(prisma).timeEntriesChargeableSummary(from, to);
+      const window = { startTime: { gte: new Date(from), lte: new Date(to) } };
+      const calls = prisma.clickupTimeEntry.aggregate.mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(calls[0][0].where).toEqual(window);
+      expect(calls[1][0].where).toEqual({ AND: [window, { NOT: { task: { isChargeable: false } } }] });
     });
   });
 
@@ -210,6 +229,33 @@ describe('TimeEntriesReportService', () => {
       prisma.clickupTimeEntry.count.mockResolvedValue(1);
       const result = await new TimeEntriesReportService(prisma).timeEntriesList();
       expect(result.items[0].client).toBeNull();
+    });
+  });
+
+  describe('chargeability in reports', () => {
+    it('marks a flat entry chargeable from its task', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.findMany.mockResolvedValue([{
+        timeEntryId: 'e1', taskId: 't1', userId: 'u1', userName: 'Alice', userEmail: null,
+        startTime: new Date(), endTime: null, durationHours: { toNumber: () => 1 },
+        hourlyRateCents: 0n, costCents: 0n, status: 'NOT_CHARGEABLE', billable: true,
+        description: null, syncedAt: new Date(), rateId: null, currency: 'USD',
+        task: { taskName: 'T', client: null, listName: null, isChargeable: false },
+      }]);
+      const { items } = await new TimeEntriesReportService(prisma).timeEntriesList();
+      expect(items[0].chargeable).toBe(false);
+    });
+
+    it('treats a task-less entry as chargeable', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.findMany.mockResolvedValue([{
+        timeEntryId: 'e1', taskId: null, userId: 'u1', userName: 'Alice', userEmail: null,
+        startTime: new Date(), endTime: null, durationHours: { toNumber: () => 1 },
+        hourlyRateCents: 0n, costCents: 0n, status: 'COST_CALCULATED', billable: false,
+        description: null, syncedAt: new Date(), rateId: null, currency: 'USD', task: null,
+      }]);
+      const { items } = await new TimeEntriesReportService(prisma).timeEntriesList();
+      expect(items[0].chargeable).toBe(true);
     });
   });
 
@@ -551,13 +597,70 @@ describe('TimeEntriesReportService', () => {
       expect(arg.where.status).toBe('NO_RATE_FOUND');
     });
   });
+
+  describe('timeEntriesAggregates (chargeable partition)', () => {
+    // Regression: the status groupBy (asserted everywhere else in this file)
+    // reuses the plain `where`, so it can't catch a bug in the chargeable
+    // split. This test looks at the two `aggregate` calls directly — a
+    // mutation that swaps the plain and chargeable wheres, or that drops the
+    // caller's `where` from the chargeable wrapper, must fail this.
+    //
+    // Call 0 MUST be the caller's `where` verbatim: the metric cards' totals
+    // have to come from the same row set the pager (`count({ where })`) and the
+    // grouped table (`groupBy({ where })`) see. Deriving them by summing a
+    // chargeable and a non-chargeable partition made the cards the only surface
+    // that depended on those two halves being exhaustive.
+    it('takes the totals from the caller\'s where and narrows only the chargeable half', async () => {
+      const prisma = makePrisma();
+      const from = '2026-01-01T00:00:00.000Z';
+      const to = '2026-02-01T00:00:00.000Z';
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+        undefined, from, to, undefined, undefined, undefined, undefined, undefined, 'Acme Corp',
+      );
+      const expectedWhere = await buildTimeEntryWhere(prisma, {
+        from: new Date(from), to: new Date(to), client: 'Acme Corp',
+      });
+      const calls = prisma.clickupTimeEntry.aggregate.mock.calls;
+      expect(calls).toHaveLength(2);
+      expect(calls[0][0].where).toEqual(expectedWhere);
+      expect(calls[1][0].where).toEqual({ AND: [expectedWhere, { NOT: { task: { isChargeable: false } } }] });
+    });
+
+    it('derives totalEntries/totalHours/totalCostCents/avgRateCents from the unpartitioned total', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.aggregate
+        .mockResolvedValueOnce({ _count: 5, _sum: { durationHours: { toNumber: () => 15 }, costCents: BigInt(100000) } })
+        .mockResolvedValueOnce({ _count: 3, _sum: { durationHours: { toNumber: () => 10 }, costCents: BigInt(100000) } });
+      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates();
+      expect(result.totalEntries).toBe(5);
+      expect(result.totalHours).toBe(15);
+      expect(result.chargeableHours).toBe(10);
+      expect(result.nonChargeableHours).toBe(5);
+      expect(result.totalCostCents).toBe(100000);
+      expect(result.avgRateCents).toBe(Math.round(100000 / 15));
+    });
+
+    // The chargeable where is strictly a subset of the plain where, so this
+    // input is unreachable in a single consistent read — it models the one case
+    // that isn't: the two aggregates aren't in a transaction, so an entry
+    // written between them can make the subset out-count the total. Clamp
+    // rather than print a negative figure beside a positive one.
+    it('clamps rather than reporting negative non-chargeable hours if the two reads disagree', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.aggregate
+        .mockResolvedValueOnce({ _count: 1, _sum: { durationHours: { toNumber: () => 4 }, costCents: BigInt(0) } })
+        .mockResolvedValueOnce({ _count: 1, _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(0) } });
+      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates();
+      expect(result.nonChargeableHours).toBe(0);
+    });
+  });
 });
 
 describe('TimeEntriesReportService.timeEntriesByTask', () => {
-  /** One `groupBy` row: the (task, assignee, billable, status) grain the fold reduces. */
+  /** One `groupBy` row: the (task, assignee, status) grain the fold reduces. */
   function group(over: Partial<Record<string, any>> = {}) {
     return {
-      taskId: 't1', userId: 'u1', userName: 'Alice', billable: true,
+      taskId: 't1', userId: 'u1', userName: 'Alice',
       status: 'COST_CALCULATED', currency: 'USD',
       _count: 1,
       _sum: { durationHours: { toNumber: () => 1 }, costCents: BigInt(0) },
@@ -629,20 +732,37 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
     expect(items[0].entryCount).toBe(4);
   });
 
-  it('splits billable from non-billable hours within the task', async () => {
-    const prisma = makePrisma([
-      group({ billable: true, _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(0) } }),
-      group({ billable: false, _sum: { durationHours: { toNumber: () => 2 }, costCents: BigInt(0) } }),
-    ]);
+  it('sums all entries into chargeableHours when the task is chargeable', async () => {
+    const prisma = makePrisma(
+      [
+        group({ _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(0) } }),
+        group({ userId: 'u2', userName: 'Bob', _sum: { durationHours: { toNumber: () => 2 }, costCents: BigInt(0) } }),
+      ],
+      // Joined isChargeable: true — distinct from the missing-task fallback
+      // (`t?.isChargeable ?? true`), which the "task-less" tests already cover.
+      [{ taskId: 't1', taskName: 'T', client: null, listName: null, isChargeable: true }],
+    );
     const { items } = await svc(prisma).timeEntriesByTask({});
-    expect(items[0].billableHours).toBe(6);
-    expect(items[0].nonBillableHours).toBe(2);
+    expect(items[0].chargeable).toBe(true);
+    expect(items[0].totalHours).toBe(8);
+    expect(items[0].chargeableHours).toBe(8);
+  });
+
+  it('reports a task\'s chargeability and zeroes its chargeable hours when off', async () => {
+    const prisma = makePrisma(
+      [group({ taskId: 't1', _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(0) } })],
+      [{ taskId: 't1', taskName: 'T', client: null, listName: null, isChargeable: false }],
+    );
+    const { items } = await svc(prisma).timeEntriesByTask({});
+    expect(items[0].chargeable).toBe(false);
+    expect(items[0].totalHours).toBe(6);
+    expect(items[0].chargeableHours).toBe(0);
   });
 
   it('lists each assignee once however many entries they logged', async () => {
     const prisma = makePrisma([
-      group({ userId: 'u1', userName: 'Alice', billable: true }),
-      group({ userId: 'u1', userName: 'Alice', billable: false }),
+      group({ userId: 'u1', userName: 'Alice' }),
+      group({ userId: 'u1', userName: 'Alice' }),
       group({ userId: 'u2', userName: 'Bob' }),
     ]);
     const { items } = await svc(prisma).timeEntriesByTask({});
@@ -693,11 +813,11 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
     } as any;
     const filters = {
       from: '2026-01-01T00:00:00.000Z', to: '2026-02-01T00:00:00.000Z',
-      userId: 'u1,u2', client: 'Acme', billable: 'true', archived: 'exclude', search: 'webhook',
+      userId: 'u1,u2', client: 'Acme', chargeable: 'true', archived: 'exclude', search: 'webhook',
     };
     await svc(prisma).timeEntriesByTask(filters);
     await svc(listPrisma).timeEntriesList(
-      filters.userId, filters.from, filters.to, undefined, 50, 0, filters.billable,
+      filters.userId, filters.from, filters.to, undefined, 50, 0, filters.chargeable,
       filters.search, undefined, undefined, filters.client, undefined, undefined, filters.archived,
     );
     expect(prisma.clickupTimeEntry.groupBy.mock.calls[0][0].where)

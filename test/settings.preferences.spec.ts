@@ -26,7 +26,6 @@ describe('SettingsService preferences', () => {
     expect(prefs.sync.backfillOnConnect).toBe(true);
     expect(prefs.cost.autoRecalcOnRateChange).toBe(true);
     expect(prefs.cost.rateMatching).toBe('start');
-    expect(prefs.cost.nonBillableZero).toBe(false);
     expect(prefs.failure.webhookRetryAttempts).toBe(5);
     expect(prefs.spaces).toEqual({});
   });
@@ -63,10 +62,10 @@ describe('SettingsService preferences', () => {
     const repo = makeRepo(null);
     const svc = new SettingsService(repo, makeCrypto());
     await svc.onModuleInit();
-    await svc.update({ preferences: { cost: { nonBillableZero: true } } });
+    await svc.update({ preferences: { cost: { autoRecalcOnRateChange: false } } });
     const prefs = svc.getMasked().preferences;
-    expect(prefs.cost.nonBillableZero).toBe(true);
+    expect(prefs.cost.autoRecalcOnRateChange).toBe(false);
     expect(prefs.cost.rateMatching).toBe('start');
-    expect(prefs.cost.autoRecalcOnRateChange).toBe(true);
+    expect(prefs.cost.excludedAssignees).toEqual([]);
   });
 });

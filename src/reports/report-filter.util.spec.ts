@@ -124,3 +124,25 @@ describe('buildTimeEntryWhere', () => {
     expect(clausesOf(where)).toContainEqual({ task: { listId: { in: [] } } });
   });
 });
+
+describe('chargeable filter', () => {
+  const from = new Date('2026-01-01T00:00:00.000Z');
+  const to = new Date('2026-02-01T00:00:00.000Z');
+  const prisma = { $queryRaw: jest.fn().mockResolvedValue([]) } as never;
+  const clausesOf = (where: Record<string, unknown>) => (where.AND ?? []) as Record<string, unknown>[];
+
+  it('keeps task-less entries on the chargeable side', async () => {
+    const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'true' });
+    expect(clausesOf(where)).toContainEqual({ NOT: { task: { isChargeable: false } } });
+  });
+
+  it('selects only non-chargeable tasks\' entries', async () => {
+    const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'false' });
+    expect(clausesOf(where)).toContainEqual({ task: { isChargeable: false } });
+  });
+
+  it('no longer constrains the entry\'s own billable column', async () => {
+    const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'false' });
+    expect(where.billable).toBeUndefined();
+  });
+});

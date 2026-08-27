@@ -19,7 +19,7 @@ export interface SettingsPreferences {
     channels: { email: boolean; slack: boolean; pagerduty: boolean };
   };
   sync: { reconcileLookbackDays: number; realtimeWebhooks: boolean; backfillOnConnect: boolean; maxBackfillLookbackDays: number; includeArchived: boolean };
-  cost: { autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean; excludedAssignees: { id: string; name: string | null; email: string | null }[] };
+  cost: { autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; excludedAssignees: { id: string; name: string | null; email: string | null }[] };
   failure: { webhookRetryAttempts: number };
   spike: { medianEnabled: boolean };
   spaces: Record<string, { enabled: boolean }>;
@@ -31,7 +31,7 @@ export const DEFAULT_PREFERENCES: SettingsPreferences = {
     channels: { email: true, slack: true, pagerduty: false },
   },
   sync: { reconcileLookbackDays: 365, realtimeWebhooks: true, backfillOnConnect: true, maxBackfillLookbackDays: DEFAULT_MAX_BACKFILL_LOOKBACK, includeArchived: true },
-  cost: { autoRecalcOnRateChange: true, rateMatching: 'start', nonBillableZero: false, excludedAssignees: [] },
+  cost: { autoRecalcOnRateChange: true, rateMatching: 'start', excludedAssignees: [] },
   failure: { webhookRetryAttempts: 5 },
   spike: { medianEnabled: true },
   spaces: {},

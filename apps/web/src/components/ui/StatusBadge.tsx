@@ -16,6 +16,10 @@ const STATUS_COLORS: Record<string, { bg: string; dot: string; text: string }> =
   error: { bg: 'rgba(239,68,68,0.1)', dot: '#ef4444', text: '#dc2626' },
   COST_CALCULATED: { bg: 'rgba(16,185,129,0.1)', dot: '#10b981', text: '#059669' },
   NO_RATE_FOUND: { bg: 'rgba(245,158,11,0.1)', dot: '#f59e0b', text: '#d97706' },
+  // Neutral gray, pinned explicitly rather than left to DEFAULT_COLORS: a
+  // deliberate state, not a problem to fix, and it must not drift amber if the
+  // fallback ever changes.
+  NOT_CHARGEABLE: { bg: 'rgba(100,116,139,0.1)', dot: '#64748b', text: '#475569' },
   Fresh: { bg: 'rgba(16,185,129,0.1)', dot: '#10b981', text: '#059669' },
   Stale: { bg: 'rgba(245,158,11,0.1)', dot: '#f59e0b', text: '#d97706' },
   Unknown: { bg: 'rgba(100,116,139,0.1)', dot: '#64748b', text: '#475569' },

@@ -1,7 +1,7 @@
 import { CostRecalculationService } from './cost-recalculation.service';
 
-function makeSettings(cost: Partial<{ autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due'; nonBillableZero: boolean }> = {}) {
-  return { getPreferences: () => ({ cost: { autoRecalcOnRateChange: true, rateMatching: 'start', nonBillableZero: false, ...cost } }) } as any;
+function makeSettings(cost: Partial<{ autoRecalcOnRateChange: boolean; rateMatching: 'start' | 'due' }> = {}) {
+  return { getPreferences: () => ({ cost: { autoRecalcOnRateChange: true, rateMatching: 'start', ...cost } }) } as any;
 }
 
 function makeDeps(entries: any[]) {
@@ -16,7 +16,7 @@ function makeDeps(entries: any[]) {
   return { svc: new CostRecalculationService(prisma, costs, settings), prisma, findMany, update, calculate };
 }
 
-const ENTRY = { timeEntryId: 'te-1', userId: 'u1', startTime: new Date('2024-06-15T00:00:00Z'), durationHours: { toNumber: () => 2 }, billable: true, task: null };
+const ENTRY = { timeEntryId: 'te-1', userId: 'u1', startTime: new Date('2024-06-15T00:00:00Z'), durationHours: { toNumber: () => 2 }, task: null };
 
 describe('CostRecalculationService', () => {
   it('scopes the query to one assignee when assigneeId is given', async () => {
@@ -35,7 +35,7 @@ describe('CostRecalculationService', () => {
     const { svc, update, calculate } = makeDeps([ENTRY]);
     const res = await svc.recalculate({ assigneeId: 'u1' });
 
-    expect(calculate).toHaveBeenCalledWith('u1', ENTRY.startTime, 2, expect.any(Map), { billable: true, dueDate: null });
+    expect(calculate).toHaveBeenCalledWith('u1', ENTRY.startTime, 2, expect.any(Map), { chargeable: true, dueDate: null });
     expect(update).toHaveBeenCalledWith({
       where: { timeEntryId: 'te-1' },
       data: { rateId: 9n, currency: 'AUD', hourlyRateCents: 10000n, costCents: 20000n, status: 'COST_CALCULATED' },
@@ -67,5 +67,29 @@ describe('CostRecalculationService', () => {
     const call = findMany.mock.calls[0][0];
     expect(call.orderBy).toEqual({ timeEntryId: 'asc' });
     expect(typeof call.take).toBe('number');
+  });
+
+  it('scopes the scan to the given tasks', async () => {
+    const { svc, findMany } = makeDeps([]);
+
+    await svc.recalculate({ taskIds: ['t1', 't2'] });
+
+    expect(findMany.mock.calls[0][0].where).toEqual({ taskId: { in: ['t1', 't2'] } });
+  });
+
+  it("passes each entry's task chargeability to the calculator", async () => {
+    const { svc, calculate } = makeDeps([{ ...ENTRY, task: { dueDate: null, isChargeable: false } }]);
+
+    await svc.recalculate({});
+
+    expect(calculate.mock.calls[0][4]).toEqual({ chargeable: false, dueDate: null });
+  });
+
+  it('treats an entry with no task as chargeable', async () => {
+    const { svc, calculate } = makeDeps([{ ...ENTRY, task: null }]);
+
+    await svc.recalculate({});
+
+    expect(calculate.mock.calls[0][4]).toEqual({ chargeable: true, dueDate: null });
   });
 });

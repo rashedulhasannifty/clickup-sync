@@ -70,7 +70,7 @@ export function TaskTimeEntriesPanel({ taskId, params, onSelectEntry }: Props) {
             <th style={{ ...head, textAlign: 'left' }}>Assignee</th>
             <th style={{ ...head, textAlign: 'left' }}>Start</th>
             <th style={{ ...head, textAlign: 'right' }}>Duration</th>
-            <th style={{ ...head, textAlign: 'left' }}>Bill</th>
+            <th style={{ ...head, textAlign: 'left' }}>Charge</th>
             <th style={{ ...head, textAlign: 'right' }}>Rate</th>
             <th style={{ ...head, textAlign: 'right' }}>Cost</th>
             <th style={{ ...head, textAlign: 'left' }}>Status</th>
@@ -101,7 +101,7 @@ export function TaskTimeEntriesPanel({ taskId, params, onSelectEntry }: Props) {
                   {fmt.duration(e.durationHours)}
                 </td>
                 <td style={cell}>
-                  {e.billable ? <Pill tone="green" size="xs">billable</Pill> : <Pill tone="gray" size="xs">non</Pill>}
+                  {e.chargeable ? <Pill tone="green" size="xs">chargeable</Pill> : <Pill tone="gray" size="xs">non-chargeable</Pill>}
                 </td>
                 <td style={{ ...cell, textAlign: 'right', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
                   {e.hourlyRateCents > 0 ? `${fmt.money(e.hourlyRateCents, cur)}/h` : '—'}
@@ -116,7 +116,11 @@ export function TaskTimeEntriesPanel({ taskId, params, onSelectEntry }: Props) {
                     ? <Pill tone="green" size="xs" icon={<CircleCheck size={10} strokeWidth={2} />}>cost calculated</Pill>
                     : e.status === 'COST_EXCLUDED'
                       ? <Pill tone="gray" size="xs">excluded</Pill>
-                      : <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} strokeWidth={2} />}>no rate found</Pill>}
+                      // Gray, not amber: the rate WAS resolved, the cost is
+                      // zero because the task is non-chargeable.
+                      : e.status === 'NOT_CHARGEABLE'
+                        ? <Pill tone="gray" size="xs">not chargeable</Pill>
+                        : <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} strokeWidth={2} />}>no rate found</Pill>}
                 </td>
                 <td
                   style={{ ...cell, color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 0 }}
