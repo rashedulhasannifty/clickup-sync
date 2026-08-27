@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { assembleTimesheet, dhakaDate, type TimesheetAggRow } from './timesheet.assemble';
 import { defaultFrom, parseDate } from './report-date.util';
-import { csvList, sprintStatusListIds, timeEntryTaskSearchOr } from './report-filter.util';
+import { buildTimeEntryWhere, NO_TASK_ID } from './report-filter.util';
 
 /** Time-entry report queries (timesheets, per-user/client/department rollups, list + aggregates). */
 @Injectable()
@@ -219,11 +219,8 @@ export class TimeEntriesReportService {
   /**
    * Server-side aggregates for the Time Entries page metric cards.
    * Must accept the *same* filter set as `timeEntriesList` so the cards
-   * reflect the user's filters, not just the current page of 50.
-   *
-   * Where-clause is inlined (not shared with `timeEntriesList`) on purpose —
-   * one local copy is easier to reason about than a shared helper, and lets
-   * either endpoint diverge without breaking the other.
+   * reflect the user's filters, not just the current page of 50 — which is why
+   * both share `buildTimeEntryWhere` rather than each keeping a local copy.
    */
   async timeEntriesAggregates(
     userId?: string,
@@ -242,66 +239,10 @@ export class TimeEntriesReportService {
   ) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
-    const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: from, lte: to } };
-    const and: Prisma.ClickupTimeEntryWhereInput[] = [];
-    if (spaceId) and.push({ task: { spaceId, isDeleted: false } });
-    // The categorical filters are multi-select in the dashboard and arrive as a
-    // comma-separated list. A single value parses as a one-element list, so
-    // pre-existing deep-links (e.g. `?userId=u1&status=NO_RATE_FOUND`) behave
-    // exactly as before.
-    const clients = csvList(client);
-    const listIds = csvList(listId);
-    const folderIds = csvList(folderId);
-    const userIds = csvList(userId);
-    const statuses = csvList(status);
-    // Intentionally no `isDeleted: false` here (unlike the spaceId clause):
-    // the base list shows entries regardless of task soft-deletion, so the
-    // client filter stays consistent with that. Don't "fix" this to exclude
-    // deleted tasks — it would make client-only vs client+space disagree.
-    if (clients) and.push({ task: { client: { in: clients } } });
-    if (listIds) and.push({ task: { listId: { in: listIds } } });
-    if (folderIds) and.push({ task: { folderId: { in: folderIds } } });
-    // ClickUp `archived` flag. Archived status lives only on the joined task
-    // (time entries have no archived column of their own). 'exclude' keeps
-    // entries whose task isn't archived AND entries with no task at all — hence
-    // `NOT { task archived:true }`, not `task { archived:false }`, which would
-    // also drop null-task rows. 'only' keeps just archived-task entries.
-    // 'include'/undefined applies no constraint.
-    if (archived === 'only') and.push({ task: { archived: true } });
-    else if (archived === 'exclude') and.push({ NOT: { task: { archived: true } } });
-    // Sprint (== clickup_lists row) status filter: 'active'/'completed' scopes
-    // to entries whose task's list isn't/is archived (dropping task-less
-    // entries — no task, no sprint, unlike the archived filter above which
-    // deliberately keeps them); 'all'/absent/unrecognized emits no clause
-    // (backward-compatible). See `sprintStatusListIds` for the fetch-ids-then-IN
-    // rationale (no Prisma relation from ClickupList to ClickupTask).
-    const sprintListIds = await sprintStatusListIds(this.prisma, sprintStatus);
-    if (sprintListIds) and.push({ task: { listId: { in: sprintListIds } } });
-    if (userIds) where.userId = { in: userIds };
-    if (missingOnly === 'true') {
-      where.status = 'NO_RATE_FOUND';
-    } else if (statuses) {
-      where.status = { in: statuses };
-    }
-    if (billable === 'true') where.billable = true;
-    else if (billable === 'false') where.billable = false;
-    if (search?.trim()) {
-      const q = search.trim();
-      const match = { contains: q, mode: 'insensitive' as const };
-      and.push({
-        OR: [
-          // Every task column the Tasks page searches, so both pages resolve the
-          // same task set for the same query.
-          ...timeEntryTaskSearchOr(q),
-          // Entry-specific fields on top — these also keep a task-less entry findable.
-          { userName: match },
-          { userEmail: match },
-          { taskId: match },
-          { timeEntryId: match },
-        ],
-      });
-    }
-    if (and.length) where.AND = and;
+    const where = await buildTimeEntryWhere(this.prisma, {
+      from, to, userId, status, billable, search, spaceId, missingOnly,
+      client, listId, folderId, archived, sprintStatus,
+    });
 
     // Two parallel groupBys are enough:
     //   • by billable → gives total count, total hours, total cost, and the
@@ -364,69 +305,17 @@ export class TimeEntriesReportService {
     folderId?: string,
     archived?: string,
     sprintStatus?: string,
+    taskId?: string,
   ) {
     // Same rationale as `tasks()`: cap allows CSV export to fetch the entire
     // filtered set; normal pagination tops out at 100 rows/page.
     const safeLimit = Math.min(limit, 5000);
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
-    const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: from, lte: to } };
-    const and: Prisma.ClickupTimeEntryWhereInput[] = [];
-    if (spaceId) and.push({ task: { spaceId, isDeleted: false } });
-    // The categorical filters are multi-select in the dashboard and arrive as a
-    // comma-separated list. A single value parses as a one-element list, so
-    // pre-existing deep-links (e.g. `?userId=u1&status=NO_RATE_FOUND`) behave
-    // exactly as before.
-    const clients = csvList(client);
-    const listIds = csvList(listId);
-    const folderIds = csvList(folderId);
-    const userIds = csvList(userId);
-    const statuses = csvList(status);
-    // Intentionally no `isDeleted: false` here (unlike the spaceId clause):
-    // the base list shows entries regardless of task soft-deletion, so the
-    // client filter stays consistent with that. Don't "fix" this to exclude
-    // deleted tasks — it would make client-only vs client+space disagree.
-    if (clients) and.push({ task: { client: { in: clients } } });
-    if (listIds) and.push({ task: { listId: { in: listIds } } });
-    if (folderIds) and.push({ task: { folderId: { in: folderIds } } });
-    // ClickUp `archived` flag. Archived status lives only on the joined task
-    // (time entries have no archived column of their own). 'exclude' keeps
-    // entries whose task isn't archived AND entries with no task at all — hence
-    // `NOT { task archived:true }`, not `task { archived:false }`, which would
-    // also drop null-task rows. 'only' keeps just archived-task entries.
-    // 'include'/undefined applies no constraint.
-    if (archived === 'only') and.push({ task: { archived: true } });
-    else if (archived === 'exclude') and.push({ NOT: { task: { archived: true } } });
-    // Sprint (== clickup_lists row) status filter: see `timeEntriesAggregates`'s
-    // comment above for the full rationale (fetch-ids-then-IN join; drops
-    // task-less entries; backward-compatible no-op for 'all'/absent/garbage).
-    const sprintListIds = await sprintStatusListIds(this.prisma, sprintStatus);
-    if (sprintListIds) and.push({ task: { listId: { in: sprintListIds } } });
-    if (userIds) where.userId = { in: userIds };
-    if (missingOnly === 'true') {
-      where.status = 'NO_RATE_FOUND';
-    } else if (statuses) {
-      where.status = { in: statuses };
-    }
-    if (billable === 'true') where.billable = true;
-    else if (billable === 'false') where.billable = false;
-    if (search?.trim()) {
-      const q = search.trim();
-      const match = { contains: q, mode: 'insensitive' as const };
-      and.push({
-        OR: [
-          // Every task column the Tasks page searches, so both pages resolve the
-          // same task set for the same query.
-          ...timeEntryTaskSearchOr(q),
-          // Entry-specific fields on top — these also keep a task-less entry findable.
-          { userName: match },
-          { userEmail: match },
-          { taskId: match },
-          { timeEntryId: match },
-        ],
-      });
-    }
-    if (and.length) where.AND = and;
+    const where = await buildTimeEntryWhere(this.prisma, {
+      from, to, userId, status, billable, search, spaceId, missingOnly,
+      client, listId, folderId, archived, sprintStatus, taskId,
+    });
     const [items, total] = await Promise.all([
       this.prisma.clickupTimeEntry.findMany({
         where,
@@ -466,6 +355,159 @@ export class TimeEntriesReportService {
         currency: e.currency ?? 'USD',
       })),
       total,
+      limit: safeLimit,
+      offset,
+    };
+  }
+
+  /**
+   * The Time Entries page grouped by task: one row per task carrying the summed
+   * hours, cost and entry count of every entry that passes the *same* filters
+   * as `timeEntriesList`.
+   *
+   * Grouping has to happen here, not in the browser: the page is server-paginated,
+   * so folding the current 50-row page would total "the entries that happened to
+   * land on this page" — a task whose entries straddle a page boundary would show
+   * a different figure depending on where you were in the pager.
+   *
+   * Implemented as a Prisma `groupBy` at the (task, assignee, billable, status,
+   * currency) grain folded in application code, rather than raw SQL, so it reuses
+   * the byte-identical `where` object `timeEntriesList` uses. That is what
+   * guarantees an expanded row sums to the collapsed total above it. The grain is
+   * bounded by tasks x assignees x 2 x 3, so the fold stays cheap.
+   *
+   * `total` counts TASKS, not entries — it drives the pager.
+   *
+   * Sorting and pagination happen over the folded set in application code, so
+   * cost scales with how many tasks the window holds. That is safe because the
+   * grouped view never sees an unbounded window: the page's only all-time path
+   * is deep-link mode, and deep links force the flat view (`ALL_TIME_FROM` and
+   * `setGroupBy('none')` in TimeEntriesPage). Don't route an all-time query here
+   * without giving this a DB-side ORDER BY / LIMIT first.
+   */
+  async timeEntriesByTask(params: {
+    userId?: string;
+    from?: string;
+    to?: string;
+    status?: string;
+    billable?: string;
+    search?: string;
+    spaceId?: string;
+    missingOnly?: string;
+    client?: string;
+    listId?: string;
+    folderId?: string;
+    archived?: string;
+    sprintStatus?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    // Same rationale as `timeEntriesList`: the cap lets the Excel export pull the
+    // whole filtered set in one call; the pager tops out at 100 rows.
+    const safeLimit = Math.min(params.limit ?? 50, 5000);
+    const offset = params.offset ?? 0;
+    const from = parseDate(params.from, defaultFrom());
+    const to = parseDate(params.to, new Date());
+    const where = await buildTimeEntryWhere(this.prisma, { ...params, from, to });
+
+    const groups = await this.prisma.clickupTimeEntry.groupBy({
+      by: ['taskId', 'userId', 'userName', 'billable', 'status', 'currency'],
+      where,
+      _count: true,
+      _sum: { durationHours: true, costCents: true },
+      _max: { startTime: true },
+    });
+
+    type Bucket = {
+      taskId: string;
+      entryCount: number;
+      billableHours: number;
+      nonBillableHours: number;
+      validCostCents: number;
+      missingRateCount: number;
+      excludedCount: number;
+      lastActivity: Date | null;
+      currency: string | null;
+      assignees: Map<string, string | null>;
+    };
+    const buckets = new Map<string, Bucket>();
+    for (const g of groups) {
+      // A null `task_id` is a real, deliberately-kept row (see NO_TASK_ID) — it
+      // gets its own bucket rather than being dropped, so the rows on screen
+      // still sum to the metric cards above them.
+      const key = g.taskId ?? NO_TASK_ID;
+      let b = buckets.get(key);
+      if (!b) {
+        b = {
+          taskId: key, entryCount: 0, billableHours: 0, nonBillableHours: 0,
+          validCostCents: 0, missingRateCount: 0, excludedCount: 0,
+          lastActivity: null, currency: null, assignees: new Map(),
+        };
+        buckets.set(key, b);
+      }
+      const hours = g._sum.durationHours?.toNumber() ?? 0;
+      const count = g._count;
+      b.entryCount += count;
+      if (g.billable) b.billableHours += hours;
+      else b.nonBillableHours += hours;
+      // Mirrors `timesheet()` and the data-model rule: an entry with no rate
+      // contributes no cost, and is surfaced as a count instead of being
+      // silently rolled into a total that looks calculated.
+      if (g.status === 'NO_RATE_FOUND') b.missingRateCount += count;
+      else b.validCostCents += Number(g._sum.costCents ?? 0n);
+      // Excluded entries are stored with cost_cents = 0 (see CostCalculator), so
+      // the branch above adds nothing for them — but they must still be visible,
+      // or a task with nothing but excluded time reads as fully costed.
+      if (g.status === 'COST_EXCLUDED') b.excludedCount += count;
+      if (g.userId) b.assignees.set(g.userId, g.userName);
+      const last = g._max.startTime;
+      if (last && (!b.lastActivity || last > b.lastActivity)) b.lastActivity = last;
+      b.currency ??= g.currency;
+    }
+
+    const all = [...buckets.values()].sort(
+      (a, b) =>
+        (b.billableHours + b.nonBillableHours) - (a.billableHours + a.nonBillableHours)
+        // Stable tie-break so equal-hour tasks don't shuffle between pages.
+        || a.taskId.localeCompare(b.taskId),
+    );
+    const page = all.slice(offset, offset + safeLimit);
+
+    // Task columns are joined for the current page only — `all` can be every
+    // task in the window, and the name/client/list are needed just for the rows
+    // actually rendered.
+    const taskIds = page.map((b) => b.taskId).filter((id) => id !== NO_TASK_ID);
+    const tasks = taskIds.length
+      ? await this.prisma.clickupTask.findMany({
+          where: { taskId: { in: taskIds } },
+          select: { taskId: true, taskName: true, client: true, listName: true },
+        })
+      : [];
+    const taskById = new Map(tasks.map((t) => [t.taskId, t]));
+
+    return {
+      items: page.map((b) => {
+        const t = taskById.get(b.taskId);
+        return {
+          taskId: b.taskId,
+          taskName: t?.taskName ?? null,
+          client: t?.client ?? null,
+          listName: t?.listName ?? null,
+          entryCount: b.entryCount,
+          assignees: [...b.assignees.entries()]
+            .map(([userId, userName]) => ({ userId, userName }))
+            .sort((x, y) => (x.userName ?? '').localeCompare(y.userName ?? '')),
+          totalHours: b.billableHours + b.nonBillableHours,
+          billableHours: b.billableHours,
+          nonBillableHours: b.nonBillableHours,
+          costAud: b.validCostCents / 100,
+          missingRateCount: b.missingRateCount,
+          excludedCount: b.excludedCount,
+          lastActivity: b.lastActivity,
+          currency: b.currency ?? 'USD',
+        };
+      }),
+      total: buckets.size,
       limit: safeLimit,
       offset,
     };

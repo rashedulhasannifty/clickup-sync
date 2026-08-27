@@ -4,7 +4,8 @@ import {
   Clock, DollarSign, AlertTriangle, CircleCheck, Download,
   Search, X,
 } from 'lucide-react';
-import { useTimeEntriesList, useTimeEntriesByUser, useTimeEntriesAggregates, useClients, useLists, useFolders } from '../hooks/useReports';
+import { useTimeEntriesList, useTimeEntriesByTask, useTimeEntriesByUser, useTimeEntriesAggregates, useClients, useLists, useFolders } from '../hooks/useReports';
+import type { TimeEntryTaskGroup } from '../hooks/useReports';
 import { useMutation } from '@tanstack/react-query';
 import { reportsApi } from '../api/reports';
 import { exportXlsx, type XlsxColumn } from '../lib/xlsx';
@@ -23,6 +24,7 @@ import { QueryError } from '../components/ui/QueryError';
 import { ClickupAvatar } from '../components/ui/ClickupAvatar';
 import { Pill } from '../components/ui/Pill';
 import { TimeEntryDrawer } from '../components/TimeEntryDrawer';
+import { TaskTimeEntriesPanel } from '../components/TaskTimeEntriesPanel';
 import type { TimeEntryItem } from '../components/TimeEntryDrawer';
 
 const BILLABLE_OPTIONS = [
@@ -43,6 +45,24 @@ const STATUS_OPTIONS = [
   { value: 'COST_CALCULATED', label: 'Cost calculated' },
   { value: 'NO_RATE_FOUND', label: 'No rate found' },
   { value: 'COST_EXCLUDED', label: 'Excluded' },
+];
+
+// The page's two shapes. Grouped is the default: a task's total is what people
+// read the page for, and the individual entries behind it are one click away.
+// The entry-level deep links (Missing Rates, cost buckets, anomalies) point at a
+// specific entry, so they force 'none' — see the URL-param effect below.
+// Label for the backend's synthetic "entries with no task" bucket (`NO_TASK_ID`
+// in report-filter.util.ts). Those entries are deliberately kept visible, so the
+// grouped view gives them one row rather than dropping them; the row expands
+// like any other because the sentinel round-trips as its `taskId`.
+
+/** Stable empty array so a stale expansion tag doesn't churn the table's props. */
+const EMPTY_EXPANSION: (string | number)[] = [];
+const NO_TASK_LABEL = '(No task)';
+
+const GROUP_OPTIONS = [
+  { value: 'task', label: 'Group by task' },
+  { value: 'none', label: 'All entries' },
 ];
 
 const SPRINT_STATUS_OPTIONS = [
@@ -89,9 +109,19 @@ export function TimeEntriesPage() {
   const [archivedFilter, setArchivedFilter] = useState('include');
   const [sprintStatus, setSprintStatus] = useState('all');
   const [selectedEntry, setSelectedEntry] = useState<TimeEntryItem | null>(null);
+  const [groupBy, setGroupBy] = useState('task');
+  // Task ids whose per-entry breakdown is open (grouped mode only), tagged with
+  // the filter set they were opened under. An expanded panel belongs to one
+  // filter set and one page of tasks: reading `ids` only when the tag still
+  // matches collapses everything on any filter or page change, without an
+  // effect that would re-render after paint.
+  const [expanded, setExpanded] = useState<{ key: string; ids: (string | number)[] }>({ key: '', ids: [] });
   // Mirror the DataTable's column show/hide state so CSV export drops the same
   // hidden columns (keys match the `columns` defs below).
   const [hiddenCols, setHiddenCols] = useState<string[]>([]);
+  // Kept separate from `hiddenCols`: the two modes share no column keys, so one
+  // shared set would silently hide nothing (or the wrong thing) after a switch.
+  const [hiddenGroupCols, setHiddenGroupCols] = useState<string[]>([]);
   // True when the user arrived via a Missing-Rates "Entries" deep link
   // (userId + missingOnly together). In that mode we bypass the topbar
   // space/date globals so the page renders the full unfiltered set the user
@@ -138,6 +168,9 @@ export function TimeEntriesPage() {
       setLinkFrom(urlFrom);
       setLinkTo(urlTo);
     }
+    // Every deep link into this page targets individual entries. Grouped mode
+    // would bury the one they meant inside a collapsed task, so links land flat.
+    setGroupBy('none');
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (urlUserId) setUserId([urlUserId]);
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -275,11 +308,43 @@ export function TimeEntriesPage() {
     to: deepLinkActive ? undefined : (linkTo ?? (toDate || undefined)),
   }), [pageSize, page, search, userId, clientFilter, listFilter, folderFilter, billable, status, missingOnly, archivedFilter, sprintStatus, deepLinkActive, bypassSpace, space, fromDate, toDate, linkFrom, linkTo]);
 
-  const timeEntriesQuery = useTimeEntriesList(params);
-  const { data, isLoading } = timeEntriesQuery;
+  const grouped = groupBy === 'task';
+  const paramsKey = useMemo(() => JSON.stringify(params), [params]);
+  const expandedTasks = expanded.key === paramsKey ? expanded.ids : EMPTY_EXPANSION;
+  // Only one of the two runs — `params` is identical for both, so the grouped
+  // totals and the flat rows always describe the same filtered entry set.
+  const timeEntriesQuery = useTimeEntriesList(params, !grouped);
+  const byTaskQuery = useTimeEntriesByTask(params, grouped);
+  const { data, isLoading } = grouped ? byTaskQuery : timeEntriesQuery;
 
   const exportExcel = useMutation({
     mutationFn: async () => {
+      // The export mirrors what's on screen: grouped mode exports one row per
+      // task carrying its total, never the individual entries behind it.
+      if (grouped) {
+        const { items } = await reportsApi.timeEntriesByTask({ ...params, limit: 5000, offset: 0 });
+        const cols: XlsxColumn<TimeEntryTaskGroup>[] = [
+          { header: 'Task ID',            value: 'taskId' },
+          { header: 'Task name',          value: (r) => r.taskName ?? NO_TASK_LABEL, key: 'taskName', width: 42 },
+          { header: 'Client',             value: 'client', key: 'client' },
+          { header: 'List',               value: 'listName', key: 'listName' },
+          { header: 'Assignees',          value: (r) => r.assignees.map(a => a.userName).filter(Boolean).join(', '), key: 'assignees', width: 30 },
+          { header: 'Entries',            value: 'entryCount', key: 'entryCount', type: 'integer' },
+          { header: 'Total hours',        value: 'totalHours', key: 'totalHours', type: 'number' },
+          { header: 'Billable hours',     value: 'billableHours', key: 'billableHours', type: 'number' },
+          { header: 'Non-billable hours', value: 'nonBillableHours', type: 'number' },
+          // Cost of the entries that HAVE a rate. `Entries missing a rate` is the
+          // caveat on it — an uncosted entry is never rolled in silently.
+          { header: 'Total cost',         value: 'costAud', key: 'costAud', type: 'money' },
+          { header: 'Currency',           value: 'currency' },
+          { header: 'Entries missing a rate', value: 'missingRateCount', key: 'missingRateCount', type: 'integer' },
+          { header: 'Entries excluded from cost', value: 'excludedCount', key: 'missingRateCount', type: 'integer' },
+          { header: 'Last activity',      value: 'lastActivity', key: 'lastActivity', type: 'date' },
+        ];
+        const visible = cols.filter((c) => !c.key || !hiddenGroupCols.includes(c.key));
+        await exportXlsx({ filename: 'time-by-task', sheetName: 'Time by task', rows: items, columns: visible });
+        return { rows: items.length };
+      }
       const { items } = await reportsApi.timeEntriesList({ ...params, limit: 5000, offset: 0 });
       // `key` ties a column to its DataTable column so columns hidden via the
       // table's "Columns" menu are dropped here too. Columns with no `key` are
@@ -321,7 +386,10 @@ export function TimeEntriesPage() {
   }, [params]);
   const { data: agg } = useTimeEntriesAggregates(aggParams);
 
-  const items: TimeEntryItem[] = (data as { items?: TimeEntryItem[] } | undefined)?.items ?? [];
+  const items: TimeEntryItem[] = grouped ? [] : ((data as { items?: TimeEntryItem[] } | undefined)?.items ?? []);
+  const taskGroups: TimeEntryTaskGroup[] = grouped ? (byTaskQuery.data?.items ?? []) : [];
+  // In grouped mode this is the number of TASKS — it drives the pager, so it
+  // must match whatever the table is listing.
   const total: number = (data as { total?: number } | undefined)?.total ?? 0;
 
   // All metric cards derive from server-side aggregates so they reflect the
@@ -334,6 +402,9 @@ export function TimeEntriesPage() {
   const avgRateCents = agg?.avgRateCents ?? 0;
   const missingRateCount = agg?.noRateFoundCount ?? 0;
   const calculatedCount = agg?.costCalculatedCount ?? 0;
+  // Cards always count entries (they aggregate the entry set, not the rows on
+  // screen), so grouped mode names both figures rather than relabelling `total`.
+  const entryCount = agg?.totalEntries ?? (grouped ? 0 : total);
 
   const hasFilters = !!(
     search || userId.length || clientFilter.length || listFilter.length
@@ -359,6 +430,147 @@ export function TimeEntriesPage() {
     setLinkTo(null);
     setPage(1);
   }, []);
+
+  const groupColumns: Column<TimeEntryTaskGroup>[] = useMemo(() => [
+    {
+      // Frozen first column. maxWidth leaves room for the expand chevron the
+      // table renders ahead of this cell's content.
+      key: 'taskName',
+      header: 'Task',
+      width: 300,
+      render: (row) => (
+        <span
+          title={row.taskName ?? NO_TASK_LABEL}
+          style={{
+            fontWeight: 500,
+            color: row.taskName ? 'var(--text)' : 'var(--text-muted)',
+            fontStyle: row.taskName ? 'normal' : 'italic',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            display: 'block', maxWidth: 236,
+          }}
+        >
+          {row.taskName ?? NO_TASK_LABEL}
+        </span>
+      ),
+    },
+    {
+      key: 'assignees',
+      header: 'Assignees',
+      width: 170,
+      sortable: false,
+      render: (row) => {
+        const shown = row.assignees.slice(0, 3);
+        const rest = row.assignees.length - shown.length;
+        if (!row.assignees.length) return <span style={{ color: 'var(--text-faint)' }}>—</span>;
+        return (
+          <span
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            title={row.assignees.map(a => a.userName).filter(Boolean).join(', ')}
+          >
+            {shown.map(a => (
+              <ClickupAvatar key={a.userId} userId={a.userId} name={a.userName ?? ''} size={20} />
+            ))}
+            {rest > 0 && (
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>+{rest}</span>
+            )}
+            {row.assignees.length === 1 && (
+              <span style={{ fontSize: 12, marginLeft: 2 }}>{row.assignees[0].userName}</span>
+            )}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'entryCount',
+      header: 'Entries',
+      width: 80,
+      align: 'right',
+      render: (row) => (
+        <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)', fontSize: 12 }}>
+          {fmt.number(row.entryCount)}
+        </span>
+      ),
+    },
+    {
+      key: 'totalHours',
+      header: 'Total time',
+      width: 100,
+      align: 'right',
+      render: (row) => (
+        <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.duration(row.totalHours)}</span>
+      ),
+    },
+    {
+      key: 'billableHours',
+      header: 'Billable',
+      width: 90,
+      align: 'right',
+      render: (row) => (
+        row.billableHours > 0
+          ? <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)', fontSize: 12 }}>{fmt.duration(row.billableHours)}</span>
+          : <span style={{ color: 'var(--text-faint)' }}>—</span>
+      ),
+    },
+    {
+      // Sums only the entries that HAVE a rate — the Rate column has no meaning
+      // across a task worked by several people, so it lives in the breakdown.
+      key: 'costAud',
+      header: 'Cost',
+      width: 100,
+      align: 'right',
+      render: (row) => (
+        row.costAud > 0
+          ? <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.money(row.costAud * 100, row.currency)}</span>
+          : <span style={{ color: 'var(--text-faint)' }}>—</span>
+      ),
+    },
+    {
+      key: 'missingRateCount',
+      header: 'Rates',
+      width: 120,
+      render: (row) => {
+        if (row.missingRateCount > 0) {
+          return <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} strokeWidth={2} />}>{row.missingRateCount} missing</Pill>;
+        }
+        // A task with no missing rates still isn't necessarily costed — excluded
+        // assignees contribute zero, so saying "all costed" would overstate it.
+        if (row.excludedCount >= row.entryCount) return <Pill tone="gray" size="xs">excluded</Pill>;
+        if (row.excludedCount > 0) return <Pill tone="gray" size="xs">{row.excludedCount} excluded</Pill>;
+        return <Pill tone="green" size="xs" icon={<CircleCheck size={10} strokeWidth={2} />}>all costed</Pill>;
+      },
+    },
+    {
+      key: 'client',
+      header: 'Client',
+      width: 140,
+      render: (row) => (
+        row.client
+          ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{row.client}</span>
+          : <span style={{ color: 'var(--text-faint)' }}>—</span>
+      ),
+    },
+    {
+      key: 'listName',
+      header: 'List',
+      width: 140,
+      render: (row) => (
+        row.listName
+          ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{row.listName}</span>
+          : <span style={{ color: 'var(--text-faint)' }}>—</span>
+      ),
+    },
+    {
+      key: 'lastActivity',
+      header: 'Last logged',
+      width: 100,
+      align: 'right',
+      render: (row) => (
+        row.lastActivity
+          ? <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: 12, color: 'var(--text-muted)' }}>{fmt.relative(row.lastActivity)}</span>
+          : <span style={{ color: 'var(--text-faint)' }}>—</span>
+      ),
+    },
+  ], []);
 
   const columns: Column<TimeEntryItem>[] = useMemo(() => [
     {
@@ -535,7 +747,9 @@ export function TimeEntriesPage() {
           dense
           label="Total hours"
           value={fmt.hours(totalHours)}
-          sublabel={`${fmt.number(total)} entries`}
+          sublabel={grouped
+            ? `${fmt.number(total)} tasks · ${fmt.number(entryCount)} entries`
+            : `${fmt.number(entryCount)} entries`}
           icon={<Clock size={13} strokeWidth={1.75} />}
         />
         <MetricCard
@@ -650,6 +864,7 @@ export function TimeEntriesPage() {
             aria-label="Search time entries"
           />
         </div>
+        <Select ariaLabel="Group rows" size="md" options={GROUP_OPTIONS} value={groupBy} onChange={(v) => { setGroupBy(v); setPage(1); }} />
         <MultiSelect ariaLabel="Filter by assignee" size="md" allLabel="Any assignee" options={assigneeOptions} value={userId} onChange={(v) => { setUserId(v); setPage(1); }} />
         <MultiSelect ariaLabel="Filter by client" size="md" allLabel="Any client" options={clientOptions} value={clientFilter} onChange={(v) => { setClientFilter(v); setPage(1); }} />
         <MultiSelect ariaLabel="Filter by folder" size="md" allLabel="Any folder" options={folderOptions} value={folderFilter} onChange={(v) => { setFolderFilter(v); setPage(1); }} />
@@ -667,8 +882,46 @@ export function TimeEntriesPage() {
         )}
       </div>
 
-      <QueryError query={timeEntriesQuery} what="time entries" />
+      <QueryError query={grouped ? byTaskQuery : timeEntriesQuery} what="time entries" />
 
+      {grouped ? (
+        <DataTable<TimeEntryTaskGroup>
+          layout="design"
+          stickyFirstColumn
+          rowKey="taskId"
+          columns={groupColumns}
+          data={taskGroups}
+          loading={byTaskQuery.isLoading}
+          emptyTitle="No tracked time found for this filter set"
+          emptyBody="Try widening filters or check that ClickUp is sending tracked time updates."
+          emptyIcon={<Clock size={20} strokeWidth={1.75} />}
+          emptyAction={hasFilters ? <Button variant="default" size="md" onClick={reset}>Clear all filters</Button> : undefined}
+          total={total}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={setPage}
+          onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
+          pageSizeOptions={[10, 25, 50, 100]}
+          initialSort={{ key: 'totalHours', dir: 'desc' }}
+          hiddenColumns={hiddenGroupCols}
+          onHiddenColumnsChange={setHiddenGroupCols}
+          expandedKeys={expandedTasks}
+          onToggleExpand={(key) => setExpanded(prev => {
+            const ids = prev.key === paramsKey ? prev.ids : [];
+            return {
+              key: paramsKey,
+              ids: ids.includes(key) ? ids.filter(k => k !== key) : [...ids, key],
+            };
+          })}
+          renderExpanded={(row) => (
+            <TaskTimeEntriesPanel
+              taskId={row.taskId}
+              params={aggParams}
+              onSelectEntry={setSelectedEntry}
+            />
+          )}
+        />
+      ) : (
       <DataTable<TimeEntryItem>
         layout="design"
         stickyFirstColumn
@@ -691,6 +944,7 @@ export function TimeEntriesPage() {
         hiddenColumns={hiddenCols}
         onHiddenColumnsChange={setHiddenCols}
       />
+      )}
 
       <TimeEntryDrawer entry={selectedEntry} onClose={() => setSelectedEntry(null)} />
     </div>

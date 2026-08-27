@@ -102,3 +102,119 @@ export function taskSearchOr(q: string): Prisma.ClickupTaskWhereInput[] {
 export function timeEntryTaskSearchOr(q: string): Prisma.ClickupTimeEntryWhereInput[] {
   return taskSearchOr(q).map((task) => ({ task }));
 }
+
+/**
+ * Sentinel `taskId` for the "entries with no task at all" bucket.
+ *
+ * `clickup_time_entries.task_id` is nullable and those rows are deliberately
+ * kept visible (see the archived-filter and search notes below), so the
+ * grouped-by-task view collects them under one synthetic row. A real ClickUp
+ * task id is an alphanumeric slug, so this bracketed value can never collide.
+ */
+export const NO_TASK_ID = '__none__';
+
+/** Every filter the Time Entries page (and its grouped/aggregate siblings) accepts. */
+export interface TimeEntryFilters {
+  /** Inclusive `start_time` window. Callers parse/default these before calling. */
+  from: Date;
+  to: Date;
+  /** Comma-separated multi-selects (see `csvList`). */
+  userId?: string;
+  status?: string;
+  client?: string;
+  listId?: string;
+  folderId?: string;
+  billable?: string;
+  search?: string;
+  spaceId?: string;
+  missingOnly?: string;
+  archived?: string;
+  sprintStatus?: string;
+  /** Exact-match single task, or `NO_TASK_ID` for the task-less bucket. */
+  taskId?: string;
+}
+
+/**
+ * The one where-clause builder behind `/reports/time-entries`,
+ * `/reports/time-entries/aggregates` and `/reports/time-entries/by-task`.
+ *
+ * This used to be an inlined copy per method, with a comment arguing that one
+ * local copy was easier to reason about than a shared helper. That held while
+ * the two consumers were independent. It stopped holding once the grouped view
+ * arrived: a task's collapsed total and the entries revealed by expanding it
+ * are two queries whose result sets MUST coincide, or the breakdown visibly
+ * fails to sum to the number above it. Same reasoning ties the metric cards to
+ * the rows they summarize. Divergence here is a data bug, not a style nit —
+ * so there is exactly one copy.
+ */
+export async function buildTimeEntryWhere(
+  prisma: Pick<PrismaService, '$queryRaw'>,
+  f: TimeEntryFilters,
+): Promise<Prisma.ClickupTimeEntryWhereInput> {
+  const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: f.from, lte: f.to } };
+  const and: Prisma.ClickupTimeEntryWhereInput[] = [];
+  if (f.spaceId) and.push({ task: { spaceId: f.spaceId, isDeleted: false } });
+  // The categorical filters are multi-select in the dashboard and arrive as a
+  // comma-separated list. A single value parses as a one-element list, so
+  // pre-existing deep-links (e.g. `?userId=u1&status=NO_RATE_FOUND`) behave
+  // exactly as before.
+  const clients = csvList(f.client);
+  const listIds = csvList(f.listId);
+  const folderIds = csvList(f.folderId);
+  const userIds = csvList(f.userId);
+  const statuses = csvList(f.status);
+  // Intentionally no `isDeleted: false` here (unlike the spaceId clause):
+  // the base list shows entries regardless of task soft-deletion, so the
+  // client filter stays consistent with that. Don't "fix" this to exclude
+  // deleted tasks — it would make client-only vs client+space disagree.
+  if (clients) and.push({ task: { client: { in: clients } } });
+  if (listIds) and.push({ task: { listId: { in: listIds } } });
+  if (folderIds) and.push({ task: { folderId: { in: folderIds } } });
+  // ClickUp `archived` flag. Archived status lives only on the joined task
+  // (time entries have no archived column of their own). 'exclude' keeps
+  // entries whose task isn't archived AND entries with no task at all — hence
+  // `NOT { task archived:true }`, not `task { archived:false }`, which would
+  // also drop null-task rows. 'only' keeps just archived-task entries.
+  // 'include'/undefined applies no constraint.
+  if (f.archived === 'only') and.push({ task: { archived: true } });
+  else if (f.archived === 'exclude') and.push({ NOT: { task: { archived: true } } });
+  // Sprint (== clickup_lists row) status filter: 'active'/'completed' scopes
+  // to entries whose task's list isn't/is archived (dropping task-less
+  // entries — no task, no sprint, unlike the archived filter above which
+  // deliberately keeps them); 'all'/absent/unrecognized emits no clause
+  // (backward-compatible). See `sprintStatusListIds` for the fetch-ids-then-IN
+  // rationale (no Prisma relation from ClickupList to ClickupTask).
+  const sprintListIds = await sprintStatusListIds(prisma, f.sprintStatus);
+  if (sprintListIds) and.push({ task: { listId: { in: sprintListIds } } });
+  if (userIds) where.userId = { in: userIds };
+  // Exact match, never `contains`: the grouped view expands a row by re-querying
+  // its own task id, and a substring match would pull in every task whose id
+  // merely contains it.
+  if (f.taskId === NO_TASK_ID) where.taskId = null;
+  else if (f.taskId) where.taskId = f.taskId;
+  if (f.missingOnly === 'true') {
+    where.status = 'NO_RATE_FOUND';
+  } else if (statuses) {
+    where.status = { in: statuses };
+  }
+  if (f.billable === 'true') where.billable = true;
+  else if (f.billable === 'false') where.billable = false;
+  if (f.search?.trim()) {
+    const q = f.search.trim();
+    const match = { contains: q, mode: 'insensitive' as const };
+    and.push({
+      OR: [
+        // Every task column the Tasks page searches, so both pages resolve the
+        // same task set for the same query.
+        ...timeEntryTaskSearchOr(q),
+        // Entry-specific fields on top — these also keep a task-less entry findable.
+        { userName: match },
+        { userEmail: match },
+        { taskId: match },
+        { timeEntryId: match },
+      ],
+    });
+  }
+  if (and.length) where.AND = and;
+  return where;
+}

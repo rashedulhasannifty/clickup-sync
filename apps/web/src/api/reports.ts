@@ -33,6 +33,8 @@ export const reportsApi = {
     apiClient.get('/reports/time-entries', { params }).then(r => r.data),
   timeEntriesAggregates: (params: Record<string, string | number | undefined>) =>
     apiClient.get('/reports/time-entries/aggregates', { params }).then(r => r.data),
+  timeEntriesByTask: (params: Record<string, string | number | undefined>) =>
+    apiClient.get('/reports/time-entries/by-task', { params }).then(r => r.data),
   sprintPoints: (params?: { spaceId?: string }) =>
     apiClient.get('/reports/sprint-points', { params }).then(r => r.data),
   syncHealth: () => apiClient.get('/reports/ops/sync-health').then(r => r.data),

@@ -216,9 +216,9 @@ export class ReportsController {
     return this.timeEntriesReports.overviewDeltas(from, to);
   }
 
-  @Get('time-entries')
-  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId, archived, sprintStatus). `userId`, `status`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `missingOnly=true` overrides `status`. `archived` filters by the joined task: `exclude` (hide archived-task entries + keep task-less entries), `only`, or `include`/omitted (no constraint). `sprintStatus=active|completed|all` (default `all`) scopes to entries whose task\'s list (sprint) is/isn\'t archived, dropping task-less entries.' })
-  timeEntriesList(
+  @Get('time-entries/by-task')
+  @ApiOperation({ summary: 'The time entry list grouped by task: one row per task with summed hours, valid cost, entry count and distinct assignees. Accepts exactly the same filters as /time-entries (same comma-separated multi-value support), so a row\'s total always equals the sum of the entries /time-entries returns for the same filters plus `taskId`. `total` is the number of TASKS, not entries. Entries with no task are grouped under the synthetic task id `__none__`. Cost sums only entries that have a rate — `missingRateCount` reports how many did not.' })
+  timeEntriesByTask(
     @Query('userId') userId?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -235,8 +235,35 @@ export class ReportsController {
     @Query('archived') archived?: string,
     @Query('sprintStatus') sprintStatus?: string,
   ) {
+    return this.timeEntriesReports.timeEntriesByTask({
+      userId, from, to, status, limit: Number(limit) || 50, offset: Number(offset) || 0,
+      billable, search, spaceId, missingOnly, client, listId, folderId, archived,
+      sprintStatus: normalizeSprintStatus(sprintStatus, 'all'),
+    });
+  }
+
+  @Get('time-entries')
+  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, billable, search, spaceId, missingOnly, client, listId, folderId, archived, sprintStatus). `userId`, `status`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `missingOnly=true` overrides `status`. `archived` filters by the joined task: `exclude` (hide archived-task entries + keep task-less entries), `only`, or `include`/omitted (no constraint). `sprintStatus=active|completed|all` (default `all`) scopes to entries whose task\'s list (sprint) is/isn\'t archived, dropping task-less entries. `taskId` matches one task exactly (use `__none__` for entries with no task) — this is how the grouped view expands a row.' })
+  timeEntriesList(
+    @Query('userId') userId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('status') status?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('billable') billable?: string,
+    @Query('search') search?: string,
+    @Query('spaceId') spaceId?: string,
+    @Query('missingOnly') missingOnly?: string,
+    @Query('client') client?: string,
+    @Query('listId') listId?: string,
+    @Query('folderId') folderId?: string,
+    @Query('archived') archived?: string,
+    @Query('sprintStatus') sprintStatus?: string,
+    @Query('taskId') taskId?: string,
+  ) {
     return this.timeEntriesReports.timeEntriesList(
-      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'),
+      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, billable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), taskId,
     );
   }
 

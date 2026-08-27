@@ -329,6 +329,11 @@ describe('ReportsController', () => {
   });
 
   describe('timeEntriesList (sprintStatus passthrough)', () => {
+    // Pinned by position rather than "the last argument": `taskId` now trails
+    // sprintStatus in the service signature, and any future trailing param
+    // would silently make these assertions inspect the wrong slot.
+    const SPRINT_STATUS_ARG = 14;
+
     it('normalizes and threads sprintStatus="active" through to the service', async () => {
       const timeEntries = { timeEntriesList: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
       const ctrl = makeCtrl({ timeEntries });
@@ -337,8 +342,7 @@ describe('ReportsController', () => {
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, 'active',
       );
-      const args = timeEntries.timeEntriesList.mock.calls[0];
-      expect(args[args.length - 1]).toBe('active');
+      expect(timeEntries.timeEntriesList.mock.calls[0][SPRINT_STATUS_ARG]).toBe('active');
     });
 
     it('defaults an unrecognized sprintStatus to "all"', async () => {
@@ -349,8 +353,57 @@ describe('ReportsController', () => {
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, 'nonsense',
       );
-      const args = timeEntries.timeEntriesList.mock.calls[0];
-      expect(args[args.length - 1]).toBe('all');
+      expect(timeEntries.timeEntriesList.mock.calls[0][SPRINT_STATUS_ARG]).toBe('all');
+    });
+
+    it('threads taskId through so a grouped row can expand into its own entries', async () => {
+      const timeEntries = { timeEntriesList: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
+      const ctrl = makeCtrl({ timeEntries });
+      await ctrl.timeEntriesList(
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, '86abc123',
+      );
+      expect(timeEntries.timeEntriesList.mock.calls[0][SPRINT_STATUS_ARG + 1]).toBe('86abc123');
+    });
+  });
+
+  describe('timeEntriesByTask', () => {
+    function makeGrouped() {
+      return { timeEntriesByTask: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
+    }
+
+    it('passes the page\'s filters straight through to the grouped query', async () => {
+      const timeEntries = makeGrouped();
+      const ctrl = makeCtrl({ timeEntries });
+      await ctrl.timeEntriesByTask(
+        'u1,u2', '2026-01-01', '2026-02-01', 'NO_RATE_FOUND', '25', '50',
+        'true', 'webhook', 'space-1', undefined, 'Acme', 'list-1', 'folder-1', 'exclude', 'active',
+      );
+      expect(timeEntries.timeEntriesByTask).toHaveBeenCalledWith({
+        userId: 'u1,u2', from: '2026-01-01', to: '2026-02-01', status: 'NO_RATE_FOUND',
+        limit: 25, offset: 50, billable: 'true', search: 'webhook', spaceId: 'space-1',
+        missingOnly: undefined, client: 'Acme', listId: 'list-1', folderId: 'folder-1',
+        archived: 'exclude', sprintStatus: 'active',
+      });
+    });
+
+    it('defaults an unrecognized sprintStatus to "all", like the flat list', async () => {
+      const timeEntries = makeGrouped();
+      const ctrl = makeCtrl({ timeEntries });
+      await ctrl.timeEntriesByTask(
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, 'nonsense',
+      );
+      expect(timeEntries.timeEntriesByTask.mock.calls[0][0].sprintStatus).toBe('all');
+    });
+
+    it('falls back to a 50-task page when limit/offset are absent', async () => {
+      const timeEntries = makeGrouped();
+      const ctrl = makeCtrl({ timeEntries });
+      await ctrl.timeEntriesByTask();
+      expect(timeEntries.timeEntriesByTask.mock.calls[0][0]).toMatchObject({ limit: 50, offset: 0 });
     });
   });
 });
