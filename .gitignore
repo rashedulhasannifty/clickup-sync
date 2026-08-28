@@ -12,3 +12,9 @@ tsconfig.build.tsbuildinfo
 
 # Local database backup dumps (e.g. pre-migration pg_dump snapshots)
 /clickup_sync_backup_*.sql
+
+# Isolated worktrees for feature work (superpowers:using-git-worktrees)
+/.worktrees/
+
+# Subagent-driven-development scratch (ledgers, briefs, review packages)
+/.superpowers/
