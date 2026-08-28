@@ -10,7 +10,9 @@ function makeDeps(entries: any[], rules: Map<string, boolean> = new Map()) {
   const prisma = { clickupTimeEntry: { findMany, update } } as any;
   // Mirrors the real CostCalculatorService: `isChargeable` reflects the
   // `chargeable` opt it was called with, so tests can assert on the resolved
-  // stack rather than a value hardcoded independent of the input.
+  // stack rather than a value hardcoded independent of the input. This
+  // mirrors `const isChargeable = opts?.chargeable !== false;` in
+  // cost-calculator.service.ts — keep the two in sync.
   const calculate = jest.fn().mockImplementation(
     (_userId: unknown, _startTime: unknown, _hours: unknown, _cache: unknown, opts?: { chargeable?: boolean }) =>
       Promise.resolve({
@@ -104,17 +106,22 @@ describe('CostRecalculationService', () => {
 
   it('resolves the (task, assignee) rule over the task flag when re-costing', async () => {
     // Task is chargeable; the rule says this assignee's time on it is not.
+    // This is the one fixture where the OLD derivation (task flag only) and
+    // the NEW derivation (through the rule) disagree — task=true, rule=false
+    // — so it is the only one of these tests that can actually catch a
+    // regression back to `e.task?.isChargeable ?? true`.
     const entry = {
       timeEntryId: 'te1', userId: 'u1', startTime: new Date('2026-01-05'),
       durationHours: { toNumber: () => 2 }, chargeableOverride: null,
       task: { dueDate: null, isChargeable: true },
       taskId: 't1',
     };
-    const { svc, calculate } = makeDeps([entry], new Map([['t1|u1', false]]));
+    const { svc, calculate, update } = makeDeps([entry], new Map([['t1|u1', false]]));
 
     await svc.recalculate({ taskIds: ['t1'] });
 
     expect(calculate.mock.calls[0][4]).toMatchObject({ chargeable: false });
+    expect(update.mock.calls[0][0].data).toMatchObject({ isChargeable: false });
   });
 
   it('lets a per-entry override beat the rule', async () => {
