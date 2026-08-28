@@ -90,6 +90,7 @@
     "testRegex": ".*\\.spec\\.ts$",
     "testPathIgnorePatterns": [
       "/node_modules/",
+      "/\\.worktrees/",
       "\\.e2e\\.spec\\.ts$"
     ],
     "transform": {
