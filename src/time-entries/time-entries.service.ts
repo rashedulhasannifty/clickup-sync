@@ -260,8 +260,7 @@ export class TimeEntriesService {
       // No task, or a task we couldn't read: chargeable. That matches the
       // column default and keeps task-less entries in the chargeable bucket.
       const cost = await this.costs.calculate(normalized.userId, normalized.startTime, normalized.durationHours, rateCache, { chargeable: attrs?.isChargeable ?? true, dueDate: attrs?.dueDate ?? null });
-      // TODO(Task 4): calculate() will return isChargeable itself; drop this literal then.
-      await this.repo.upsert(normalized, { ...cost, isChargeable: attrs?.isChargeable ?? true });
+      await this.repo.upsert(normalized, { ...cost });
       if (cost.status === 'NO_RATE_FOUND') this.logger.warn(`Missing rate for user ${normalized.userId} on time entry ${normalized.timeEntryId}`);
       count += 1;
     }

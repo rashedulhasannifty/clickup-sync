@@ -26,9 +26,17 @@ export class CostCalculatorService {
     cache?: RateCache,
     opts?: { chargeable?: boolean; dueDate?: Date | null },
   ) {
-    if (!userId || !startTime) return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND' };
+    // Resolved once and returned on EVERY branch. Callers spread this object
+    // into the time-entry upsert, so this is what writes `is_chargeable` — and
+    // keeping it out of the branches below is what stops the calculator from
+    // disagreeing with the migration's backfill about the same row.
+    //
+    // Deliberately independent of the COST_EXCLUDED branch: excluding an
+    // identity from COSTING says nothing about whether the work is BILLABLE.
+    const isChargeable = opts?.chargeable !== false;
+    if (!userId || !startTime) return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND', isChargeable };
     if (this.settings.getExcludedAssigneeIds().has(userId)) {
-      return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'COST_EXCLUDED' };
+      return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'COST_EXCLUDED', isChargeable };
     }
     const cost = this.settings.getPreferences().cost;
     const basis = cost.rateMatching === 'due' && opts?.dueDate ? opts.dueDate : startTime;
@@ -46,10 +54,11 @@ export class CostCalculatorService {
         hourlyRateCents: rate?.hourlyRateCents ?? 0n,
         costCents: 0n,
         status: 'NOT_CHARGEABLE',
+        isChargeable,
       };
     }
-    if (!rate) return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND' };
-    return { rateId: rate.rateId, currency: rate.currency, hourlyRateCents: rate.hourlyRateCents, costCents: BigInt(Math.round(Number(rate.hourlyRateCents) * durationHours)), status: 'COST_CALCULATED' };
+    if (!rate) return { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND', isChargeable };
+    return { rateId: rate.rateId, currency: rate.currency, hourlyRateCents: rate.hourlyRateCents, costCents: BigInt(Math.round(Number(rate.hourlyRateCents) * durationHours)), status: 'COST_CALCULATED', isChargeable };
   }
 
   private async resolveRate(userId: string, entryDate: Date, cache?: RateCache): Promise<ResolvedRate> {

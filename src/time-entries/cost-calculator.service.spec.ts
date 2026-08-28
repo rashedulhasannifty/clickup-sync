@@ -177,3 +177,41 @@ describe('non-chargeable work', () => {
     expect(res.status).toBe('COST_CALCULATED');
   });
 });
+
+describe('isChargeable in the returned cost', () => {
+  it('is true by default so a caller that passes no opts writes the column default', async () => {
+    const { prisma } = makePrisma({ rateId: 1n, currency: 'USD', hourlyRateCents: 10000n });
+    const res = await new CostCalculatorService(prisma, makeSettings()).calculate('u1', new Date('2026-01-05'), 2);
+    expect(res.isChargeable).toBe(true);
+    expect(res.status).toBe('COST_CALCULATED');
+  });
+
+  it('is false when the resolved answer is non-chargeable', async () => {
+    const { prisma } = makePrisma({ rateId: 1n, currency: 'USD', hourlyRateCents: 10000n });
+    const res = await new CostCalculatorService(prisma, makeSettings())
+      .calculate('u1', new Date('2026-01-05'), 2, undefined, { chargeable: false });
+    expect(res).toMatchObject({ isChargeable: false, costCents: 0n, status: 'NOT_CHARGEABLE' });
+  });
+
+  // Costing exclusion and billability are orthogonal: an excluded assignee's
+  // time on a non-chargeable task is BOTH excluded and non-chargeable. Forcing
+  // one of them would make the calculator disagree with the migration's
+  // backfill, which reads the task flag for every row.
+  it('still reports chargeability for a globally excluded assignee', async () => {
+    const { prisma } = makePrisma(null);
+    const svc = new CostCalculatorService(prisma, makeSettings({}, ['u1']));
+
+    const excludedOnChargeableTask = await svc.calculate('u1', new Date('2026-01-05'), 2);
+    expect(excludedOnChargeableTask).toMatchObject({ status: 'COST_EXCLUDED', isChargeable: true });
+
+    const excludedOnNonChargeableTask = await svc.calculate('u1', new Date('2026-01-05'), 2, undefined, { chargeable: false });
+    expect(excludedOnNonChargeableTask).toMatchObject({ status: 'COST_EXCLUDED', isChargeable: false });
+  });
+
+  it('reports chargeability even when there is no user or start time', async () => {
+    const { prisma } = makePrisma(null);
+    const res = await new CostCalculatorService(prisma, makeSettings())
+      .calculate(null, null, 2, undefined, { chargeable: false });
+    expect(res).toMatchObject({ status: 'NO_RATE_FOUND', isChargeable: false });
+  });
+});
