@@ -7,7 +7,24 @@ import { NormalizedTimeEntry } from '../clickup/clickup-normalizer';
 export class TimeEntriesRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  upsert(entry: NormalizedTimeEntry, cost: { rateId: bigint | null; currency: string; hourlyRateCents: bigint; costCents: bigint; status: string }) {
+  // `cost` carries every derived costing column, including `isChargeable` — the
+  // resolved answer from the chargeability stack. It is spread into the payload
+  // below, which is how the column gets written without any call site changing.
+  //
+  // What must NOT appear in either object: `chargeableOverride`. That is a user
+  // decision living on a table that resyncs constantly, and a sync path writing
+  // it would silently revert what somebody set. A test enforces this.
+  upsert(
+    entry: NormalizedTimeEntry,
+    cost: {
+      rateId: bigint | null;
+      currency: string;
+      hourlyRateCents: bigint;
+      costCents: bigint;
+      status: string;
+      isChargeable: boolean;
+    },
+  ) {
     // taskName exists on NormalizedTimeEntry for normalizer convenience but is not a column —
     // it comes from the task relation.  Exclude it so Prisma resolves to the Unchecked variant
     // which accepts taskId and rateId as plain scalars.

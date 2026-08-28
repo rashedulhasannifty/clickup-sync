@@ -60,7 +60,8 @@ model ClickupTask {
   // same rule — a sync that writes these silently reverts what a user set.
   isChargeable    Boolean  @default(true) @map("is_chargeable")
 
-  timeEntries     ClickupTimeEntry[]
+  timeEntries        ClickupTimeEntry[]
+  chargeabilityRules TaskAssigneeChargeability[]
 
   @@index([parentTaskId])
   @@index([spaceId])
@@ -87,6 +88,15 @@ model ClickupTimeEntry {
   raw              Json?
   syncedAt         DateTime @default(now()) @updatedAt @map("synced_at")
 
+  // ── Local annotations ───────────────────────────────────────────────────
+  // `chargeableOverride` is owned by THIS app, not mirrored from ClickUp. No
+  // sync path may write it: `TimeEntriesRepository.upsert` spreads
+  // `NormalizedTimeEntry` plus the cost object, and neither contains it. A
+  // test enforces that. `isChargeable` is different — it is DERIVED, written
+  // on every cost write as part of the cost object.
+  chargeableOverride Boolean? @map("chargeable_override")
+  isChargeable       Boolean  @default(true) @map("is_chargeable")
+
   task             ClickupTask? @relation(fields: [taskId], references: [taskId], onDelete: SetNull)
   rate             AssigneeRate? @relation(fields: [rateId], references: [rateId], onDelete: SetNull)
 
@@ -94,6 +104,23 @@ model ClickupTimeEntry {
   @@index([userId])
   @@index([startTime])
   @@map("clickup_time_entries")
+}
+
+/// Local annotation: "this assignee's time on this task is (not) chargeable".
+/// Sits between the task-level flag and the per-entry override.
+model TaskAssigneeChargeability {
+  taskId     String   @map("task_id")
+  userId     String   @map("user_id")
+  chargeable Boolean
+  note       String?
+  setBy      String?  @map("set_by")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
+
+  task       ClickupTask @relation(fields: [taskId], references: [taskId], onDelete: Cascade)
+
+  @@id([taskId, userId])
+  @@index([userId])
+  @@map("task_assignee_chargeability")
 }
 
 model AssigneeRate {

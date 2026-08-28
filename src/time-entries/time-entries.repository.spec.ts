@@ -62,4 +62,33 @@ describe('TimeEntriesRepository', () => {
       });
     });
   });
+
+  describe('local annotations', () => {
+    it('never writes chargeable_override, so a resync cannot revert a user-set override', async () => {
+      const upsert = jest.fn().mockResolvedValue({});
+      const repo = new TimeEntriesRepository({ clickupTimeEntry: { upsert } } as never);
+
+      await repo.upsert(
+        { timeEntryId: 'te1', taskId: 't1', userId: 'u1', raw: {} } as never,
+        { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND', isChargeable: true },
+      );
+
+      const call = upsert.mock.calls[0][0];
+      expect(call.create).not.toHaveProperty('chargeableOverride');
+      expect(call.update).not.toHaveProperty('chargeableOverride');
+    });
+
+    it('does write is_chargeable, which is derived rather than user-set', async () => {
+      const upsert = jest.fn().mockResolvedValue({});
+      const repo = new TimeEntriesRepository({ clickupTimeEntry: { upsert } } as never);
+
+      await repo.upsert(
+        { timeEntryId: 'te1', taskId: 't1', userId: 'u1', raw: {} } as never,
+        { rateId: null, currency: 'USD', hourlyRateCents: 0n, costCents: 0n, status: 'NOT_CHARGEABLE', isChargeable: false },
+      );
+
+      const call = upsert.mock.calls[0][0];
+      expect(call.update.isChargeable).toBe(false);
+    });
+  });
 });

@@ -138,7 +138,8 @@ export class AssigneeReplacementService {
       description: data.description ?? null,
       raw: created,
     };
-    await this.timeEntries.upsert(normalized, cost);
+    // TODO(Task 4): calculate() will return isChargeable itself; drop this literal then.
+    await this.timeEntries.upsert(normalized, { ...cost, isChargeable: task?.isChargeable ?? true });
 
     // 8. Remove the local original row. The original was already deleted in
     //    ClickUp (step 6) and re-inserted under the replacement's new id (step
