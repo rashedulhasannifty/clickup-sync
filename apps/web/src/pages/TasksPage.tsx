@@ -348,7 +348,6 @@ export function TasksPage() {
   const { space, fromDate, toDate } = useGlobalFilters();
   const { data: assigneesData } = useTasksAssignees();
   const { data: summary } = useTasksSummary();
-  const { data: clientsData } = useClients();
   const { data: listsData } = useLists(space !== 'all' ? space : undefined);
   const { data: foldersData } = useFolders(space !== 'all' ? space : undefined);
 
@@ -366,6 +365,18 @@ export function TasksPage() {
   const [archivedFilter, setArchivedFilter] = useState('include');
   const [sprintStatus, setSprintStatus] = useState('all');
   const [taskIdsFilter, setTaskIdsFilter] = useState<string[]>([]);
+  const isDeepLink = taskIdsFilter.length > 0;
+  // Scoped with exactly the filters `taskParams` below sends, so the task count
+  // in each dropdown label can't contradict the rows on screen. (The global
+  // space/date pickers are the usual culprit: a client with 30 tasks in
+  // Projects reads as "(30)" while the R&D Apps table shows nothing.) The
+  // deep-link path bypasses space/date there, so it bypasses them here too.
+  const { data: clientsData } = useClients({
+    spaceId: isDeepLink ? undefined : (space !== 'all' ? space : undefined),
+    from: isDeepLink ? undefined : (fromDate || undefined),
+    to: isDeepLink ? undefined : (toDate || undefined),
+    archived: archivedFilter,
+  });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   // Detail drawer selection is local state (like TimeEntriesPage), NOT a URL
@@ -444,13 +455,21 @@ export function TasksPage() {
   const clientOptions = useMemo(() => {
     const rows = (Array.isArray(clientsData) ? clientsData : []) as { client: string; taskCount?: number }[];
     const opts: { value: string; label: string }[] = [];
+    const seen = new Set<string>();
     for (const r of rows) {
       if (!r.client) continue;
       const count = typeof r.taskCount === 'number' ? ` (${r.taskCount})` : '';
+      seen.add(r.client);
       opts.push({ value: r.client, label: `${r.client}${count}` });
     }
+    // Now that the options are scoped, a selected client can drop out of the
+    // list entirely (pick a client, then switch space). Keep it as a "(0)"
+    // option so the selection stays visible and, more importantly, clearable.
+    for (const c of clientFilter) {
+      if (!seen.has(c)) opts.push({ value: c, label: `${c} (0)` });
+    }
     return opts;
-  }, [clientsData]);
+  }, [clientsData, clientFilter]);
 
   const listOptions = useMemo(() => {
     const rows = (Array.isArray(listsData) ? listsData : []) as { listId: string; listName: string; spaceName?: string | null; taskCount?: number }[];
@@ -494,7 +513,6 @@ export function TasksPage() {
     return opts;
   }, [summary]);
 
-  const isDeepLink = taskIdsFilter.length > 0;
   const taskParams = useMemo(() => ({
     limit: pageSize,
     offset: (page - 1) * pageSize,

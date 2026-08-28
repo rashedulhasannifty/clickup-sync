@@ -6,7 +6,8 @@ export const reportsApi = {
   tasksBySpaceStatus: () => apiClient.get('/reports/tasks/by-space-status').then(r => r.data),
   tasksAssignees: () => apiClient.get('/reports/tasks/assignees').then(r => r.data),
   timeEntriesAssignees: () => apiClient.get('/reports/time-entries/assignees').then(r => r.data),
-  clients: () => apiClient.get('/reports/clients').then(r => r.data),
+  clients: (params?: { spaceId?: string; from?: string; to?: string; archived?: string }) =>
+    apiClient.get('/reports/clients', { params }).then(r => r.data),
   lists: (params?: { spaceId?: string }) =>
     apiClient.get('/reports/lists', { params }).then(r => r.data),
   folders: (params?: { spaceId?: string }) =>

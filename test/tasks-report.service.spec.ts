@@ -67,6 +67,56 @@ describe('TasksReportService', () => {
       expect(sqlText).toMatch(/is_deleted\s*=\s*false/);
       expect(sqlText).toMatch(/client\s*<>\s*''/);
     });
+
+    // The dropdown label carries a per-client task count, so the count has to be
+    // built with the same filters the Tasks table applies. When it wasn't, the
+    // chip read "Byron Central (30)" while the table under it said "No tasks
+    // match your filters" — the count was workspace-wide, the table was not.
+    it('scopes by space_id when spaceId is given', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new TasksReportService(prisma).tasksClients({ spaceId: '3589129' });
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/space_id\s*=/);
+    });
+
+    it('applies the updated_date window when from/to are given', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new TasksReportService(prisma).tasksClients({ from: '2025-12-01', to: '2026-08-27' });
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/updated_date\s*>=/);
+      expect(sqlText).toMatch(/updated_date\s*<=/);
+    });
+
+    it('honours the archived filter', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      const svc = new TasksReportService(prisma);
+      await svc.tasksClients({ archived: 'exclude' });
+      await svc.tasksClients({ archived: 'only' });
+      const text = (i: number) => {
+        const call = prisma.$queryRaw.mock.calls[i][0];
+        return (call.sql ?? call.text ?? String(call)) as string;
+      };
+      expect(text(0)).toMatch(/archived\s*=\s*false/);
+      expect(text(1)).toMatch(/archived\s*=\s*true/);
+    });
+
+    // Budgets asks for every client the workspace has ever had, so a bare call
+    // must stay workspace-wide.
+    it('emits no space/date/archived clause when called with no options', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([]);
+      await new TasksReportService(prisma).tasksClients();
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).not.toMatch(/space_id/);
+      expect(sqlText).not.toMatch(/updated_date/);
+      expect(sqlText).not.toMatch(/archived/);
+    });
   });
 
   describe('tasksLists', () => {

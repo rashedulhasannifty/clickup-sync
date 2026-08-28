@@ -29,8 +29,16 @@ export function useTimeEntriesAssignees() {
   });
 }
 
-export function useClients() {
-  return useQuery({ queryKey: ['clients'], queryFn: reportsApi.clients });
+/**
+ * Client dropdown options. Pass the page's active filters so the task count in
+ * each label matches the rows the table will actually render; call it bare
+ * (Budgets) for the workspace-wide client list.
+ */
+export function useClients(params?: { spaceId?: string; from?: string; to?: string; archived?: string }) {
+  return useQuery({
+    queryKey: ['clients', params ?? 'all'],
+    queryFn: () => reportsApi.clients(params),
+  });
 }
 
 export function useLists(spaceId?: string) {

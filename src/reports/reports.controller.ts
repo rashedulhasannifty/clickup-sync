@@ -66,8 +66,15 @@ export class ReportsController {
   }
 
   @Get('clients')
-  @ApiOperation({ summary: 'Distinct task clients for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks.client (non-empty, non-deleted), with per-client task counts.' })
-  tasksClients() { return this.tasksReports.tasksClients(); }
+  @ApiOperation({ summary: 'Distinct task clients for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks.client (non-empty, non-deleted), with per-client task counts. `spaceId`, `from`/`to` (on updated_date) and `archived` scope the counts the same way `/reports/tasks` does, so the number in the dropdown label matches the number of rows the table will show. Omit them all for the workspace-wide list (what Budgets wants).' })
+  tasksClients(
+    @Query('spaceId') spaceId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('archived') archived?: string,
+  ) {
+    return this.tasksReports.tasksClients({ spaceId, from, to, archived });
+  }
 
   @Get('lists')
   @ApiOperation({ summary: 'Distinct ClickUp lists for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks (list_id/list_name, non-empty, non-deleted) with per-list task counts. Pass spaceId to scope to one space.' })

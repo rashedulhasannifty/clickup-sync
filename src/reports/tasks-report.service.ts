@@ -89,7 +89,34 @@ export class TasksReportService {
     return rows.map((r) => ({ name: r.name, email: r.email, taskCount: Number(r.task_count) }));
   }
 
-  async tasksClients() {
+  /**
+   * Distinct clients with a task count, for the Tasks/Time Entries/Budgets
+   * client dropdowns.
+   *
+   * The count is rendered inside the dropdown label, so it has to be built with
+   * the same filters the Tasks table applies — otherwise the chip reads
+   * "Byron Central (30)" over a table that says "No tasks match your filters",
+   * because the count spans every space and every date while the table doesn't.
+   * The clauses below mirror `tasksList` exactly (same `updated_date` window,
+   * same archived semantics).
+   *
+   * Every option is optional and omitting them all reproduces the original
+   * workspace-wide query: Budgets wants the full client list regardless of the
+   * dashboard's space/date pickers, and calls this bare.
+   */
+  async tasksClients(opts?: { spaceId?: string; from?: string; to?: string; archived?: string }) {
+    const { spaceId, from, to, archived } = opts ?? {};
+    // Same shape as `tasksList`: 'only' → archived only, 'exclude' → hide
+    // archived, anything else (including the default 'include') → no clause.
+    const archivedSql =
+      archived === 'only' ? Prisma.sql`AND archived = true`
+      : archived === 'exclude' ? Prisma.sql`AND archived = false`
+      : Prisma.empty;
+    // Matches `tasksList`: one bound present is enough to apply the window, and
+    // the missing bound falls back to epoch / now.
+    const dateSql = (from || to)
+      ? Prisma.sql`AND updated_date >= ${parseDate(from, new Date(0))} AND updated_date <= ${parseDate(to, new Date())}`
+      : Prisma.empty;
     type Row = { client: string; task_count: bigint };
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT client, COUNT(*)::bigint AS task_count
@@ -97,6 +124,9 @@ export class TasksReportService {
       WHERE is_deleted = false
         AND client IS NOT NULL
         AND client <> ''
+        ${spaceId ? Prisma.sql`AND space_id = ${spaceId}` : Prisma.empty}
+        ${archivedSql}
+        ${dateSql}
       GROUP BY client
       ORDER BY client ASC
     `);
