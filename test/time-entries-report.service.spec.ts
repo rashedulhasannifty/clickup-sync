@@ -74,7 +74,7 @@ describe('TimeEntriesReportService', () => {
       const calls = prisma.clickupTimeEntry.aggregate.mock.calls;
       expect(calls).toHaveLength(2);
       expect(calls[0][0].where).toEqual(window);
-      expect(calls[1][0].where).toEqual({ AND: [window, { NOT: { task: { isChargeable: false } } }] });
+      expect(calls[1][0].where).toEqual({ AND: [window, { isChargeable: true }] });
     });
   });
 
@@ -233,14 +233,18 @@ describe('TimeEntriesReportService', () => {
   });
 
   describe('chargeability in reports', () => {
-    it('marks a flat entry chargeable from its task', async () => {
+    it('marks a flat entry chargeable from its own column, not the joined task', async () => {
       const prisma = makePrisma();
       prisma.clickupTimeEntry.findMany.mockResolvedValue([{
         timeEntryId: 'e1', taskId: 't1', userId: 'u1', userName: 'Alice', userEmail: null,
         startTime: new Date(), endTime: null, durationHours: { toNumber: () => 1 },
         hourlyRateCents: 0n, costCents: 0n, status: 'NOT_CHARGEABLE', billable: true,
         description: null, syncedAt: new Date(), rateId: null, currency: 'USD',
-        task: { taskName: 'T', client: null, listName: null, isChargeable: false },
+        isChargeable: false,
+        // The joined task disagrees on purpose: a per-assignee rule can make an
+        // entry non-chargeable on a task whose own flag is still true, and the
+        // row must reflect its own column, not the task's.
+        task: { taskName: 'T', client: null, listName: null, isChargeable: true },
       }]);
       const { items } = await new TimeEntriesReportService(prisma).timeEntriesList();
       expect(items[0].chargeable).toBe(false);
@@ -252,7 +256,8 @@ describe('TimeEntriesReportService', () => {
         timeEntryId: 'e1', taskId: null, userId: 'u1', userName: 'Alice', userEmail: null,
         startTime: new Date(), endTime: null, durationHours: { toNumber: () => 1 },
         hourlyRateCents: 0n, costCents: 0n, status: 'COST_CALCULATED', billable: false,
-        description: null, syncedAt: new Date(), rateId: null, currency: 'USD', task: null,
+        description: null, syncedAt: new Date(), rateId: null, currency: 'USD',
+        isChargeable: true, task: null,
       }]);
       const { items } = await new TimeEntriesReportService(prisma).timeEntriesList();
       expect(items[0].chargeable).toBe(true);
@@ -623,7 +628,7 @@ describe('TimeEntriesReportService', () => {
       const calls = prisma.clickupTimeEntry.aggregate.mock.calls;
       expect(calls).toHaveLength(2);
       expect(calls[0][0].where).toEqual(expectedWhere);
-      expect(calls[1][0].where).toEqual({ AND: [expectedWhere, { NOT: { task: { isChargeable: false } } }] });
+      expect(calls[1][0].where).toEqual({ AND: [expectedWhere, { isChargeable: true }] });
     });
 
     it('derives totalEntries/totalHours/totalCostCents/avgRateCents from the unpartitioned total', async () => {
@@ -657,11 +662,11 @@ describe('TimeEntriesReportService', () => {
 });
 
 describe('TimeEntriesReportService.timeEntriesByTask', () => {
-  /** One `groupBy` row: the (task, assignee, status) grain the fold reduces. */
+  /** One `groupBy` row: the (task, assignee, status, isChargeable) grain the fold reduces. */
   function group(over: Partial<Record<string, any>> = {}) {
     return {
       taskId: 't1', userId: 'u1', userName: 'Alice',
-      status: 'COST_CALCULATED', currency: 'USD',
+      status: 'COST_CALCULATED', currency: 'USD', isChargeable: true,
       _count: 1,
       _sum: { durationHours: { toNumber: () => 1 }, costCents: BigInt(0) },
       _max: { startTime: new Date('2026-01-10T09:00:00.000Z') },
@@ -732,31 +737,68 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
     expect(items[0].entryCount).toBe(4);
   });
 
-  it('sums all entries into chargeableHours when the task is chargeable', async () => {
+  it('sums all entries into chargeableHours when every group is chargeable', async () => {
     const prisma = makePrisma(
       [
+        // isChargeable: true comes from `group()`'s default — this is the
+        // entry-level column now, not the task's own flag.
         group({ _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(0) } }),
         group({ userId: 'u2', userName: 'Bob', _sum: { durationHours: { toNumber: () => 2 }, costCents: BigInt(0) } }),
       ],
-      // Joined isChargeable: true — distinct from the missing-task fallback
-      // (`t?.isChargeable ?? true`), which the "task-less" tests already cover.
-      [{ taskId: 't1', taskName: 'T', client: null, listName: null, isChargeable: true }],
+      [{ taskId: 't1', taskName: 'T', client: null, listName: null }],
     );
     const { items } = await svc(prisma).timeEntriesByTask({});
     expect(items[0].chargeable).toBe(true);
+    expect(items[0].partiallyChargeable).toBe(false);
     expect(items[0].totalHours).toBe(8);
     expect(items[0].chargeableHours).toBe(8);
   });
 
-  it('reports a task\'s chargeability and zeroes its chargeable hours when off', async () => {
+  it('reports a task non-chargeable and zeroes its chargeable hours when every group is non-chargeable', async () => {
     const prisma = makePrisma(
-      [group({ taskId: 't1', _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(0) } })],
-      [{ taskId: 't1', taskName: 'T', client: null, listName: null, isChargeable: false }],
+      [group({ taskId: 't1', isChargeable: false, _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(0) } })],
+      [{ taskId: 't1', taskName: 'T', client: null, listName: null }],
     );
     const { items } = await svc(prisma).timeEntriesByTask({});
     expect(items[0].chargeable).toBe(false);
+    expect(items[0].partiallyChargeable).toBe(false);
     expect(items[0].totalHours).toBe(6);
     expect(items[0].chargeableHours).toBe(0);
+  });
+
+  it('sums chargeable hours per task rather than applying the task flag to the whole row', async () => {
+    // One task, two assignees, 2h each — only one of them chargeable. This is
+    // exactly the case the old task-wide flag couldn't represent.
+    const prisma = makePrisma(
+      [
+        group({
+          userId: 'u1', userName: 'A', isChargeable: true,
+          _sum: { durationHours: { toNumber: () => 2 }, costCents: BigInt(1000) },
+        }),
+        group({
+          userId: 'u2', userName: 'B', status: 'NOT_CHARGEABLE', isChargeable: false,
+          _sum: { durationHours: { toNumber: () => 2 }, costCents: BigInt(0) },
+        }),
+      ],
+      [{ taskId: 't1', taskName: 'T', client: null, listName: null }],
+    );
+    const { items } = await svc(prisma).timeEntriesByTask({});
+    expect(items[0]).toMatchObject({
+      totalHours: 4, chargeableHours: 2, chargeable: false, partiallyChargeable: true,
+    });
+  });
+
+  it('does not misreport a bucket of only zero-duration non-chargeable entries as chargeable', async () => {
+    // 0 chargeableHours === 0 totalHours would satisfy a hours-only equality
+    // check, so `chargeable` must be decided by entry counts, not hours.
+    const prisma = makePrisma(
+      [group({ isChargeable: false, _sum: { durationHours: { toNumber: () => 0 }, costCents: BigInt(0) } })],
+      [{ taskId: 't1', taskName: 'T', client: null, listName: null }],
+    );
+    const { items } = await svc(prisma).timeEntriesByTask({});
+    expect(items[0]).toMatchObject({
+      totalHours: 0, chargeableHours: 0, chargeable: false, partiallyChargeable: false,
+    });
   });
 
   it('lists each assignee once however many entries they logged', async () => {

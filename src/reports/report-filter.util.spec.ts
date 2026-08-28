@@ -123,6 +123,20 @@ describe('buildTimeEntryWhere', () => {
     const where = await buildTimeEntryWhere(prisma, { from, to, sprintStatus: 'completed' });
     expect(clausesOf(where)).toContainEqual({ task: { listId: { in: [] } } });
   });
+
+  it('filters chargeability on the entry column, not through the task join', async () => {
+    const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'true' });
+    expect(clausesOf(where)).toContainEqual({ isChargeable: true });
+    // The old task-join form must be gone: it cannot see a per-assignee rule.
+    expect(JSON.stringify(clausesOf(where))).not.toContain('task');
+  });
+
+  it('keeps task-less entries chargeable', async () => {
+    // The column defaults to true for an entry with no task, which is what the
+    // old `NOT { task: { isChargeable: false } }` achieved by hand.
+    const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'false' });
+    expect(clausesOf(where)).toContainEqual({ isChargeable: false });
+  });
 });
 
 describe('chargeable filter', () => {
@@ -132,13 +146,15 @@ describe('chargeable filter', () => {
   const clausesOf = (where: Record<string, unknown>) => (where.AND ?? []) as Record<string, unknown>[];
 
   it('keeps task-less entries on the chargeable side', async () => {
+    // The column defaults to true, so an entry with no task still passes a
+    // plain `{ isChargeable: true }` clause without any special-casing.
     const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'true' });
-    expect(clausesOf(where)).toContainEqual({ NOT: { task: { isChargeable: false } } });
+    expect(clausesOf(where)).toContainEqual({ isChargeable: true });
   });
 
-  it('selects only non-chargeable tasks\' entries', async () => {
+  it('selects only entries flagged non-chargeable', async () => {
     const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'false' });
-    expect(clausesOf(where)).toContainEqual({ task: { isChargeable: false } });
+    expect(clausesOf(where)).toContainEqual({ isChargeable: false });
   });
 
   it('no longer constrains the entry\'s own billable column', async () => {

@@ -16,18 +16,27 @@ import { SEED_ORG_ID } from '../src/auth/org.repository';
  * with a mocked Prisma can prove the two `aggregate` calls carry the right
  * `where` shape, but it can't prove the SQL those `where`s compile to is
  * actually exhaustive and non-overlapping over real rows — in particular
- * over `task_id IS NULL` rows, which have no `isChargeable` to read.
+ * over `task_id IS NULL` rows. Chargeability is resolved and stored per entry
+ * now (`clickup_time_entries.is_chargeable`, defaulting `true`), so a
+ * task-less row does have its own flag to read; this suite still seeds one
+ * without setting it explicitly, to prove that default keeps it on the
+ * chargeable side exactly as the old task-join fallback did.
  *
- * `timeEntriesAggregates`'s `totalEntries` is exactly
- * `chargeableAgg._count + nonChargeableAgg._count` (see
- * `time-entries-report.service.ts`). `timeEntriesList`'s `total` is exactly
- * `clickupTimeEntry.count({ where })` for the byte-identical `where` (same
- * `buildTimeEntryWhere` call, same params). So asserting those two numbers
- * are equal for one window IS the
- * `chargeableAgg._count + nonChargeableAgg._count === count({ where })`
- * check — done through the public API rather than reaching into the
+ * `timeEntriesAggregates`'s `totalEntries` is exactly `totalAgg._count` — the
+ * caller's `where` verbatim (see `time-entries-report.service.ts`).
+ * `timeEntriesList`'s `total` is exactly `clickupTimeEntry.count({ where })`
+ * for the byte-identical `where` (same `buildTimeEntryWhere` call, same
+ * params). So asserting those two numbers are equal for one window proves the
+ * aggregates and the pager agree on exactly which rows the filter matches —
+ * including the task-less row, which is exactly what a broken partition would
+ * get wrong — done through the public API rather than reaching into the
  * service's private variables, because that's the only surface an e2e test
- * has.
+ * has. It also exercises the `chargeableHours`/`nonChargeableHours` split,
+ * now sourced from each entry's own `is_chargeable` column rather than a
+ * `NOT { task: { isChargeable: false } }` join: `nonChargeableHours` is
+ * derived as `totalHours - chargeableHours` (never queried as its own
+ * partition), so a task-less row silently falling through both halves would
+ * show up as `chargeableHours + nonChargeableHours < totalHours` here.
  *
  * NOTE: this suite is UNRUN. There is no Postgres reachable on this machine
  * (port 5433 closed, no Docker), and `npm run test:e2e` provisions and
@@ -116,7 +125,13 @@ describe('Time entries chargeable partition (e2e)', () => {
     }
 
     // Two tasks — one chargeable, one not — and three entries in the same
-    // window: one on each task, plus one with no task at all.
+    // window: one on each task, plus one with no task at all. Reports now
+    // read each entry's OWN `is_chargeable` column, not the joined task's
+    // flag (see time-entries-report.service.ts), so the entries below set it
+    // explicitly to match their task rather than relying on the join — this
+    // is what a real cost write does (see the chargeability resolver). The
+    // task-less entry deliberately leaves it unset to prove the column's
+    // `true` default is what keeps it on the chargeable side.
     await prisma.clickupTask.create({
       data: { taskId: TASK_CHARGEABLE, taskName: 'E2E chargeable task', isChargeable: true },
     });
@@ -129,6 +144,7 @@ describe('Time entries chargeable partition (e2e)', () => {
         taskId: TASK_CHARGEABLE,
         startTime: new Date('2031-06-01T10:00:00.000Z'),
         durationHours: 2,
+        isChargeable: true,
       },
     });
     await prisma.clickupTimeEntry.create({
@@ -137,6 +153,7 @@ describe('Time entries chargeable partition (e2e)', () => {
         taskId: TASK_NON_CHARGEABLE,
         startTime: new Date('2031-06-01T11:00:00.000Z'),
         durationHours: 5,
+        isChargeable: false,
       },
     });
     await prisma.clickupTimeEntry.create({
@@ -145,6 +162,8 @@ describe('Time entries chargeable partition (e2e)', () => {
         taskId: null,
         startTime: new Date('2031-06-01T12:00:00.000Z'),
         durationHours: 1,
+        // No isChargeable set: proves the column's `true` default is what
+        // keeps a task-less entry chargeable now, not a task-join fallback.
       },
     });
   });
