@@ -40,9 +40,12 @@ export class TaskAssigneeChargeabilityRepository {
   }
 
   /**
-   * Upsert a rule. Reports whether anything actually changed so the caller can
-   * skip a pointless recalculation — same contract as
-   * `TasksRepository.setChargeable`.
+   * Upsert a rule. Reports whether the chargeable value actually changed so the
+   * caller can skip a pointless recalculation — same contract as
+   * `TasksRepository.setChargeable`. Note-only edits persist but report
+   * `changed: false`. Only fields explicitly provided (not undefined) are updated;
+   * passing null is explicit (to clear), while omitting a field leaves the stored
+   * value alone.
    */
   async setRule(input: {
     taskId: string;
@@ -53,9 +56,31 @@ export class TaskAssigneeChargeabilityRepository {
   }): Promise<{ changed: boolean }> {
     const existing = await this.prisma.taskAssigneeChargeability.findUnique({
       where: { taskId_userId: { taskId: input.taskId, userId: input.userId } },
-      select: { chargeable: true },
+      select: { chargeable: true, setBy: true, note: true },
     });
-    if (existing?.chargeable === input.chargeable) return { changed: false };
+
+    // Determine what changed
+    const chargeabilityChanged = existing?.chargeable !== input.chargeable;
+    const noteProvided = input.note !== undefined;
+    const setByProvided = input.setBy !== undefined;
+
+    // If nothing changed, return early without writing
+    if (!chargeabilityChanged && !noteProvided && !setByProvided) {
+      return { changed: false };
+    }
+
+    // Build update payload: only include fields that were explicitly provided.
+    // This prevents unconditional overwrites from blanking existing values.
+    const updatePayload: {
+      chargeable: boolean;
+      setBy?: string | null;
+      note?: string | null;
+    } = {
+      chargeable: input.chargeable,
+    };
+    if (noteProvided) updatePayload.note = input.note;
+    if (setByProvided) updatePayload.setBy = input.setBy;
+
     await this.prisma.taskAssigneeChargeability.upsert({
       where: { taskId_userId: { taskId: input.taskId, userId: input.userId } },
       create: {
@@ -65,13 +90,12 @@ export class TaskAssigneeChargeabilityRepository {
         setBy: input.setBy ?? null,
         note: input.note ?? null,
       },
-      update: {
-        chargeable: input.chargeable,
-        setBy: input.setBy ?? null,
-        note: input.note ?? null,
-      },
+      update: updatePayload,
     });
-    return { changed: true };
+
+    // Report whether chargeability changed; note-only edits are not "changes" for
+    // cost-recalculation purposes.
+    return { changed: chargeabilityChanged };
   }
 
   /** Remove a rule. Idempotent: clearing an absent rule changes nothing. */

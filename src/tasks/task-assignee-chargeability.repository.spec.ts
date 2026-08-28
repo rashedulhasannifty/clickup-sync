@@ -48,11 +48,57 @@ describe('TaskAssigneeChargeabilityRepository', () => {
     // Idempotency, exactly like PATCH /admin/tasks/chargeable: writing the value
     // a row already holds must not enqueue a pointless recalculation.
     it('is a no-op when the stored value already matches', async () => {
-      const { repo, upsert } = makeRepo({ findUnique: jest.fn().mockResolvedValue({ chargeable: false }) });
+      const { repo, upsert } = makeRepo({ findUnique: jest.fn().mockResolvedValue({ chargeable: false, note: 'existing', setBy: 'ops@x.com' }) });
       const res = await repo.setRule({ taskId: 't1', userId: 'u1', chargeable: false });
 
       expect(res).toEqual({ changed: false });
       expect(upsert).not.toHaveBeenCalled();
+    });
+
+    it('persists a note-only edit and reports changed=false', async () => {
+      const { repo, upsert } = makeRepo({
+        findUnique: jest.fn().mockResolvedValue({ chargeable: false, note: 'old', setBy: 'ops@x.com' }),
+      });
+
+      const res = await repo.setRule({ taskId: 't1', userId: 'u1', chargeable: false, note: 'new note' });
+
+      expect(res).toEqual({ changed: false });
+      expect(upsert).toHaveBeenCalled();
+      expect(upsert.mock.calls[0][0].update).toEqual({ chargeable: false, note: 'new note' });
+    });
+
+    it('does not blank an existing note when flipping chargeability without resending note', async () => {
+      const { repo, upsert } = makeRepo({
+        findUnique: jest.fn().mockResolvedValue({ chargeable: false, note: 'existing', setBy: 'ops@x.com' }),
+      });
+
+      const res = await repo.setRule({ taskId: 't1', userId: 'u1', chargeable: true });
+
+      expect(res).toEqual({ changed: true });
+      const updatePayload = upsert.mock.calls[0][0].update;
+      expect(updatePayload).not.toHaveProperty('note');
+      expect(updatePayload).toEqual({ chargeable: true });
+    });
+
+    it('explicitly passing note: null clears an existing note', async () => {
+      const { repo, upsert } = makeRepo({
+        findUnique: jest.fn().mockResolvedValue({ chargeable: false, note: 'existing', setBy: 'ops@x.com' }),
+      });
+
+      const res = await repo.setRule({ taskId: 't1', userId: 'u1', chargeable: false, note: null });
+
+      expect(res).toEqual({ changed: false });
+      expect(upsert).toHaveBeenCalled();
+      expect(upsert.mock.calls[0][0].update).toEqual({ chargeable: false, note: null });
+    });
+  });
+
+  describe('findOne', () => {
+    it('returns null (not false) when no rule exists', async () => {
+      const { repo } = makeRepo();
+      const result = await repo.findOne('t1', 'u1');
+      expect(result).toBeNull();
+      expect(typeof result).not.toBe('boolean');
     });
   });
 
