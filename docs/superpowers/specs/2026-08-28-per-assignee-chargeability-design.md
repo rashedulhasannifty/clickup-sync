@@ -64,12 +64,21 @@ inside the new resolver.
    against the task *and* the rules table, on the app's hottest report path. One
    indexable boolean is better. The price is a backfill and a column that drifts
    if a write path forgets it, which is what the guardrail below defends.
-3. **`COST_EXCLUDED` entries store `is_chargeable = true`.** Those rows never
-   reach the chargeability branch. They represent work that *is* billable but
-   deliberately isn't costed here (the `expense` pseudo-user and similar). Also
-   the conservative choice: writing `false` would move the chargeable-hours KPI
-   for existing data the moment the backfill runs, which is a behavior change
-   this feature has no business making.
+3. **Chargeability is resolved for every entry, independently of costing
+   exclusion.** `COST_EXCLUDED` (layer 0) decides whether we *cost* an identity;
+   the stack decides whether the work is *billable*. They are orthogonal, and an
+   entry can be both `COST_EXCLUDED` and non-chargeable.
+
+   This replaces an earlier draft of this decision that forced
+   `is_chargeable = true` on `COST_EXCLUDED` rows. That version contradicted the
+   backfill below, which sets `false` from the task flag for *every* entry on a
+   non-chargeable task — excluded assignees included — so the calculator and the
+   backfill would have disagreed about the same row from day one.
+
+   Resolving independently also keeps the backfill an exact mirror of today's
+   task-level semantics, which is what makes it KPI-neutral: no existing entry's
+   chargeability changes, because every one of them already answers to its
+   task's flag alone.
 4. **Three entry points**, as chosen: the task drawer, a bulk action on the Time
    Entries page, and a rules admin screen.
 5. **Owner and Admin only**, audited automatically by living under
@@ -147,9 +156,14 @@ export function resolveChargeability(input: {
 }): { chargeable: boolean; source: ChargeabilitySource };
 ```
 
-`CostCalculatorService.calculate` keeps its current signature. Callers resolve
-first and pass the answer through the existing `opts.chargeable`. The calculator
-learns nothing new, so its blast radius is zero.
+`CostCalculatorService.calculate` keeps its current *parameters*. Callers resolve
+first and pass the answer through the existing `opts.chargeable`.
+
+Its **return** gains one field, `isChargeable`, set on every branch including the
+`COST_EXCLUDED` early return. Callers already spread the returned cost object
+into the time-entry upsert payload, so the new column is written with no change
+at any write site — and decision 3 lives in exactly one place instead of being
+re-derived by three callers and a backfill.
 
 `source` is not decoration: it is what the drawer shows ("non-chargeable — rule
 for this assignee") and what makes "why is this task showing zero cost?"
@@ -245,10 +259,12 @@ FROM clickup_tasks t
 WHERE e.task_id = t.task_id AND t.is_chargeable = false;
 ```
 
-Entries with no task, and `COST_EXCLUDED` entries, keep the column default
-`true` (decision 3). No stored cost changes: every existing entry's resolved
-chargeability equals its task's flag, which is what it was already costed
-against.
+Entries with no task keep the column default `true` — they have no flag to
+read, matching the existing `NOT { task: { is_chargeable: false } }` behavior.
+`COST_EXCLUDED` entries take their task's flag like any other row (decision 3).
+
+No stored cost changes: every existing entry's resolved chargeability equals its
+task's flag, which is what it was already costed against.
 
 **Verification gap:** there is no local Postgres running in the working
 environment (nothing on 5433, no containers), so `prisma:deploy` and this
