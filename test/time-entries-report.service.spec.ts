@@ -668,8 +668,8 @@ describe('TimeEntriesReportService', () => {
         taskAssigneeChargeability: { findMany: jest.fn().mockResolvedValue([{ userId: 'u2', chargeable: false }]) },
       });
       prisma.clickupTimeEntry.groupBy.mockResolvedValue([
-        { userId: 'u1', userName: 'Ada', _count: 2, _sum: { durationHours: hrs(3) } },
-        { userId: 'u2', userName: 'Grace', _count: 1, _sum: { durationHours: hrs(2) } },
+        { userId: 'u1', _max: { userName: 'Ada' }, _count: 2, _sum: { durationHours: hrs(3) } },
+        { userId: 'u2', _max: { userName: 'Grace' }, _count: 1, _sum: { durationHours: hrs(2) } },
       ]);
 
       const rows = await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1');
@@ -677,6 +677,36 @@ describe('TimeEntriesReportService', () => {
       expect(rows).toEqual([
         { userId: 'u1', userName: 'Ada', entryCount: 2, hours: 3, rule: null, chargeable: true, source: 'task' },
         { userId: 'u2', userName: 'Grace', entryCount: 1, hours: 2, rule: false, chargeable: false, source: 'assignee' },
+      ]);
+      // Grouped by userId alone (not `['userId', 'userName']`) so the DB does
+      // the merging for us.
+      expect(prisma.clickupTimeEntry.groupBy.mock.calls[0][0].by).toEqual(['userId']);
+    });
+
+    // Regression: grouping by ['userId', 'userName'] gave one person two rows
+    // — and two React keys in the drawer, keyed on userId — whenever their
+    // ClickUp display name changed between two entries on the same task.
+    // `_max: { userName }` (mirroring `tasksLists`'s `MAX(space_name)` in
+    // tasks-report.service.ts for the same reason) lets Prisma's groupBy
+    // merge those rows in the database; this simulates the single merged row
+    // it returns for a user with two historical names, with combined counts
+    // and hours, and checks the service surfaces exactly one row for them.
+    it('merges one user\'s historical display names into a single row with combined totals', async () => {
+      const prisma = makePrisma({
+        clickupTask: { findUnique: jest.fn().mockResolvedValue({ isChargeable: true }) },
+        taskAssigneeChargeability: { findMany: jest.fn().mockResolvedValue([]) },
+      });
+      prisma.clickupTimeEntry.groupBy.mockResolvedValue([
+        // What the DB returns after merging 'Ada' and 'Ada Lovelace' entries
+        // for the same userId: one row, _count and _sum already combined,
+        // _max picking one representative name.
+        { userId: 'u1', _max: { userName: 'Ada Lovelace' }, _count: 3, _sum: { durationHours: { toNumber: () => 5.5 } } },
+      ]);
+
+      const rows = await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1');
+
+      expect(rows).toEqual([
+        { userId: 'u1', userName: 'Ada Lovelace', entryCount: 3, hours: 5.5, rule: null, chargeable: true, source: 'task' },
       ]);
     });
 
@@ -686,7 +716,7 @@ describe('TimeEntriesReportService', () => {
         taskAssigneeChargeability: { findMany: jest.fn().mockResolvedValue([]) },
       });
       prisma.clickupTimeEntry.groupBy.mockResolvedValue([
-        { userId: null, userName: null, _count: 1, _sum: { durationHours: { toNumber: () => 1 } } },
+        { userId: null, _max: { userName: null }, _count: 1, _sum: { durationHours: { toNumber: () => 1 } } },
       ]);
 
       expect(await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1')).toEqual([]);

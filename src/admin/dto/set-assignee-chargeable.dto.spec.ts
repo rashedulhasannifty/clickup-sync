@@ -11,6 +11,14 @@ function basePayload(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 describe('SetAssigneeChargeableDto', () => {
+  // An empty string passes `@IsString()` but would write a rule keyed on ''
+  // — not a rejection of a missing user, a silent write to the wrong key.
+  it('rejects an empty-string userId', async () => {
+    const dto = plainToInstance(SetAssigneeChargeableDto, basePayload({ userId: '' }));
+    const errors = await validate(dto);
+    expect(errors.find((e) => e.property === 'userId')).toBeDefined();
+  });
+
   it('accepts chargeable: true', async () => {
     const dto = plainToInstance(SetAssigneeChargeableDto, basePayload({ chargeable: true }));
     const errors = await validate(dto);

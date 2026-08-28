@@ -123,33 +123,30 @@ describe('buildTimeEntryWhere', () => {
     const where = await buildTimeEntryWhere(prisma, { from, to, sprintStatus: 'completed' });
     expect(clausesOf(where)).toContainEqual({ task: { listId: { in: [] } } });
   });
-
-  it('filters chargeability on the entry column, not through the task join', async () => {
-    const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'true' });
-    expect(clausesOf(where)).toContainEqual({ isChargeable: true });
-    // The old task-join form must be gone: it cannot see a per-assignee rule.
-    expect(JSON.stringify(clausesOf(where))).not.toContain('task');
-  });
-
-  it('keeps task-less entries chargeable', async () => {
-    // The column defaults to true for an entry with no task, which is what the
-    // old `NOT { task: { isChargeable: false } }` achieved by hand.
-    const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'false' });
-    expect(clausesOf(where)).toContainEqual({ isChargeable: false });
-  });
 });
 
+// Everything asserting on the `chargeable` query param lives in this one
+// block (it used to be split across two overlapping describes: one here and
+// a near-duplicate under `buildTimeEntryWhere` above).
 describe('chargeable filter', () => {
   const from = new Date('2026-01-01T00:00:00.000Z');
   const to = new Date('2026-02-01T00:00:00.000Z');
   const prisma = { $queryRaw: jest.fn().mockResolvedValue([]) } as never;
   const clausesOf = (where: Record<string, unknown>) => (where.AND ?? []) as Record<string, unknown>[];
 
-  it('keeps task-less entries on the chargeable side', async () => {
-    // The column defaults to true, so an entry with no task still passes a
-    // plain `{ isChargeable: true }` clause without any special-casing.
+  it('filters chargeability on the entry column, not through the task join', async () => {
+    // The column defaults to true, so this plain `{ isChargeable: true }`
+    // clause also keeps a task-less entry chargeable without any special-
+    // casing — that's what the old `NOT { task: { isChargeable: false } }`
+    // form achieved by hand, and why the old task-join form must be gone: it
+    // cannot see a per-assignee rule. The task-less default itself is a DB
+    // column default (`prisma/schema.prisma`, `isChargeable @default(true)`),
+    // asserted at the resolver level by `resolveChargeability({})` in
+    // `chargeability.spec.ts` — a mocked `where` object here can't observe
+    // what the database does with it.
     const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'true' });
     expect(clausesOf(where)).toContainEqual({ isChargeable: true });
+    expect(JSON.stringify(clausesOf(where))).not.toContain('task');
   });
 
   it('selects only entries flagged non-chargeable', async () => {

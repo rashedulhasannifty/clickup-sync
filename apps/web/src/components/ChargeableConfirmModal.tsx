@@ -88,6 +88,7 @@ export function ChargeableConfirmModal({
               {chargeable
                 ? 'Their time moves to Chargeable in all reports and its cost is calculated from assignee rates again.'
                 : 'Their time moves to Non-chargeable in all reports and its cost becomes zero.'}
+              {' '}Any assignee with their own chargeability rule on a task keeps that rule instead.
               {' '}Costs are recalculated in the background.
             </p>
           )}

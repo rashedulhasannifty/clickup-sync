@@ -554,11 +554,17 @@ export class TimeEntriesReportService {
     const [task, rules, groups] = await Promise.all([
       this.prisma.clickupTask.findUnique({ where: { taskId }, select: { isChargeable: true } }),
       this.prisma.taskAssigneeChargeability.findMany({ where: { taskId }, select: { userId: true, chargeable: true } }),
+      // Grouped by `userId` alone — NOT `['userId', 'userName']` — so one
+      // person whose display name changed across their history still yields
+      // one row. `_max: { userName }` picks a single representative name the
+      // same way `tasksLists`'s `MAX(space_name)` does in
+      // `tasks-report.service.ts` for the analogous space_id/space_name split.
       this.prisma.clickupTimeEntry.groupBy({
-        by: ['userId', 'userName'],
+        by: ['userId'],
         where: { taskId },
         _count: true,
         _sum: { durationHours: true },
+        _max: { userName: true },
       }),
     ]);
     const ruleByUser = new Map(rules.map((r) => [r.userId, r.chargeable]));
@@ -571,7 +577,7 @@ export class TimeEntriesReportService {
         const { chargeable, source } = resolveChargeability({ rule, taskChargeable: task?.isChargeable });
         return {
           userId: g.userId,
-          userName: g.userName,
+          userName: g._max.userName,
           entryCount: g._count,
           hours: g._sum.durationHours?.toNumber() ?? 0,
           rule,

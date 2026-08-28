@@ -1,9 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator';
 
 export class SetAssigneeChargeableDto {
   @ApiProperty({ description: 'ClickUp user id, as stored on clickup_time_entries.user_id' })
   @IsString()
+  @IsNotEmpty()
   userId!: string;
 
   @ApiProperty({
