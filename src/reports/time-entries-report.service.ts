@@ -4,6 +4,7 @@ import { PrismaService } from '../database/prisma.service';
 import { assembleTimesheet, dhakaDate, type TimesheetAggRow } from './timesheet.assemble';
 import { defaultFrom, parseDate } from './report-date.util';
 import { buildTimeEntryWhere, NO_TASK_ID } from './report-filter.util';
+import { resolveChargeability } from '../time-entries/chargeability';
 
 /** Time-entry report queries (timesheets, per-user/client/department rollups, list + aggregates). */
 @Injectable()
@@ -212,7 +213,7 @@ export class TimeEntriesReportService {
     // summary quietly disagrees with every other total on the page.
     const [total, chargeable] = await Promise.all([
       this.prisma.clickupTimeEntry.aggregate({ where: window, _sum: { durationHours: true } }),
-      this.prisma.clickupTimeEntry.aggregate({ where: { AND: [window, { NOT: { task: { isChargeable: false } } }] }, _sum: { durationHours: true } }),
+      this.prisma.clickupTimeEntry.aggregate({ where: { AND: [window, { isChargeable: true }] }, _sum: { durationHours: true } }),
     ]);
     const totalHours = total._sum.durationHours?.toNumber() ?? 0;
     const chargeableHours = chargeable._sum.durationHours?.toNumber() ?? 0;
@@ -262,10 +263,10 @@ export class TimeEntriesReportService {
     // a null task FK are the case nothing guarantees), so the cards could
     // disagree with the pager and the table directly beneath them.
     //
-    // The chargeable split still needs its own call: it lives on the joined
-    // task, which a `groupBy` can't reach. Only that half is queried; the
+    // The chargeable split still needs its own call: `byStatus` groups only on
+    // `status`, not `isChargeable`. Only that half is queried; the
     // non-chargeable side is the remainder, so the two can never disagree.
-    const chargeableWhere = { AND: [where, { NOT: { task: { isChargeable: false } } }] };
+    const chargeableWhere = { AND: [where, { isChargeable: true }] };
     const [totalAgg, chargeableAgg, byStatus] = await Promise.all([
       this.prisma.clickupTimeEntry.aggregate({ where, _count: true, _sum: { durationHours: true, costCents: true } }),
       this.prisma.clickupTimeEntry.aggregate({ where: chargeableWhere, _count: true, _sum: { durationHours: true, costCents: true } }),
@@ -336,8 +337,8 @@ export class TimeEntriesReportService {
           timeEntryId: true, taskId: true, userId: true, userName: true, userEmail: true,
           startTime: true, endTime: true, durationHours: true, hourlyRateCents: true,
           costCents: true, status: true, description: true, syncedAt: true,
-          rateId: true, currency: true,
-          task: { select: { taskName: true, client: true, listName: true, isChargeable: true } },
+          rateId: true, currency: true, isChargeable: true,
+          task: { select: { taskName: true, client: true, listName: true } },
         },
       }),
       this.prisma.clickupTimeEntry.count({ where }),
@@ -358,8 +359,10 @@ export class TimeEntriesReportService {
         hourlyRateCents: Number(e.hourlyRateCents),
         costAud: Number(e.costCents) / 100,
         status: e.status,
-        // No task, no flag — a task-less entry is chargeable.
-        chargeable: e.task?.isChargeable ?? true,
+        // Resolved and stored on the row itself (see the chargeability
+        // resolver) — not derived from the joined task, which can't see a
+        // per-assignee rule.
+        chargeable: e.isChargeable,
         description: e.description,
         syncedAt: e.syncedAt,
         rateId: e.rateId != null ? e.rateId.toString() : null,
@@ -423,7 +426,7 @@ export class TimeEntriesReportService {
     const where = await buildTimeEntryWhere(this.prisma, { ...params, from, to });
 
     const groups = await this.prisma.clickupTimeEntry.groupBy({
-      by: ['taskId', 'userId', 'userName', 'status', 'currency'],
+      by: ['taskId', 'userId', 'userName', 'status', 'currency', 'isChargeable'],
       where,
       _count: true,
       _sum: { durationHours: true, costCents: true },
@@ -434,6 +437,8 @@ export class TimeEntriesReportService {
       taskId: string;
       entryCount: number;
       hours: number;
+      chargeableHours: number;
+      nonChargeableCount: number;
       validCostCents: number;
       missingRateCount: number;
       excludedCount: number;
@@ -450,7 +455,7 @@ export class TimeEntriesReportService {
       let b = buckets.get(key);
       if (!b) {
         b = {
-          taskId: key, entryCount: 0, hours: 0,
+          taskId: key, entryCount: 0, hours: 0, chargeableHours: 0, nonChargeableCount: 0,
           validCostCents: 0, missingRateCount: 0, excludedCount: 0,
           lastActivity: null, currency: null, assignees: new Map(),
         };
@@ -460,6 +465,14 @@ export class TimeEntriesReportService {
       const count = g._count;
       b.entryCount += count;
       b.hours += hours;
+      // Chargeability is per entry now, so a task can be partly chargeable —
+      // this is a real sum, not the task's flag applied to the whole bucket.
+      // `nonChargeableCount` (not the hours sum) is what decides the two
+      // booleans below: a bucket of only 0-duration non-chargeable entries
+      // would otherwise satisfy `chargeableHours === hours` (0 === 0) and
+      // misreport itself as fully chargeable.
+      if (g.isChargeable) b.chargeableHours += hours;
+      else b.nonChargeableCount += count;
       // Mirrors `timesheet()` and the data-model rule: an entry with no rate
       // contributes no cost, and is surfaced as a count instead of being
       // silently rolled into a total that looks calculated.
@@ -490,7 +503,7 @@ export class TimeEntriesReportService {
     const tasks = taskIds.length
       ? await this.prisma.clickupTask.findMany({
           where: { taskId: { in: taskIds } },
-          select: { taskId: true, taskName: true, client: true, listName: true, isChargeable: true },
+          select: { taskId: true, taskName: true, client: true, listName: true },
         })
       : [];
     const taskById = new Map(tasks.map((t) => [t.taskId, t]));
@@ -498,8 +511,6 @@ export class TimeEntriesReportService {
     return {
       items: page.map((b) => {
         const t = taskById.get(b.taskId);
-        // No task, no flag — a task-less entry is chargeable.
-        const chargeable = t?.isChargeable ?? true;
         return {
           taskId: b.taskId,
           taskName: t?.taskName ?? null,
@@ -510,10 +521,13 @@ export class TimeEntriesReportService {
             .map(([userId, userName]) => ({ userId, userName }))
             .sort((x, y) => (x.userName ?? '').localeCompare(y.userName ?? '')),
           totalHours: b.hours,
-          chargeable,
-          // A task is wholly chargeable or wholly not, so this is all-or-nothing
-          // rather than a split within the task.
-          chargeableHours: chargeable ? b.hours : 0,
+          // `chargeable` is now tri-state at the row level: all, none, or some.
+          // Decided by entry counts, not the hours sum — a bucket of only
+          // 0-duration non-chargeable entries must not read as "all
+          // chargeable" just because 0 hours equals 0 hours.
+          chargeable: b.nonChargeableCount === 0,
+          partiallyChargeable: b.nonChargeableCount > 0 && b.nonChargeableCount < b.entryCount,
+          chargeableHours: b.chargeableHours,
           costAud: b.validCostCents / 100,
           missingRateCount: b.missingRateCount,
           excludedCount: b.excludedCount,
@@ -525,5 +539,52 @@ export class TimeEntriesReportService {
       limit: safeLimit,
       offset,
     };
+  }
+
+  /**
+   * Everyone who has logged time on one task, with the chargeability answer
+   * that currently applies to them and which layer produced it. Backs the task
+   * drawer's per-assignee controls.
+   *
+   * Grouped from time entries rather than from the task's `assignees_names`,
+   * because billing follows who logged the time — and `assignees_names` carries
+   * no user ids to key a rule on.
+   */
+  async taskAssigneeChargeability(taskId: string) {
+    const [task, rules, groups] = await Promise.all([
+      this.prisma.clickupTask.findUnique({ where: { taskId }, select: { isChargeable: true } }),
+      this.prisma.taskAssigneeChargeability.findMany({ where: { taskId }, select: { userId: true, chargeable: true } }),
+      // Grouped by `userId` alone — NOT `['userId', 'userName']` — so one
+      // person whose display name changed across their history still yields
+      // one row. `_max: { userName }` picks a single representative name the
+      // same way `tasksLists`'s `MAX(space_name)` does in
+      // `tasks-report.service.ts` for the analogous space_id/space_name split.
+      this.prisma.clickupTimeEntry.groupBy({
+        by: ['userId'],
+        where: { taskId },
+        _count: true,
+        _sum: { durationHours: true },
+        _max: { userName: true },
+      }),
+    ]);
+    const ruleByUser = new Map(rules.map((r) => [r.userId, r.chargeable]));
+    return groups
+      .filter((g): g is typeof g & { userId: string } => g.userId != null)
+      .map((g) => {
+        const rule = ruleByUser.get(g.userId) ?? null;
+        // Phase 1 has no per-entry override writer, so `entryOverride` is not
+        // consulted here. Phase 2 adds it and this call gains a third input.
+        const { chargeable, source } = resolveChargeability({ rule, taskChargeable: task?.isChargeable });
+        return {
+          userId: g.userId,
+          userName: g._max.userName,
+          entryCount: g._count,
+          hours: g._sum.durationHours?.toNumber() ?? 0,
+          rule,
+          chargeable,
+          source,
+        };
+      })
+      .sort((a, b) => (a.userName ?? '').localeCompare(b.userName ?? ''));
   }
 }

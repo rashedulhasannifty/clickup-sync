@@ -527,7 +527,13 @@ export function TimeEntriesPage() {
       render: (row) => (
         row.chargeable
           ? <Pill tone="green" size="xs">chargeable</Pill>
-          : <Pill tone="gray" size="xs">non-chargeable</Pill>
+          // A mixed task (some chargeable entries, some not) is neither — a flat
+          // "non-chargeable" pill would misreport it as wholly excluded. Blue,
+          // not amber: this is a state, not a fault — amber in this table means
+          // "needs attention" (missing rate, no rate found).
+          : row.partiallyChargeable
+            ? <Pill tone="blue" size="xs">partial</Pill>
+            : <Pill tone="gray" size="xs">non-chargeable</Pill>
       ),
     },
     {
@@ -548,7 +554,10 @@ export function TimeEntriesPage() {
       header: 'Rates',
       width: 120,
       render: (row) => {
-        if (!row.chargeable) return <span style={{ color: 'var(--text-faint)' }}>n/a</span>;
+        // Only a WHOLLY non-chargeable task has no rated entries to report on.
+        // A partially-chargeable task still has chargeable entries that can be
+        // missing a rate, and that gap must stay visible.
+        if (!row.chargeable && !row.partiallyChargeable) return <span style={{ color: 'var(--text-faint)' }}>n/a</span>;
         if (row.missingRateCount > 0) {
           return <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} strokeWidth={2} />}>{row.missingRateCount} missing</Pill>;
         }

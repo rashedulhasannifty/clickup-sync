@@ -14,6 +14,8 @@ function makeService(overrides: Partial<{
   costs: jest.Mock;
   findAllActive: jest.Mock;
   taskRows: { taskId: string; dueDate: Date | null; isChargeable: boolean }[];
+  findForTasks: jest.Mock;
+  overrideRows: { timeEntryId: string; chargeableOverride: boolean | null }[];
 }> = {}) {
   const exists = overrides.exists ?? jest.fn().mockResolvedValue(true);
   const syncTask = overrides.syncTask ?? jest.fn().mockResolvedValue({});
@@ -43,14 +45,21 @@ function makeService(overrides: Partial<{
   const tasksRepo = { exists } as any;
   const tasksService = { syncTask } as any;
 
-  const prisma = { clickupTask: { findMany: jest.fn().mockResolvedValue(overrides.taskRows ?? []) } } as any;
+  const findForTasks = overrides.findForTasks ?? jest.fn().mockResolvedValue(new Map());
+  const rules = { findForTasks, findOne: jest.fn().mockResolvedValue(null) } as any;
+
+  const prisma = {
+    clickupTask: { findMany: jest.fn().mockResolvedValue(overrides.taskRows ?? []) },
+    clickupTimeEntry: { findMany: jest.fn().mockResolvedValue(overrides.overrideRows ?? []) },
+  } as any;
   const service = new TimeEntriesService(
     clickup, normalizer, repo, costsService, queues, members, tagAssigneeMap, tasksRepo, tasksService,
     { getTeamId: () => '3450636', getPreferences: () => ({ cost: { rateMatching: 'start', autoRecalcOnRateChange: true } }) } as any,
     prisma,
+    rules,
   );
 
-  return { service, exists, syncTask, getMemberIds, getTimeEntries, upsert, costs, findAllActive, pruneTaskEntriesOutsideSet };
+  return { service, exists, syncTask, getMemberIds, getTimeEntries, upsert, costs, findAllActive, pruneTaskEntriesOutsideSet, findForTasks };
 }
 
 describe('TimeEntriesService.syncTaskTimeEntries — task self-heal', () => {
@@ -286,5 +295,61 @@ describe('TimeEntriesService.syncTaskTimeEntries — chargeability', () => {
     await service.syncTaskTimeEntries('t1');
 
     expect(costs.mock.calls[0][4]).toMatchObject({ chargeable: true });
+  });
+});
+
+describe('TimeEntriesService.syncTaskTimeEntries — chargeability rule/override resolution', () => {
+  // Mirrors the real CostCalculatorService: `isChargeable` reflects the
+  // `chargeable` opt it was called with (`const isChargeable = opts?.chargeable
+  // !== false;` in cost-calculator.service.ts), so these tests can assert on
+  // what actually reached the repository upsert, not a value hardcoded
+  // independent of the resolved chargeability.
+  function makeReflectingCosts() {
+    return jest.fn().mockImplementation((_userId: unknown, _startTime: unknown, _hours: unknown, _cache: unknown, opts?: { chargeable?: boolean }) =>
+      Promise.resolve({
+        rateId: null, currency: 'AUD', hourlyRateCents: 0n, costCents: 0n, status: 'NO_RATE_FOUND',
+        isChargeable: opts?.chargeable !== false,
+      }),
+    );
+  }
+
+  it('a (task, assignee) rule of false makes the synced entry non-chargeable, even though the task itself is chargeable', async () => {
+    const costs = makeReflectingCosts();
+    const findForTasks = jest.fn().mockResolvedValue(new Map([['t1|u1', false]]));
+    const { service, costs: calculate, upsert } = makeService({
+      getTimeEntries: jest.fn().mockResolvedValue([{ id: 'e1', task: { id: 't1' }, user: { id: 'u1' } }]),
+      taskRows: [{ taskId: 't1', dueDate: null, isChargeable: true }],
+      findForTasks,
+      costs,
+    });
+
+    await service.syncTaskTimeEntries('t1');
+
+    expect(findForTasks).toHaveBeenCalledWith(['t1']);
+    expect(calculate.mock.calls[0][4]).toMatchObject({ chargeable: false });
+    expect(upsert.mock.calls[0][1]).toMatchObject({ isChargeable: false });
+  });
+
+  it('a stored chargeable_override of true beats a conflicting rule of false, and is read back rather than assumed null', async () => {
+    // Task itself is ALSO non-chargeable here, deliberately: if the override
+    // lookup were silently dropped (Map built but never consulted, or the
+    // findMany selected the wrong column), the outcome would fall through to
+    // the rule (false) — still wrong, but a task flag of `true` would have
+    // coincidentally matched the expected `true` and let that bug hide. With
+    // task=false too, only a correctly-consulted override can produce `true`.
+    const costs = makeReflectingCosts();
+    const findForTasks = jest.fn().mockResolvedValue(new Map([['t1|u1', false]]));
+    const { service, costs: calculate, upsert } = makeService({
+      getTimeEntries: jest.fn().mockResolvedValue([{ id: 'e1', task: { id: 't1' }, user: { id: 'u1' } }]),
+      taskRows: [{ taskId: 't1', dueDate: null, isChargeable: false }],
+      overrideRows: [{ timeEntryId: 'e1', chargeableOverride: true }],
+      findForTasks,
+      costs,
+    });
+
+    await service.syncTaskTimeEntries('t1');
+
+    expect(calculate.mock.calls[0][4]).toMatchObject({ chargeable: true });
+    expect(upsert.mock.calls[0][1]).toMatchObject({ isChargeable: true });
   });
 });

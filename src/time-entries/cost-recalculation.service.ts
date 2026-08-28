@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { CostCalculatorService, RateCache } from './cost-calculator.service';
 import { SettingsService } from '../settings/settings.service';
+import { TaskAssigneeChargeabilityRepository } from '../tasks/task-assignee-chargeability.repository';
+import { resolveChargeability, ruleKey } from './chargeability';
 
 const BATCH_SIZE = 1000;
 
@@ -13,6 +15,7 @@ export class CostRecalculationService {
     private readonly prisma: PrismaService,
     private readonly costs: CostCalculatorService,
     private readonly settings: SettingsService,
+    private readonly rules: TaskAssigneeChargeabilityRepository,
   ) {}
 
   /**
@@ -47,13 +50,30 @@ export class CostRecalculationService {
         take: BATCH_SIZE,
         ...(cursor ? { skip: 1, cursor: { timeEntryId: cursor } } : {}),
         orderBy: { timeEntryId: 'asc' },
-        select: { timeEntryId: true, userId: true, startTime: true, durationHours: true, task: { select: { dueDate: true, isChargeable: true } } },
+        select: {
+          timeEntryId: true,
+          userId: true,
+          taskId: true,
+          startTime: true,
+          durationHours: true,
+          chargeableOverride: true,
+          task: { select: { dueDate: true, isChargeable: true } },
+        },
       });
       if (entries.length === 0) break;
 
+      // One rules lookup per batch, not per entry — same reasoning as the
+      // shared RateCache above.
+      const batchTaskIds = [...new Set(entries.map((e) => e.taskId).filter((id): id is string => id != null))];
+      const ruleMap = await this.rules.findForTasks(batchTaskIds);
+
       for (const e of entries) {
-        // No task means no flag to read — those entries are chargeable.
-        const cost = await this.costs.calculate(e.userId, e.startTime, e.durationHours.toNumber(), cache, { chargeable: e.task?.isChargeable ?? true, dueDate: e.task?.dueDate ?? null });
+        const { chargeable } = resolveChargeability({
+          entryOverride: e.chargeableOverride,
+          rule: e.taskId && e.userId ? ruleMap.get(ruleKey(e.taskId, e.userId)) : undefined,
+          taskChargeable: e.task?.isChargeable,
+        });
+        const cost = await this.costs.calculate(e.userId, e.startTime, e.durationHours.toNumber(), cache, { chargeable, dueDate: e.task?.dueDate ?? null });
         await this.prisma.clickupTimeEntry.update({
           where: { timeEntryId: e.timeEntryId },
           data: {
@@ -62,6 +82,7 @@ export class CostRecalculationService {
             hourlyRateCents: cost.hourlyRateCents,
             costCents: cost.costCents,
             status: cost.status,
+            isChargeable: cost.isChargeable,
           },
         });
         updated += 1;

@@ -82,7 +82,9 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
               <Pill tone="gray" size="xs">Excluded</Pill>
             ) : entry.status === 'NOT_CHARGEABLE' ? (
               // Gray, not amber: the rate WAS resolved, the cost is zero
-              // because the task is non-chargeable. Nothing to fix.
+              // because this entry resolved to non-chargeable — the task
+              // flag or a per-assignee rule can each be the reason. Nothing
+              // to fix.
               <Pill tone="gray" size="xs">Not chargeable</Pill>
             ) : (
               <Pill tone="amber" size="xs" icon={<AlertTriangle size={11} strokeWidth={2} />}>No rate found</Pill>
@@ -157,11 +159,13 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
           ) : entry.status === 'NOT_CHARGEABLE' ? (
             // Deliberately NOT the amber no-rate box, and deliberately no "Add
             // rate" CTA: the rate was resolved and stored, the cost is zero
-            // because the task is non-chargeable. There is no problem to fix.
+            // because this entry resolved to non-chargeable — the task flag
+            // or a per-assignee rule can each be the reason. There is no
+            // problem to fix.
             <div style={{ padding: 12, background: 'var(--muted-bg)', borderRadius: 8 }}>
               <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Not chargeable</div>
               <div style={{ fontSize: 12, color: 'var(--text)' }}>
-                This task is marked non-chargeable, so this entry&apos;s cost is $0. Hours still count toward totals.
+                This entry is non-chargeable, so its cost is $0. Hours still count toward totals.
                 {/* The rate is stored, but only when one covered the entry date —
                     don't present a zero as "the resolved rate". */}
                 {entry.hourlyRateCents > 0 && (

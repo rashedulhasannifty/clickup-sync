@@ -117,7 +117,9 @@ export function TaskTimeEntriesPanel({ taskId, params, onSelectEntry }: Props) {
                     : e.status === 'COST_EXCLUDED'
                       ? <Pill tone="gray" size="xs">excluded</Pill>
                       // Gray, not amber: the rate WAS resolved, the cost is
-                      // zero because the task is non-chargeable.
+                      // zero because this entry resolved to non-chargeable —
+                      // the task flag or a per-assignee rule can each be the
+                      // reason.
                       : e.status === 'NOT_CHARGEABLE'
                         ? <Pill tone="gray" size="xs">not chargeable</Pill>
                         : <Pill tone="amber" size="xs" icon={<AlertTriangle size={10} strokeWidth={2} />}>no rate found</Pill>}

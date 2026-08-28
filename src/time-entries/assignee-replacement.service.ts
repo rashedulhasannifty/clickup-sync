@@ -7,6 +7,8 @@ import { CostCalculatorService } from './cost-calculator.service';
 import { TimeEntriesRepository } from './time-entries.repository';
 import { SettingsService } from '../settings/settings.service';
 import { PrismaService } from '../database/prisma.service';
+import { TaskAssigneeChargeabilityRepository } from '../tasks/task-assignee-chargeability.repository';
+import { resolveChargeability } from './chargeability';
 
 export interface ReplacementJobData {
   timeEntryId: string;
@@ -45,6 +47,7 @@ export class AssigneeReplacementService {
     private readonly timeEntries: TimeEntriesRepository,
     private readonly settings: SettingsService,
     private readonly prisma: PrismaService,
+    private readonly rules: TaskAssigneeChargeabilityRepository,
   ) {}
 
   async replaceEntry(data: ReplacementJobData): Promise<{ status: 'replaced' | 'skipped' | 'no_mapping' }> {
@@ -123,7 +126,12 @@ export class AssigneeReplacementService {
     const task = data.taskId
       ? await this.prisma.clickupTask.findUnique({ where: { taskId: data.taskId }, select: { dueDate: true, isChargeable: true } })
       : null;
-    const cost = await this.costs.calculate(realUserId, startTime, data.durationHours, undefined, { chargeable: task?.isChargeable ?? true, dueDate: task?.dueDate ?? null });
+    // The replacement entry belongs to a DIFFERENT user than the original, so
+    // it must answer to that user's rule — resolving against the original
+    // logger's would bill the wrong person's exclusion.
+    const rule = data.taskId ? await this.rules.findOne(data.taskId, realUserId) : null;
+    const { chargeable } = resolveChargeability({ rule, taskChargeable: task?.isChargeable });
+    const cost = await this.costs.calculate(realUserId, startTime, data.durationHours, undefined, { chargeable, dueDate: task?.dueDate ?? null });
     const normalized: NormalizedTimeEntry = {
       timeEntryId: created.id,
       taskId: data.taskId,
@@ -138,7 +146,7 @@ export class AssigneeReplacementService {
       description: data.description ?? null,
       raw: created,
     };
-    await this.timeEntries.upsert(normalized, cost);
+    await this.timeEntries.upsert(normalized, { ...cost });
 
     // 8. Remove the local original row. The original was already deleted in
     //    ClickUp (step 6) and re-inserted under the replacement's new id (step

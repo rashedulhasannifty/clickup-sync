@@ -113,6 +113,12 @@ export class ReportsController {
     return this.tasksReports.taskDescription(taskId);
   }
 
+  @Get('tasks/:taskId/assignee-chargeability')
+  @ApiOperation({ summary: "Everyone who logged time on one task, with hours, the (task, assignee) rule if any, the resolved chargeability, and which layer decided it ('assignee' | 'task' | 'default'). Backs the task drawer's per-assignee controls." })
+  taskAssigneeChargeability(@Param('taskId') taskId: string) {
+    return this.timeEntriesReports.taskAssigneeChargeability(taskId);
+  }
+
   @Get('tasks/chargeable-preview')
   @ApiOperation({ summary: 'Counts behind the chargeability confirmation dialog: tasks given, tasks that would actually change, and the time entries + hours affected. `taskIds` is a comma-separated list, max 500.' })
   chargeablePreview(@Query('taskIds') taskIds = '', @Query('chargeable') chargeable?: string) {
@@ -261,7 +267,7 @@ export class ReportsController {
   }
 
   @Get('time-entries')
-  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, sprintStatus). `userId`, `status`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `missingOnly=true` overrides `status`. `archived` filters by the joined task: `exclude` (hide archived-task entries + keep task-less entries), `only`, or `include`/omitted (no constraint). `sprintStatus=active|completed|all` (default `all`) scopes to entries whose task\'s list (sprint) is/isn\'t archived, dropping task-less entries. `taskId` matches one task exactly (use `__none__` for entries with no task) — this is how the grouped view expands a row. `chargeable=true|false` filters on the task\'s Chargeable flag; entries with no task count as chargeable.' })
+  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, sprintStatus). `userId`, `status`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `missingOnly=true` overrides `status`. `archived` filters by the joined task: `exclude` (hide archived-task entries + keep task-less entries), `only`, or `include`/omitted (no constraint). `sprintStatus=active|completed|all` (default `all`) scopes to entries whose task\'s list (sprint) is/isn\'t archived, dropping task-less entries. `taskId` matches one task exactly (use `__none__` for entries with no task) — this is how the grouped view expands a row. `chargeable=true|false` filters on each entry\'s own resolved chargeability; entries with no task default to chargeable.' })
   timeEntriesList(
     @Query('userId') userId?: string,
     @Query('from') from?: string,

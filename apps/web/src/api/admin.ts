@@ -118,4 +118,7 @@ export const adminApi = {
   },
   setTasksChargeable: (taskIds: string[], chargeable: boolean) =>
     apiClient.patch('/admin/tasks/chargeable', { taskIds, chargeable }).then(r => r.data as { updated: number; requested: number; queued: boolean }),
+  setAssigneeChargeable: (taskId: string, userId: string, chargeable: boolean | null) =>
+    apiClient.patch(`/admin/tasks/${taskId}/assignee-chargeable`, { userId, chargeable })
+      .then(r => r.data as { changed: boolean; queued: boolean }),
 };

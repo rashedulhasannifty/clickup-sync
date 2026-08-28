@@ -12,10 +12,15 @@ function makeService(overrides: Partial<Record<string, any>> = {}) {
   const tasksRepo = { exists: jest.fn().mockResolvedValue(true) };
   const tasksService = { syncTask: jest.fn() };
   const settings = { getTeamId: () => 'team1', getPreferences: () => ({ cost: { rateMatching: 'start' } }) };
-  const prisma = { clickupTask: { findMany: jest.fn().mockResolvedValue([]) } };
+  const prisma = {
+    clickupTask: { findMany: jest.fn().mockResolvedValue([]) },
+    clickupTimeEntry: { findMany: jest.fn().mockResolvedValue([]) },
+  };
+  const rules = { findForTasks: jest.fn().mockResolvedValue(new Map()), findOne: jest.fn().mockResolvedValue(null) };
   const svc = new TimeEntriesService(
     clickup as any, normalizer as any, repo as any, costs as any, queues as any,
     members as any, tagAssigneeMap as any, tasksRepo as any, tasksService as any, settings as any, prisma as any,
+    rules as any,
   );
   return { svc, clickup, repo, members };
 }

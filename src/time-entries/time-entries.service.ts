@@ -8,12 +8,14 @@ import { QueueService } from '../queues/queue.service';
 import { TagAssigneeMapRepository } from './tag-assignee-map.repository';
 import { TasksRepository } from '../tasks/tasks.repository';
 import { TasksService } from '../tasks/tasks.service';
+import { TaskAssigneeChargeabilityRepository } from '../tasks/task-assignee-chargeability.repository';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { ReplacementJobData, replacementJobId } from './assignee-replacement.service';
 import { ClickUpTimeEntry } from '../clickup/clickup.types';
 import { resolveTimeEntriesWindow } from '../clickup/time-entries.util';
 import { SettingsService } from '../settings/settings.service';
 import { PrismaService } from '../database/prisma.service';
+import { resolveChargeability, ruleKey } from './chargeability';
 
 // ClickUp's GET /team/{team}/time_entries has NO pagination (no page/limit
 // params — it returns the whole window in one response). The prune below treats
@@ -54,6 +56,7 @@ export class TimeEntriesService {
     private readonly tasksService: TasksService,
     private readonly settings: SettingsService,
     private readonly prisma: PrismaService,
+    private readonly rules: TaskAssigneeChargeabilityRepository,
   ) {}
 
   /**
@@ -240,11 +243,10 @@ export class TimeEntriesService {
     });
     const taskAttrs = new Map(taskRows.map((t) => [t.taskId, t]));
 
-    let count = 0;
-    const upserted: { normalized: NormalizedTimeEntry; rawTags: string[] }[] = [];
-    // One rate cache for the whole call so multiple intervals logged by the
-    // same user on the same day resolve the effective rate once, not per entry.
-    const rateCache = new Map();
+    // Normalize once, up front. Every subsequent step (override lookup, rule
+    // lookup, cost calc, upsert) reuses this list — do not re-normalize the
+    // same raw entry more than once per call.
+    const candidates: { normalized: NormalizedTimeEntry; rawTags: string[] }[] = [];
     for (const entry of entries) {
       const normalized = this.normalizer.normalizeTimeEntry(entry);
       // A non-null task_id that we couldn't resolve would violate the FK. Skip
@@ -254,13 +256,38 @@ export class TimeEntriesService {
         this.logger.warn(`Skipping time entry ${normalized.timeEntryId}: task ${normalized.taskId} unresolved (FK guard)`);
         continue;
       }
-      const rawTags = extractEntryTagNames(entry);
+      candidates.push({ normalized, rawTags: extractEntryTagNames(entry) });
+    }
+
+    // Rules for every (task, assignee) pair this batch could touch, fetched
+    // once rather than once per entry.
+    const candidateTaskIds = [...new Set(candidates.map((c) => c.normalized.taskId).filter((id): id is string => id != null))];
+    const rules = await this.rules.findForTasks(candidateTaskIds);
+
+    // Existing overrides for the entries about to be re-upserted. The upsert
+    // never writes this column (see the repository guardrail), so the stored
+    // value is the user's decision and must be read back, not assumed null.
+    const overrideRows = await this.prisma.clickupTimeEntry.findMany({
+      where: { timeEntryId: { in: candidates.map((c) => c.normalized.timeEntryId) } },
+      select: { timeEntryId: true, chargeableOverride: true },
+    });
+    const overrides = new Map(overrideRows.map((r) => [r.timeEntryId, r.chargeableOverride]));
+
+    let count = 0;
+    const upserted: { normalized: NormalizedTimeEntry; rawTags: string[] }[] = [];
+    // One rate cache for the whole call so multiple intervals logged by the
+    // same user on the same day resolve the effective rate once, not per entry.
+    const rateCache = new Map();
+    for (const { normalized, rawTags } of candidates) {
       upserted.push({ normalized, rawTags });
       const attrs = normalized.taskId ? taskAttrs.get(normalized.taskId) : undefined;
-      // No task, or a task we couldn't read: chargeable. That matches the
-      // column default and keeps task-less entries in the chargeable bucket.
-      const cost = await this.costs.calculate(normalized.userId, normalized.startTime, normalized.durationHours, rateCache, { chargeable: attrs?.isChargeable ?? true, dueDate: attrs?.dueDate ?? null });
-      await this.repo.upsert(normalized, cost);
+      const { chargeable } = resolveChargeability({
+        entryOverride: overrides.get(normalized.timeEntryId),
+        rule: normalized.taskId && normalized.userId ? rules.get(ruleKey(normalized.taskId, normalized.userId)) : undefined,
+        taskChargeable: attrs?.isChargeable,
+      });
+      const cost = await this.costs.calculate(normalized.userId, normalized.startTime, normalized.durationHours, rateCache, { chargeable, dueDate: attrs?.dueDate ?? null });
+      await this.repo.upsert(normalized, { ...cost });
       if (cost.status === 'NO_RATE_FOUND') this.logger.warn(`Missing rate for user ${normalized.userId} on time entry ${normalized.timeEntryId}`);
       count += 1;
     }

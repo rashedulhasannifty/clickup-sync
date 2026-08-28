@@ -38,6 +38,8 @@ function buildMocks(
     costs: jest.Mock;
     upsert: jest.Mock;
     deleteLocal: jest.Mock;
+    findOne: jest.Mock;
+    task: { dueDate: Date | null; isChargeable: boolean } | null;
   }> = {},
 ) {
   const findByOriginalEntryId =
@@ -63,6 +65,7 @@ function buildMocks(
   const upsert = overrides.upsert ?? jest.fn().mockResolvedValue({});
   const deleteByTimeEntryId =
     overrides.deleteLocal ?? jest.fn().mockResolvedValue({ count: 1 });
+  const findOne = overrides.findOne ?? jest.fn().mockResolvedValue(null);
 
   // getTask is no longer called by the service — kept here only so a stray
   // reference would surface as `not toHaveBeenCalled` in the tests below.
@@ -73,6 +76,7 @@ function buildMocks(
   const replacements = { findByOriginalEntryId, create: createReplacement } as any;
   const costsService = { calculate: costs } as any;
   const timeEntriesRepo = { upsert, deleteByTimeEntryId } as any;
+  const rules = { findOne, findForTasks: jest.fn().mockResolvedValue(new Map()) } as any;
 
   const service = new AssigneeReplacementService(
     clickup,
@@ -81,7 +85,8 @@ function buildMocks(
     costsService,
     timeEntriesRepo,
     { getTeamId: () => '3450636', getPreferences: () => ({ cost: { rateMatching: 'start', autoRecalcOnRateChange: true } }) } as any,
-    { clickupTask: { findUnique: jest.fn().mockResolvedValue(null) } } as any,
+    { clickupTask: { findUnique: jest.fn().mockResolvedValue(overrides.task ?? null) } } as any,
+    rules,
   );
 
   return {
@@ -100,6 +105,8 @@ function buildMocks(
     costs,
     upsert,
     deleteByTimeEntryId,
+    findOne,
+    rules,
   };
 }
 
@@ -284,6 +291,22 @@ describe('AssigneeReplacementService.replaceEntry', () => {
     await service.replaceEntry({ ...SAMPLE_JOB, tags: ['design'] });
 
     expect(deleteByTimeEntryId).not.toHaveBeenCalled();
+  });
+
+  it('resolves the replacement assignee rule, not the original logger rule', async () => {
+    // SAMPLE_JOB.originalUserId ('54569564') logged the time; the 'chisty' tag
+    // maps to ACTIVE_MAPPINGS[0].clickupUserId ('242630708'), and only THAT
+    // mapped assignee has a non-chargeable rule on this task. Resolving
+    // against the original logger's rule would miss it (findOne returns null
+    // by default) and the entry would wrongly stay chargeable.
+    const findOne = jest.fn().mockResolvedValue(false);
+    const { service, costs } = buildMocks({ findOne });
+
+    await service.replaceEntry(SAMPLE_JOB);
+
+    expect(findOne).toHaveBeenCalledWith(SAMPLE_JOB.taskId, ACTIVE_MAPPINGS[0].clickupUserId);
+    expect(findOne).not.toHaveBeenCalledWith(SAMPLE_JOB.taskId, SAMPLE_JOB.originalUserId);
+    expect(costs.mock.calls[0][4]).toMatchObject({ chargeable: false });
   });
 
   it('matches case-insensitively (e.g. "Chisty" -> "chisty" mapping)', async () => {
