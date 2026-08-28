@@ -113,6 +113,12 @@ export class ReportsController {
     return this.tasksReports.taskDescription(taskId);
   }
 
+  @Get('tasks/:taskId/assignee-chargeability')
+  @ApiOperation({ summary: "Everyone who logged time on one task, with hours, the (task, assignee) rule if any, the resolved chargeability, and which layer decided it ('assignee' | 'task' | 'default'). Backs the task drawer's per-assignee controls." })
+  taskAssigneeChargeability(@Param('taskId') taskId: string) {
+    return this.timeEntriesReports.taskAssigneeChargeability(taskId);
+  }
+
   @Get('tasks/chargeable-preview')
   @ApiOperation({ summary: 'Counts behind the chargeability confirmation dialog: tasks given, tasks that would actually change, and the time entries + hours affected. `taskIds` is a comma-separated list, max 500.' })
   chargeablePreview(@Query('taskIds') taskIds = '', @Query('chargeable') chargeable?: string) {

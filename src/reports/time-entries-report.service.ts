@@ -4,6 +4,7 @@ import { PrismaService } from '../database/prisma.service';
 import { assembleTimesheet, dhakaDate, type TimesheetAggRow } from './timesheet.assemble';
 import { defaultFrom, parseDate } from './report-date.util';
 import { buildTimeEntryWhere, NO_TASK_ID } from './report-filter.util';
+import { resolveChargeability } from '../time-entries/chargeability';
 
 /** Time-entry report queries (timesheets, per-user/client/department rollups, list + aggregates). */
 @Injectable()
@@ -538,5 +539,46 @@ export class TimeEntriesReportService {
       limit: safeLimit,
       offset,
     };
+  }
+
+  /**
+   * Everyone who has logged time on one task, with the chargeability answer
+   * that currently applies to them and which layer produced it. Backs the task
+   * drawer's per-assignee controls.
+   *
+   * Grouped from time entries rather than from the task's `assignees_names`,
+   * because billing follows who logged the time — and `assignees_names` carries
+   * no user ids to key a rule on.
+   */
+  async taskAssigneeChargeability(taskId: string) {
+    const [task, rules, groups] = await Promise.all([
+      this.prisma.clickupTask.findUnique({ where: { taskId }, select: { isChargeable: true } }),
+      this.prisma.taskAssigneeChargeability.findMany({ where: { taskId }, select: { userId: true, chargeable: true } }),
+      this.prisma.clickupTimeEntry.groupBy({
+        by: ['userId', 'userName'],
+        where: { taskId },
+        _count: true,
+        _sum: { durationHours: true },
+      }),
+    ]);
+    const ruleByUser = new Map(rules.map((r) => [r.userId, r.chargeable]));
+    return groups
+      .filter((g): g is typeof g & { userId: string } => g.userId != null)
+      .map((g) => {
+        const rule = ruleByUser.get(g.userId) ?? null;
+        // Phase 1 has no per-entry override writer, so `entryOverride` is not
+        // consulted here. Phase 2 adds it and this call gains a third input.
+        const { chargeable, source } = resolveChargeability({ rule, taskChargeable: task?.isChargeable });
+        return {
+          userId: g.userId,
+          userName: g.userName,
+          entryCount: g._count,
+          hours: g._sum.durationHours?.toNumber() ?? 0,
+          rule,
+          chargeable,
+          source,
+        };
+      })
+      .sort((a, b) => (a.userName ?? '').localeCompare(b.userName ?? ''));
   }
 }

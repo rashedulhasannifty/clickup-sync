@@ -659,6 +659,39 @@ describe('TimeEntriesReportService', () => {
       expect(result.nonChargeableHours).toBe(0);
     });
   });
+
+  describe('taskAssigneeChargeability', () => {
+    it('lists everyone who logged time on the task with their resolved chargeability', async () => {
+      const hrs = (n: number) => ({ toNumber: () => n });
+      const prisma = makePrisma({
+        clickupTask: { findUnique: jest.fn().mockResolvedValue({ isChargeable: true }) },
+        taskAssigneeChargeability: { findMany: jest.fn().mockResolvedValue([{ userId: 'u2', chargeable: false }]) },
+      });
+      prisma.clickupTimeEntry.groupBy.mockResolvedValue([
+        { userId: 'u1', userName: 'Ada', _count: 2, _sum: { durationHours: hrs(3) } },
+        { userId: 'u2', userName: 'Grace', _count: 1, _sum: { durationHours: hrs(2) } },
+      ]);
+
+      const rows = await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1');
+
+      expect(rows).toEqual([
+        { userId: 'u1', userName: 'Ada', entryCount: 2, hours: 3, rule: null, chargeable: true, source: 'task' },
+        { userId: 'u2', userName: 'Grace', entryCount: 1, hours: 2, rule: false, chargeable: false, source: 'assignee' },
+      ]);
+    });
+
+    it('drops entries with no logger, which have no identity to key a rule on', async () => {
+      const prisma = makePrisma({
+        clickupTask: { findUnique: jest.fn().mockResolvedValue({ isChargeable: true }) },
+        taskAssigneeChargeability: { findMany: jest.fn().mockResolvedValue([]) },
+      });
+      prisma.clickupTimeEntry.groupBy.mockResolvedValue([
+        { userId: null, userName: null, _count: 1, _sum: { durationHours: { toNumber: () => 1 } } },
+      ]);
+
+      expect(await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1')).toEqual([]);
+    });
+  });
 });
 
 describe('TimeEntriesReportService.timeEntriesByTask', () => {
