@@ -4,16 +4,25 @@ function makeSettings(cost: Partial<{ autoRecalcOnRateChange: boolean; rateMatch
   return { getPreferences: () => ({ cost: { autoRecalcOnRateChange: true, rateMatching: 'start', ...cost } }) } as any;
 }
 
-function makeDeps(entries: any[]) {
+function makeDeps(entries: any[], rules: Map<string, boolean> = new Map()) {
   const findMany = jest.fn().mockResolvedValue(entries);
   const update = jest.fn().mockResolvedValue({});
   const prisma = { clickupTimeEntry: { findMany, update } } as any;
-  const calculate = jest.fn().mockResolvedValue({
-    rateId: 9n, currency: 'AUD', hourlyRateCents: 10000n, costCents: 20000n, status: 'COST_CALCULATED',
-  });
+  // Mirrors the real CostCalculatorService: `isChargeable` reflects the
+  // `chargeable` opt it was called with, so tests can assert on the resolved
+  // stack rather than a value hardcoded independent of the input.
+  const calculate = jest.fn().mockImplementation(
+    (_userId: unknown, _startTime: unknown, _hours: unknown, _cache: unknown, opts?: { chargeable?: boolean }) =>
+      Promise.resolve({
+        rateId: 9n, currency: 'AUD', hourlyRateCents: 10000n, costCents: 20000n, status: 'COST_CALCULATED',
+        isChargeable: opts?.chargeable !== false,
+      }),
+  );
   const costs = { calculate } as any;
   const settings = makeSettings();
-  return { svc: new CostRecalculationService(prisma, costs, settings), prisma, findMany, update, calculate };
+  const findForTasks = jest.fn().mockResolvedValue(rules);
+  const rulesRepo = { findForTasks } as any;
+  return { svc: new CostRecalculationService(prisma, costs, settings, rulesRepo), prisma, findMany, update, calculate, findForTasks };
 }
 
 const ENTRY = { timeEntryId: 'te-1', userId: 'u1', startTime: new Date('2024-06-15T00:00:00Z'), durationHours: { toNumber: () => 2 }, task: null };
@@ -38,7 +47,7 @@ describe('CostRecalculationService', () => {
     expect(calculate).toHaveBeenCalledWith('u1', ENTRY.startTime, 2, expect.any(Map), { chargeable: true, dueDate: null });
     expect(update).toHaveBeenCalledWith({
       where: { timeEntryId: 'te-1' },
-      data: { rateId: 9n, currency: 'AUD', hourlyRateCents: 10000n, costCents: 20000n, status: 'COST_CALCULATED' },
+      data: { rateId: 9n, currency: 'AUD', hourlyRateCents: 10000n, costCents: 20000n, status: 'COST_CALCULATED', isChargeable: true },
     });
     expect(res).toEqual({ scanned: 1, updated: 1 });
   });
@@ -91,5 +100,47 @@ describe('CostRecalculationService', () => {
     await svc.recalculate({});
 
     expect(calculate.mock.calls[0][4]).toEqual({ chargeable: true, dueDate: null });
+  });
+
+  it('resolves the (task, assignee) rule over the task flag when re-costing', async () => {
+    // Task is chargeable; the rule says this assignee's time on it is not.
+    const entry = {
+      timeEntryId: 'te1', userId: 'u1', startTime: new Date('2026-01-05'),
+      durationHours: { toNumber: () => 2 }, chargeableOverride: null,
+      task: { dueDate: null, isChargeable: true },
+      taskId: 't1',
+    };
+    const { svc, calculate } = makeDeps([entry], new Map([['t1|u1', false]]));
+
+    await svc.recalculate({ taskIds: ['t1'] });
+
+    expect(calculate.mock.calls[0][4]).toMatchObject({ chargeable: false });
+  });
+
+  it('lets a per-entry override beat the rule', async () => {
+    const entry = {
+      timeEntryId: 'te1', userId: 'u1', startTime: new Date('2026-01-05'),
+      durationHours: { toNumber: () => 2 }, chargeableOverride: true,
+      task: { dueDate: null, isChargeable: false },
+      taskId: 't1',
+    };
+    const { svc, calculate } = makeDeps([entry], new Map([['t1|u1', false]]));
+
+    await svc.recalculate({ taskIds: ['t1'] });
+
+    expect(calculate.mock.calls[0][4]).toMatchObject({ chargeable: true });
+  });
+
+  it('writes the resolved is_chargeable onto the row', async () => {
+    const entry = {
+      timeEntryId: 'te1', userId: 'u1', startTime: new Date('2026-01-05'),
+      durationHours: { toNumber: () => 2 }, chargeableOverride: null,
+      task: { dueDate: null, isChargeable: false }, taskId: 't1',
+    };
+    const { svc, update } = makeDeps([entry], new Map());
+
+    await svc.recalculate({ taskIds: ['t1'] });
+
+    expect(update.mock.calls[0][0].data).toMatchObject({ isChargeable: false });
   });
 });

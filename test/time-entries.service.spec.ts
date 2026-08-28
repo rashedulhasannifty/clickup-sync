@@ -14,6 +14,8 @@ function makeService(overrides: Partial<{
   costs: jest.Mock;
   findAllActive: jest.Mock;
   taskRows: { taskId: string; dueDate: Date | null; isChargeable: boolean }[];
+  findForTasks: jest.Mock;
+  overrideRows: { timeEntryId: string; chargeableOverride: boolean | null }[];
 }> = {}) {
   const exists = overrides.exists ?? jest.fn().mockResolvedValue(true);
   const syncTask = overrides.syncTask ?? jest.fn().mockResolvedValue({});
@@ -43,14 +45,21 @@ function makeService(overrides: Partial<{
   const tasksRepo = { exists } as any;
   const tasksService = { syncTask } as any;
 
-  const prisma = { clickupTask: { findMany: jest.fn().mockResolvedValue(overrides.taskRows ?? []) } } as any;
+  const findForTasks = overrides.findForTasks ?? jest.fn().mockResolvedValue(new Map());
+  const rules = { findForTasks, findOne: jest.fn().mockResolvedValue(null) } as any;
+
+  const prisma = {
+    clickupTask: { findMany: jest.fn().mockResolvedValue(overrides.taskRows ?? []) },
+    clickupTimeEntry: { findMany: jest.fn().mockResolvedValue(overrides.overrideRows ?? []) },
+  } as any;
   const service = new TimeEntriesService(
     clickup, normalizer, repo, costsService, queues, members, tagAssigneeMap, tasksRepo, tasksService,
     { getTeamId: () => '3450636', getPreferences: () => ({ cost: { rateMatching: 'start', autoRecalcOnRateChange: true } }) } as any,
     prisma,
+    rules,
   );
 
-  return { service, exists, syncTask, getMemberIds, getTimeEntries, upsert, costs, findAllActive, pruneTaskEntriesOutsideSet };
+  return { service, exists, syncTask, getMemberIds, getTimeEntries, upsert, costs, findAllActive, pruneTaskEntriesOutsideSet, findForTasks };
 }
 
 describe('TimeEntriesService.syncTaskTimeEntries — task self-heal', () => {
