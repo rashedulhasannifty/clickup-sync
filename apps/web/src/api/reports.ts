@@ -62,6 +62,8 @@ export const reportsApi = {
   chargeablePreview: (taskIds: string[], chargeable: boolean) =>
     apiClient.get('/reports/tasks/chargeable-preview', { params: { taskIds: taskIds.join(','), chargeable } })
       .then(r => r.data as { tasks: number; changing: number; timeEntries: number; hours: number }),
+  taskAssigneeChargeability: (taskId: string) =>
+    apiClient.get(`/reports/tasks/${taskId}/assignee-chargeability`).then(r => r.data),
 };
 
 export interface CycleTimeItem { bucket: string; meanHours: number; medianHours: number; p90Hours: number; taskCount: number; }

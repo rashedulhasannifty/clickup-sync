@@ -177,7 +177,12 @@ export interface TimeEntryTaskGroup {
   entryCount: number;
   assignees: { userId: string; userName: string | null }[];
   totalHours: number;
+  // `chargeable` is tri-state at the row level: true means no non-chargeable
+  // entries, false means at least one; `partiallyChargeable` distinguishes a
+  // mixed task (chargeable: false, partiallyChargeable: true) from one that's
+  // wholly non-chargeable (chargeable: false, partiallyChargeable: false).
   chargeable: boolean;
+  partiallyChargeable: boolean;
   chargeableHours: number;
   costAud: number;
   missingRateCount: number;
@@ -498,4 +503,43 @@ export function useSprintVelocity(folderId: string | undefined, limit = 12) {
 }
 export function useSprintDetail(listId: string | undefined) {
   return useQuery({ queryKey: ['sprint-detail', listId], queryFn: () => reportsApi.sprintDetail(listId!) as Promise<SprintDetail>, enabled: !!listId });
+}
+
+export interface TaskAssigneeChargeability {
+  userId: string;
+  userName: string | null;
+  entryCount: number;
+  hours: number;
+  rule: boolean | null;
+  chargeable: boolean;
+  source: 'entry' | 'assignee' | 'task' | 'default';
+}
+
+/** Per-assignee chargeability for one task. Disabled until a task is selected. */
+export function useTaskAssigneeChargeability(taskId: string | null) {
+  return useQuery<TaskAssigneeChargeability[]>({
+    queryKey: ['task-assignee-chargeability', taskId],
+    queryFn: () => reportsApi.taskAssigneeChargeability(taskId as string),
+    enabled: !!taskId,
+  });
+}
+
+export function useSetAssigneeChargeable() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskId, userId, chargeable }: { taskId: string; userId: string; chargeable: boolean | null }) =>
+      adminApi.setAssigneeChargeable(taskId, userId, chargeable),
+    onSuccess: () => {
+      // The recalc is asynchronous, so costs on screen lag by a moment; the
+      // rule itself is immediate, which is what these two views show.
+      qc.invalidateQueries({ queryKey: ['task-assignee-chargeability'] });
+      // The 'time-entries' family is several distinct query keys
+      // ('time-entries-list', 'time-entries-by-task', 'time-entries-aggregates',
+      // ...) — a single exact-key invalidate wouldn't match any of them, so
+      // match by prefix the same way useResolveSpike/useUnresolveSpike do.
+      qc.invalidateQueries({
+        predicate: (query) => typeof query.queryKey[0] === 'string' && query.queryKey[0].startsWith('time-entries'),
+      });
+    },
+  });
 }

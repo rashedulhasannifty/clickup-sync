@@ -5,7 +5,10 @@ import {
   Search, Download, X, CheckSquare, Copy, ExternalLink,
   CircleCheck, Inbox,
 } from 'lucide-react';
-import { useTasks, useTasksAssignees, useTasksSummary, useClients, useLists, useFolders } from '../hooks/useReports';
+import {
+  useTasks, useTasksAssignees, useTasksSummary, useClients, useLists, useFolders,
+  useTaskAssigneeChargeability, useSetAssigneeChargeable,
+} from '../hooks/useReports';
 import { useTaskHistory } from '../hooks/useTaskHistory';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -127,6 +130,8 @@ function TaskDetailDrawer({
 
   const taskIdForHistory = task ? String(task.taskId ?? task.task_id ?? '') : null;
   const history = useTaskHistory(taskIdForHistory || null);
+  const { data: assigneeChargeData } = useTaskAssigneeChargeability(taskIdForHistory);
+  const setAssigneeChargeable = useSetAssigneeChargeable();
 
   // Description is fetched on demand (not carried in the paged list/export
   // payload — see taskDescription() in tasks-report.service.ts).
@@ -153,6 +158,7 @@ function TaskDetailDrawer({
   const description = String(descQuery.data?.description ?? '').trim();
   const descLoading = descQuery.isLoading;
   const taskId = String(task.taskId ?? task.task_id ?? '');
+  const assigneeCharge = assigneeChargeData ?? [];
   // Prefer the stored ClickUp URL (handles custom domains / task custom ids);
   // fall back to the deterministic task URL when the row predates the `url` select.
   const clickupUrl = String(task.url ?? '') || `https://app.clickup.com/t/${taskId}`;
@@ -272,6 +278,45 @@ function TaskDetailDrawer({
                   </span>
                 </Field>
               </div>
+              {assigneeCharge.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <Field label="Per assignee">
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {assigneeCharge.map((a) => (
+                        <span key={a.userId} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          <ClickupAvatar userId={a.userId} name={a.userName ?? ''} size={18} />
+                          <span style={{ fontSize: 12 }}>{a.userName ?? a.userId}</span>
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmt.duration(a.hours)}</span>
+                          {a.chargeable
+                            ? <Pill tone="green" size="xs">chargeable</Pill>
+                            : <Pill tone="gray" size="xs">non-chargeable</Pill>}
+                          {/* Where the answer came from — so "why is this zero?"
+                              is answerable without opening the rules screen. */}
+                          {a.source === 'assignee' && <Pill tone="gray" size="xs">rule</Pill>}
+                          {canEdit && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setAssigneeChargeable.mutate({ taskId, userId: a.userId, chargeable: !a.chargeable })}
+                            >
+                              {a.chargeable ? 'Mark non-chargeable' : 'Mark chargeable'}
+                            </Button>
+                          )}
+                          {canEdit && a.rule !== null && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => setAssigneeChargeable.mutate({ taskId, userId: a.userId, chargeable: null })}
+                            >
+                              Clear rule
+                            </Button>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  </Field>
+                </div>
+              )}
             </div>
             <div>
               <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Dates</h3>
