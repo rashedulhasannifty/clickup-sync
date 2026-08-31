@@ -43,8 +43,13 @@ export function ruleKey(taskId: string, userId: string): string {
 }
 
 export interface PartialChargeabilityInput {
-  /** `clickup_tasks.is_chargeable` — the flag the pill would otherwise show. */
-  taskChargeable: boolean;
+  /**
+   * `clickup_tasks.is_chargeable` — the flag the pill would otherwise show.
+   * Only ever consulted against `rules`, so a caller that passes no rules has
+   * nothing to compare it to and may omit it. Required whenever `rules` is
+   * non-empty.
+   */
+  taskChargeable?: boolean;
   /**
    * The `(task, assignee)` rules on this task. A rule matching the task flag
    * splits nothing, so only a DISAGREEING rule counts — otherwise reverting a
@@ -68,7 +73,7 @@ export interface PartialChargeabilityInput {
  * mixed-entries condition — lives here once.
  */
 export function isPartiallyChargeable(input: PartialChargeabilityInput): boolean {
-  if (input.rules.some((r) => r !== input.taskChargeable)) return true;
+  if (input.taskChargeable !== undefined && input.rules.some((r) => r !== input.taskChargeable)) return true;
   const { entryCount = 0, nonChargeableCount = 0 } = input;
   // Counts, never an hours sum: a bucket of 0-duration non-chargeable entries
   // must still read as split.

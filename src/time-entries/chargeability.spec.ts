@@ -116,3 +116,16 @@ describe('isPartiallyChargeable', () => {
     });
   });
 });
+
+describe('isPartiallyChargeable — omitted task flag', () => {
+  // The window-scoped caller passes no rules, so it has no flag to compare
+  // against and omits it. The entry signal must still work on its own.
+  it('still splits on mixed entries with no task flag given', () => {
+    expect(isPartiallyChargeable({ rules: [], entryCount: 4, nonChargeableCount: 2 })).toBe(true);
+  });
+
+  // Guards against `r !== undefined` silently making every rule "disagree".
+  it('never reports partial from rules alone when the flag is omitted', () => {
+    expect(isPartiallyChargeable({ rules: [true, false] })).toBe(false);
+  });
+});

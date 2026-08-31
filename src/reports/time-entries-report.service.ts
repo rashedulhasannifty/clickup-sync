@@ -533,7 +533,6 @@ export class TimeEntriesReportService {
           // showing nothing partial about them. The Tasks page asks the
           // unscoped question and does pass rules.
           partiallyChargeable: isPartiallyChargeable({
-            taskChargeable: b.nonChargeableCount === 0,
             rules: [],
             entryCount: b.entryCount,
             nonChargeableCount: b.nonChargeableCount,
@@ -579,7 +578,18 @@ export class TimeEntriesReportService {
       }),
     ]);
     const ruleByUser = new Map(rules.map((r) => [r.userId, r.chargeable]));
-    return groups
+    // Anyone with a rule but no logged time still belongs in this list — that
+    // is the prospective case standing rules exist for (set the rule, then the
+    // work happens). Building the rows from the groupBy alone would hide the
+    // rule here while the Tasks page pill, which reads the rules directly,
+    // reported the task partial: two views contradicting each other. They get
+    // a zero row with no name, since only entries carry a display name.
+    const loggedUserIds = new Set(groups.map((g) => g.userId).filter((id): id is string => id != null));
+    const ruleOnlyRows = rules
+      .filter((r) => !loggedUserIds.has(r.userId))
+      .map((r) => ({ userId: r.userId, _max: { userName: null }, _count: 0, _sum: { durationHours: null } }));
+
+    return [...groups, ...ruleOnlyRows]
       .filter((g): g is typeof g & { userId: string } => g.userId != null)
       .map((g) => {
         const rule = ruleByUser.get(g.userId) ?? null;

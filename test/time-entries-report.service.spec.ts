@@ -710,6 +710,44 @@ describe('TimeEntriesReportService', () => {
       ]);
     });
 
+    // The prospective case that standing rules exist for: a rule set before
+    // anyone logs time. Building the row set from the time-entry groupBy alone
+    // dropped it — so the rule was invisible in the drawer and unclearable
+    // there, while the Tasks page pill (which reads the rules directly) said
+    // "partial". The two views contradicted each other.
+    it('includes an assignee who has a rule but has logged no time', async () => {
+      const prisma = makePrisma({
+        clickupTask: { findUnique: jest.fn().mockResolvedValue({ isChargeable: true }) },
+        taskAssigneeChargeability: { findMany: jest.fn().mockResolvedValue([{ userId: 'u9', chargeable: false }]) },
+      });
+      prisma.clickupTimeEntry.groupBy.mockResolvedValue([]);
+
+      const rows = await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1');
+
+      // No name to show: the rule table keys on the ClickUp user id and there
+      // is no entry to borrow a display name from. The drawer falls back to
+      // the id rather than inventing one.
+      expect(rows).toEqual([
+        { userId: 'u9', userName: null, entryCount: 0, hours: 0, rule: false, chargeable: false, source: 'assignee' },
+      ]);
+    });
+
+    it('does not duplicate an assignee who has both a rule and logged time', async () => {
+      const prisma = makePrisma({
+        clickupTask: { findUnique: jest.fn().mockResolvedValue({ isChargeable: true }) },
+        taskAssigneeChargeability: { findMany: jest.fn().mockResolvedValue([{ userId: 'u1', chargeable: false }]) },
+      });
+      prisma.clickupTimeEntry.groupBy.mockResolvedValue([
+        { userId: 'u1', _max: { userName: 'Ada' }, _count: 2, _sum: { durationHours: { toNumber: () => 3 } } },
+      ]);
+
+      const rows = await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1');
+
+      expect(rows).toEqual([
+        { userId: 'u1', userName: 'Ada', entryCount: 2, hours: 3, rule: false, chargeable: false, source: 'assignee' },
+      ]);
+    });
+
     it('drops entries with no logger, which have no identity to key a rule on', async () => {
       const prisma = makePrisma({
         clickupTask: { findUnique: jest.fn().mockResolvedValue({ isChargeable: true }) },
