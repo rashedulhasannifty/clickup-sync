@@ -138,6 +138,7 @@ describe('TaskAssigneeChargeabilityRepository', () => {
       const { items, total } = await repo.list({ limit: 50, offset: 0 });
       expect(total).toBe(1);
       expect(items[0]).toEqual({
+        id: 't1|u1',
         taskId: 't1', taskName: 'Build it', spaceName: 'Projects',
         userId: 'u1', userName: 'Md Mamun',
         chargeable: false, note: 'internal', setBy: 'a@b.c',
@@ -150,6 +151,19 @@ describe('TaskAssigneeChargeabilityRepository', () => {
     // (task, user) pairs that are NOT rules. Matching on the composite key —
     // not on taskId, and not on userId — is what keeps one rule's hours from
     // landing on another's row.
+    // Two rules on the SAME task must not collide: the table keys rows on this.
+    it('gives two rules on one task distinct ids', async () => {
+      const { repo } = listRepo({
+        findMany: jest.fn().mockResolvedValue([
+          { taskId: 't1', userId: 'u1', chargeable: false, note: null, setBy: null, updatedAt: new Date() },
+          { taskId: 't1', userId: 'u2', chargeable: false, note: null, setBy: null, updatedAt: new Date() },
+        ]),
+        count: jest.fn().mockResolvedValue(2),
+      });
+      const { items } = await repo.list({ limit: 50, offset: 0 });
+      expect(items.map((i) => i.id)).toEqual(['t1|u1', 't1|u2']);
+    });
+
     it('attributes hours to the exact (task, assignee) pair, never a partial match', async () => {
       const { repo } = listRepo({
         findMany: jest.fn().mockResolvedValue([

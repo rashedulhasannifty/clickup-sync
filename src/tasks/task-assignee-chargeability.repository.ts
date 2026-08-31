@@ -78,6 +78,11 @@ export class TaskAssigneeChargeabilityRepository {
         const task = taskById.get(r.taskId);
         const entry = entryByPair.get(ruleKey(r.taskId, r.userId));
         return {
+          // The row's real identity. A task can carry one rule per assignee,
+          // so `taskId` alone is not unique — the table would render duplicate
+          // React keys for two rules on the same task. Same composite the
+          // model is keyed on.
+          id: ruleKey(r.taskId, r.userId),
           taskId: r.taskId,
           taskName: task?.taskName ?? null,
           spaceName: task?.spaceName ?? null,

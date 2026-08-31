@@ -65,6 +65,8 @@ export type SpikeNoticePreview = {
  * implicit index signature that satisfies it.
  */
 export type ChargeabilityRule = {
+  /** `taskId|userId` — a task can hold one rule per assignee. */
+  id: string;
   taskId: string;
   taskName: string | null;
   spaceName: string | null;

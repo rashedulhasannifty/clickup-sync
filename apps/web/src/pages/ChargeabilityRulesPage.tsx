@@ -62,14 +62,23 @@ export function ChargeabilityRulesPage() {
     {
       key: 'task',
       header: 'Task',
-      width: 260,
+      width: 280,
+      // maxWidth 256 = column 280 - cell padding (12+12), so a long task name
+      // truncates instead of widening the column and squeezing every column
+      // after it. Same convention as the Task columns on Time Entries.
       render: (r) => (
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div style={{ maxWidth: 256 }}>
+          <span
+            title={r.taskName ?? r.taskId}
+            style={{
+              fontWeight: 500, display: 'block', maxWidth: 256,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}
+          >
             {r.taskName ?? r.taskId}
-          </div>
+          </span>
           {r.spaceName && (
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.spaceName}</div>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block' }}>{r.spaceName}</span>
           )}
         </div>
       ),
@@ -81,7 +90,12 @@ export function ChargeabilityRulesPage() {
       render: (r) => (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
           <ClickupAvatar userId={r.userId} name={nameOf(r)} size={20} />
-          <span style={{ fontSize: 12 }}>{nameOf(r)}</span>
+          <span
+            title={nameOf(r)}
+            style={{ fontSize: 12, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {nameOf(r)}
+          </span>
         </span>
       ),
     },
@@ -98,9 +112,11 @@ export function ChargeabilityRulesPage() {
     {
       // What the rule is actually doing. A rule with zero hours is either
       // brand new or pointed at the wrong person — both worth seeing.
+      // Header kept short on purpose: right-aligned, so a long one runs into
+      // the left-aligned header of the column beside it.
       key: 'hours',
-      header: 'Time affected',
-      width: 130,
+      header: 'Hours',
+      width: 120,
       align: 'right',
       render: (r) => (
         r.entryCount === 0
@@ -119,7 +135,17 @@ export function ChargeabilityRulesPage() {
       width: 200,
       render: (r) => (
         r.note
-          ? <span style={{ fontSize: 12 }}>{r.note}</span>
+          ? (
+            <span
+              title={r.note}
+              style={{
+                fontSize: 12, display: 'block', maxWidth: 176,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}
+            >
+              {r.note}
+            </span>
+          )
           : <span style={{ color: 'var(--text-faint)' }}>—</span>
       ),
     },
@@ -127,7 +153,17 @@ export function ChargeabilityRulesPage() {
       key: 'setBy',
       header: 'Set by',
       width: 160,
-      render: (r) => <span style={{ fontSize: 12 }}>{r.setBy ?? '—'}</span>,
+      render: (r) => (
+        <span
+          title={r.setBy ?? ''}
+          style={{
+            fontSize: 12, display: 'block', maxWidth: 136,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}
+        >
+          {r.setBy ?? '—'}
+        </span>
+      ),
     },
     {
       key: 'updatedAt',
@@ -190,6 +226,9 @@ export function ChargeabilityRulesPage() {
 
       <Card>
         <DataTable<ChargeabilityRule>
+          layout="design"
+          stickyFirstColumn
+          rowKey="id"
           columns={columns}
           data={items}
           loading={rulesQuery.isLoading}
