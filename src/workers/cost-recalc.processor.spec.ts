@@ -70,4 +70,36 @@ describe('CostRecalcProcessor', () => {
       expect(arg.payload).toEqual({ taskIds });
     });
   });
+
+  describe('job log scoping', () => {
+    // Regression guard for the three-way. A two-way ternary labelled a
+    // per-entry recalc as 'assignee' with entityId '*' — which also collides
+    // with TaskHistoryRepository.forTask, whose 'task' rows are read as a
+    // single task id.
+    it('labels a per-entry recalc by time entry, first id indexed, full list in payload', async () => {
+      const { proc, started, recalculate } = makeDeps();
+      await proc.process({ id: '7', name: 'recalculate-costs', data: { timeEntryIds: ['e1', 'e2', 'e3'] } } as any);
+      expect(started).toHaveBeenCalledWith(expect.objectContaining({
+        entityType: 'timeEntry',
+        entityId: 'e1',
+        payload: { timeEntryIds: ['e1', 'e2', 'e3'] },
+      }));
+      expect(recalculate).toHaveBeenCalledWith(expect.objectContaining({ timeEntryIds: ['e1', 'e2', 'e3'] }));
+    });
+
+    it('still labels a task-scoped recalc by task', async () => {
+      const { proc, started } = makeDeps();
+      await proc.process({ id: '8', name: 'recalculate-costs', data: { taskIds: ['t1', 't2'] } } as any);
+      expect(started).toHaveBeenCalledWith(expect.objectContaining({
+        entityType: 'task', entityId: 't1', payload: { taskIds: ['t1', 't2'] },
+      }));
+    });
+
+    it('still labels an assignee-scoped recalc by assignee', async () => {
+      const { proc, started } = makeDeps();
+      await proc.process({ id: '9', name: 'recalculate-costs', data: { assigneeId: 'u1' } } as any);
+      expect(started).toHaveBeenCalledWith(expect.objectContaining({ entityType: 'assignee', entityId: 'u1' }));
+    });
+  });
+
 });

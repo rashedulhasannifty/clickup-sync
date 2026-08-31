@@ -50,6 +50,36 @@ export class TimeEntriesRepository {
    * Remove every time entry belonging to a task. Used when the task itself is
    * deleted in ClickUp — its tracked time must not linger in reports. Idempotent.
    */
+  /**
+   * Set (or clear, with `null`) the per-entry chargeability override on a batch
+   * of entries. Reports the ids that actually changed so the caller can scope
+   * the recalculation to exactly those — and skip it entirely when nothing did.
+   *
+   * Read-then-write rather than one `updateMany` with a `not` predicate:
+   * `chargeable_override` is nullable and Prisma's `not` does not reliably
+   * match NULL rows, so the single-query form would silently skip every entry
+   * being overridden for the first time — the majority case.
+   */
+  async setChargeableOverride(
+    timeEntryIds: string[],
+    chargeable: boolean | null,
+  ): Promise<{ changed: string[] }> {
+    if (timeEntryIds.length === 0) return { changed: [] };
+    const rows = await this.prisma.clickupTimeEntry.findMany({
+      where: { timeEntryId: { in: timeEntryIds } },
+      select: { timeEntryId: true, chargeableOverride: true },
+    });
+    // Ids that match no row are dropped here, not just ignored downstream: the
+    // recalc scope must name only entries that were actually written.
+    const changed = rows.filter((r) => r.chargeableOverride !== chargeable).map((r) => r.timeEntryId);
+    if (changed.length === 0) return { changed: [] };
+    await this.prisma.clickupTimeEntry.updateMany({
+      where: { timeEntryId: { in: changed } },
+      data: { chargeableOverride: chargeable },
+    });
+    return { changed };
+  }
+
   async deleteByTaskId(taskId: string): Promise<number> {
     const { count } = await this.prisma.clickupTimeEntry.deleteMany({ where: { taskId } });
     return count;

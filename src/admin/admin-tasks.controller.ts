@@ -6,11 +6,13 @@ import { AuthPrincipal } from '../auth/auth.types';
 import { AuditLogInterceptor } from './audit-log.interceptor';
 import { SetTaskChargeableDto } from './dto/set-task-chargeable.dto';
 import { SetAssigneeChargeableDto } from './dto/set-assignee-chargeable.dto';
+import { SetEntryChargeableOverrideDto } from './dto/set-entry-chargeable-override.dto';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { TasksRepository } from '../tasks/tasks.repository';
 import { TaskAssigneeChargeabilityRepository } from '../tasks/task-assignee-chargeability.repository';
-import { MAX_CHARGEABLE_TASK_IDS } from '../tasks/task-chargeability.constants';
+import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
+import { MAX_CHARGEABLE_TASK_IDS, MAX_CHARGEABLE_TIME_ENTRY_IDS } from '../tasks/task-chargeability.constants';
 
 /** Locally-owned task annotations under `/admin`. Today: chargeability. */
 @ApiTags('admin')
@@ -23,6 +25,7 @@ export class AdminTasksController {
     private readonly queues: QueueService,
     private readonly tasksRepo: TasksRepository,
     private readonly rules: TaskAssigneeChargeabilityRepository,
+    private readonly entries: TimeEntriesRepository,
   ) {}
 
   @Get('chargeability-rules')
@@ -59,6 +62,28 @@ export class AdminTasksController {
         .add(JOBS.RECALCULATE_COSTS, { taskIds: dto.taskIds }, this.queues.defaultJobOptions());
     }
     return { updated: count, requested: dto.taskIds.length, queued: count > 0 };
+  }
+
+  @Patch('time-entries/chargeable-override')
+  @HttpCode(200)
+  @ApiOperation({
+    summary:
+      "Override chargeability on specific time entries — the most specific layer there is, beating the (task, assignee) rule and the task flag. `chargeable: null` clears the override and falls back to those. Re-costs only the entries whose override actually changed; entries already holding the requested value are neither written nor recalculated.",
+  })
+  async setEntryChargeableOverride(@Body() dto: SetEntryChargeableOverrideDto) {
+    // Also guarded by the DTO; kept here so a direct service call can't bypass it.
+    if (dto.timeEntryIds.length > MAX_CHARGEABLE_TIME_ENTRY_IDS) {
+      throw new BadRequestException(`At most ${MAX_CHARGEABLE_TIME_ENTRY_IDS} time entries per request`);
+    }
+    const { changed } = await this.entries.setChargeableOverride(dto.timeEntryIds, dto.chargeable);
+    // Scope the recalc to what was actually WRITTEN, not what was requested:
+    // re-costing an untouched entry is wasted work and a misleading job log.
+    if (changed.length > 0) {
+      await this.queues
+        .get(QUEUES.MAINTENANCE)
+        .add(JOBS.RECALCULATE_COSTS, { timeEntryIds: changed }, this.queues.defaultJobOptions());
+    }
+    return { updated: changed.length, requested: dto.timeEntryIds.length, queued: changed.length > 0 };
   }
 
   @Patch('tasks/:taskId/assignee-chargeable')

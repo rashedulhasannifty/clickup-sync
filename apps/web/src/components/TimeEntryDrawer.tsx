@@ -24,6 +24,12 @@ export interface TimeEntryItem {
   costAud: number;
   status: string;
   chargeable: boolean;
+  /**
+   * The RAW per-entry override, distinct from the resolved `chargeable` above.
+   * null = this entry inherits its answer from the (task, assignee) rule or
+   * the task flag; true/false = this row is what decides it.
+   */
+  chargeableOverride: boolean | null;
   description: string | null;
   syncedAt: string | null;
   rateId?: string | null;

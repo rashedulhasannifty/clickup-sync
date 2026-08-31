@@ -30,12 +30,16 @@ export class CostRecalculationService {
    * entry (the recalc-all path could otherwise issue 2N serial DB round-trips
    * on a growing table).
    */
-  async recalculate(opts: { assigneeId?: string; taskIds?: string[] }): Promise<{ scanned: number; updated: number }> {
+  async recalculate(opts: { assigneeId?: string; taskIds?: string[]; timeEntryIds?: string[] }): Promise<{ scanned: number; updated: number }> {
     // Scopes are independent: an assignee, a set of tasks (what a chargeability
     // toggle enqueues), or everything.
     const where = {
       ...(opts.assigneeId ? { userId: opts.assigneeId } : {}),
       ...(opts.taskIds?.length ? { taskId: { in: opts.taskIds } } : {}),
+      // A per-entry override scopes to the exact entries that were written —
+      // the narrowest scope there is, and the only one that doesn't re-cost a
+      // colleague's time as a side effect of editing one row.
+      ...(opts.timeEntryIds?.length ? { timeEntryId: { in: opts.timeEntryIds } } : {}),
     };
     const cache: RateCache = new Map();
 

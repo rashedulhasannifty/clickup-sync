@@ -146,6 +146,9 @@ export const adminApi = {
   // `note` is omitted from the body when undefined, not sent as null: the
   // repository treats undefined as "leave the stored note alone" and null as
   // "clear it", so a toggle that doesn't mention the note must not wipe it.
+  setEntryChargeableOverride: (timeEntryIds: string[], chargeable: boolean | null) =>
+    apiClient.patch('/admin/time-entries/chargeable-override', { timeEntryIds, chargeable })
+      .then(r => r.data as { updated: number; requested: number; queued: boolean }),
   setAssigneeChargeable: (taskId: string, userId: string, chargeable: boolean | null, note?: string | null) =>
     apiClient.patch(`/admin/tasks/${taskId}/assignee-chargeable`, { userId, chargeable, ...(note !== undefined ? { note } : {}) })
       .then(r => r.data as { changed: boolean; queued: boolean }),

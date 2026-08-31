@@ -14,6 +14,12 @@ describe('TasksReportService', () => {
       taskAssigneeChargeability: {
         findMany: jest.fn().mockResolvedValue([]),
       },
+      // The pill also consults the entries now (a per-entry override can split
+      // a task with no rule on it at all), so every tasks() test goes through
+      // this too.
+      clickupTimeEntry: {
+        groupBy: jest.fn().mockResolvedValue([]),
+      },
       $queryRaw: jest.fn().mockResolvedValue([]),
     };
     return { ...base, ...overrides } as any;
@@ -679,29 +685,30 @@ describe('TasksReportService', () => {
       ).then(() => prisma.clickupTask.findMany.mock.calls[0][0].where);
     };
 
+    // These assert the RULE half only — `objectContaining` so the entries arm
+    // added in phase 2 (asserted separately below) doesn't break them. Pinning
+    // the whole clause made a deliberate extension read as a regression.
     it('wholly chargeable excludes tasks a rule has split', async () => {
-      expect((await call('true')).AND).toContainEqual({
+      expect((await call('true')).AND).toContainEqual(expect.objectContaining({
         isChargeable: true,
         chargeabilityRules: { none: { chargeable: false } },
-      });
+      }));
     });
 
     it('wholly non-chargeable excludes tasks a rule has split', async () => {
-      expect((await call('false')).AND).toContainEqual({
+      expect((await call('false')).AND).toContainEqual(expect.objectContaining({
         isChargeable: false,
         chargeabilityRules: { none: { chargeable: true } },
-      });
+      }));
     });
 
     // The flag alone can't express this — "disagrees with the flag" depends on
     // the row's own flag, so it takes one OR arm per direction.
     it('partial matches a rule that disagrees with the task flag, either way', async () => {
-      expect((await call('partial')).AND).toContainEqual({
-        OR: [
-          { isChargeable: true, chargeabilityRules: { some: { chargeable: false } } },
-          { isChargeable: false, chargeabilityRules: { some: { chargeable: true } } },
-        ],
-      });
+      const and = (await call('partial')).AND;
+      const arm = and.find((c: any) => c.OR);
+      expect(arm.OR).toContainEqual({ isChargeable: true, chargeabilityRules: { some: { chargeable: false } } });
+      expect(arm.OR).toContainEqual({ isChargeable: false, chargeabilityRules: { some: { chargeable: true } } });
     });
 
     it.each([undefined, '', 'all', 'nonsense'])('emits no clause for %p', async (value) => {
@@ -709,6 +716,115 @@ describe('TasksReportService', () => {
       const clauses = JSON.stringify(where.AND ?? []);
       expect(clauses).not.toContain('chargeabilityRules');
       expect(clauses).not.toContain('isChargeable');
+    });
+  });
+
+
+  describe('tasks (pill: entries disagreeing)', () => {
+    const dec = (n: number) => ({ toNumber: () => n }) as any;
+    function taskRow(taskId: string, isChargeable: boolean) {
+      return {
+        taskId, taskName: 'T', url: null, spaceId: '1', spaceName: 'S', status: 'open',
+        statusType: 'open', statusColor: null, priority: null, parentTaskId: null,
+        assigneesNames: null, assigneesEmails: null, updatedDate: new Date(), syncedAt: new Date(),
+        sprintPoints: null, sprintName: null, cost: dec(0), client: null, department: null,
+        isDeleted: false, archived: false, listName: null, dueDate: null, timeEstimate: null,
+        timeSpent: null, createdDate: null, closedDate: null, startDate: null, syncCount: 1,
+        estimation: dec(0), folderName: null, creatorName: null, executiveName: null,
+        isChargeable,
+      };
+    }
+
+    // A per-entry override can split a task that has NO rule on it, which the
+    // rules-only pill could not see. This is the phase 2 half of the coupling.
+    it('is partial when the entries disagree, with no rule involved', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([taskRow('t1', true)]);
+      prisma.clickupTimeEntry.groupBy.mockResolvedValue([
+        { taskId: 't1', isChargeable: true, _count: 4 },
+        { taskId: 't1', isChargeable: false, _count: 1 },
+      ]);
+      const result = await new TasksReportService(prisma).tasks();
+      expect(result.items[0].partiallyChargeable).toBe(true);
+    });
+
+    it('is NOT partial when every entry agrees', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([taskRow('t1', true)]);
+      prisma.clickupTimeEntry.groupBy.mockResolvedValue([
+        { taskId: 't1', isChargeable: true, _count: 5 },
+      ]);
+      const result = await new TasksReportService(prisma).tasks();
+      expect(result.items[0].partiallyChargeable).toBe(false);
+    });
+
+    it('is NOT partial when every entry is non-chargeable', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([taskRow('t1', false)]);
+      prisma.clickupTimeEntry.groupBy.mockResolvedValue([
+        { taskId: 't1', isChargeable: false, _count: 5 },
+      ]);
+      const result = await new TasksReportService(prisma).tasks();
+      expect(result.items[0].partiallyChargeable).toBe(false);
+    });
+
+    it('keeps each task\'s entries to itself', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([taskRow('t1', true), taskRow('t2', true)]);
+      prisma.clickupTimeEntry.groupBy.mockResolvedValue([
+        { taskId: 't1', isChargeable: true, _count: 2 },
+        { taskId: 't2', isChargeable: true, _count: 2 },
+        { taskId: 't2', isChargeable: false, _count: 1 },
+      ]);
+      const result = await new TasksReportService(prisma).tasks();
+      expect(result.items.map((i: any) => i.partiallyChargeable)).toEqual([false, true]);
+    });
+
+    it('skips the entry aggregate entirely when the page is empty', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([]);
+      await new TasksReportService(prisma).tasks();
+      expect(prisma.clickupTimeEntry.groupBy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('tasks (chargeability filter: entries arm)', () => {
+    const call = (chargeable?: string) => {
+      const prisma = makePrisma();
+      return new TasksReportService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, chargeable,
+      ).then(() => prisma.clickupTask.findMany.mock.calls[0][0].where);
+    };
+
+    // The filter has to move with the pill or the two stop agreeing: a task
+    // split by an override would show "partial" and appear in no bucket.
+    it('partial also matches entries disagreeing with each other', async () => {
+      const and = (await call('partial')).AND;
+      const arm = and.find((c: any) => c.OR);
+      expect(arm.OR).toContainEqual({
+        AND: [
+          { timeEntries: { some: { isChargeable: true } } },
+          { timeEntries: { some: { isChargeable: false } } },
+        ],
+      });
+    });
+
+    it('wholly chargeable excludes a task with any non-chargeable entry', async () => {
+      expect((await call('true')).AND).toContainEqual({
+        isChargeable: true,
+        chargeabilityRules: { none: { chargeable: false } },
+        timeEntries: { none: { isChargeable: false } },
+      });
+    });
+
+    it('wholly non-chargeable excludes a task with any chargeable entry', async () => {
+      expect((await call('false')).AND).toContainEqual({
+        isChargeable: false,
+        chargeabilityRules: { none: { chargeable: true } },
+        timeEntries: { none: { isChargeable: true } },
+      });
     });
   });
 

@@ -91,4 +91,79 @@ describe('TimeEntriesRepository', () => {
       expect(call.update.isChargeable).toBe(false);
     });
   });
+
+  describe('setChargeableOverride', () => {
+    function overrideRepo(rows: { timeEntryId: string; chargeableOverride: boolean | null }[]) {
+      const findMany = jest.fn().mockResolvedValue(rows);
+      const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+      const prisma = { clickupTimeEntry: { findMany, updateMany } } as any;
+      return { repo: new TimeEntriesRepository(prisma), findMany, updateMany };
+    }
+
+    // Prisma's `not: true` on a NULLABLE column does not reliably match NULL
+    // rows, and "no override yet" is the majority case — a single-query
+    // updateMany would silently skip exactly the entries being overridden for
+    // the first time. Hence read-then-write on the differing subset.
+    it('updates rows whose override differs, INCLUDING those with none yet', async () => {
+      const { repo, updateMany } = overrideRepo([
+        { timeEntryId: 'e1', chargeableOverride: null },
+        { timeEntryId: 'e2', chargeableOverride: true },
+        { timeEntryId: 'e3', chargeableOverride: false },
+      ]);
+
+      const res = await repo.setChargeableOverride(['e1', 'e2', 'e3'], false);
+
+      expect(updateMany).toHaveBeenCalledWith({
+        where: { timeEntryId: { in: ['e1', 'e2'] } },
+        data: { chargeableOverride: false },
+      });
+      expect(res).toEqual({ changed: ['e1', 'e2'] });
+    });
+
+    it('clearing an override touches only rows that have one', async () => {
+      const { repo, updateMany } = overrideRepo([
+        { timeEntryId: 'e1', chargeableOverride: null },
+        { timeEntryId: 'e2', chargeableOverride: true },
+      ]);
+
+      const res = await repo.setChargeableOverride(['e1', 'e2'], null);
+
+      expect(updateMany).toHaveBeenCalledWith({
+        where: { timeEntryId: { in: ['e2'] } },
+        data: { chargeableOverride: null },
+      });
+      expect(res).toEqual({ changed: ['e2'] });
+    });
+
+    // Idempotence is what lets the caller skip the recalc: nothing changed
+    // means no stored cost can have changed either.
+    it('writes nothing when every row already holds the requested value', async () => {
+      const { repo, updateMany } = overrideRepo([
+        { timeEntryId: 'e1', chargeableOverride: true },
+        { timeEntryId: 'e2', chargeableOverride: true },
+      ]);
+
+      const res = await repo.setChargeableOverride(['e1', 'e2'], true);
+
+      expect(updateMany).not.toHaveBeenCalled();
+      expect(res).toEqual({ changed: [] });
+    });
+
+    // Ids that match no row must not appear in `changed` — the recalc is
+    // scoped to exactly what was written.
+    it('ignores ids that match no entry', async () => {
+      const { repo } = overrideRepo([{ timeEntryId: 'e1', chargeableOverride: null }]);
+      const res = await repo.setChargeableOverride(['e1', 'ghost'], false);
+      expect(res).toEqual({ changed: ['e1'] });
+    });
+
+    it('does not query at all for an empty id list', async () => {
+      const { repo, findMany, updateMany } = overrideRepo([]);
+      const res = await repo.setChargeableOverride([], false);
+      expect(findMany).not.toHaveBeenCalled();
+      expect(updateMany).not.toHaveBeenCalled();
+      expect(res).toEqual({ changed: [] });
+    });
+  });
+
 });

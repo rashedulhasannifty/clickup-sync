@@ -4,7 +4,7 @@ import {
   Clock, DollarSign, AlertTriangle, CircleCheck, Download,
   Search, X,
 } from 'lucide-react';
-import { useTimeEntriesList, useTimeEntriesByTask, useTimeEntriesByUser, useTimeEntriesAggregates, useClients, useLists, useFolders } from '../hooks/useReports';
+import { useTimeEntriesList, useTimeEntriesByTask, useTimeEntriesByUser, useTimeEntriesAggregates, useClients, useLists, useFolders, useSetEntryChargeableOverride } from '../hooks/useReports';
 import type { TimeEntryTaskGroup } from '../hooks/useReports';
 import { useMutation } from '@tanstack/react-query';
 import { reportsApi } from '../api/reports';
@@ -27,6 +27,7 @@ import { TimeEntryDrawer } from '../components/TimeEntryDrawer';
 import { TaskTimeEntriesPanel } from '../components/TaskTimeEntriesPanel';
 import { SelectionBar, type SelectionStat } from '../components/SelectionBar';
 import { useRowSelection } from '../hooks/useRowSelection';
+import { useAuth } from '../hooks/useAuth';
 import type { TimeEntryItem } from '../components/TimeEntryDrawer';
 
 const CHARGEABLE_OPTIONS = [
@@ -322,6 +323,17 @@ export function TimeEntriesPage() {
     [params, groupBy],
   );
   const entrySelection = useRowSelection<TimeEntryItem>(selectionScope);
+  const { hasRole } = useAuth();
+  const canEdit = hasRole('ADMIN');
+  const setOverride = useSetEntryChargeableOverride();
+  // The selected rows carry their own ids, so no extra fetch is needed to turn
+  // a selection into a write. Clears the selection on success — leaving rows
+  // selected after they've changed invites a second, accidental apply.
+  const applyOverride = (chargeable: boolean | null) => {
+    const ids = entrySelection.selectedRows.map((r) => r.timeEntryId);
+    if (ids.length === 0) return;
+    setOverride.mutate({ timeEntryIds: ids, chargeable }, { onSuccess: () => entrySelection.clear() });
+  };
   const groupSelection = useRowSelection<TimeEntryTaskGroup>(selectionScope);
   const selectionCount = grouped ? groupSelection.count : entrySelection.count;
   const expandedTasks = expanded.key === paramsKey ? expanded.ids : EMPTY_EXPANSION;
@@ -950,6 +962,38 @@ export function TimeEntriesPage() {
         nounPlural={grouped ? 'tasks' : 'entries'}
         stats={selectionStats}
         onClear={grouped ? groupSelection.clear : entrySelection.clear}
+        // Only in the flat view: the grouped view selects TASKS, and a per-entry
+        // override applied to "every entry under these tasks" is a different
+        // and much blunter action than the one this button names. Task-level
+        // chargeability already has its own control on the Tasks page.
+        actions={!grouped && canEdit && selectionCount > 0 ? (
+          <>
+            <Button
+              size="sm"
+              variant="default"
+              disabled={setOverride.isPending}
+              onClick={() => applyOverride(false)}
+            >
+              Mark non-chargeable
+            </Button>
+            <Button
+              size="sm"
+              variant="default"
+              disabled={setOverride.isPending}
+              onClick={() => applyOverride(true)}
+            >
+              Mark chargeable
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={setOverride.isPending}
+              onClick={() => applyOverride(null)}
+            >
+              Clear override
+            </Button>
+          </>
+        ) : undefined}
       />
 
       <QueryError query={grouped ? byTaskQuery : timeEntriesQuery} what="time entries" />

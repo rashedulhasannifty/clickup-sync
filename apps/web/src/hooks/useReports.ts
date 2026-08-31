@@ -533,6 +533,28 @@ export function useChargeabilityRules(params: { limit?: number; offset?: number 
   });
 }
 
+/**
+ * Per-entry chargeability override — the most specific layer, beating the
+ * (task, assignee) rule and the task flag. `chargeable: null` clears it.
+ */
+export function useSetEntryChargeableOverride() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ timeEntryIds, chargeable }: { timeEntryIds: string[]; chargeable: boolean | null }) =>
+      adminApi.setEntryChargeableOverride(timeEntryIds, chargeable),
+    onSuccess: () => {
+      // The recalc is asynchronous, so costs lag by a moment; the override
+      // itself is immediate. Both the entry lists and the Tasks page pill read
+      // from it, and the pill is server-derived — so the tasks list is stale
+      // the moment an override splits a task.
+      qc.invalidateQueries({
+        predicate: (query) => typeof query.queryKey[0] === 'string' && query.queryKey[0].startsWith('time-entries'),
+      });
+      qc.invalidateQueries({ queryKey: ['tasks'] });
+    },
+  });
+}
+
 export function useSetAssigneeChargeable() {
   const qc = useQueryClient();
   return useMutation({

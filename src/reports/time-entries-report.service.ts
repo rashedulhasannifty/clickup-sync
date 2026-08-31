@@ -337,7 +337,7 @@ export class TimeEntriesReportService {
           timeEntryId: true, taskId: true, userId: true, userName: true, userEmail: true,
           startTime: true, endTime: true, durationHours: true, hourlyRateCents: true,
           costCents: true, status: true, description: true, syncedAt: true,
-          rateId: true, currency: true, isChargeable: true,
+          rateId: true, currency: true, isChargeable: true, chargeableOverride: true,
           task: { select: { taskName: true, client: true, listName: true } },
         },
       }),
@@ -363,6 +363,13 @@ export class TimeEntriesReportService {
         // resolver) — not derived from the joined task, which can't see a
         // per-assignee rule.
         chargeable: e.isChargeable,
+        // The RAW override, alongside the resolved answer above. The two are
+        // different questions: `chargeable` is what applies, `chargeableOverride`
+        // is whether THIS row is what decided it. Without both, a row reading
+        // "non-chargeable" gives no way to tell an inherited answer from an
+        // explicit one, and no way to know whether "clear override" means
+        // anything here. null = inherited from the rule or the task flag.
+        chargeableOverride: e.chargeableOverride,
         description: e.description,
         syncedAt: e.syncedAt,
         rateId: e.rateId != null ? e.rateId.toString() : null,

@@ -1,8 +1,10 @@
 import { AlertTriangle, CircleCheck } from 'lucide-react';
-import { useTimeEntriesList } from '../hooks/useReports';
+import { useTimeEntriesList, useSetEntryChargeableOverride } from '../hooks/useReports';
+import { useAuth } from '../hooks/useAuth';
 import { fmt } from '../lib/formatters';
 import { ClickupAvatar } from './ui/ClickupAvatar';
 import { Pill } from './ui/Pill';
+import { Button } from './ui/Button';
 import { Skeleton } from './ui/Skeleton';
 import type { TimeEntryItem } from './TimeEntryDrawer';
 
@@ -28,6 +30,9 @@ interface Props {
 
 export function TaskTimeEntriesPanel({ taskId, params, onSelectEntry }: Props) {
   const { data, isLoading, isError } = useTimeEntriesList({ ...params, taskId, limit: MAX_ENTRIES, offset: 0 });
+  const { hasRole } = useAuth();
+  const canEdit = hasRole('ADMIN');
+  const setOverride = useSetEntryChargeableOverride();
   const items: TimeEntryItem[] = (data as { items?: TimeEntryItem[] } | undefined)?.items ?? [];
   const total: number = (data as { total?: number } | undefined)?.total ?? 0;
 
@@ -101,7 +106,39 @@ export function TaskTimeEntriesPanel({ taskId, params, onSelectEntry }: Props) {
                   {fmt.duration(e.durationHours)}
                 </td>
                 <td style={cell}>
-                  {e.chargeable ? <Pill tone="green" size="xs">chargeable</Pill> : <Pill tone="gray" size="xs">non-chargeable</Pill>}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {e.chargeable ? <Pill tone="green" size="xs">chargeable</Pill> : <Pill tone="gray" size="xs">non-chargeable</Pill>}
+                    {/* Whether THIS row is what decided the pill beside it. An
+                        inherited answer and an explicitly overridden one look
+                        identical otherwise, and only the latter can be cleared. */}
+                    {e.chargeableOverride !== null && <Pill tone="blue" size="xs">override</Pill>}
+                    {canEdit && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={setOverride.isPending}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          setOverride.mutate({ timeEntryIds: [e.timeEntryId], chargeable: !e.chargeable });
+                        }}
+                      >
+                        {e.chargeable ? 'Mark non-chargeable' : 'Mark chargeable'}
+                      </Button>
+                    )}
+                    {canEdit && e.chargeableOverride !== null && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={setOverride.isPending}
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          setOverride.mutate({ timeEntryIds: [e.timeEntryId], chargeable: null });
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </span>
                 </td>
                 <td style={{ ...cell, textAlign: 'right', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
                   {e.hourlyRateCents > 0 ? `${fmt.money(e.hourlyRateCents, cur)}/h` : '—'}

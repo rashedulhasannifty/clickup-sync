@@ -279,16 +279,36 @@ export class TasksReportService {
     // entry signal, this filter has to gain the matching arm in the same
     // change or the two stop agreeing.
     if (chargeable === 'true') {
-      and.push({ isChargeable: true, chargeabilityRules: { none: { chargeable: false } } });
+      // "No entry disagrees" rather than "all entries are chargeable": an
+      // empty relation must still count as wholly chargeable.
+      and.push({
+        isChargeable: true,
+        chargeabilityRules: { none: { chargeable: false } },
+        timeEntries: { none: { isChargeable: false } },
+      });
     } else if (chargeable === 'false') {
-      and.push({ isChargeable: false, chargeabilityRules: { none: { chargeable: true } } });
+      and.push({
+        isChargeable: false,
+        chargeabilityRules: { none: { chargeable: true } },
+        timeEntries: { none: { isChargeable: true } },
+      });
     } else if (chargeable === 'partial') {
-      // "Disagrees with the flag" depends on the row's own flag, so it cannot
-      // be a single relation filter — one OR arm per direction.
       and.push({
         OR: [
+          // "Disagrees with the flag" depends on the row's own flag, so the
+          // rule half cannot be a single relation filter — one arm per
+          // direction.
           { isChargeable: true, chargeabilityRules: { some: { chargeable: false } } },
           { isChargeable: false, chargeabilityRules: { some: { chargeable: true } } },
+          // The entries half needs no flag: entries disagreeing with EACH
+          // OTHER is a split however the task is flagged. This is what catches
+          // a per-entry override on a task with no rule on it.
+          {
+            AND: [
+              { timeEntries: { some: { isChargeable: true } } },
+              { timeEntries: { some: { isChargeable: false } } },
+            ],
+          },
         ],
       });
     }
@@ -318,23 +338,42 @@ export class TasksReportService {
     // for the rows ON THIS PAGE are read alongside them. Scoped to the page,
     // not the filtered set — the pill only renders for rows that exist.
     //
-    // Entry-level counts are deliberately NOT consulted here. Nothing writes
-    // `chargeable_override` yet, so an entry's `is_chargeable` is a lagged
-    // function of the same rule this already reads; folding it in would add a
-    // per-page aggregate that can only agree, or agree late. Phase 2 makes it
-    // load-bearing — `isPartiallyChargeable` already takes the counts.
+    // Entry counts are consulted alongside the rules from phase 2 onwards: a
+    // per-entry override can split a task that has no rule on it at all, which
+    // the rules alone cannot see. The `chargeable` filter above carries the
+    // matching arm — the two must move together or a split task shows
+    // "partial" here and lands in no filter bucket.
     const pageTaskIds = items.map((t) => t.taskId);
-    const ruleRows = pageTaskIds.length
-      ? await this.prisma.taskAssigneeChargeability.findMany({
-          where: { taskId: { in: pageTaskIds } },
-          select: { taskId: true, chargeable: true },
-        })
-      : [];
+    const [ruleRows, entryRows] = pageTaskIds.length
+      ? await Promise.all([
+          this.prisma.taskAssigneeChargeability.findMany({
+            where: { taskId: { in: pageTaskIds } },
+            select: { taskId: true, chargeable: true },
+          }),
+          this.prisma.clickupTimeEntry.groupBy({
+            by: ['taskId', 'isChargeable'],
+            where: { taskId: { in: pageTaskIds } },
+            _count: true,
+          }),
+        ])
+      : [[], []];
     const rulesByTask = new Map<string, boolean[]>();
     for (const r of ruleRows) {
       const list = rulesByTask.get(r.taskId);
       if (list) list.push(r.chargeable);
       else rulesByTask.set(r.taskId, [r.chargeable]);
+    }
+
+    // Counts, never an hours sum — a task split only by 0-duration entries is
+    // still split. See `isPartiallyChargeable`.
+    const countsByTask = new Map<string, { entryCount: number; nonChargeableCount: number }>();
+    for (const g of entryRows) {
+      if (g.taskId == null) continue;
+      const b = countsByTask.get(g.taskId) ?? { entryCount: 0, nonChargeableCount: 0 };
+      const n = typeof g._count === 'number' ? g._count : 0;
+      b.entryCount += n;
+      if (!g.isChargeable) b.nonChargeableCount += n;
+      countsByTask.set(g.taskId, b);
     }
 
     const MS_PER_H = 3600000;
@@ -346,6 +385,7 @@ export class TasksReportService {
           partiallyChargeable: isPartiallyChargeable({
             taskChargeable: t.isChargeable,
             rules: rulesByTask.get(t.taskId) ?? [],
+            ...(countsByTask.get(t.taskId) ?? {}),
           }),
           cost: cost.toNumber(),
           estimation: estimation.toNumber(),

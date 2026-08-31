@@ -4,13 +4,59 @@ import { AdminTasksController } from './admin-tasks.controller';
 import { AuthPrincipal } from '../auth/auth.types';
 
 describe('AdminTasksController', () => {
-  function makeCtrl(over: { setChargeable?: jest.Mock; add?: jest.Mock; list?: jest.Mock } = {}) {
+  function makeCtrl(over: { setChargeable?: jest.Mock; add?: jest.Mock; list?: jest.Mock; setOverride?: jest.Mock } = {}) {
     const add = over.add ?? jest.fn();
     const queues = { get: () => ({ add }), defaultJobOptions: () => ({}) } as never;
     const repo = { setChargeable: over.setChargeable ?? jest.fn().mockResolvedValue({ count: 2 }) } as never;
     const rules = { setRule: jest.fn(), clearRule: jest.fn(), list: over.list ?? jest.fn().mockResolvedValue({ items: [], total: 0 }) } as never;
-    return { ctrl: new AdminTasksController(queues, repo, rules), add, repo, rules: rules as never as { list: jest.Mock } };
+    const setChargeableOverride = over.setOverride ?? jest.fn().mockResolvedValue({ changed: ['e1', 'e2'] });
+    const entries = { setChargeableOverride } as never;
+    return {
+      ctrl: new AdminTasksController(queues, repo, rules, entries),
+      add, repo,
+      rules: rules as never as { list: jest.Mock },
+      setChargeableOverride,
+    };
   }
+
+  describe('setEntryChargeableOverride', () => {
+    it('writes the override and recalcs ONLY the entries that changed', async () => {
+      const { ctrl, add, setChargeableOverride } = makeCtrl({
+        // 'e3' was already non-chargeable, so the repository reports two.
+        setOverride: jest.fn().mockResolvedValue({ changed: ['e1', 'e2'] }),
+      });
+
+      const res = await ctrl.setEntryChargeableOverride({ timeEntryIds: ['e1', 'e2', 'e3'], chargeable: false });
+
+      expect(setChargeableOverride).toHaveBeenCalledWith(['e1', 'e2', 'e3'], false);
+      // The job names the CHANGED ids, not the requested ones — re-costing an
+      // untouched entry is wasted work and a misleading job log.
+      expect(add.mock.calls[0][1]).toEqual({ timeEntryIds: ['e1', 'e2'] });
+      expect(res).toEqual({ updated: 2, requested: 3, queued: true });
+    });
+
+    it('clears an override', async () => {
+      const { ctrl, setChargeableOverride } = makeCtrl();
+      await ctrl.setEntryChargeableOverride({ timeEntryIds: ['e1'], chargeable: null });
+      expect(setChargeableOverride).toHaveBeenCalledWith(['e1'], null);
+    });
+
+    // Nothing changed means no stored cost can have changed either.
+    it('skips the recalc when nothing changed', async () => {
+      const { ctrl, add } = makeCtrl({ setOverride: jest.fn().mockResolvedValue({ changed: [] }) });
+      const res = await ctrl.setEntryChargeableOverride({ timeEntryIds: ['e1'], chargeable: true });
+      expect(add).not.toHaveBeenCalled();
+      expect(res).toEqual({ updated: 0, requested: 1, queued: false });
+    });
+
+    // Also guarded by the DTO; kept here so a direct service call can't bypass it.
+    it('rejects a batch over the cap', async () => {
+      const { ctrl } = makeCtrl();
+      const ids = Array.from({ length: 501 }, (_, i) => `e${i}`);
+      await expect(ctrl.setEntryChargeableOverride({ timeEntryIds: ids, chargeable: false }))
+        .rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
 
   it('sets the flag and enqueues a recalc scoped to those tasks', async () => {
     const { ctrl, add, repo } = makeCtrl();
@@ -47,7 +93,8 @@ describe('AdminTasksController', () => {
         setRule: over.setRule ?? jest.fn().mockResolvedValue({ changed: true }),
         clearRule: over.clearRule ?? jest.fn().mockResolvedValue({ changed: true }),
       } as never;
-      return { ctrl: new AdminTasksController(queues, tasksRepo, rules), add, rules };
+      const entries = { setChargeableOverride: jest.fn().mockResolvedValue({ changed: [] }) } as never;
+      return { ctrl: new AdminTasksController(queues, tasksRepo, rules, entries), add, rules };
     }
 
     const user: AuthPrincipal = {
