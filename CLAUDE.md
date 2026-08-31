@@ -193,6 +193,52 @@ Rules:
 - Empty `valid_to` means open-ended.
 - Use effective dating to calculate time-entry cost.
 
+### Chargeability
+
+Whether tracked time is billable. Four layers can answer, and **the most
+specific one that has an opinion wins, in either direction** — a rule can make
+one person's time chargeable on an otherwise non-chargeable task:
+
+1. `clickup_time_entries.chargeable_override` (per entry)
+2. `task_assignee_chargeability` (per task + assignee)
+3. `clickup_tasks.is_chargeable` (per task)
+4. default `true`
+
+Resolution lives in `src/time-entries/chargeability.ts` (`resolveChargeability`).
+Keep it pure and keep it the only place this order is encoded.
+
+The global `excludedAssignees` setting is **orthogonal** and deliberately NOT
+part of this stack. It decides whether we COST an identity, not whether the
+work is billable, and it short-circuits in `CostCalculatorService.calculate`
+before chargeability is consulted. An entry can be both `COST_EXCLUDED` and
+non-chargeable.
+
+Rules:
+
+- `chargeable_override` and `is_chargeable` (on tasks) and the whole
+  `task_assignee_chargeability` table are **local annotations**: owned by this
+  app, never mirrored from ClickUp. No sync path may write them — a guardrail
+  test enforces that `TimeEntriesRepository.upsert` and
+  `TasksRepository.upsert` don't. Anything added to those blocks inherits the
+  rule; a sync that writes one silently reverts what a user set.
+- `clickup_time_entries.is_chargeable` is different: it is **derived**, written
+  on every cost write as part of the cost object. Never set it by hand.
+- Any write that changes a resolved answer must enqueue a `recalculate-costs`
+  job scoped as narrowly as the change (`taskIds`, `assigneeId`, or
+  `timeEntryIds`) — and must skip it when nothing actually changed.
+- `CostRecalcProcessor` picks `entityType` from that scope as a three-way
+  (`task` / `timeEntry` / `assignee`). Only ONE id goes in `entity_id` (btree
+  tuple limit); the full list goes in `payload`.
+- A task is *partial* when its flag doesn't describe every hour on it —
+  `isPartiallyChargeable`. The `chargeable=true|false|partial` filter on
+  `/reports/tasks` defines `partial` as the **complement** of the two "wholly"
+  clauses, so the three buckets stay exhaustive by construction. If you add a
+  new way for a task to be split, the pill and that filter must change
+  together.
+
+See `docs/superpowers/specs/2026-08-27-task-chargeability-design.md` and
+`2026-08-28-per-assignee-chargeability-design.md`.
+
 ### Sprint / list catalog
 
 `clickup_lists` is the sprint/list catalog: one row per ClickUp list (sprint), keyed on `list_id`, storing `name`, `folderId`/`folderName`, `spaceId`/`spaceName`, `archived`, and sprint `startDate`/`dueDate`. It powers `/reports/sprints`, `/reports/sprints/folders`, `/reports/sprints/velocity`, `/reports/sprints/:listId`, and the `sprintStatus=active|completed|all` filter on `/reports/tasks` and `/reports/time-entries`. See "Sprint / list catalog" in `docs/OPERATIONS.md` for how it's populated (backfill, daily cron, `POST /admin/lists/sync`, opportunistic webhook upserts) and which of those paths are authoritative for `archived`/dates vs. name/folder only.
@@ -336,4 +382,5 @@ Already in place (do not re-implement):
 - Admin audit log (`AdminAuditLog` model + `AuditLogInterceptor` on `AdminController`, write actions only, viewable at `/audit-log`)
 - Status-change history capture (`clickup_task_events`, subscribed to `taskStatusUpdated`; cycle-time + time-in-status reports at `/reports/cycle-time` and `/reports/time-in-status`; card on Overview page)
 - Sprint/list catalog + reports (`clickup_lists`, populated via manual space backfill, the daily `SYNC_LIST_CATALOG` cron at 03:00, `POST /admin/lists/sync`, and opportunistic upserts from task webhooks — see `docs/OPERATIONS.md`): `/reports/sprints`, `/reports/sprints/folders`, `/reports/sprints/velocity`, `/reports/sprints/:listId`, plus a `sprintStatus=active|completed|all` filter on `/reports/tasks` and `/reports/time-entries`; frontend `/sprints` analytics page and a sprintStatus Select on the Tasks and Time Entries pages.
+- Chargeability, end to end (see the data-model section above): task flag, per-(task, assignee) rules (`task_assignee_chargeability`), and per-entry overrides (`clickup_time_entries.chargeable_override`), each with a scoped `recalculate-costs` job. Write paths are `PATCH /admin/tasks/chargeable`, `PATCH /admin/tasks/:taskId/assignee-chargeable` (`chargeable: null` clears — there is deliberately no DELETE), and `PATCH /admin/time-entries/chargeable-override`. Read surfaces: `GET /admin/chargeability-rules`, `GET /reports/tasks/:taskId/assignee-chargeability`, a tri-state pill and a `chargeable=true|false|partial` filter on the Tasks page, per-assignee controls in the task drawer, a per-row toggle plus bulk action on Time Entries, and the `/chargeability-rules` admin screen.
 - Per-user authentication & RBAC (`src/auth/*`): email/password login (`scrypt` hashing, NIST-style policy), HTTP-only cookie sessions that are DB-backed with SHA-256-hashed tokens and an hourly expired-session sweep (`SessionCleanupService`). One `Organization` tenant with three roles — Owner (org secrets + everything), Admin (ops + invite), Member (read-only) — enforced app-wide by a global `AuthGuard` + `RolesGuard`. Self-serve signup claims the seed org and becomes its first Owner; after that signup is closed and users join by email invitation (`nodemailer`/SMTP, dev transport logs the link). The shared `ADMIN_API_KEY` now authenticates as a synthetic Owner machine credential. The audit log actor is derived from the authenticated session user (the spoofable `X-Admin-User` header is retired). Note: per-ORG data isolation (`org_id` on ClickUp data tables, multi-org sync) is still pending — see Spec 2 and `docs/superpowers/specs/2026-06-06-auth-orgs-rbac-design.md`.
