@@ -159,6 +159,17 @@ function TaskDetailDrawer({
   const descLoading = descQuery.isLoading;
   const taskId = String(task.taskId ?? task.task_id ?? '');
   const assigneeCharge = assigneeChargeData ?? [];
+  // Same predicate the server applies for the table's pill
+  // (`isPartiallyChargeable`), but computed from the drawer's own live rule
+  // list so it survives the optimistic flag patch below: flipping the task
+  // flag doesn't refetch this list, and rules are unaffected by that flip.
+  // `a.rule` is the raw rule (null = none); `a.chargeable` is the resolved
+  // answer, which equals the task flag when no rule exists and so would never
+  // disagree on its own.
+  const taskChargeable = task.isChargeable !== false;
+  const taskPartiallyChargeable = assigneeCharge.some(
+    (a) => a.rule !== null && a.rule !== taskChargeable,
+  );
   // Prefer the stored ClickUp URL (handles custom domains / task custom ids);
   // fall back to the deterministic task URL when the row predates the `url` select.
   const clickupUrl = String(task.url ?? '') || `https://app.clickup.com/t/${taskId}`;
@@ -267,9 +278,11 @@ function TaskDetailDrawer({
               <div style={{ marginTop: 12 }}>
                 <Field label="Chargeable">
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    {task.isChargeable === false
-                      ? <Pill tone="gray" size="xs">non-chargeable</Pill>
-                      : <Pill tone="green" size="xs">chargeable</Pill>}
+                    {taskPartiallyChargeable
+                      ? <Pill tone="blue" size="xs">partial</Pill>
+                      : task.isChargeable === false
+                        ? <Pill tone="gray" size="xs">non-chargeable</Pill>
+                        : <Pill tone="green" size="xs">chargeable</Pill>}
                     {canEdit && (
                       <Button size="sm" variant="ghost" onClick={() => onSetChargeable(taskId, task.isChargeable === false)}>
                         {task.isChargeable === false ? 'Mark chargeable' : 'Mark non-chargeable'}
@@ -664,7 +677,7 @@ export function TasksPage() {
         { header: 'Space',         value: (r) => r.spaceName ?? r.space_name, key: 'space_name' },
         { header: 'List',          value: (r) => r.listName ?? r.list_name, key: 'list_name' },
         { header: 'Status',        value: 'status', key: 'status' },
-        { header: 'Chargeable',    value: (r) => (r.isChargeable === false ? 'No' : 'Yes'), key: 'chargeable' },
+        { header: 'Chargeable',    value: (r) => (r.partiallyChargeable ? 'Partial' : r.isChargeable === false ? 'No' : 'Yes'), key: 'chargeable' },
         { header: 'Status type',   value: (r) => r.statusType ?? r.status_type },
         { header: 'Priority',      value: 'priority' },
         { header: 'Assignees',     value: 'assigneesNames', key: 'assignees', width: 30 },
@@ -734,9 +747,16 @@ export function TasksPage() {
       header: 'Charge',
       width: 120,
       render: (row) => (
-        row.isChargeable === false
-          ? <Pill tone="gray" size="xs">non-chargeable</Pill>
-          : <Pill tone="green" size="xs">chargeable</Pill>
+        // Partial wins over the raw flag: a task with a rule that disagrees
+        // with it is neither wholly chargeable nor wholly not, and printing
+        // either flat pill would misreport it. Blue, not amber — this is a
+        // state, not a fault. Same tones as the grouped-by-task rows on the
+        // Time Entries page, which answer the same question window-scoped.
+        row.partiallyChargeable
+          ? <Pill tone="blue" size="xs">partial</Pill>
+          : row.isChargeable === false
+            ? <Pill tone="gray" size="xs">non-chargeable</Pill>
+            : <Pill tone="green" size="xs">chargeable</Pill>
       ),
     },
     {

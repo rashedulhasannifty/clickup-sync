@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { parseDate } from './report-date.util';
 import { csvList, sprintStatusListIds, taskSearchOr } from './report-filter.util';
+import { isPartiallyChargeable } from '../time-entries/chargeability';
 
 /** Task-centric report queries (counts, filters, per-space aggregates). */
 @Injectable()
@@ -281,12 +282,41 @@ export class TasksReportService {
       }),
       this.prisma.clickupTask.count({ where }),
     ]);
+
+    // Tri-state pill input. `is_chargeable` on the task is only half the
+    // answer once a (task, assignee) rule can disagree with it, so the rules
+    // for the rows ON THIS PAGE are read alongside them. Scoped to the page,
+    // not the filtered set — the pill only renders for rows that exist.
+    //
+    // Entry-level counts are deliberately NOT consulted here. Nothing writes
+    // `chargeable_override` yet, so an entry's `is_chargeable` is a lagged
+    // function of the same rule this already reads; folding it in would add a
+    // per-page aggregate that can only agree, or agree late. Phase 2 makes it
+    // load-bearing — `isPartiallyChargeable` already takes the counts.
+    const pageTaskIds = items.map((t) => t.taskId);
+    const ruleRows = pageTaskIds.length
+      ? await this.prisma.taskAssigneeChargeability.findMany({
+          where: { taskId: { in: pageTaskIds } },
+          select: { taskId: true, chargeable: true },
+        })
+      : [];
+    const rulesByTask = new Map<string, boolean[]>();
+    for (const r of ruleRows) {
+      const list = rulesByTask.get(r.taskId);
+      if (list) list.push(r.chargeable);
+      else rulesByTask.set(r.taskId, [r.chargeable]);
+    }
+
     const MS_PER_H = 3600000;
     return {
       items: items.map((t) => {
         const { timeEstimate, timeSpent, cost, estimation, ...rest } = t;
         return {
           ...rest,
+          partiallyChargeable: isPartiallyChargeable({
+            taskChargeable: t.isChargeable,
+            rules: rulesByTask.get(t.taskId) ?? [],
+          }),
           cost: cost.toNumber(),
           estimation: estimation.toNumber(),
           timeEstimateHours: timeEstimate != null ? Number(timeEstimate) / MS_PER_H : null,

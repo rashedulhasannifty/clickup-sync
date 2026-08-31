@@ -540,6 +540,11 @@ export function useSetAssigneeChargeable() {
       qc.invalidateQueries({
         predicate: (query) => typeof query.queryKey[0] === 'string' && query.queryKey[0].startsWith('time-entries'),
       });
+      // A rule now decides the Tasks page's tri-state pill, so the tasks list
+      // is stale the moment one is set or cleared. Its key carries the whole
+      // filter params object (['tasks', params]), so this must match by prefix
+      // rather than by exact key.
+      qc.invalidateQueries({ queryKey: ['tasks'] });
     },
   });
 }

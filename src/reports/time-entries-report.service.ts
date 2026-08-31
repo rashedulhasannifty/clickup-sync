@@ -4,7 +4,7 @@ import { PrismaService } from '../database/prisma.service';
 import { assembleTimesheet, dhakaDate, type TimesheetAggRow } from './timesheet.assemble';
 import { defaultFrom, parseDate } from './report-date.util';
 import { buildTimeEntryWhere, NO_TASK_ID } from './report-filter.util';
-import { resolveChargeability } from '../time-entries/chargeability';
+import { isPartiallyChargeable, resolveChargeability } from '../time-entries/chargeability';
 
 /** Time-entry report queries (timesheets, per-user/client/department rollups, list + aggregates). */
 @Injectable()
@@ -521,12 +521,23 @@ export class TimeEntriesReportService {
             .map(([userId, userName]) => ({ userId, userName }))
             .sort((x, y) => (x.userName ?? '').localeCompare(y.userName ?? '')),
           totalHours: b.hours,
-          // `chargeable` is now tri-state at the row level: all, none, or some.
+          // `chargeable` is tri-state at the row level: all, none, or some.
           // Decided by entry counts, not the hours sum — a bucket of only
           // 0-duration non-chargeable entries must not read as "all
           // chargeable" just because 0 hours equals 0 hours.
           chargeable: b.nonChargeableCount === 0,
-          partiallyChargeable: b.nonChargeableCount > 0 && b.nonChargeableCount < b.entryCount,
+          // `rules: []` on purpose. Every other number on this row — hours,
+          // cost, entry count — is scoped to the current filter window, so the
+          // pill must be too. A standing rule for someone whose entries fall
+          // OUTSIDE the window would otherwise print "partial" beside columns
+          // showing nothing partial about them. The Tasks page asks the
+          // unscoped question and does pass rules.
+          partiallyChargeable: isPartiallyChargeable({
+            taskChargeable: b.nonChargeableCount === 0,
+            rules: [],
+            entryCount: b.entryCount,
+            nonChargeableCount: b.nonChargeableCount,
+          }),
           chargeableHours: b.chargeableHours,
           costAud: b.validCostCents / 100,
           missingRateCount: b.missingRateCount,

@@ -8,6 +8,12 @@ describe('TasksReportService', () => {
         count: jest.fn().mockResolvedValue(0),
         findMany: jest.fn().mockResolvedValue([]),
       },
+      // `tasks()` reads the chargeability rules for the rows on the page to
+      // derive the tri-state pill, so this belongs in the base mock — every
+      // tasks() test goes through that path.
+      taskAssigneeChargeability: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       $queryRaw: jest.fn().mockResolvedValue([]),
     };
     return { ...base, ...overrides } as any;
@@ -568,4 +574,94 @@ describe('TasksReportService', () => {
       expect(count).toHaveBeenCalledWith({ where: { taskId: { in: ['t1', 't2', 'ghost'] }, isChargeable: true } });
     });
   });
+
+  describe('tasks (tri-state chargeability pill)', () => {
+    // The service only calls `.toNumber()` on these columns, so a stub is
+    // enough — no need to drag in Prisma's Decimal for a mocked row.
+    const dec = (n: number) => ({ toNumber: () => n }) as any;
+
+    // Rows carry the raw task flag AND whether that flag actually describes
+    // every hour on the task. A rule that disagrees with the flag splits it.
+    function taskRow(taskId: string, isChargeable: boolean) {
+      return {
+        taskId, taskName: 'T', url: null, spaceId: '1', spaceName: 'S', status: 'open',
+        statusType: 'open', statusColor: null, priority: null, parentTaskId: null,
+        assigneesNames: null, assigneesEmails: null, updatedDate: new Date(), syncedAt: new Date(),
+        sprintPoints: null, sprintName: null, cost: dec(0), client: null, department: null,
+        isDeleted: false, archived: false, listName: null, dueDate: null, timeEstimate: null,
+        timeSpent: null, createdDate: null, closedDate: null, startDate: null, syncCount: 1,
+        estimation: dec(0), folderName: null, creatorName: null, executiveName: null,
+        isChargeable,
+      };
+    }
+
+    it('marks a chargeable task partial when a rule excludes one assignee', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([taskRow('t1', true)]);
+      prisma.taskAssigneeChargeability.findMany.mockResolvedValue([
+        { taskId: 't1', chargeable: false },
+      ]);
+      const result = await new TasksReportService(prisma).tasks();
+      expect(result.items[0].isChargeable).toBe(true);
+      expect(result.items[0].partiallyChargeable).toBe(true);
+    });
+
+    it('marks a non-chargeable task partial when a rule includes one assignee', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([taskRow('t1', false)]);
+      prisma.taskAssigneeChargeability.findMany.mockResolvedValue([
+        { taskId: 't1', chargeable: true },
+      ]);
+      const result = await new TasksReportService(prisma).tasks();
+      expect(result.items[0].partiallyChargeable).toBe(true);
+    });
+
+    it('leaves a task with no rules alone', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([taskRow('t1', true), taskRow('t2', false)]);
+      const result = await new TasksReportService(prisma).tasks();
+      expect(result.items.map((i: any) => i.partiallyChargeable)).toEqual([false, false]);
+    });
+
+    it('does not mark a task partial when its rules agree with its flag', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([taskRow('t1', true)]);
+      prisma.taskAssigneeChargeability.findMany.mockResolvedValue([
+        { taskId: 't1', chargeable: true },
+      ]);
+      const result = await new TasksReportService(prisma).tasks();
+      expect(result.items[0].partiallyChargeable).toBe(false);
+    });
+
+    it('keeps each task\'s rules to itself', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([taskRow('t1', true), taskRow('t2', true)]);
+      prisma.taskAssigneeChargeability.findMany.mockResolvedValue([
+        { taskId: 't2', chargeable: false },
+      ]);
+      const result = await new TasksReportService(prisma).tasks();
+      expect(result.items.map((i: any) => i.partiallyChargeable)).toEqual([false, true]);
+    });
+
+    // The rule lookup is scoped to the ids actually on the page, not the whole
+    // filtered set — the pill is only rendered for rows that exist.
+    it('scopes the rule lookup to the page\'s task ids', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([taskRow('t1', true), taskRow('t2', true)]);
+      await new TasksReportService(prisma).tasks();
+      expect(prisma.taskAssigneeChargeability.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { taskId: { in: ['t1', 't2'] } } }),
+      );
+    });
+
+    // An empty `in` list would scan the rule table for nothing on every empty
+    // page — same guard as TaskAssigneeChargeabilityRepository.findForTasks.
+    it('skips the rule query entirely when the page is empty', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([]);
+      await new TasksReportService(prisma).tasks();
+      expect(prisma.taskAssigneeChargeability.findMany).not.toHaveBeenCalled();
+    });
+  });
+
 });
