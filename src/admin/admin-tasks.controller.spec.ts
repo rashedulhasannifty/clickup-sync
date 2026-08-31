@@ -4,12 +4,12 @@ import { AdminTasksController } from './admin-tasks.controller';
 import { AuthPrincipal } from '../auth/auth.types';
 
 describe('AdminTasksController', () => {
-  function makeCtrl(over: { setChargeable?: jest.Mock; add?: jest.Mock } = {}) {
+  function makeCtrl(over: { setChargeable?: jest.Mock; add?: jest.Mock; list?: jest.Mock } = {}) {
     const add = over.add ?? jest.fn();
     const queues = { get: () => ({ add }), defaultJobOptions: () => ({}) } as never;
     const repo = { setChargeable: over.setChargeable ?? jest.fn().mockResolvedValue({ count: 2 }) } as never;
-    const rules = { setRule: jest.fn(), clearRule: jest.fn() } as never;
-    return { ctrl: new AdminTasksController(queues, repo, rules), add, repo };
+    const rules = { setRule: jest.fn(), clearRule: jest.fn(), list: over.list ?? jest.fn().mockResolvedValue({ items: [], total: 0 }) } as never;
+    return { ctrl: new AdminTasksController(queues, repo, rules), add, repo, rules: rules as never as { list: jest.Mock } };
   }
 
   it('sets the flag and enqueues a recalc scoped to those tasks', async () => {
@@ -133,4 +133,32 @@ describe('AdminTasksController', () => {
       );
     });
   });
+
+  describe('listChargeabilityRules', () => {
+    it('defaults to the first 50', async () => {
+      const { ctrl, rules } = makeCtrl();
+      await ctrl.listChargeabilityRules();
+      expect(rules.list).toHaveBeenCalledWith({ limit: 50, offset: 0 });
+    });
+
+    it('passes through an explicit page', async () => {
+      const { ctrl, rules } = makeCtrl();
+      await ctrl.listChargeabilityRules('25', '75');
+      expect(rules.list).toHaveBeenCalledWith({ limit: 25, offset: 75 });
+    });
+
+    // Query strings are user input: a huge limit is a denial-of-service in
+    // waiting, and a negative offset is a Prisma error rather than a page.
+    it.each([
+      ['9999', '0', 500, 0],
+      ['0', '0', 50, 0],
+      ['-5', '-10', 50, 0],
+      ['abc', 'xyz', 50, 0],
+    ])('clamps limit=%s offset=%s', async (limit, offset, wantLimit, wantOffset) => {
+      const { ctrl, rules } = makeCtrl();
+      await ctrl.listChargeabilityRules(limit, offset);
+      expect(rules.list).toHaveBeenCalledWith({ limit: wantLimit, offset: wantOffset });
+    });
+  });
+
 });

@@ -58,6 +58,27 @@ export type SpikeNoticePreview = {
   alreadyNotified: boolean;
 };
 
+/**
+ * One (task, assignee) chargeability rule, as the rules screen lists it.
+ * A `type` rather than an `interface` on purpose: DataTable's row generic is
+ * constrained to `{ [key: string]: unknown }`, and only type aliases get the
+ * implicit index signature that satisfies it.
+ */
+export type ChargeabilityRule = {
+  taskId: string;
+  taskName: string | null;
+  spaceName: string | null;
+  userId: string;
+  /** Borrowed from a time entry; null for a rule set before any time was logged. */
+  userName: string | null;
+  chargeable: boolean;
+  note: string | null;
+  setBy: string | null;
+  updatedAt: string;
+  entryCount: number;
+  hours: number;
+};
+
 export const adminApi = {
   syncTask: (taskId: string) => apiClient.post('/admin/tasks/sync', { taskId }).then(r => r.data),
   backfill: (spaceId: string, lookbackDays?: number) =>
@@ -98,6 +119,10 @@ export const adminApi = {
   resolveDeadLetter: (id: string) =>
     apiClient.post(`/admin/dead-letters/${id}/resolve`).then((r) => r.data as { resolved: boolean; id: string }),
   workspaceMembers: (): Promise<WorkspaceMember[]> => apiClient.get('/admin/workspace-members').then(r => r.data),
+  chargeabilityRules: (params: { limit?: number; offset?: number } = {}): Promise<{ items: ChargeabilityRule[]; total: number }> =>
+    apiClient.get('/admin/chargeability-rules', { params }).then(r => r.data),
+  searchTasks: (q: string): Promise<{ tasks: { taskId: string; taskName: string; status: string | null; client: string | null }[] }> =>
+    apiClient.get('/admin/search', { params: { q } }).then(r => r.data),
   spikeNoticePreview: (userId: string, date: string): Promise<SpikeNoticePreview> =>
     apiClient
       .get(`/admin/hour-spikes/${encodeURIComponent(userId)}/${encodeURIComponent(date)}/preview`)
@@ -118,7 +143,10 @@ export const adminApi = {
   },
   setTasksChargeable: (taskIds: string[], chargeable: boolean) =>
     apiClient.patch('/admin/tasks/chargeable', { taskIds, chargeable }).then(r => r.data as { updated: number; requested: number; queued: boolean }),
-  setAssigneeChargeable: (taskId: string, userId: string, chargeable: boolean | null) =>
-    apiClient.patch(`/admin/tasks/${taskId}/assignee-chargeable`, { userId, chargeable })
+  // `note` is omitted from the body when undefined, not sent as null: the
+  // repository treats undefined as "leave the stored note alone" and null as
+  // "clear it", so a toggle that doesn't mention the note must not wipe it.
+  setAssigneeChargeable: (taskId: string, userId: string, chargeable: boolean | null, note?: string | null) =>
+    apiClient.patch(`/admin/tasks/${taskId}/assignee-chargeable`, { userId, chargeable, ...(note !== undefined ? { note } : {}) })
       .then(r => r.data as { changed: boolean; queued: boolean }),
 };

@@ -49,6 +49,11 @@ const MissingRatesPage = React.lazy(() =>
 		default: m.MissingRatesPage,
 	})),
 );
+const ChargeabilityRulesPage = React.lazy(() =>
+	import('./pages/ChargeabilityRulesPage').then((m) => ({
+		default: m.ChargeabilityRulesPage,
+	})),
+);
 const AssigneeRatesPage = React.lazy(() =>
 	import('./pages/AssigneeRatesPage').then((m) => ({
 		default: m.AssigneeRatesPage,
@@ -176,6 +181,7 @@ export default function App() {
 										<Route path="/timesheet" element={<SuspenseRoute><TimesheetPage /></SuspenseRoute>} />
 										<Route path="/missing-rates" element={<SuspenseRoute><MissingRatesPage /></SuspenseRoute>} />
 										<Route path="/assignee-rates" element={<SuspenseRoute><AssigneeRatesPage /></SuspenseRoute>} />
+										<Route path="/chargeability-rules" element={<SuspenseRoute><ChargeabilityRulesPage /></SuspenseRoute>} />
 										<Route path="/budgets" element={<SuspenseRoute><BudgetsPage /></SuspenseRoute>} />
 										<Route path="/spaces" element={<SuspenseRoute><SpacesPage /></SuspenseRoute>} />
 										<Route path="/sync-logs" element={<SuspenseRoute><SyncLogsPage /></SuspenseRoute>} />

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, HttpCode, Param, Patch, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Param, Patch, Query, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { CurrentUser, Roles } from '../auth/decorators';
@@ -24,6 +24,24 @@ export class AdminTasksController {
     private readonly tasksRepo: TasksRepository,
     private readonly rules: TaskAssigneeChargeabilityRepository,
   ) {}
+
+  @Get('chargeability-rules')
+  @ApiOperation({
+    summary:
+      "Every (task, assignee) chargeability rule, newest first, with the task it names and the tracked time it affects. The only aggregate view of rules — everywhere else you must already know which task to open. `userName` is best-effort (rules store only a ClickUp user id, so the name is borrowed from a time entry) and is null for a rule set before its assignee logged anything. To clear a rule, PATCH /admin/tasks/:taskId/assignee-chargeable with `chargeable: null` — that path is already audited and recalc-scoped, so there is deliberately no DELETE here.",
+  })
+  listChargeabilityRules(@Query('limit') limit?: string, @Query('offset') offset?: string) {
+    // Query strings are user input. Anything not a positive number — absent,
+    // 'abc', '0', '-5' — falls back to the default rather than being clamped
+    // into range, so a typo returns a normal page instead of a single row.
+    // The 500 cap keeps the two joins below bounded.
+    const l = Number(limit);
+    const o = Number(offset);
+    return this.rules.list({
+      limit: Number.isFinite(l) && l > 0 ? Math.min(Math.floor(l), 500) : 50,
+      offset: Number.isFinite(o) && o > 0 ? Math.floor(o) : 0,
+    });
+  }
 
   @Patch('tasks/chargeable')
   @HttpCode(200)

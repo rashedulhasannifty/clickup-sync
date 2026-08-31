@@ -24,6 +24,77 @@ export class TaskAssigneeChargeabilityRepository {
     return new Map(rows.map((r) => [ruleKey(r.taskId, r.userId), r.chargeable]));
   }
 
+  /**
+   * Every rule, newest first, with the task it names and the time it affects.
+   * Backs the rules admin screen — the only place rules are visible in
+   * aggregate; everywhere else you have to already know which task to open.
+   *
+   * `userName` is best-effort: the rule table keys on the ClickUp user id and
+   * stores no name, so it can only be borrowed from a time entry. A rule set
+   * before its assignee logs anything — the prospective case this screen
+   * exists to support — has no entry to borrow from and comes back null. The
+   * page resolves those against the workspace-members list instead.
+   */
+  async list(opts: { limit: number; offset: number }) {
+    const [rules, total] = await Promise.all([
+      this.prisma.taskAssigneeChargeability.findMany({
+        orderBy: { updatedAt: 'desc' },
+        take: opts.limit,
+        skip: opts.offset,
+        select: { taskId: true, userId: true, chargeable: true, note: true, setBy: true, updatedAt: true },
+      }),
+      this.prisma.taskAssigneeChargeability.count(),
+    ]);
+    if (rules.length === 0) return { items: [], total };
+
+    const taskIds = [...new Set(rules.map((r) => r.taskId))];
+    const [tasks, entries] = await Promise.all([
+      this.prisma.clickupTask.findMany({
+        where: { taskId: { in: taskIds } },
+        select: { taskId: true, taskName: true, spaceName: true },
+      }),
+      // Filtered by task alone, so this deliberately returns (task, user) pairs
+      // that are NOT rules — everyone else who logged time on the same tasks.
+      // The composite key below is what discards them; matching on either half
+      // would credit one rule with another person's hours.
+      this.prisma.clickupTimeEntry.groupBy({
+        by: ['taskId', 'userId'],
+        where: { taskId: { in: taskIds } },
+        _count: true,
+        _sum: { durationHours: true },
+        _max: { userName: true },
+      }),
+    ]);
+
+    const taskById = new Map(tasks.map((t) => [t.taskId, t]));
+    const entryByPair = new Map(
+      entries
+        .filter((e): e is typeof e & { taskId: string; userId: string } => e.taskId != null && e.userId != null)
+        .map((e) => [ruleKey(e.taskId, e.userId), e]),
+    );
+
+    return {
+      items: rules.map((r) => {
+        const task = taskById.get(r.taskId);
+        const entry = entryByPair.get(ruleKey(r.taskId, r.userId));
+        return {
+          taskId: r.taskId,
+          taskName: task?.taskName ?? null,
+          spaceName: task?.spaceName ?? null,
+          userId: r.userId,
+          userName: entry?._max.userName ?? null,
+          chargeable: r.chargeable,
+          note: r.note,
+          setBy: r.setBy,
+          updatedAt: r.updatedAt,
+          entryCount: entry?._count ?? 0,
+          hours: entry?._sum.durationHours?.toNumber() ?? 0,
+        };
+      }),
+      total,
+    };
+  }
+
   findForTask(taskId: string) {
     return this.prisma.taskAssigneeChargeability.findMany({
       where: { taskId },

@@ -524,11 +524,20 @@ export function useTaskAssigneeChargeability(taskId: string | null) {
   });
 }
 
+/** Every (task, assignee) rule — the rules admin screen's list. */
+export function useChargeabilityRules(params: { limit?: number; offset?: number } = {}) {
+  return useQuery({
+    queryKey: ['chargeability-rules', params],
+    queryFn: () => adminApi.chargeabilityRules(params),
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useSetAssigneeChargeable() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ taskId, userId, chargeable }: { taskId: string; userId: string; chargeable: boolean | null }) =>
-      adminApi.setAssigneeChargeable(taskId, userId, chargeable),
+    mutationFn: ({ taskId, userId, chargeable, note }: { taskId: string; userId: string; chargeable: boolean | null; note?: string | null }) =>
+      adminApi.setAssigneeChargeable(taskId, userId, chargeable, note),
     onSuccess: () => {
       // The recalc is asynchronous, so costs on screen lag by a moment; the
       // rule itself is immediate, which is what these two views show.
@@ -545,6 +554,7 @@ export function useSetAssigneeChargeable() {
       // filter params object (['tasks', params]), so this must match by prefix
       // rather than by exact key.
       qc.invalidateQueries({ queryKey: ['tasks'] });
+      qc.invalidateQueries({ queryKey: ['chargeability-rules'] });
     },
   });
 }
