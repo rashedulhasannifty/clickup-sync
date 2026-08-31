@@ -56,9 +56,8 @@ const ARCHIVED_OPTIONS = [
   { value: 'only', label: 'Archived only' },
 ];
 
-// Mirrors the tri-state pill: the three values partition the table, so
-// 'chargeable' means WHOLLY chargeable and a rule-split task appears only
-// under 'partial'.
+// Mutually exclusive, and defined the same way the tri-state pill is: a task
+// a rule has split is 'partial' only, never 'chargeable' or 'non-chargeable'.
 const CHARGEABLE_OPTIONS = [
   { value: 'all', label: 'All chargeability' },
   { value: 'true', label: 'Chargeable' },

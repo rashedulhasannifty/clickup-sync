@@ -666,10 +666,10 @@ describe('TasksReportService', () => {
 
 
   describe('tasks (chargeability filter)', () => {
-    // Three mutually exclusive buckets that partition the table, mirroring the
-    // tri-state pill exactly: picking one returns precisely the rows showing
-    // that pill. "Chargeable" therefore means WHOLLY chargeable — a task split
-    // by a rule belongs to `partial`, not to both.
+    // Three mutually exclusive buckets, defined on the rules exactly as the
+    // tri-state pill is: a task a rule has split is `partial` only, never
+    // `true` or `false`. (Both sides are rules-only today; see the phase 2
+    // note in the service for what has to change together later.)
     const call = (chargeable?: string) => {
       const prisma = makePrisma();
       return new TasksReportService(prisma).tasks(

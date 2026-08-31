@@ -264,11 +264,20 @@ export class TasksReportService {
     const sprintListIds = await sprintStatusListIds(this.prisma, sprintStatus);
     if (sprintListIds) and.push({ listId: { in: sprintListIds } });
 
-    // Chargeability filter, mirroring the tri-state pill so the three values
-    // partition the table: picking one returns exactly the rows showing that
-    // pill. 'true'/'false' therefore mean WHOLLY — a task a rule has split
-    // belongs to 'partial' alone, not to both. Anything else (absent, 'all',
-    // unrecognized) emits no clause, so every pre-existing caller is unchanged.
+    // Chargeability filter. Defined on the RULES, exactly like the tri-state
+    // pill this list emits above: 'partial' means a (task, assignee) rule
+    // disagrees with the task flag, and 'true'/'false' mean the flag with no
+    // such rule — so the three are mutually exclusive. Anything else (absent,
+    // 'all', unrecognized) emits no clause, leaving every pre-existing caller
+    // unchanged.
+    //
+    // Phase 2 note: `isPartiallyChargeable` also splits on entries disagreeing
+    // with each other, which this cannot express as a `where`. That arm is
+    // inert today (nothing writes `chargeable_override`, so entries can only
+    // disagree because a rule made them), and the pill this list emits passes
+    // no entry counts for the same reason. When phase 2 gives the pill its
+    // entry signal, this filter has to gain the matching arm in the same
+    // change or the two stop agreeing.
     if (chargeable === 'true') {
       and.push({ isChargeable: true, chargeabilityRules: { none: { chargeable: false } } });
     } else if (chargeable === 'false') {
