@@ -73,9 +73,22 @@ export interface PartialChargeabilityInput {
  * mixed-entries condition — lives here once.
  */
 export function isPartiallyChargeable(input: PartialChargeabilityInput): boolean {
-  if (input.taskChargeable !== undefined && input.rules.some((r) => r !== input.taskChargeable)) return true;
-  const { entryCount = 0, nonChargeableCount = 0 } = input;
-  // Counts, never an hours sum: a bucket of 0-duration non-chargeable entries
-  // must still read as split.
-  return nonChargeableCount > 0 && nonChargeableCount < entryCount;
+  const { taskChargeable, entryCount = 0, nonChargeableCount = 0 } = input;
+  // 1. A rule contradicts the flag. Fires even with no entries yet, which is
+  //    the prospective case standing rules exist for.
+  if (taskChargeable !== undefined && input.rules.some((r) => r !== taskChargeable)) return true;
+  // 2. The entries contradict each other. Counts, never an hours sum: a task
+  //    split only by 0-duration entries is still split.
+  if (nonChargeableCount > 0 && nonChargeableCount < entryCount) return true;
+  // 3. Every entry contradicts the flag. Not covered by either arm above —
+  //    an override can flip ALL of a task's time without touching a rule, and
+  //    without leaving the entries disagreeing with each other. Missing this
+  //    let a task read as wholly chargeable while every hour on it was not,
+  //    and put it in none of the three filter buckets. The `entryCount > 0`
+  //    guard matters: a task with no time agrees with its flag vacuously.
+  if (taskChargeable !== undefined && entryCount > 0) {
+    if (taskChargeable && nonChargeableCount === entryCount) return true;
+    if (!taskChargeable && nonChargeableCount === 0) return true;
+  }
+  return false;
 }

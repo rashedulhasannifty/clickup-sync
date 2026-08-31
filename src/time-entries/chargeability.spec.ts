@@ -129,3 +129,44 @@ describe('isPartiallyChargeable — omitted task flag', () => {
     expect(isPartiallyChargeable({ rules: [true, false] })).toBe(false);
   });
 });
+
+describe('isPartiallyChargeable — every entry disagrees with the flag', () => {
+  // The hole overrides opened: not "mixed", and no rule disagrees, so the
+  // first two arms both miss. The task read as wholly chargeable while its
+  // every hour was non-chargeable — and, worse, satisfied none of the three
+  // filter buckets, so it was reachable by no filter at all.
+  it('is partial when a chargeable task has every entry overridden away', () => {
+    expect(isPartiallyChargeable({ taskChargeable: true, rules: [], entryCount: 3, nonChargeableCount: 3 }))
+      .toBe(true);
+  });
+
+  it('is partial when a non-chargeable task has every entry overridden back', () => {
+    expect(isPartiallyChargeable({ taskChargeable: false, rules: [], entryCount: 3, nonChargeableCount: 0 }))
+      .toBe(true);
+  });
+
+  it('is NOT partial when the entries agree with the flag', () => {
+    expect(isPartiallyChargeable({ taskChargeable: true, rules: [], entryCount: 3, nonChargeableCount: 0 }))
+      .toBe(false);
+    expect(isPartiallyChargeable({ taskChargeable: false, rules: [], entryCount: 3, nonChargeableCount: 3 }))
+      .toBe(false);
+  });
+
+  // A task with no time on it agrees with its flag vacuously. Without the
+  // entryCount guard, `nonChargeableCount === entryCount` is 0 === 0 and every
+  // empty chargeable task would read as partial.
+  it('is NOT partial for a task with no entries at all', () => {
+    expect(isPartiallyChargeable({ taskChargeable: true, rules: [], entryCount: 0, nonChargeableCount: 0 }))
+      .toBe(false);
+    expect(isPartiallyChargeable({ taskChargeable: false, rules: [], entryCount: 0, nonChargeableCount: 0 }))
+      .toBe(false);
+  });
+
+  // The window-scoped caller passes no flag, so this arm must stay off for it:
+  // "every entry in this window is non-chargeable" is a wholly non-chargeable
+  // row, not a partial one.
+  it('stays off when no task flag is given', () => {
+    expect(isPartiallyChargeable({ rules: [], entryCount: 3, nonChargeableCount: 3 })).toBe(false);
+    expect(isPartiallyChargeable({ rules: [], entryCount: 3, nonChargeableCount: 0 })).toBe(false);
+  });
+});

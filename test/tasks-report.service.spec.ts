@@ -702,13 +702,14 @@ describe('TasksReportService', () => {
       }));
     });
 
-    // The flag alone can't express this — "disagrees with the flag" depends on
-    // the row's own flag, so it takes one OR arm per direction.
-    it('partial matches a rule that disagrees with the task flag, either way', async () => {
-      const and = (await call('partial')).AND;
-      const arm = and.find((c: any) => c.OR);
-      expect(arm.OR).toContainEqual({ isChargeable: true, chargeabilityRules: { some: { chargeable: false } } });
-      expect(arm.OR).toContainEqual({ isChargeable: false, chargeabilityRules: { some: { chargeable: true } } });
+    // A disagreeing rule is caught by the complement rather than by its own
+    // arm: it fails whichever "wholly" clause its flag points at, via the
+    // `chargeabilityRules: { none: ... }` half.
+    it('a task with a rule disagreeing with its flag is excluded from both wholly buckets', async () => {
+      const wholly = (await call('true')).AND.find((c: any) => c.isChargeable === true);
+      expect(wholly.chargeabilityRules).toEqual({ none: { chargeable: false } });
+      const whollyNot = (await call('false')).AND.find((c: any) => c.isChargeable === false);
+      expect(whollyNot.chargeabilityRules).toEqual({ none: { chargeable: true } });
     });
 
     it.each([undefined, '', 'all', 'nonsense'])('emits no clause for %p', async (value) => {
@@ -798,16 +799,27 @@ describe('TasksReportService', () => {
       ).then(() => prisma.clickupTask.findMany.mock.calls[0][0].where);
     };
 
-    // The filter has to move with the pill or the two stop agreeing: a task
-    // split by an override would show "partial" and appear in no bucket.
-    it('partial also matches entries disagreeing with each other', async () => {
+    // `partial` is the COMPLEMENT of the other two, not a list of the ways a
+    // task can be split. Enumerating them left a hole: a task whose every
+    // entry was overridden away is not "mixed" and has no disagreeing rule, so
+    // it matched no bucket at all. Defining it structurally makes the three
+    // buckets exhaustive by construction rather than by the arms happening to
+    // cover every case.
+    it('partial is everything that is neither wholly chargeable nor wholly non-chargeable', async () => {
       const and = (await call('partial')).AND;
-      const arm = and.find((c: any) => c.OR);
-      expect(arm.OR).toContainEqual({
-        AND: [
-          { timeEntries: { some: { isChargeable: true } } },
-          { timeEntries: { some: { isChargeable: false } } },
-        ],
+      expect(and).toContainEqual({
+        NOT: {
+          isChargeable: true,
+          chargeabilityRules: { none: { chargeable: false } },
+          timeEntries: { none: { isChargeable: false } },
+        },
+      });
+      expect(and).toContainEqual({
+        NOT: {
+          isChargeable: false,
+          chargeabilityRules: { none: { chargeable: true } },
+          timeEntries: { none: { isChargeable: true } },
+        },
       });
     });
 

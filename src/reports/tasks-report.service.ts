@@ -5,6 +5,25 @@ import { parseDate } from './report-date.util';
 import { csvList, sprintStatusListIds, taskSearchOr } from './report-filter.util';
 import { isPartiallyChargeable } from '../time-entries/chargeability';
 
+/**
+ * "Everything on this task is chargeable": the flag says so, no (task,
+ * assignee) rule contradicts it, and no entry has been overridden away.
+ * `none` rather than "all entries are chargeable" so a task with no time on it
+ * still qualifies. `partial` is defined as the complement of these two, which
+ * is what keeps the three filter buckets exhaustive — see the filter below.
+ */
+const WHOLLY_CHARGEABLE = {
+  isChargeable: true,
+  chargeabilityRules: { none: { chargeable: false } },
+  timeEntries: { none: { isChargeable: false } },
+} satisfies Prisma.ClickupTaskWhereInput;
+
+const WHOLLY_NON_CHARGEABLE = {
+  isChargeable: false,
+  chargeabilityRules: { none: { chargeable: true } },
+  timeEntries: { none: { isChargeable: true } },
+} satisfies Prisma.ClickupTaskWhereInput;
+
 /** Task-centric report queries (counts, filters, per-space aggregates). */
 @Injectable()
 export class TasksReportService {
@@ -279,38 +298,19 @@ export class TasksReportService {
     // entry signal, this filter has to gain the matching arm in the same
     // change or the two stop agreeing.
     if (chargeable === 'true') {
-      // "No entry disagrees" rather than "all entries are chargeable": an
-      // empty relation must still count as wholly chargeable.
-      and.push({
-        isChargeable: true,
-        chargeabilityRules: { none: { chargeable: false } },
-        timeEntries: { none: { isChargeable: false } },
-      });
+      and.push(WHOLLY_CHARGEABLE);
     } else if (chargeable === 'false') {
-      and.push({
-        isChargeable: false,
-        chargeabilityRules: { none: { chargeable: true } },
-        timeEntries: { none: { isChargeable: true } },
-      });
+      and.push(WHOLLY_NON_CHARGEABLE);
     } else if (chargeable === 'partial') {
-      and.push({
-        OR: [
-          // "Disagrees with the flag" depends on the row's own flag, so the
-          // rule half cannot be a single relation filter — one arm per
-          // direction.
-          { isChargeable: true, chargeabilityRules: { some: { chargeable: false } } },
-          { isChargeable: false, chargeabilityRules: { some: { chargeable: true } } },
-          // The entries half needs no flag: entries disagreeing with EACH
-          // OTHER is a split however the task is flagged. This is what catches
-          // a per-entry override on a task with no rule on it.
-          {
-            AND: [
-              { timeEntries: { some: { isChargeable: true } } },
-              { timeEntries: { some: { isChargeable: false } } },
-            ],
-          },
-        ],
-      });
+      // The COMPLEMENT of the other two, not an enumeration of the ways a task
+      // can be split. Enumerating them left a hole: a task whose every entry
+      // was overridden away is not "mixed" and has no disagreeing rule, so it
+      // matched none of the three buckets and was reachable by no filter.
+      // Defining partial structurally makes the three exhaustive by
+      // construction — a future signal cannot escape them again. Two separate
+      // NOTs, not `NOT: [a, b]`, so this is unambiguously NOT(a) AND NOT(b).
+      and.push({ NOT: WHOLLY_CHARGEABLE });
+      and.push({ NOT: WHOLLY_NON_CHARGEABLE });
     }
     if (and.length) where.AND = and;
     const [items, total] = await Promise.all([
