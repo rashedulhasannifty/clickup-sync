@@ -191,6 +191,7 @@ export class TasksReportService {
     listId?: string,
     folderId?: string,
     sprintStatus?: string,
+    chargeable?: string,
   ) {
     // Cap kept generous so the dashboard's "Export CSV" can pull a complete
     // filtered set in one shot. The page UI never offers > 100 rows/page, so
@@ -262,6 +263,26 @@ export class TasksReportService {
     // (never-matching) clause instead of being treated as "no filter".
     const sprintListIds = await sprintStatusListIds(this.prisma, sprintStatus);
     if (sprintListIds) and.push({ listId: { in: sprintListIds } });
+
+    // Chargeability filter, mirroring the tri-state pill so the three values
+    // partition the table: picking one returns exactly the rows showing that
+    // pill. 'true'/'false' therefore mean WHOLLY — a task a rule has split
+    // belongs to 'partial' alone, not to both. Anything else (absent, 'all',
+    // unrecognized) emits no clause, so every pre-existing caller is unchanged.
+    if (chargeable === 'true') {
+      and.push({ isChargeable: true, chargeabilityRules: { none: { chargeable: false } } });
+    } else if (chargeable === 'false') {
+      and.push({ isChargeable: false, chargeabilityRules: { none: { chargeable: true } } });
+    } else if (chargeable === 'partial') {
+      // "Disagrees with the flag" depends on the row's own flag, so it cannot
+      // be a single relation filter — one OR arm per direction.
+      and.push({
+        OR: [
+          { isChargeable: true, chargeabilityRules: { some: { chargeable: false } } },
+          { isChargeable: false, chargeabilityRules: { some: { chargeable: true } } },
+        ],
+      });
+    }
     if (and.length) where.AND = and;
     const [items, total] = await Promise.all([
       this.prisma.clickupTask.findMany({

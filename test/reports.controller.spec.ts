@@ -294,37 +294,57 @@ describe('ReportsController', () => {
     });
   });
 
-  describe('tasks (sprintStatus passthrough)', () => {
-    function callTasks(ctrl: ReportsController, sprintStatus?: string) {
+  describe('tasks (sprintStatus + chargeable passthrough)', () => {
+    // Positions in the service's argument list. These were `args.length - 1`
+    // until a later param was appended and silently moved sprintStatus off the
+    // end — naming the index makes adding another param a compile-time-obvious
+    // edit rather than three mystery failures.
+    const SPRINT_STATUS_ARG = 15;
+    const CHARGEABLE_ARG = 16;
+
+    function callTasks(ctrl: ReportsController, sprintStatus?: string, chargeable?: string) {
       return ctrl.tasks(
         undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-        sprintStatus,
+        sprintStatus, chargeable,
       );
     }
 
-    it('normalizes and threads sprintStatus="completed" through to the service', async () => {
+    function ctrlWithSpy() {
       const tasks = { tasks: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
-      const ctrl = makeCtrl({ tasks });
+      return { tasks, ctrl: makeCtrl({ tasks }) };
+    }
+
+    it('normalizes and threads sprintStatus="completed" through to the service', async () => {
+      const { tasks, ctrl } = ctrlWithSpy();
       await callTasks(ctrl, 'completed');
-      const args = tasks.tasks.mock.calls[0];
-      expect(args[args.length - 1]).toBe('completed');
+      expect(tasks.tasks.mock.calls[0][SPRINT_STATUS_ARG]).toBe('completed');
     });
 
     it('defaults an unrecognized sprintStatus to "all" (backward-compatible no-op)', async () => {
-      const tasks = { tasks: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
-      const ctrl = makeCtrl({ tasks });
+      const { tasks, ctrl } = ctrlWithSpy();
       await callTasks(ctrl, 'bogus');
-      const args = tasks.tasks.mock.calls[0];
-      expect(args[args.length - 1]).toBe('all');
+      expect(tasks.tasks.mock.calls[0][SPRINT_STATUS_ARG]).toBe('all');
     });
 
     it('defaults a missing sprintStatus to "all"', async () => {
-      const tasks = { tasks: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
-      const ctrl = makeCtrl({ tasks });
+      const { tasks, ctrl } = ctrlWithSpy();
       await callTasks(ctrl);
-      const args = tasks.tasks.mock.calls[0];
-      expect(args[args.length - 1]).toBe('all');
+      expect(tasks.tasks.mock.calls[0][SPRINT_STATUS_ARG]).toBe('all');
+    });
+
+    // `chargeable` is threaded RAW — unlike sprintStatus it has no normalizer,
+    // because the service treats anything unrecognized as "no clause".
+    it.each(['true', 'false', 'partial'])('threads chargeable=%s through to the service', async (value) => {
+      const { tasks, ctrl } = ctrlWithSpy();
+      await callTasks(ctrl, undefined, value);
+      expect(tasks.tasks.mock.calls[0][CHARGEABLE_ARG]).toBe(value);
+    });
+
+    it('passes chargeable through as undefined when absent', async () => {
+      const { tasks, ctrl } = ctrlWithSpy();
+      await callTasks(ctrl);
+      expect(tasks.tasks.mock.calls[0][CHARGEABLE_ARG]).toBeUndefined();
     });
   });
 

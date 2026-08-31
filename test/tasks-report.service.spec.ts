@@ -664,4 +664,52 @@ describe('TasksReportService', () => {
     });
   });
 
+
+  describe('tasks (chargeability filter)', () => {
+    // Three mutually exclusive buckets that partition the table, mirroring the
+    // tri-state pill exactly: picking one returns precisely the rows showing
+    // that pill. "Chargeable" therefore means WHOLLY chargeable — a task split
+    // by a rule belongs to `partial`, not to both.
+    const call = (chargeable?: string) => {
+      const prisma = makePrisma();
+      return new TasksReportService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, chargeable,
+      ).then(() => prisma.clickupTask.findMany.mock.calls[0][0].where);
+    };
+
+    it('wholly chargeable excludes tasks a rule has split', async () => {
+      expect((await call('true')).AND).toContainEqual({
+        isChargeable: true,
+        chargeabilityRules: { none: { chargeable: false } },
+      });
+    });
+
+    it('wholly non-chargeable excludes tasks a rule has split', async () => {
+      expect((await call('false')).AND).toContainEqual({
+        isChargeable: false,
+        chargeabilityRules: { none: { chargeable: true } },
+      });
+    });
+
+    // The flag alone can't express this — "disagrees with the flag" depends on
+    // the row's own flag, so it takes one OR arm per direction.
+    it('partial matches a rule that disagrees with the task flag, either way', async () => {
+      expect((await call('partial')).AND).toContainEqual({
+        OR: [
+          { isChargeable: true, chargeabilityRules: { some: { chargeable: false } } },
+          { isChargeable: false, chargeabilityRules: { some: { chargeable: true } } },
+        ],
+      });
+    });
+
+    it.each([undefined, '', 'all', 'nonsense'])('emits no clause for %p', async (value) => {
+      const where = await call(value);
+      const clauses = JSON.stringify(where.AND ?? []);
+      expect(clauses).not.toContain('chargeabilityRules');
+      expect(clauses).not.toContain('isChargeable');
+    });
+  });
+
 });

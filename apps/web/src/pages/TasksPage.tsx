@@ -56,6 +56,16 @@ const ARCHIVED_OPTIONS = [
   { value: 'only', label: 'Archived only' },
 ];
 
+// Mirrors the tri-state pill: the three values partition the table, so
+// 'chargeable' means WHOLLY chargeable and a rule-split task appears only
+// under 'partial'.
+const CHARGEABLE_OPTIONS = [
+  { value: 'all', label: 'All chargeability' },
+  { value: 'true', label: 'Chargeable' },
+  { value: 'partial', label: 'Partially chargeable' },
+  { value: 'false', label: 'Non-chargeable' },
+];
+
 const SPRINT_STATUS_OPTIONS = [
   { value: 'all', label: 'All sprints' },
   { value: 'active', label: 'Active sprints' },
@@ -422,6 +432,7 @@ export function TasksPage() {
   const [folderFilter, setFolderFilter] = useState<string[]>([]);
   const [archivedFilter, setArchivedFilter] = useState('include');
   const [sprintStatus, setSprintStatus] = useState('all');
+  const [chargeableFilter, setChargeableFilter] = useState('all');
   const [taskIdsFilter, setTaskIdsFilter] = useState<string[]>([]);
   const isDeepLink = taskIdsFilter.length > 0;
   // Scoped with exactly the filters `taskParams` below sends, so the task count
@@ -591,11 +602,12 @@ export function TasksPage() {
     folderId: folderFilter.length ? folderFilter.join(',') : undefined,
     archived: archivedFilter,
     sprintStatus: sprintStatus !== 'all' ? sprintStatus : undefined,
+    chargeable: chargeableFilter !== 'all' ? chargeableFilter : undefined,
     taskIds: isDeepLink ? taskIdsFilter.join(',') : undefined,
     // Global topbar date range filters by task `updated_date`.
     from: isDeepLink ? undefined : (fromDate || undefined),
     to: isDeepLink ? undefined : (toDate || undefined),
-  }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, listFilter, folderFilter, archivedFilter, sprintStatus, taskIdsFilter, fromDate, toDate]);
+  }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, listFilter, folderFilter, archivedFilter, sprintStatus, chargeableFilter, taskIdsFilter, fromDate, toDate]);
 
   const tasksQuery = useTasks(taskParams as Record<string, string | number | undefined>);
   const { data, isLoading } = tasksQuery;
@@ -636,7 +648,8 @@ export function TasksPage() {
   const hasFilters = !!(
     searchRaw || search || statusFilter.length || priorityFilter.length || typeFilter
     || assigneeFilter.length || clientFilter.length || listFilter.length || folderFilter.length
-    || archivedFilter !== 'include' || sprintStatus !== 'all' || taskIdsFilter.length > 0
+    || archivedFilter !== 'include' || sprintStatus !== 'all' || chargeableFilter !== 'all'
+    || taskIdsFilter.length > 0
   );
 
   function reset() {
@@ -651,6 +664,7 @@ export function TasksPage() {
     setFolderFilter([]);
     setArchivedFilter('include');
     setSprintStatus('all');
+    setChargeableFilter('all');
     setTaskIdsFilter([]);
     setPage(1);
   }
@@ -968,6 +982,7 @@ export function TasksPage() {
         <Select ariaLabel="Filter by type" size="md" value={typeFilter} onChange={v => { setTypeFilter(v); setPage(1); }} options={TYPE_OPTIONS} />
         <Select ariaLabel="Filter by archived state" size="md" value={archivedFilter} onChange={v => { setArchivedFilter(v); setPage(1); }} options={ARCHIVED_OPTIONS} />
         <Select ariaLabel="Filter by sprint status" size="md" value={sprintStatus} onChange={v => { setSprintStatus(v); setPage(1); }} options={SPRINT_STATUS_OPTIONS} />
+        <Select ariaLabel="Filter by chargeability" size="md" value={chargeableFilter} onChange={v => { setChargeableFilter(v); setPage(1); }} options={CHARGEABLE_OPTIONS} />
         {hasFilters && (
           <Button size="md" variant="ghost" icon={<X size={13} strokeWidth={1.75} />} onClick={reset}>Reset</Button>
         )}

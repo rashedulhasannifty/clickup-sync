@@ -85,7 +85,7 @@ export class ReportsController {
   tasksFolders(@Query('spaceId') spaceId?: string) { return this.tasksReports.tasksFolders(spaceId); }
 
   @Get('tasks')
-  @ApiOperation({ summary: 'Paginated task list with filters. `status`, `priority`, `assigneeId`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `archived`: exclude (default, hide archived) | include | only (archived tasks). `sprintStatus=active|completed|all` (default `all`) scopes to tasks whose list (sprint) is/isn\'t archived. Soft-deleted rows are always excluded.' })
+  @ApiOperation({ summary: 'Paginated task list with filters. `status`, `priority`, `assigneeId`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `archived`: exclude (default, hide archived) | include | only (archived tasks). `sprintStatus=active|completed|all` (default `all`) scopes to tasks whose list (sprint) is/isn\'t archived. `chargeable=true|false|partial` mirrors the tri-state pill and partitions the list: `true`/`false` mean WHOLLY chargeable/non-chargeable, `partial` means a (task, assignee) rule disagrees with the task flag. Soft-deleted rows are always excluded.' })
   tasks(
     @Query('spaceId') spaceId?: string,
     @Query('status') status?: string,
@@ -103,8 +103,9 @@ export class ReportsController {
     @Query('listId') listId?: string,
     @Query('folderId') folderId?: string,
     @Query('sprintStatus') sprintStatus?: string,
+    @Query('chargeable') chargeable?: string,
   ) {
-    return this.tasksReports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId, normalizeSprintStatus(sprintStatus, 'all'));
+    return this.tasksReports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId, normalizeSprintStatus(sprintStatus, 'all'), chargeable);
   }
 
   @Get('tasks/:taskId/description')
