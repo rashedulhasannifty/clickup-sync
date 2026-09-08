@@ -115,7 +115,7 @@ with a `- [ ]` checkbox.
 
       ```bash
       curl -X POST "http://localhost:5173/api/admin/time-entries/backfill-replacement" \
-        -H "x-admin-key: pk_3584055_HX7CAOS967ULVNI6MXHJQOT851ULP8X7" \
+        -H "x-admin-key: pk_something" \
         -H "Content-Type: application/json" -d '{"limit":100}'
       ```
 
