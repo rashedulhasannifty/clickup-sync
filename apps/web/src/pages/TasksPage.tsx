@@ -26,7 +26,8 @@ import { exportXlsx, type XlsxColumn } from '../lib/xlsx';
 import { SelectionBar, type SelectionStat } from '../components/SelectionBar';
 import { useRowSelection } from '../hooks/useRowSelection';
 import { useAuth } from '../hooks/useAuth';
-import { TaskDetailDrawer, parseAssignees, subProjectsOf, type Task } from '../components/tasks/TaskDetailDrawer';
+import { TaskDetailDrawer } from '../components/tasks/TaskDetailDrawer';
+import { parseAssignees, subProjectsOf, type Task } from '../lib/taskFields';
 
 const PRIORITY_OPTIONS = [
   { value: 'urgent', label: 'Urgent' },
