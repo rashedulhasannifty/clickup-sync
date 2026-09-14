@@ -76,6 +76,17 @@ export class ReportsController {
     return this.tasksReports.tasksClients({ spaceId, from, to, archived });
   }
 
+  @Get('sub-projects')
+  @ApiOperation({ summary: 'Distinct task sub-projects (ClickUp "Sub-Project" labels field) for the Tasks and Time Entries page filter dropdowns, with per-option task counts. Scoped by `spaceId`, `from`/`to` (on updated_date) and `archived` exactly like `/reports/clients`. A task can carry several sub-projects, so the counts can sum to more than the task total.' })
+  tasksSubProjects(
+    @Query('spaceId') spaceId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('archived') archived?: string,
+  ) {
+    return this.tasksReports.tasksSubProjects({ spaceId, from, to, archived });
+  }
+
   @Get('lists')
   @ApiOperation({ summary: 'Distinct ClickUp lists for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks (list_id/list_name, non-empty, non-deleted) with per-list task counts. Pass spaceId to scope to one space.' })
   tasksLists(@Query('spaceId') spaceId?: string) { return this.tasksReports.tasksLists(spaceId); }
@@ -104,8 +115,9 @@ export class ReportsController {
     @Query('folderId') folderId?: string,
     @Query('sprintStatus') sprintStatus?: string,
     @Query('chargeable') chargeable?: string,
+    @Query('subProject') subProject?: string,
   ) {
-    return this.tasksReports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId, normalizeSprintStatus(sprintStatus, 'all'), chargeable);
+    return this.tasksReports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId, normalizeSprintStatus(sprintStatus, 'all'), chargeable, subProject);
   }
 
   @Get('tasks/:taskId/description')
@@ -186,8 +198,9 @@ export class ReportsController {
     @Query('folderId') folderId?: string,
     @Query('archived') archived?: string,
     @Query('sprintStatus') sprintStatus?: string,
+    @Query('subProject') subProject?: string,
   ) {
-    return this.timeEntriesReports.timeEntriesAggregates(userId, from, to, status, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'));
+    return this.timeEntriesReports.timeEntriesAggregates(userId, from, to, status, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), subProject);
   }
 
   @Get('time-entries/cost-trend')
@@ -259,10 +272,11 @@ export class ReportsController {
     @Query('folderId') folderId?: string,
     @Query('archived') archived?: string,
     @Query('sprintStatus') sprintStatus?: string,
+    @Query('subProject') subProject?: string,
   ) {
     return this.timeEntriesReports.timeEntriesByTask({
       userId, from, to, status, limit: Number(limit) || 50, offset: Number(offset) || 0,
-      chargeable, search, spaceId, missingOnly, client, listId, folderId, archived,
+      chargeable, search, spaceId, missingOnly, client, subProject, listId, folderId, archived,
       sprintStatus: normalizeSprintStatus(sprintStatus, 'all'),
     });
   }
@@ -286,9 +300,10 @@ export class ReportsController {
     @Query('archived') archived?: string,
     @Query('sprintStatus') sprintStatus?: string,
     @Query('taskId') taskId?: string,
+    @Query('subProject') subProject?: string,
   ) {
     return this.timeEntriesReports.timeEntriesList(
-      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), taskId,
+      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), taskId, subProject,
     );
   }
 

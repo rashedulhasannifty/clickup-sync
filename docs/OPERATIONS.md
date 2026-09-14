@@ -152,6 +152,22 @@ Treat it as a **known, classified gap**: any alarm built on the cross-check abov
 
 **Unverified assumption:** both its cross-space scoping and its delete-pruning depend on ClickUp's `GET /team/{team}/time_entries` honoring the `space_id` filter. That has not yet been confirmed against a live workspace. If ClickUp silently ignores `space_id`, the windowed fetch returns workspace-wide entries, which get upserted (and their tasks self-healed in) even for spaces this deployment doesn't track, and larger per-slice counts make the truncation guard (`PRUNE_SAFETY_MAX_ENTRIES`) trip more often, skipping pruning. Treat pruning from this endpoint as best-effort until the `space_id` probe is run — see `docs/superpowers/specs/2026-08-08-windowed-time-entry-reconcile-design.md` for the probe and fallback.
 
+## Sub-Project field backfill
+
+`clickup_tasks.sub_projects` (migration `0021_task_sub_projects`) is filled on every task sync. Rows synced before that migration start empty. To populate them without calling ClickUp, re-extract from the stored `raw` payload:
+
+```bash
+# local
+npm run backfill:sub-projects -- --dry-run   # list what would change
+npm run backfill:sub-projects                # write
+
+# production host, in DEPLOY_PATH (the image ships dist/ only)
+docker compose -f docker-compose.prod.yml exec app-worker node dist/scripts/backfill-sub-projects.js --dry-run
+docker compose -f docker-compose.prod.yml exec app-worker node dist/scripts/backfill-sub-projects.js
+```
+
+It only writes rows whose value changes, so re-running is safe. A task whose stored `raw` predates the field being set stays empty until its next webhook or scheduled sync; `POST /admin/tasks/reconcile` refetches everything from ClickUp if you need it sooner.
+
 ## Sprint / list catalog
 
 `clickup_lists` is the sprint/list catalog behind `/reports/sprints*` and the `sprintStatus` filter on `/reports/tasks` and `/reports/time-entries`. It is kept in sync four ways:

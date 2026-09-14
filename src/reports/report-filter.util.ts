@@ -122,6 +122,8 @@ export interface TimeEntryFilters {
   userId?: string;
   status?: string;
   client?: string;
+  /** Matches entries whose task carries ANY of the listed sub-projects. */
+  subProject?: string;
   listId?: string;
   folderId?: string;
   /** Our own resolved per-entry flag, NOT ClickUp's per-entry `billable` column. */
@@ -160,6 +162,7 @@ export async function buildTimeEntryWhere(
   // pre-existing deep-links (e.g. `?userId=u1&status=NO_RATE_FOUND`) behave
   // exactly as before.
   const clients = csvList(f.client);
+  const subProjects = csvList(f.subProject);
   const listIds = csvList(f.listId);
   const folderIds = csvList(f.folderId);
   const userIds = csvList(f.userId);
@@ -169,6 +172,11 @@ export async function buildTimeEntryWhere(
   // client filter stays consistent with that. Don't "fix" this to exclude
   // deleted tasks — it would make client-only vs client+space disagree.
   if (clients) and.push({ task: { client: { in: clients } } });
+  // Array column: `hasSome` is exact per value (no substring hazard). Not in
+  // `taskSearchOr` because Prisma scalar lists have no `contains`. An empty
+  // selection is "no constraint" (csvList → undefined) — unlike
+  // `sprintListIds` below, where an empty list must still mean zero rows.
+  if (subProjects) and.push({ task: { subProjects: { hasSome: subProjects } } });
   if (listIds) and.push({ task: { listId: { in: listIds } } });
   if (folderIds) and.push({ task: { folderId: { in: folderIds } } });
   // ClickUp `archived` flag. Archived status lives only on the joined task

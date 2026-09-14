@@ -200,6 +200,74 @@ describe('TasksReportService', () => {
     });
   });
 
+  describe('tasksSubProjects', () => {
+    it('maps distinct sub-project rows to { subProject, taskCount }', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([
+        { sub_project: 'Mobile App', task_count: BigInt(4) },
+        { sub_project: 'Website', task_count: BigInt(2) },
+      ]);
+      const result = await new TasksReportService(prisma).tasksSubProjects();
+      expect(result).toEqual([
+        { subProject: 'Mobile App', taskCount: 4 },
+        { subProject: 'Website', taskCount: 2 },
+      ]);
+    });
+
+    it('unnests the array and counts distinct non-deleted tasks', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasksSubProjects();
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/unnest\(\s*sub_projects\s*\)/i);
+      expect(sqlText).toMatch(/COUNT\(DISTINCT task_id\)/i);
+      expect(sqlText).toMatch(/is_deleted\s*=\s*false/);
+    });
+
+    it('scopes by space, archived and the updated_date window like tasksClients', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasksSubProjects({
+        spaceId: '3525433', from: '2026-01-01', to: '2026-02-01', archived: 'exclude',
+      });
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/space_id\s*=/);
+      expect(sqlText).toMatch(/archived\s*=\s*false/);
+      expect(sqlText).toMatch(/updated_date\s*>=/);
+      expect(call.values).toContain('3525433');
+    });
+  });
+
+  describe('tasks (sub-project filter)', () => {
+    const withSubProject = (prisma: any, subProject?: string) =>
+      new TasksReportService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        subProject,
+      );
+
+    it('matches tasks carrying ANY selected sub-project, exactly', async () => {
+      const prisma = makePrisma();
+      await withSubProject(prisma, 'Mobile App, Website');
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.subProjects).toEqual({ hasSome: ['Mobile App', 'Website'] });
+    });
+
+    it('omits the clause when no sub-project is selected', async () => {
+      const prisma = makePrisma();
+      await withSubProject(prisma, ' , ');
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.subProjects).toBeUndefined();
+    });
+
+    it('selects subProjects for the table column', async () => {
+      const prisma = makePrisma();
+      await withSubProject(prisma);
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.select.subProjects).toBe(true);
+    });
+  });
+
   describe('tasks (client filter)', () => {
     it('wraps a single client in an IN clause (the deep-link path)', async () => {
       const prisma = makePrisma();

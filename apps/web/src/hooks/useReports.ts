@@ -41,6 +41,14 @@ export function useClients(params?: { spaceId?: string; from?: string; to?: stri
   });
 }
 
+/** Sub-project dropdown options — same scoping contract as `useClients`. */
+export function useSubProjects(params?: { spaceId?: string; from?: string; to?: string; archived?: string }) {
+  return useQuery({
+    queryKey: ['sub-projects', params ?? 'all'],
+    queryFn: () => reportsApi.subProjects(params),
+  });
+}
+
 export function useLists(spaceId?: string) {
   return useQuery({
     queryKey: ['lists', spaceId ?? 'all'],
@@ -173,6 +181,7 @@ export interface TimeEntryTaskGroup {
   taskId: string;
   taskName: string | null;
   client: string | null;
+  subProjects: string[];
   listName: string | null;
   entryCount: number;
   assignees: { userId: string; userName: string | null }[];

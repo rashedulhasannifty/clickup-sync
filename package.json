@@ -28,6 +28,7 @@
     "dev:reset": "docker compose down -v && docker compose up -d postgres redis && npm run prisma:deploy",
     "dev:web": "npm run dev --workspace=apps/web",
     "build:web": "npm run build --workspace=apps/web",
+    "backfill:sub-projects": "tsx src/scripts/backfill-sub-projects.ts",
     "dev:all": "concurrently \"npm run start:dev\" \"npm run dev:web\""
   },
   "dependencies": {

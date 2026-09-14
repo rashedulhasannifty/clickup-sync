@@ -109,6 +109,16 @@ describe('buildTimeEntryWhere', () => {
     expect(clausesOf(where)).toContainEqual({ task: { client: { in: ['Acme', 'Beta'] } } });
   });
 
+  it('filters sub-projects through the task relation with hasSome (exact, any-of)', async () => {
+    const where = await buildTimeEntryWhere(prisma, { from, to, subProject: 'Mobile App,Website' });
+    expect(clausesOf(where)).toContainEqual({ task: { subProjects: { hasSome: ['Mobile App', 'Website'] } } });
+  });
+
+  it('adds no sub-project clause when none is selected', async () => {
+    const where = await buildTimeEntryWhere(prisma, { from, to, subProject: '' });
+    expect(JSON.stringify(where)).not.toContain('subProjects');
+  });
+
   it('lets missingOnly override an explicit status selection', async () => {
     const where = await buildTimeEntryWhere(prisma, { from, to, status: 'COST_CALCULATED', missingOnly: 'true' });
     expect(where.status).toBe('NO_RATE_FOUND');

@@ -6,7 +6,7 @@ import {
   CircleCheck, Inbox,
 } from 'lucide-react';
 import {
-  useTasks, useTasksAssignees, useTasksSummary, useClients, useLists, useFolders,
+  useTasks, useTasksAssignees, useTasksSummary, useClients, useSubProjects, useLists, useFolders,
   useTaskAssigneeChargeability, useSetAssigneeChargeable,
 } from '../hooks/useReports';
 import { useTaskHistory } from '../hooks/useTaskHistory';
@@ -36,6 +36,9 @@ import { useRowSelection } from '../hooks/useRowSelection';
 import { useAuth } from '../hooks/useAuth';
 
 type Task = Record<string, unknown>;
+
+/** A task's ClickUp "Sub-Project" labels (a task can carry several). */
+const subProjectsOf = (r: Task): string[] => (Array.isArray(r.subProjects) ? (r.subProjects as string[]) : []);
 
 const PRIORITY_OPTIONS = [
   { value: 'urgent', label: 'Urgent' },
@@ -280,6 +283,7 @@ function TaskDetailDrawer({
               <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px' }}>Business</h3>
               <MetaGrid items={[
                 ['Client', task.client],
+                ['Sub-project', subProjectsOf(task).join(', ') || null],
                 ['Department', task.department],
                 ['Sprint', task.sprintName ?? task.sprint_name],
                 ['Sprint points', task.sprintPoints ?? task.sprint_points],
@@ -427,6 +431,7 @@ export function TasksPage() {
   const [typeFilter, setTypeFilter] = useState('');
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>([]);
   const [clientFilter, setClientFilter] = useState<string[]>([]);
+  const [subProjectFilter, setSubProjectFilter] = useState<string[]>([]);
   const [listFilter, setListFilter] = useState<string[]>([]);
   const [folderFilter, setFolderFilter] = useState<string[]>([]);
   const [archivedFilter, setArchivedFilter] = useState('include');
@@ -440,6 +445,13 @@ export function TasksPage() {
   // Projects reads as "(30)" while the R&D Apps table shows nothing.) The
   // deep-link path bypasses space/date there, so it bypasses them here too.
   const { data: clientsData } = useClients({
+    spaceId: isDeepLink ? undefined : (space !== 'all' ? space : undefined),
+    from: isDeepLink ? undefined : (fromDate || undefined),
+    to: isDeepLink ? undefined : (toDate || undefined),
+    archived: archivedFilter,
+  });
+  // Same scoping as the client dropdown, for the same reason.
+  const { data: subProjectsData } = useSubProjects({
     spaceId: isDeepLink ? undefined : (space !== 'all' ? space : undefined),
     from: isDeepLink ? undefined : (fromDate || undefined),
     to: isDeepLink ? undefined : (toDate || undefined),
@@ -539,6 +551,24 @@ export function TasksPage() {
     return opts;
   }, [clientsData, clientFilter]);
 
+  // A task can carry several sub-projects, so these counts can sum to more
+  // than the task total — each is "tasks you'd see picking only this one".
+  const subProjectOptions = useMemo(() => {
+    const rows = Array.isArray(subProjectsData) ? subProjectsData : [];
+    const opts: { value: string; label: string }[] = [];
+    const seen = new Set<string>();
+    for (const r of rows) {
+      if (!r.subProject) continue;
+      seen.add(r.subProject);
+      opts.push({ value: r.subProject, label: `${r.subProject} (${r.taskCount})` });
+    }
+    // Keep a selection that scoped out of the list visible and clearable (see clientOptions).
+    for (const s of subProjectFilter) {
+      if (!seen.has(s)) opts.push({ value: s, label: `${s} (0)` });
+    }
+    return opts;
+  }, [subProjectsData, subProjectFilter]);
+
   const listOptions = useMemo(() => {
     const rows = (Array.isArray(listsData) ? listsData : []) as { listId: string; listName: string; spaceName?: string | null; taskCount?: number }[];
     const showSpace = space === 'all';
@@ -597,6 +627,7 @@ export function TasksPage() {
     search: search || undefined,
     assigneeId: assigneeFilter.length ? assigneeFilter.join(',') : undefined,
     client: clientFilter.length ? clientFilter.join(',') : undefined,
+    subProject: subProjectFilter.length ? subProjectFilter.join(',') : undefined,
     listId: listFilter.length ? listFilter.join(',') : undefined,
     folderId: folderFilter.length ? folderFilter.join(',') : undefined,
     archived: archivedFilter,
@@ -606,7 +637,7 @@ export function TasksPage() {
     // Global topbar date range filters by task `updated_date`.
     from: isDeepLink ? undefined : (fromDate || undefined),
     to: isDeepLink ? undefined : (toDate || undefined),
-  }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, listFilter, folderFilter, archivedFilter, sprintStatus, chargeableFilter, taskIdsFilter, fromDate, toDate]);
+  }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, subProjectFilter, listFilter, folderFilter, archivedFilter, sprintStatus, chargeableFilter, taskIdsFilter, fromDate, toDate]);
 
   const tasksQuery = useTasks(taskParams as Record<string, string | number | undefined>);
   const { data, isLoading } = tasksQuery;
@@ -646,7 +677,7 @@ export function TasksPage() {
 
   const hasFilters = !!(
     searchRaw || search || statusFilter.length || priorityFilter.length || typeFilter
-    || assigneeFilter.length || clientFilter.length || listFilter.length || folderFilter.length
+    || assigneeFilter.length || clientFilter.length || subProjectFilter.length || listFilter.length || folderFilter.length
     || archivedFilter !== 'include' || sprintStatus !== 'all' || chargeableFilter !== 'all'
     || taskIdsFilter.length > 0
   );
@@ -659,6 +690,7 @@ export function TasksPage() {
     setTypeFilter('');
     setAssigneeFilter([]);
     setClientFilter([]);
+    setSubProjectFilter([]);
     setListFilter([]);
     setFolderFilter([]);
     setArchivedFilter('include');
@@ -696,6 +728,7 @@ export function TasksPage() {
         { header: 'Assignees',     value: 'assigneesNames', key: 'assignees', width: 30 },
         { header: 'Assignee emails', value: 'assigneesEmails', key: 'assignees', width: 30 },
         { header: 'Client',        value: 'client', key: 'client' },
+        { header: 'Sub-project',   value: (r) => subProjectsOf(r).join(', '), key: 'sub_projects' },
         { header: 'Department',    value: 'department', key: 'department' },
         { header: 'Sprint',        value: (r) => r.sprintName ?? r.sprint_name, key: 'sprint_name' },
         { header: 'Sprint points', value: (r) => r.sprintPoints ?? r.sprint_points, key: 'sprint_points', type: 'integer' },
@@ -812,6 +845,18 @@ export function TasksPage() {
         const client = String(r.client ?? '');
         return client
           ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{client}</span>
+          : <span style={{ color: 'var(--text-faint)' }}>—</span>;
+      },
+    },
+    {
+      key: 'sub_projects',
+      header: 'Sub-project',
+      width: 140,
+      sortable: false,
+      render: (r) => {
+        const subs = subProjectsOf(r);
+        return subs.length
+          ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{subs.join(', ')}</span>
           : <span style={{ color: 'var(--text-faint)' }}>—</span>;
       },
     },
@@ -976,6 +1021,7 @@ export function TasksPage() {
         <MultiSelect ariaLabel="Filter by priority" size="md" allLabel="Any priority" value={priorityFilter} onChange={v => { setPriorityFilter(v); setPage(1); }} options={PRIORITY_OPTIONS} />
         <MultiSelect ariaLabel="Filter by assignee" size="md" allLabel="Any assignee" value={assigneeFilter} onChange={v => { setAssigneeFilter(v); setPage(1); }} options={assigneeOptions} />
         <MultiSelect ariaLabel="Filter by client" size="md" allLabel="Any client" value={clientFilter} onChange={v => { setClientFilter(v); setPage(1); }} options={clientOptions} />
+        <MultiSelect ariaLabel="Filter by sub-project" size="md" allLabel="Any sub-project" value={subProjectFilter} onChange={v => { setSubProjectFilter(v); setPage(1); }} options={subProjectOptions} />
         <MultiSelect ariaLabel="Filter by folder" size="md" allLabel="Any folder" value={folderFilter} onChange={v => { setFolderFilter(v); setPage(1); }} options={folderOptions} />
         <MultiSelect ariaLabel="Filter by list" size="md" allLabel="Any list" value={listFilter} onChange={v => { setListFilter(v); setPage(1); }} options={listOptions} />
         <Select ariaLabel="Filter by type" size="md" value={typeFilter} onChange={v => { setTypeFilter(v); setPage(1); }} options={TYPE_OPTIONS} />

@@ -23,3 +23,20 @@ describe('ClickupNormalizer.normalizeTask — orderIndex', () => {
     expect(n.normalizeTask({ id: 't3', name: 'T', orderindex: 'not-a-number' } as never).orderIndex).toBe(0n);
   });
 });
+
+describe('ClickupNormalizer.normalizeTask — subProjects', () => {
+  it('carries the extracted sub-project labels onto the normalized task', () => {
+    const task = {
+      id: 't1',
+      name: 'T',
+      custom_fields: [
+        { name: 'Sub-Project', type: 'labels', value: ['a'], type_config: { options: [{ id: 'a', label: 'Website' }] } },
+      ],
+    } as never;
+    expect(makeNormalizer().normalizeTask(task).subProjects).toEqual(['Website']);
+  });
+
+  it('defaults to an empty list, so a resync clears a removed sub-project', () => {
+    expect(makeNormalizer().normalizeTask({ id: 't2', name: 'T' } as never).subProjects).toEqual([]);
+  });
+});

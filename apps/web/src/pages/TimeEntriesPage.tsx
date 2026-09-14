@@ -4,7 +4,7 @@ import {
   Clock, DollarSign, AlertTriangle, CircleCheck, Download,
   Search, X,
 } from 'lucide-react';
-import { useTimeEntriesList, useTimeEntriesByTask, useTimeEntriesByUser, useTimeEntriesAggregates, useClients, useLists, useFolders, useSetEntryChargeableOverride } from '../hooks/useReports';
+import { useTimeEntriesList, useTimeEntriesByTask, useTimeEntriesByUser, useTimeEntriesAggregates, useClients, useSubProjects, useLists, useFolders, useSetEntryChargeableOverride } from '../hooks/useReports';
 import type { TimeEntryTaskGroup } from '../hooks/useReports';
 import { useMutation } from '@tanstack/react-query';
 import { reportsApi } from '../api/reports';
@@ -95,6 +95,7 @@ export function TimeEntriesPage() {
   const { space, fromDate, toDate } = useGlobalFilters();
   const { data: byUser } = useTimeEntriesByUser();
   const { data: clientsData } = useClients();
+  const { data: subProjectsData } = useSubProjects();
   const { data: listsData } = useLists(space !== 'all' ? space : undefined);
   const { data: foldersData } = useFolders(space !== 'all' ? space : undefined);
 
@@ -108,6 +109,7 @@ export function TimeEntriesPage() {
   const [status, setStatus] = useState<string[]>([]);
   const [missingOnly, setMissingOnly] = useState(false);
   const [clientFilter, setClientFilter] = useState<string[]>([]);
+  const [subProjectFilter, setSubProjectFilter] = useState<string[]>([]);
   const [listFilter, setListFilter] = useState<string[]>([]);
   const [folderFilter, setFolderFilter] = useState<string[]>([]);
   const [archivedFilter, setArchivedFilter] = useState('include');
@@ -162,8 +164,9 @@ export function TimeEntriesPage() {
     const urlStatus = searchParams.get('status');
     const urlMissingOnly = searchParams.get('missingOnly');
     const urlClient = searchParams.get('client');
+    const urlSubProject = searchParams.get('subProject');
     const urlSpaceScope = searchParams.get('spaceScope');
-    if (!urlSearch && !urlFrom && !urlTo && !urlUserId && !urlStatus && !urlMissingOnly && !urlClient && !urlSpaceScope) return;
+    if (!urlSearch && !urlFrom && !urlTo && !urlUserId && !urlStatus && !urlMissingOnly && !urlClient && !urlSubProject && !urlSpaceScope) return;
 
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (urlSearch) { setSearchRaw(urlSearch); setSearch(urlSearch); }
@@ -179,6 +182,7 @@ export function TimeEntriesPage() {
     if (urlUserId) setUserId([urlUserId]);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (urlClient) setClientFilter([urlClient]);
+    if (urlSubProject) setSubProjectFilter(urlSubProject.split(',').map(s => s.trim()).filter(Boolean));
     // Anomaly "view" links pass spaceScope=all — drop the topbar space filter
     // (anomalies are cross-space) while still honoring the explicit date window.
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -254,6 +258,16 @@ export function TimeEntriesPage() {
     return opts;
   }, [clientsData]);
 
+  const subProjectOptions = useMemo(() => {
+    const rows = Array.isArray(subProjectsData) ? subProjectsData : [];
+    const opts = rows.filter((r) => r.subProject).map((r) => ({ value: r.subProject, label: r.subProject }));
+    // A deep-linked value we have no option for stays visible and clearable.
+    for (const s of subProjectFilter) {
+      if (!opts.some((o) => o.value === s)) opts.push({ value: s, label: s });
+    }
+    return opts;
+  }, [subProjectsData, subProjectFilter]);
+
   const listOptions = useMemo(() => {
     const rows = (Array.isArray(listsData) ? listsData : []) as { listId: string; listName: string; spaceName?: string | null; taskCount?: number }[];
     const showSpace = space === 'all';
@@ -288,6 +302,7 @@ export function TimeEntriesPage() {
     // omits the param entirely, which the backend reads as "no constraint".
     userId: userId.length ? userId.join(',') : undefined,
     client: clientFilter.length ? clientFilter.join(',') : undefined,
+    subProject: subProjectFilter.length ? subProjectFilter.join(',') : undefined,
     listId: listFilter.length ? listFilter.join(',') : undefined,
     folderId: folderFilter.length ? folderFilter.join(',') : undefined,
     chargeable: chargeable === 'true' || chargeable === 'false' ? chargeable : undefined,
@@ -310,7 +325,7 @@ export function TimeEntriesPage() {
     // backend defaults a missing `to` to now(), which is what we want.
     from: deepLinkActive ? ALL_TIME_FROM : (linkFrom ?? (fromDate || undefined)),
     to: deepLinkActive ? undefined : (linkTo ?? (toDate || undefined)),
-  }), [pageSize, page, search, userId, clientFilter, listFilter, folderFilter, chargeable, status, missingOnly, archivedFilter, sprintStatus, deepLinkActive, bypassSpace, space, fromDate, toDate, linkFrom, linkTo]);
+  }), [pageSize, page, search, userId, clientFilter, subProjectFilter, listFilter, folderFilter, chargeable, status, missingOnly, archivedFilter, sprintStatus, deepLinkActive, bypassSpace, space, fromDate, toDate, linkFrom, linkTo]);
 
   const grouped = groupBy === 'task';
   const paramsKey = useMemo(() => JSON.stringify(params), [params]);
@@ -357,6 +372,7 @@ export function TimeEntriesPage() {
           { header: 'Task ID',            value: 'taskId' },
           { header: 'Task name',          value: (r) => r.taskName ?? NO_TASK_LABEL, key: 'taskName', width: 42 },
           { header: 'Client',             value: 'client', key: 'client' },
+          { header: 'Sub-project', value: (r) => (r.subProjects ?? []).join(', '), key: 'subProjects' },
           { header: 'List',               value: 'listName', key: 'listName' },
           { header: 'Assignees',          value: (r) => r.assignees.map(a => a.userName).filter(Boolean).join(', '), key: 'assignees', width: 30 },
           { header: 'Entries',            value: 'entryCount', key: 'entryCount', type: 'integer' },
@@ -389,6 +405,7 @@ export function TimeEntriesPage() {
         { header: 'User name',     value: 'userName', key: 'userName', width: 24 },
         { header: 'User email',    value: 'userEmail', key: 'userName', width: 28 },
         { header: 'Client',        value: 'client', key: 'client' },
+        { header: 'Sub-project', value: (r) => (r.subProjects ?? []).join(', '), key: 'subProjects' },
         { header: 'List',          value: 'listName', key: 'listName' },
         { header: 'Start',         value: 'startTime', key: 'startTime', type: 'date' },
         { header: 'End',           value: 'endTime', type: 'date' },
@@ -439,7 +456,7 @@ export function TimeEntriesPage() {
   const entryCount = agg?.totalEntries ?? (grouped ? 0 : total);
 
   const hasFilters = !!(
-    search || userId.length || clientFilter.length || listFilter.length
+    search || userId.length || clientFilter.length || subProjectFilter.length || listFilter.length
     || folderFilter.length || chargeable || status.length || missingOnly
     || archivedFilter !== 'include' || sprintStatus !== 'all'
   );
@@ -449,6 +466,7 @@ export function TimeEntriesPage() {
     setSearch('');
     setUserId([]);
     setClientFilter([]);
+    setSubProjectFilter([]);
     setListFilter([]);
     setFolderFilter([]);
     setChargeable('');
@@ -591,6 +609,17 @@ export function TimeEntriesPage() {
       ),
     },
     {
+      key: 'subProjects',
+      header: 'Sub-project',
+      width: 140,
+      sortable: false,
+      render: (row) => (
+        row.subProjects?.length
+          ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{row.subProjects.join(', ')}</span>
+          : <span style={{ color: 'var(--text-faint)' }}>—</span>
+      ),
+    },
+    {
       key: 'listName',
       header: 'List',
       width: 140,
@@ -661,6 +690,17 @@ export function TimeEntriesPage() {
       render: (row) => (
         row.client
           ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{row.client}</span>
+          : <span style={{ color: 'var(--text-faint)' }}>—</span>
+      ),
+    },
+    {
+      key: 'subProjects',
+      header: 'Sub-project',
+      width: 140,
+      sortable: false,
+      render: (row) => (
+        row.subProjects?.length
+          ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{row.subProjects.join(', ')}</span>
           : <span style={{ color: 'var(--text-faint)' }}>—</span>
       ),
     },
@@ -941,6 +981,7 @@ export function TimeEntriesPage() {
         <Select ariaLabel="Group rows" size="md" options={GROUP_OPTIONS} value={groupBy} onChange={(v) => { setGroupBy(v); setPage(1); }} />
         <MultiSelect ariaLabel="Filter by assignee" size="md" allLabel="Any assignee" options={assigneeOptions} value={userId} onChange={(v) => { setUserId(v); setPage(1); }} />
         <MultiSelect ariaLabel="Filter by client" size="md" allLabel="Any client" options={clientOptions} value={clientFilter} onChange={(v) => { setClientFilter(v); setPage(1); }} />
+        <MultiSelect ariaLabel="Filter by sub-project" size="md" allLabel="Any sub-project" options={subProjectOptions} value={subProjectFilter} onChange={(v) => { setSubProjectFilter(v); setPage(1); }} />
         <MultiSelect ariaLabel="Filter by folder" size="md" allLabel="Any folder" options={folderOptions} value={folderFilter} onChange={(v) => { setFolderFilter(v); setPage(1); }} />
         <MultiSelect ariaLabel="Filter by list" size="md" allLabel="Any list" options={listOptions} value={listFilter} onChange={(v) => { setListFilter(v); setPage(1); }} />
         <Select ariaLabel="Filter by chargeable state" size="md" options={CHARGEABLE_OPTIONS} value={chargeable} onChange={(v) => { setChargeable(v); setPage(1); }} />

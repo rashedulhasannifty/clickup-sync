@@ -8,6 +8,8 @@ export const reportsApi = {
   timeEntriesAssignees: () => apiClient.get('/reports/time-entries/assignees').then(r => r.data),
   clients: (params?: { spaceId?: string; from?: string; to?: string; archived?: string }) =>
     apiClient.get('/reports/clients', { params }).then(r => r.data),
+  subProjects: (params?: { spaceId?: string; from?: string; to?: string; archived?: string }): Promise<{ subProject: string; taskCount: number }[]> =>
+    apiClient.get('/reports/sub-projects', { params }).then(r => r.data),
   lists: (params?: { spaceId?: string }) =>
     apiClient.get('/reports/lists', { params }).then(r => r.data),
   folders: (params?: { spaceId?: string }) =>

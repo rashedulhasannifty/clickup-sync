@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { ClickUpCustomField, ClickUpTask } from './clickup.types';
+import { ClickUpCustomField, ClickUpCustomFieldOption, ClickUpTask } from './clickup.types';
 import { toNumberOrZero, toSafeInt32 } from '../common/utils/safe-value';
 
-export interface ExtractedCustomFields { executiveName: string | null; department: string | null; client: string | null; cost: number; estimation: number; sprintName: string | null; sprintPoints: number; }
+export interface ExtractedCustomFields { executiveName: string | null; department: string | null; client: string | null; subProjects: string[]; cost: number; estimation: number; sprintName: string | null; sprintPoints: number; }
 
 @Injectable()
 export class CustomFieldExtractor {
@@ -10,6 +10,7 @@ export class CustomFieldExtractor {
     let executiveName: string | null = null;
     let department: string | null = null;
     let client: string | null = null;
+    let subProjects: string[] = [];
     let cost = 0;
     let estimation = 0;
     let sprintName: string | null = null;
@@ -20,6 +21,9 @@ export class CustomFieldExtractor {
       const value = cf.value;
       if (value === undefined || value === null || value === '') continue;
       if (name === 'client' && cf.type === 'drop_down') client = this.resolveDropdown(cf, value);
+      // Exact (normalized) match, never `includes('project')`: that would also
+      // swallow a plain "Project" field, last-write-wins.
+      if (name.replace(/[\s_-]/g, '') === 'subproject') subProjects = this.resolveOptions(cf, value);
       if (name.includes('executive')) executiveName = this.cleanText(String(value));
       if (name.includes('department')) department = this.cleanText(String(value));
       if (name.includes('cost')) cost = toNumberOrZero(value);
@@ -30,13 +34,39 @@ export class CustomFieldExtractor {
     // sprint_points is an int4 column; a mis-matched custom field can carry a
     // value far beyond int4 range (the `name.includes('point')` match above is
     // broad). Clamp obvious garbage to 0 so it can't overflow and abort the upsert.
-    return { executiveName, department, client, cost, estimation, sprintName, sprintPoints: toSafeInt32(sprintPoints) };
+    return { executiveName, department, client, subProjects, cost, estimation, sprintName, sprintPoints: toSafeInt32(sprintPoints) };
   }
 
   private resolveDropdown(cf: ClickUpCustomField, value: unknown): string | null {
     const selected = Number(value);
     const option = cf.type_config?.options?.find((opt) => opt.orderindex === selected);
     return this.cleanText(option?.name ?? null);
+  }
+
+  /**
+   * Resolve a field that may be `labels` (value = array of option ids,
+   * options carry `id` + `label`), `drop_down` (value = orderindex or option
+   * id, options carry `name`) or plain text (no options) into a de-duplicated
+   * list of trimmed names. Ids that match no option are dropped rather than
+   * stored raw — a UUID in a filter dropdown is worse than nothing.
+   */
+  private resolveOptions(cf: ClickUpCustomField, value: unknown): string[] {
+    const options = cf.type_config?.options;
+    const out: string[] = [];
+    for (const v of Array.isArray(value) ? value : [value]) {
+      if (typeof v !== 'string' && typeof v !== 'number') continue;
+      const name = options?.length ? this.optionName(options, v) : String(v);
+      const clean = this.cleanText(name);
+      if (clean && !out.includes(clean)) out.push(clean);
+    }
+    return out;
+  }
+
+  private optionName(options: ClickUpCustomFieldOption[], v: string | number): string | null {
+    const option =
+      options.find((opt) => opt.id != null && opt.id === String(v)) ??
+      options.find((opt) => opt.orderindex != null && opt.orderindex === Number(v));
+    return option?.label ?? option?.name ?? null;
   }
 
   /**

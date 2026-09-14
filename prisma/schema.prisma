@@ -45,6 +45,9 @@ model ClickupTask {
   executiveName   String?  @map("executive_name")
   department      String?
   client          String?
+  // ClickUp "Sub-Project" labels field — a task can carry several. Mirrored
+  // from ClickUp on every sync (an empty list clears it).
+  subProjects     String[] @default([]) @map("sub_projects")
   cost            Decimal  @default(0) @db.Decimal(14, 2)
   estimation      Decimal  @default(0) @db.Decimal(14, 2)
   sprintName      String?  @map("sprint_name")
@@ -66,6 +69,7 @@ model ClickupTask {
   @@index([parentTaskId])
   @@index([spaceId])
   @@index([updatedDate])
+  @@index([subProjects], type: Gin)
   @@map("clickup_tasks")
 }
 

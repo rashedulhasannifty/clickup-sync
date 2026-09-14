@@ -161,6 +161,7 @@ Task normalization must defensively extract:
 - `executive_name`
 - `department`
 - `client`
+- `sub_projects`
 - `cost`
 - `estimation`
 - `sprint_name`
@@ -169,6 +170,8 @@ Task normalization must defensively extract:
 `sprint_points` can appear at root level as `points` or `story_points`, or inside custom fields. Check root-level fields first, then custom fields as fallback.
 
 For the `client` dropdown field, resolve the selected option name from `type_config.options` using `orderindex`.
+
+`sub_projects` comes from the "Sub-Project" **labels** field (normalized exact name match — never `includes('project')`). Its value is an array of option ids resolved via `type_config.options[].id` → `label`; the resolver also tolerates a dropdown or text variant. It is stored as `text[]` and filtered with `hasSome` (exact, any-of), so it is deliberately NOT in `taskSearchOr` — Prisma scalar lists have no `contains`. Facet: `GET /reports/sub-projects`; filter param: `subProject` on `/reports/tasks` and every `/reports/time-entries*` list endpoint.
 
 ### Time entries
 

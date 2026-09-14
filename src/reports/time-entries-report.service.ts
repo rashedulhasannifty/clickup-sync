@@ -247,12 +247,13 @@ export class TimeEntriesReportService {
     folderId?: string,
     archived?: string,
     sprintStatus?: string,
+    subProject?: string,
   ) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
     const where = await buildTimeEntryWhere(this.prisma, {
       from, to, userId, status, chargeable, search, spaceId, missingOnly,
-      client, listId, folderId, archived, sprintStatus,
+      client, listId, folderId, archived, sprintStatus, subProject,
     });
 
     // The totals come from the caller's `where` verbatim — the same row set
@@ -317,6 +318,7 @@ export class TimeEntriesReportService {
     archived?: string,
     sprintStatus?: string,
     taskId?: string,
+    subProject?: string,
   ) {
     // Same rationale as `tasks()`: cap allows CSV export to fetch the entire
     // filtered set; normal pagination tops out at 100 rows/page.
@@ -325,7 +327,7 @@ export class TimeEntriesReportService {
     const to = parseDate(toParam, new Date());
     const where = await buildTimeEntryWhere(this.prisma, {
       from, to, userId, status, chargeable, search, spaceId, missingOnly,
-      client, listId, folderId, archived, sprintStatus, taskId,
+      client, listId, folderId, archived, sprintStatus, taskId, subProject,
     });
     const [items, total] = await Promise.all([
       this.prisma.clickupTimeEntry.findMany({
@@ -338,7 +340,7 @@ export class TimeEntriesReportService {
           startTime: true, endTime: true, durationHours: true, hourlyRateCents: true,
           costCents: true, status: true, description: true, syncedAt: true,
           rateId: true, currency: true, isChargeable: true, chargeableOverride: true,
-          task: { select: { taskName: true, client: true, listName: true } },
+          task: { select: { taskName: true, client: true, subProjects: true, listName: true } },
         },
       }),
       this.prisma.clickupTimeEntry.count({ where }),
@@ -349,6 +351,7 @@ export class TimeEntriesReportService {
         taskId: e.taskId ?? '',
         taskName: e.task?.taskName ?? null,
         client: e.task?.client ?? null,
+        subProjects: e.task?.subProjects ?? [],
         listName: e.task?.listName ?? null,
         userId: e.userId ?? '',
         userName: e.userName,
@@ -417,6 +420,7 @@ export class TimeEntriesReportService {
     spaceId?: string;
     missingOnly?: string;
     client?: string;
+    subProject?: string;
     listId?: string;
     folderId?: string;
     archived?: string;
@@ -510,7 +514,7 @@ export class TimeEntriesReportService {
     const tasks = taskIds.length
       ? await this.prisma.clickupTask.findMany({
           where: { taskId: { in: taskIds } },
-          select: { taskId: true, taskName: true, client: true, listName: true },
+          select: { taskId: true, taskName: true, client: true, subProjects: true, listName: true },
         })
       : [];
     const taskById = new Map(tasks.map((t) => [t.taskId, t]));
@@ -522,6 +526,7 @@ export class TimeEntriesReportService {
           taskId: b.taskId,
           taskName: t?.taskName ?? null,
           client: t?.client ?? null,
+          subProjects: t?.subProjects ?? [],
           listName: t?.listName ?? null,
           entryCount: b.entryCount,
           assignees: [...b.assignees.entries()]

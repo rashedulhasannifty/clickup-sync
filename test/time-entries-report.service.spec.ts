@@ -216,6 +216,38 @@ describe('TimeEntriesReportService', () => {
       expect(result.items[0].client).toBe('Acme Corp');
     });
 
+    it('passes subProject through to the where-clause and maps the task sub-projects', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.findMany.mockResolvedValue([{
+        timeEntryId: 't1', taskId: 'k1', userId: 'u1', userName: 'Alice', userEmail: 'a@x.com',
+        startTime: new Date('2026-05-01T00:00:00Z'), endTime: null,
+        durationHours: { toNumber: () => 2 }, hourlyRateCents: BigInt(15000),
+        costCents: BigInt(30000), status: 'COST_CALCULATED', billable: true,
+        description: null, syncedAt: new Date('2026-05-01T00:00:00Z'), rateId: null, currency: 'USD',
+        task: { taskName: 'Build thing', client: 'Acme Corp', subProjects: ['Mobile App', 'Website'] },
+      }]);
+      prisma.clickupTimeEntry.count.mockResolvedValue(1);
+      const result = await new TimeEntriesReportService(prisma).timeEntriesList(
+        undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        'Mobile App',
+      );
+      const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
+      expect(arg.where.AND).toContainEqual({ task: { subProjects: { hasSome: ['Mobile App'] } } });
+      expect(arg.select.task.select.subProjects).toBe(true);
+      expect(result.items[0].subProjects).toEqual(['Mobile App', 'Website']);
+    });
+
+    it('passes subProject through to the aggregates where-clause', async () => {
+      const prisma = makePrisma();
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, 'Website',
+      );
+      const arg = prisma.clickupTimeEntry.aggregate.mock.calls[0][0];
+      expect(arg.where.AND).toContainEqual({ task: { subProjects: { hasSome: ['Website'] } } });
+    });
+
     it('maps client to null when the entry has no task', async () => {
       const prisma = makePrisma();
       prisma.clickupTimeEntry.findMany.mockResolvedValue([{
@@ -784,6 +816,19 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
   }
 
   const svc = (prisma: any) => new TimeEntriesReportService(prisma);
+
+  it('filters by sub-project and maps each row\'s task sub-projects (empty for the task-less bucket)', async () => {
+    const prisma = makePrisma(
+      [group({ taskId: 't1' }), group({ taskId: null })],
+      [{ taskId: 't1', taskName: 'Build', client: null, listName: null, subProjects: ['Website'] }],
+    );
+    const { items } = await svc(prisma).timeEntriesByTask({ subProject: 'Website' });
+    expect(prisma.clickupTimeEntry.groupBy.mock.calls[0][0].where.AND)
+      .toContainEqual({ task: { subProjects: { hasSome: ['Website'] } } });
+    expect(prisma.clickupTask.findMany.mock.calls[0][0].select.subProjects).toBe(true);
+    expect(items.find((i) => i.taskId === 't1')?.subProjects).toEqual(['Website']);
+    expect(items.find((i) => i.taskId === '__none__')?.subProjects).toEqual([]);
+  });
 
   it('collapses a task\'s entries into a single row carrying their summed hours', async () => {
     const prisma = makePrisma([

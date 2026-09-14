@@ -15,7 +15,9 @@ export interface ClickUpTask {
   tags?: Array<{ name?: string }>;
   points?: string | number | null; story_points?: string | number | null;
 }
-export interface ClickUpCustomField { name?: string; type?: string; value?: unknown; type_config?: { options?: Array<{ orderindex?: number; name?: string }> }; }
+export interface ClickUpCustomField { name?: string; type?: string; value?: unknown; type_config?: { options?: ClickUpCustomFieldOption[] }; }
+/** `drop_down` options carry `orderindex` + `name`; `labels` options carry `id` + `label`. */
+export interface ClickUpCustomFieldOption { id?: string; orderindex?: number; name?: string; label?: string }
 export interface ClickUpTimeEntry { id: string; task?: { id?: string; name?: string }; start?: string | number; end?: string | number; duration?: string | number; billable?: boolean; description?: string; user?: { id?: string | number; username?: string; email?: string }; tags?: Array<{ name?: string }> }
 export interface CreateTimeEntryPayload {
   start: number;          // Unix ms

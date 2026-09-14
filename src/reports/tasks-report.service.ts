@@ -153,6 +153,39 @@ export class TasksReportService {
     return rows.map((r) => ({ client: r.client, taskCount: Number(r.task_count) }));
   }
 
+  /**
+   * Distinct sub-projects with a task count, for the Tasks/Time Entries
+   * sub-project dropdowns. Same scoping as `tasksClients` so the count in the
+   * label matches the table.
+   *
+   * A task can carry several sub-projects, so the per-option counts can sum to
+   * MORE than the task total. That's correct — each count is "tasks you'd see
+   * if you picked only this option" — don't "fix" it into a partition.
+   */
+  async tasksSubProjects(opts?: { spaceId?: string; from?: string; to?: string; archived?: string }) {
+    const { spaceId, from, to, archived } = opts ?? {};
+    const archivedSql =
+      archived === 'only' ? Prisma.sql`AND archived = true`
+      : archived === 'exclude' ? Prisma.sql`AND archived = false`
+      : Prisma.empty;
+    const dateSql = (from || to)
+      ? Prisma.sql`AND updated_date >= ${parseDate(from, new Date(0))} AND updated_date <= ${parseDate(to, new Date())}`
+      : Prisma.empty;
+    type Row = { sub_project: string; task_count: bigint };
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+      SELECT sp AS sub_project, COUNT(DISTINCT task_id)::bigint AS task_count
+      FROM clickup_tasks, unnest(sub_projects) AS sp
+      WHERE is_deleted = false
+        AND sp <> ''
+        ${spaceId ? Prisma.sql`AND space_id = ${spaceId}` : Prisma.empty}
+        ${archivedSql}
+        ${dateSql}
+      GROUP BY sp
+      ORDER BY sp ASC
+    `);
+    return rows.map((r) => ({ subProject: r.sub_project, taskCount: Number(r.task_count) }));
+  }
+
   async tasksLists(spaceId?: string) {
     type Row = { list_id: string; list_name: string; space_name: string | null; task_count: bigint };
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
@@ -211,6 +244,7 @@ export class TasksReportService {
     folderId?: string,
     sprintStatus?: string,
     chargeable?: string,
+    subProject?: string,
   ) {
     // Cap kept generous so the dashboard's "Export CSV" can pull a complete
     // filtered set in one shot. The page UI never offers > 100 rows/page, so
@@ -238,6 +272,7 @@ export class TasksReportService {
     const statuses = csvList(status);
     const priorities = csvList(priority);
     const clients = csvList(client);
+    const subProjects = csvList(subProject);
     const listIds = csvList(listId);
     const folderIds = csvList(folderId);
     const assigneeNames = csvList(assigneeId);
@@ -245,6 +280,8 @@ export class TasksReportService {
     if (statuses) where.status = { in: statuses };
     if (priorities) where.priority = { in: priorities };
     if (clients) where.client = { in: clients };
+    // Any-of, exact per value — see `buildTimeEntryWhere`.
+    if (subProjects) where.subProjects = { hasSome: subProjects };
     if (listIds) where.listId = { in: listIds };
     if (folderIds) where.folderId = { in: folderIds };
     if (type === 'parent') where.parentTaskId = null;
@@ -323,7 +360,7 @@ export class TasksReportService {
           taskId: true, taskName: true, url: true, spaceId: true, spaceName: true, status: true, statusType: true, statusColor: true,
           priority: true, parentTaskId: true, assigneesNames: true, assigneesEmails: true,
           updatedDate: true, syncedAt: true, sprintPoints: true, sprintName: true, cost: true,
-          client: true, department: true, isDeleted: true, archived: true,
+          client: true, subProjects: true, department: true, isDeleted: true, archived: true,
           listName: true, dueDate: true, timeEstimate: true, timeSpent: true,
           createdDate: true, closedDate: true, startDate: true, syncCount: true,
           estimation: true, folderName: true, creatorName: true, executiveName: true,

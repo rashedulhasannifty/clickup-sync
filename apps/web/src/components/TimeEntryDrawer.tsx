@@ -13,6 +13,7 @@ export interface TimeEntryItem {
   taskId: string;
   taskName: string | null;
   client?: string | null;
+  subProjects?: string[];
   listName?: string | null;
   userId: string;
   userName: string;
