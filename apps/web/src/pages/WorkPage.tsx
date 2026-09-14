@@ -255,13 +255,13 @@ export function WorkPage() {
       let entries: WorkEntry[];
       if (entrySel.count > 0) {
         entries = entrySel.selectedRows.map((e) => ({
-          timeEntryId: e.timeEntryId, taskId: e.taskId, taskName: e.taskName, userId: e.userId, userName: e.userName,
+          timeEntryId: e.timeEntryId, taskId: e.taskId || null, taskName: e.taskName, userId: e.userId, userName: e.userName,
           userEmail: e.userEmail, startTime: e.startTime, endTime: e.endTime, durationHours: e.durationHours,
           hourlyRateCents: e.hourlyRateCents, costCents: Math.round(e.costAud * 100), currency: e.currency ?? 'USD',
           status: e.status, chargeable: e.chargeable, chargeableOverride: e.chargeableOverride, description: e.description,
         }));
         // Both sheets describe the same set: only the tasks the selected entries belong to.
-        const entryTaskIds = new Set(entries.map((e) => e.taskId ?? NO_TASK_ID));
+        const entryTaskIds = new Set(entries.map((e) => e.taskId || NO_TASK_ID));
         tasks = tasks.filter((t) => entryTaskIds.has(t.taskId));
       } else {
         const res = await reportsApi.workEntries(full);

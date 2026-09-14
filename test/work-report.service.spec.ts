@@ -108,6 +108,17 @@ describe('WorkReportService.work', () => {
     expect(page1.totals.entries).toBe(6);
   });
 
+  it('chargeable=constructor is not an own property of PILL_FOR and behaves like no filter', async () => {
+    const prisma = makePrisma({
+      groups: [grp('t1'), grp('t2')],
+      candidates: [cand('t1'), cand('t2')],
+      pageTasks: [cand('t1'), cand('t2')],
+    });
+    const res = await new WorkReportService(prisma).work({ ...base, chargeable: 'constructor' });
+    expect(res.items.map((r) => r.taskId).sort()).toEqual(['t1', 't2']);
+    expect(res.total).toBe(2);
+  });
+
   it('updated-only row uses the task inputs: every entry overridden against the flag -> partial', async () => {
     const prisma = makePrisma({
       candidates: [cand('t1', { isChargeable: true })],

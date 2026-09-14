@@ -211,7 +211,7 @@ export class WorkReportService {
       return { ...c, bucket, inRangeBecause: inRangeBecause(c, bucket, from, to) };
     });
 
-    const wanted = p.chargeable ? PILL_FOR[p.chargeable] : undefined;
+    const wanted = p.chargeable && Object.hasOwn(PILL_FOR, p.chargeable) ? PILL_FOR[p.chargeable] : undefined;
     if (wanted) {
       // Filter the WHOLE candidate set before paging, so `total` and the pager
       // count only rows that pass. That needs every no-entry row's task inputs.
@@ -225,6 +225,8 @@ export class WorkReportService {
     return { rows: sorted, candidatesById, entryWhere };
   }
 
+  // Mirrored by `toEntryListParams` in apps/web/src/lib/workParams.ts — the expanded
+  // entry rows must list exactly what this counts. Change both together.
   /** The entry side. Spec, "Space filter decision": never pass spaceId down. */
   private async entryWhere(p: WorkParams, from: Date, to: Date): Promise<Prisma.ClickupTimeEntryWhereInput> {
     const where = await buildTimeEntryWhere(this.prisma, {
@@ -310,7 +312,7 @@ export class WorkReportService {
 
   private toItem(r: PillRow, t: Prisma.ClickupTaskGetPayload<{ select: typeof TASK_LIST_SELECT }> | undefined) {
     const b = r.bucket;
-    // Drop the raw BigInt/Decimal columns; their converted forms are added below.
+    // Drop the raw BigInt/Decimal columns: timeEstimate/timeSpent are re-added as hours below; cost/estimation are not used by /work.
     const { timeEstimate, timeSpent, cost: _cost, estimation: _estimation, ...rest } = t ?? ({} as Partial<NonNullable<typeof t>>);
     return {
       // `rest` is `{}` for the synthetic NO_TASK_ID row (no task to spread
