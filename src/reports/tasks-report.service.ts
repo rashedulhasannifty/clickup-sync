@@ -2,27 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { parseDate } from './report-date.util';
-import { csvList, sprintStatusListIds, taskSearchOr } from './report-filter.util';
+import { buildTaskWhere, TASK_LIST_SELECT } from './task-filter.util';
 import { isPartiallyChargeable } from '../time-entries/chargeability';
-
-/**
- * "Everything on this task is chargeable": the flag says so, no (task,
- * assignee) rule contradicts it, and no entry has been overridden away.
- * `none` rather than "all entries are chargeable" so a task with no time on it
- * still qualifies. `partial` is defined as the complement of these two, which
- * is what keeps the three filter buckets exhaustive — see the filter below.
- */
-const WHOLLY_CHARGEABLE = {
-  isChargeable: true,
-  chargeabilityRules: { none: { chargeable: false } },
-  timeEntries: { none: { isChargeable: false } },
-} satisfies Prisma.ClickupTaskWhereInput;
-
-const WHOLLY_NON_CHARGEABLE = {
-  isChargeable: false,
-  chargeabilityRules: { none: { chargeable: true } },
-  timeEntries: { none: { isChargeable: true } },
-} satisfies Prisma.ClickupTaskWhereInput;
 
 /** Task-centric report queries (counts, filters, per-space aggregates). */
 @Injectable()
@@ -250,122 +231,18 @@ export class TasksReportService {
     // filtered set in one shot. The page UI never offers > 100 rows/page, so
     // this only matters for export requests.
     const safeLimit = Math.min(limit, 5000);
-    const where: Prisma.ClickupTaskWhereInput = {};
-    // Clauses that would otherwise collide on a single `where` key accumulate
-    // here and land on `where.AND` at the end. The assignee filter and the
-    // free-text search each need their own OR group, so neither can own a bare
-    // top-level key. Same pattern as `timeEntriesList`.
-    const and: Prisma.ClickupTaskWhereInput[] = [];
-    // ClickUp `archived` flag (exclude / include / only). Always hide soft-deleted rows unless we add a separate flag later.
-    where.isDeleted = false;
-    if (archived === 'only') {
-      where.archived = true;
-    } else if (archived === 'include') {
-      // show archived and non-archived
-    } else {
-      // exclude, hide, undefined, '' — default: hide archived tasks
-      where.archived = false;
-    }
-    // The categorical filters are multi-select in the dashboard and arrive as a
-    // comma-separated list. A single value parses as a one-element list, so
-    // pre-existing deep-links (e.g. `?client=Acme`) behave exactly as before.
-    const statuses = csvList(status);
-    const priorities = csvList(priority);
-    const clients = csvList(client);
-    const subProjects = csvList(subProject);
-    const listIds = csvList(listId);
-    const folderIds = csvList(folderId);
-    const assigneeNames = csvList(assigneeId);
-    if (spaceId) where.spaceId = spaceId;
-    if (statuses) where.status = { in: statuses };
-    if (priorities) where.priority = { in: priorities };
-    if (clients) where.client = { in: clients };
-    // Any-of, exact per value — see `buildTimeEntryWhere`.
-    if (subProjects) where.subProjects = { hasSome: subProjects };
-    if (listIds) where.listId = { in: listIds };
-    if (folderIds) where.folderId = { in: folderIds };
-    if (type === 'parent') where.parentTaskId = null;
-    if (type === 'subtask') where.parentTaskId = { not: null };
-    // `assignees_names` is a single comma-joined string, so each selected name
-    // is a substring match and multiple names OR together. Substring matching
-    // means "Sam" also matches "Sameer" — pre-existing behavior, unchanged.
-    if (assigneeNames) {
-      and.push({
-        OR: assigneeNames.map((n) => ({
-          assigneesNames: { contains: n, mode: 'insensitive' as const },
-        })),
-      });
-    }
-    if (taskIds) {
-      const ids = taskIds.split(',').map(s => s.trim()).filter(Boolean);
-      if (ids.length > 0) where.taskId = { in: ids };
-    }
-    if (fromParam || toParam) {
-      where.updatedDate = { gte: parseDate(fromParam, new Date(0)), lte: parseDate(toParam, new Date()) };
-    }
-    // Free-text search across short, indexed-friendly fields (see `taskSearchOr`
-    // for the field list and why it is shared with the Time Entries page).
-    // Pushed onto the AND accumulator so search stacks with the other filters
-    // above (mirrors `timeEntriesList`).
-    if (search?.trim()) {
-      and.push({ OR: taskSearchOr(search.trim()) });
-    }
-    // Sprint (== clickup_lists row) status filter: 'active'/'completed' scopes
-    // to tasks whose list isn't/is archived; 'all'/absent/unrecognized emits
-    // no clause at all (backward-compatible with every pre-existing caller).
-    // No Prisma relation from ClickupTask to ClickupList exists, so this is a
-    // fetch-ids-then-IN join rather than a nested where — see
-    // `sprintStatusListIds` for why, and why an empty array must still push a
-    // (never-matching) clause instead of being treated as "no filter".
-    const sprintListIds = await sprintStatusListIds(this.prisma, sprintStatus);
-    if (sprintListIds) and.push({ listId: { in: sprintListIds } });
-
-    // Chargeability filter. Defined on the RULES, exactly like the tri-state
-    // pill this list emits above: 'partial' means a (task, assignee) rule
-    // disagrees with the task flag, and 'true'/'false' mean the flag with no
-    // such rule — so the three are mutually exclusive. Anything else (absent,
-    // 'all', unrecognized) emits no clause, leaving every pre-existing caller
-    // unchanged.
-    //
-    // Phase 2 note: `isPartiallyChargeable` also splits on entries disagreeing
-    // with each other, which this cannot express as a `where`. That arm is
-    // inert today (nothing writes `chargeable_override`, so entries can only
-    // disagree because a rule made them), and the pill this list emits passes
-    // no entry counts for the same reason. When phase 2 gives the pill its
-    // entry signal, this filter has to gain the matching arm in the same
-    // change or the two stop agreeing.
-    if (chargeable === 'true') {
-      and.push(WHOLLY_CHARGEABLE);
-    } else if (chargeable === 'false') {
-      and.push(WHOLLY_NON_CHARGEABLE);
-    } else if (chargeable === 'partial') {
-      // The COMPLEMENT of the other two, not an enumeration of the ways a task
-      // can be split. Enumerating them left a hole: a task whose every entry
-      // was overridden away is not "mixed" and has no disagreeing rule, so it
-      // matched none of the three buckets and was reachable by no filter.
-      // Defining partial structurally makes the three exhaustive by
-      // construction — a future signal cannot escape them again. Two separate
-      // NOTs, not `NOT: [a, b]`, so this is unambiguously NOT(a) AND NOT(b).
-      and.push({ NOT: WHOLLY_CHARGEABLE });
-      and.push({ NOT: WHOLLY_NON_CHARGEABLE });
-    }
-    if (and.length) where.AND = and;
+    const where = await buildTaskWhere(this.prisma, {
+      spaceId, status, search, from: fromParam, to: toParam, priority,
+      assigneeNames: assigneeId, type, archived, client, taskIds, listId,
+      folderId, sprintStatus, chargeable, subProject,
+    });
     const [items, total] = await Promise.all([
       this.prisma.clickupTask.findMany({
         where,
         orderBy: { updatedDate: 'desc' },
         take: safeLimit,
         skip: offset,
-        select: {
-          taskId: true, taskName: true, url: true, spaceId: true, spaceName: true, status: true, statusType: true, statusColor: true,
-          priority: true, parentTaskId: true, assigneesNames: true, assigneesEmails: true,
-          updatedDate: true, syncedAt: true, sprintPoints: true, sprintName: true, cost: true,
-          client: true, subProjects: true, department: true, isDeleted: true, archived: true,
-          listName: true, dueDate: true, timeEstimate: true, timeSpent: true,
-          createdDate: true, closedDate: true, startDate: true, syncCount: true,
-          estimation: true, folderName: true, creatorName: true, executiveName: true,
-          isChargeable: true,
-        },
+        select: TASK_LIST_SELECT,
       }),
       this.prisma.clickupTask.count({ where }),
     ]);
