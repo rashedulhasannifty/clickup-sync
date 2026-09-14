@@ -188,7 +188,11 @@ export function WorkPage() {
   };
   const toggleTaskPage = (entries: { key: string | number; row: WorkRow }[], select: boolean) => {
     entrySel.clear();
-    taskSel.togglePage(entries.filter((e) => selectableTask(e.row)), select);
+    // DataTable counts unselectable rows (deleted, "(No task)") toward "whole page selected", so its
+    // header would never clear on such a page. Decide from the selectable rows instead.
+    const selectable = entries.filter((e) => selectableTask(e.row));
+    const allSelected = selectable.length > 0 && selectable.every((e) => taskSel.selectedKeys.includes(e.key));
+    taskSel.togglePage(selectable, allSelected ? false : select);
   };
   const toggleEntry = (e: TimeEntryItem) => {
     taskSel.clear();
