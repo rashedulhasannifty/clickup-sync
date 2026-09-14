@@ -240,7 +240,18 @@ export function WorkPage() {
     mutationFn: async () => {
       setExportNote(null);
       const full = { ...params, limit: 5000, offset: 0 };
-      const tasks = taskSel.count > 0 ? taskSel.selectedRows : (await reportsApi.work(full)).items;
+      let tasks: WorkRow[];
+      if (taskSel.count > 0) {
+        tasks = taskSel.selectedRows;
+      } else {
+        const res = await reportsApi.work(full);
+        if (res.total > res.items.length) {
+          // Refuse rather than write a Tasks sheet that silently drops rows.
+          setExportNote('Too many tasks to export (over 5,000). Narrow the date range or filters, then export again.');
+          return;
+        }
+        tasks = res.items;
+      }
       let entries: WorkEntry[];
       if (entrySel.count > 0) {
         entries = entrySel.selectedRows.map((e) => ({
@@ -249,6 +260,9 @@ export function WorkPage() {
           hourlyRateCents: e.hourlyRateCents, costCents: Math.round(e.costAud * 100), currency: e.currency ?? 'USD',
           status: e.status, chargeable: e.chargeable, chargeableOverride: e.chargeableOverride, description: e.description,
         }));
+        // Both sheets describe the same set: only the tasks the selected entries belong to.
+        const entryTaskIds = new Set(entries.map((e) => e.taskId ?? NO_TASK_ID));
+        tasks = tasks.filter((t) => entryTaskIds.has(t.taskId));
       } else {
         const res = await reportsApi.workEntries(full);
         if (res.truncated) {
@@ -342,8 +356,8 @@ export function WorkPage() {
       render: (r) => { const users = parseAssignees(r); return users.length ? <ClickupAvatarStack users={users} max={3} /> : blank(null); },
     },
     { key: 'est', header: 'Est', width: 70, align: 'right', sortable: false, render: (r) => (r.timeEstimateHours != null ? <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{fmt.shortHours(r.timeEstimateHours)}</span> : blank(null)) },
-    { key: 'logged', header: 'Logged', width: 90, align: 'right', render: (r) => <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.duration(r.logged?.hours ?? 0)}</span> },
-    { key: 'lifetime', header: 'Lifetime (ClickUp)', width: 130, align: 'right', sortable: false, render: (r) => (r.lifetimeSpentHours != null ? <span title="ClickUp's own total — ignores the date range" style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{fmt.shortHours(r.lifetimeSpentHours)}</span> : blank(null)) },
+    { key: 'logged', header: entryFiltersActive ? 'Logged (matching filters)' : 'Logged (in range)', width: 90, align: 'right', render: (r) => <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.duration(r.logged?.hours ?? 0)}</span> },
+    { key: 'lifetime', header: 'Lifetime (ClickUp, ignores range)', width: 130, align: 'right', sortable: false, render: (r) => (r.lifetimeSpentHours != null ? <span title="ClickUp's own total — ignores the date range" style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{fmt.shortHours(r.lifetimeSpentHours)}</span> : blank(null)) },
     { key: 'cost', header: 'Cost', width: 100, align: 'right', render: (r) => (r.logged && r.logged.costCents > 0 ? <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.money(r.logged.costCents, r.logged.currency)}</span> : blank(null)) },
     {
       key: 'rates', header: 'Rates', width: 120, sortable: false,
@@ -364,7 +378,7 @@ export function WorkPage() {
     { key: 'sprint', header: 'Sprint', width: 100, sortable: false, render: (r) => (r.sprintName ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.sprintName}</span> : blank(null)) },
     { key: 'points', header: 'Pts', width: 60, align: 'right', sortable: false, render: (r) => (r.sprintPoints ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.sprintPoints}</span> : blank(null)) },
     { key: 'updated', header: 'Updated', width: 100, align: 'right', render: (r) => (r.updatedDate ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmt.relative(r.updatedDate)}</span> : blank(null)) },
-  ], []);
+  ], [entryFiltersActive]);
 
   // ── Selection bar content ─────────────────────────────────────────────────
   const selectionStats: SelectionStat[] = useMemo(() => {
@@ -432,6 +446,7 @@ export function WorkPage() {
         A task is listed if it was updated or had time logged in the range. Logged and Cost count only time logged in the range, so they can differ from the Tasks page&apos;s Spent column. Deleted tasks&apos; time is counted in every space.
       </p>
       {exportNote && <Pill tone="amber">{exportNote}</Pill>}
+      {exportExcel.isError && <Pill tone="amber">Export failed. Try again, or narrow the filters.</Pill>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
         <MetricCard dense label="Tasks" value={fmt.number(total)} sublabel="with activity in range" icon={<ListTree size={13} strokeWidth={1.75} />} />
