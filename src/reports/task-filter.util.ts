@@ -80,6 +80,8 @@ export async function buildTaskWhere(
   // free-text search each need their own OR group, so neither can own a bare
   // top-level key. Same pattern as `timeEntriesList`.
   const and: Prisma.ClickupTaskWhereInput[] = [];
+  // ClickUp `archived` flag (exclude / include / only) is handled below. Soft-deleted
+  // rows are hidden by default; `excludeDeleted: false` keeps them (the /work page lists deleted tasks that have time in range).
   if (opts.excludeDeleted !== false) where.isDeleted = false;
   if (f.archived === 'only') {
     where.archived = true;
