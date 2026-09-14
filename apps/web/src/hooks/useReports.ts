@@ -218,6 +218,102 @@ export function useTimeEntriesByTask(
   });
 }
 
+/** In-range time on one /work row. `null` on the row = nothing counted. */
+export interface WorkLogged {
+  entryCount: number;
+  hours: number;
+  chargeableHours: number;
+  /** Rated entries only. */
+  costCents: number;
+  currency: string;
+  missingRateCount: number;
+  excludedCount: number;
+  lastActivity: string | null;
+  loggers: { userId: string; userName: string | null }[];
+}
+
+/** One /work row: a task (or the `__none__` bucket) with the time logged on it. */
+export interface WorkRow {
+  // Index signature: DataTable's row constraint, and lets the row open in the task drawer.
+  [key: string]: unknown;
+  taskId: string;
+  taskName: string | null;
+  parentTaskId?: string | null;
+  status?: string | null;
+  statusColor?: string | null;
+  priority?: string | null;
+  assigneesNames?: string | null;
+  assigneesEmails?: string | null;
+  client?: string | null;
+  subProjects?: string[];
+  listName?: string | null;
+  sprintName?: string | null;
+  sprintPoints?: number | null;
+  updatedDate?: string | null;
+  archived?: boolean;
+  isDeleted: boolean;
+  isChargeable?: boolean;
+  url?: string | null;
+  timeEstimateHours: number | null;
+  /** ClickUp's lifetime rollup — ignores the date range. */
+  lifetimeSpentHours: number | null;
+  inRangeBecause: 'updated' | 'logged' | 'both';
+  chargeable: 'yes' | 'no' | 'partial';
+  chargeableSource: 'entries' | 'task';
+  logged: WorkLogged | null;
+}
+
+export interface WorkTotals {
+  tasks: number;
+  entries: number;
+  hours: number;
+  chargeableHours: number;
+  costCents: number;
+  missingRateCount: number;
+}
+
+export interface WorkResponse {
+  items: WorkRow[];
+  total: number;
+  limit: number;
+  offset: number;
+  totals: WorkTotals;
+}
+
+export interface WorkEntry {
+  [key: string]: unknown;
+  timeEntryId: string;
+  taskId: string | null;
+  taskName: string | null;
+  userId: string | null;
+  userName: string | null;
+  userEmail: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  durationHours: number;
+  hourlyRateCents: number;
+  costCents: number;
+  currency: string;
+  status: string;
+  chargeable: boolean;
+  chargeableOverride: boolean | null;
+  description: string | null;
+}
+
+export interface WorkEntriesResponse {
+  items: WorkEntry[];
+  truncated: boolean;
+}
+
+/** The /work page's rows + totals. Key `work` — chargeability writes invalidate it. */
+export function useWork(params: Record<string, string | number | undefined>) {
+  return useQuery<WorkResponse>({
+    queryKey: ['work', params],
+    queryFn: () => reportsApi.work(params),
+    placeholderData: keepPreviousData,
+  });
+}
+
 export interface TimeEntriesAggregates {
   totalEntries: number;
   totalHours: number;
@@ -560,6 +656,8 @@ export function useSetEntryChargeableOverride() {
         predicate: (query) => typeof query.queryKey[0] === 'string' && query.queryKey[0].startsWith('time-entries'),
       });
       qc.invalidateQueries({ queryKey: ['tasks'] });
+      // The /work page shows the same pills and costs.
+      qc.invalidateQueries({ queryKey: ['work'] });
     },
   });
 }
@@ -586,6 +684,8 @@ export function useSetAssigneeChargeable() {
       // rather than by exact key.
       qc.invalidateQueries({ queryKey: ['tasks'] });
       qc.invalidateQueries({ queryKey: ['chargeability-rules'] });
+      // The /work page shows the same pills and costs.
+      qc.invalidateQueries({ queryKey: ['work'] });
     },
   });
 }

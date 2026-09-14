@@ -9,6 +9,7 @@ import { CycleTimeReportService } from './cycle-time-report.service';
 import { AnomalyReportService } from './anomaly-report.service';
 import { OpsReportService } from './ops-report.service';
 import { SprintsReportService } from './sprints-report.service';
+import { WorkReportService, type WorkParams } from './work-report.service';
 import { csvList } from './report-filter.util';
 import { MAX_CHARGEABLE_TASK_IDS } from '../tasks/task-chargeability.constants';
 
@@ -34,6 +35,7 @@ export class ReportsController {
     private readonly settings: SettingsService,
     private readonly budgets: BudgetsService,
     private readonly sprintsReports: SprintsReportService,
+    private readonly workReports: WorkReportService,
   ) {}
 
   @Get('tasks/summary')
@@ -422,5 +424,59 @@ export class ReportsController {
     const fromDate = from ? new Date(from) : new Date(Date.now() - 90 * 86400000);
     const toDate = to ? new Date(to) : new Date();
     return this.cycleTimeReports.timeInStatus({ from: fromDate, to: toDate });
+  }
+
+  /** Both /work routes take the same params; one mapper keeps them identical. */
+  private static workParams(
+    from?: string, to?: string, spaceId?: string, search?: string, status?: string, priority?: string,
+    type?: string, assignedTo?: string, loggedBy?: string, costStatus?: string, missingOnly?: string,
+    client?: string, subProject?: string, listId?: string, folderId?: string, archived?: string,
+    sprintStatus?: string, chargeable?: string, sort?: string, dir?: string, limit?: string, offset?: string,
+  ): WorkParams {
+    return {
+      from, to, spaceId, search, status, priority, type, assignedTo, loggedBy, costStatus, missingOnly,
+      client, subProject, listId, folderId, archived,
+      sprintStatus: normalizeSprintStatus(sprintStatus, 'all'),
+      chargeable, sort, dir,
+      limit: Number(limit) || 50,
+      offset: Number(offset) || 0,
+    };
+  }
+
+  @Get('work')
+  @ApiOperation({ summary: 'The Tasks & time (/work) page: every task with activity in [from, to] — updated in range OR with time logged in range — each carrying the in-range time on it (`logged`, null when none). Task filters (status, priority, type, assignedTo=task assignee names, search) choose rows. Entry filters (loggedBy=entry userIds, costStatus, missingOnly) choose which entries are counted and hide tasks left with none. Task attributes (client, subProject, listId, folderId, archived — default include, sprintStatus) apply to both. `chargeable=true|false|partial` filters on the row pill before paging. `sort=logged|updated|name|cost|lastActivity` (default logged), `dir=asc|desc` (default desc). `totals` sums every matching row, not the page. Entries with no task appear as `__none__` only when no task filter is set.' })
+  work(
+    @Query('from') from?: string, @Query('to') to?: string, @Query('spaceId') spaceId?: string,
+    @Query('search') search?: string, @Query('status') status?: string, @Query('priority') priority?: string,
+    @Query('type') type?: string, @Query('assignedTo') assignedTo?: string, @Query('loggedBy') loggedBy?: string,
+    @Query('costStatus') costStatus?: string, @Query('missingOnly') missingOnly?: string,
+    @Query('client') client?: string, @Query('subProject') subProject?: string, @Query('listId') listId?: string,
+    @Query('folderId') folderId?: string, @Query('archived') archived?: string,
+    @Query('sprintStatus') sprintStatus?: string, @Query('chargeable') chargeable?: string,
+    @Query('sort') sort?: string, @Query('dir') dir?: string,
+    @Query('limit') limit?: string, @Query('offset') offset?: string,
+  ) {
+    return this.workReports.work(ReportsController.workParams(
+      from, to, spaceId, search, status, priority, type, assignedTo, loggedBy, costStatus, missingOnly,
+      client, subProject, listId, folderId, archived, sprintStatus, chargeable, sort, dir, limit, offset,
+    ));
+  }
+
+  @Get('work/entries')
+  @ApiOperation({ summary: 'Every counted time entry behind the rows /reports/work lists for the same params (used by the two-sheet export). Newest first, capped at 5000: over the cap it returns no items and `truncated: true` rather than a partial list, so an export can never disagree with its Tasks sheet.' })
+  workEntries(
+    @Query('from') from?: string, @Query('to') to?: string, @Query('spaceId') spaceId?: string,
+    @Query('search') search?: string, @Query('status') status?: string, @Query('priority') priority?: string,
+    @Query('type') type?: string, @Query('assignedTo') assignedTo?: string, @Query('loggedBy') loggedBy?: string,
+    @Query('costStatus') costStatus?: string, @Query('missingOnly') missingOnly?: string,
+    @Query('client') client?: string, @Query('subProject') subProject?: string, @Query('listId') listId?: string,
+    @Query('folderId') folderId?: string, @Query('archived') archived?: string,
+    @Query('sprintStatus') sprintStatus?: string, @Query('chargeable') chargeable?: string,
+    @Query('sort') sort?: string, @Query('dir') dir?: string,
+  ) {
+    return this.workReports.workEntries(ReportsController.workParams(
+      from, to, spaceId, search, status, priority, type, assignedTo, loggedBy, costStatus, missingOnly,
+      client, subProject, listId, folderId, archived, sprintStatus, chargeable, sort, dir, undefined, undefined,
+    ));
   }
 }

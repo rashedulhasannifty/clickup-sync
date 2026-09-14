@@ -77,6 +77,9 @@ const AuditLogPage = React.lazy(() =>
 const TeamPage = React.lazy(() =>
 	import('./pages/TeamPage').then((m) => ({ default: m.TeamPage })),
 );
+const WorkPage = React.lazy(() =>
+	import('./pages/WorkPage').then((m) => ({ default: m.WorkPage })),
+);
 const NotFoundPage = React.lazy(() =>
 	import('./pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })),
 );
@@ -176,6 +179,7 @@ export default function App() {
 										<Route path="/analytics" element={<SuspenseRoute><AnalyticsPage /></SuspenseRoute>} />
 										<Route path="/time-spikes" element={<SuspenseRoute><HourSpikesPage /></SuspenseRoute>} />
 										<Route path="/tasks" element={<SuspenseRoute><TasksPage /></SuspenseRoute>} />
+										<Route path="/work" element={<SuspenseRoute><WorkPage /></SuspenseRoute>} />
 										<Route path="/sprints" element={<SuspenseRoute><SprintsPage /></SuspenseRoute>} />
 										<Route path="/time-entries" element={<SuspenseRoute><TimeEntriesPage /></SuspenseRoute>} />
 										<Route path="/timesheet" element={<SuspenseRoute><TimesheetPage /></SuspenseRoute>} />

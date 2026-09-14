@@ -8,6 +8,7 @@ import { CycleTimeReportService } from './cycle-time-report.service';
 import { AnomalyReportService } from './anomaly-report.service';
 import { OpsReportService } from './ops-report.service';
 import { SprintsReportService } from './sprints-report.service';
+import { WorkReportService } from './work-report.service';
 
 @Module({
   imports: [BudgetsModule],
@@ -19,6 +20,7 @@ import { SprintsReportService } from './sprints-report.service';
     AnomalyReportService,
     OpsReportService,
     SprintsReportService,
+    WorkReportService,
   ],
   controllers: [ReportsController],
 })

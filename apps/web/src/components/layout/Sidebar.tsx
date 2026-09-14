@@ -22,6 +22,7 @@ import {
   UsersRound,
   Wallet,
   Rocket,
+  ListTree,
 } from "lucide-react";
 import { useStats } from "../../hooks/useReports";
 import { useAuth } from "../../hooks/useAuth";
@@ -31,6 +32,7 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   badge?: number;
+  tag?: string;
 }
 
 export function Sidebar({
@@ -66,6 +68,7 @@ export function Sidebar({
     { to: "/analytics", label: "Analytics", icon: BarChart3 },
     { to: "/time-spikes", label: "Time Spikes", icon: Activity },
     { to: "/tasks", label: "Tasks", icon: CheckSquare },
+    { to: "/work", label: "Tasks & time", icon: ListTree, tag: "Beta" },
     { to: "/sprints", label: "Sprints", icon: Rocket },
     { to: "/time-entries", label: "Time Entries", icon: Clock },
     { to: "/timesheet", label: "Timesheet", icon: CalendarClock },
@@ -271,6 +274,20 @@ export function Sidebar({
                       }}
                     >
                       {item.badge > 99 ? "99+" : item.badge}
+                    </span>
+                  )}
+                  {!collapsed && item.tag && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 600,
+                        padding: "2px 6px",
+                        borderRadius: 999,
+                        background: "var(--pill-purple-bg)",
+                        color: "var(--pill-purple-text)",
+                      }}
+                    >
+                      {item.tag}
                     </span>
                   )}
                 </>

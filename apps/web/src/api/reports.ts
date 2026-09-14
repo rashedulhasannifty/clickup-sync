@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { CostTrendBucket } from '../hooks/useReports';
+import type { CostTrendBucket, WorkEntriesResponse, WorkResponse } from '../hooks/useReports';
 
 export const reportsApi = {
   tasksSummary: () => apiClient.get('/reports/tasks/summary').then(r => r.data),
@@ -38,6 +38,10 @@ export const reportsApi = {
     apiClient.get('/reports/time-entries/aggregates', { params }).then(r => r.data),
   timeEntriesByTask: (params: Record<string, string | number | undefined>) =>
     apiClient.get('/reports/time-entries/by-task', { params }).then(r => r.data),
+  work: (params: Record<string, string | number | undefined>): Promise<WorkResponse> =>
+    apiClient.get('/reports/work', { params }).then(r => r.data),
+  workEntries: (params: Record<string, string | number | undefined>): Promise<WorkEntriesResponse> =>
+    apiClient.get('/reports/work/entries', { params }).then(r => r.data),
   sprintPoints: (params?: { spaceId?: string }) =>
     apiClient.get('/reports/sprint-points', { params }).then(r => r.data),
   syncHealth: () => apiClient.get('/reports/ops/sync-health').then(r => r.data),

@@ -59,6 +59,22 @@ function stamp(date: Date): string {
 const HEADER_FILL = 'FF4F46E5'; // indigo, matches the app accent
 const HEADER_BORDER = 'FFE5E7EB';
 
+/** A sheet with its cells already read out of the rows (types erased). */
+export interface PreparedSheet {
+  sheetName: string;
+  columns: { header: string; type?: XlsxColumn<unknown>['type']; width?: number }[];
+  cells: unknown[][];
+}
+
+/** Read one typed sheet's cells, so sheets of different row types can share a workbook. */
+export function xlsxSheet<T>(s: { sheetName: string; rows: T[]; columns: XlsxColumn<T>[] }): PreparedSheet {
+  return {
+    sheetName: s.sheetName,
+    columns: s.columns.map((c) => ({ header: c.header, type: c.type, width: c.width })),
+    cells: s.rows.map((row) => s.columns.map((c) => coerce(c.type, readValue(c, row)))),
+  };
+}
+
 export async function exportXlsx<T>(opts: {
   /** Filename stem; a `-YYYY-MM-DD.xlsx` suffix is appended. */
   filename: string;
@@ -66,51 +82,56 @@ export async function exportXlsx<T>(opts: {
   rows: T[];
   columns: XlsxColumn<T>[];
 }): Promise<void> {
+  return exportXlsxSheets(opts.filename, [xlsxSheet(opts)]);
+}
+
+/** One workbook, one worksheet per entry in `sheets`. */
+export async function exportXlsxSheets(filename: string, sheets: PreparedSheet[]): Promise<void> {
   // CJS/ESM interop: depending on the bundler the namespace may sit on `default`.
   const mod = await import('exceljs');
   const ExcelJS = ((mod as { default?: typeof import('exceljs') }).default ?? mod) as typeof import('exceljs');
 
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet(opts.sheetName, {
-    views: [{ state: 'frozen', ySplit: 1 }],
-  });
+  for (const sheet of sheets) {
+    const ws = wb.addWorksheet(sheet.sheetName, {
+      views: [{ state: 'frozen', ySplit: 1 }],
+    });
 
-  ws.columns = opts.columns.map((c, i) => ({
-    header: c.header,
-    // Unique positional key — column `key`s may repeat (e.g. two CSV columns
-    // both tied to one table column), which ExcelJS would reject.
-    key: `c${i}`,
-    width: c.width ?? Math.min(Math.max(c.header.length + 4, 12), 48),
-    style:
-      c.type === 'date'
-        ? { numFmt: 'yyyy-mm-dd hh:mm' }
-        : c.type === 'money'
-          ? { numFmt: '#,##0.00' }
-          : c.type === 'number'
-            // Fixed 2 decimals, not '#,##0.##': the optional-digit form renders
-            // whole numbers with a dangling decimal point (1 -> "1.", 0 -> "0.")
-            // in Excel / Sheets / LibreOffice.
+    ws.columns = sheet.columns.map((c, i) => ({
+      header: c.header,
+      // Unique positional key — column `key`s may repeat (e.g. two CSV columns
+      // both tied to one table column), which ExcelJS would reject.
+      key: `c${i}`,
+      width: c.width ?? Math.min(Math.max(c.header.length + 4, 12), 48),
+      style:
+        c.type === 'date'
+          ? { numFmt: 'yyyy-mm-dd hh:mm' }
+          : c.type === 'money'
             ? { numFmt: '#,##0.00' }
-            : c.type === 'integer'
-              ? { numFmt: '#,##0' }
-              : {},
-  }));
+            : c.type === 'number'
+              // Fixed 2 decimals, not '#,##0.##': the optional-digit form renders
+              // whole numbers with a dangling decimal point (1 -> "1.", 0 -> "0.")
+              // in Excel / Sheets / LibreOffice.
+              ? { numFmt: '#,##0.00' }
+              : c.type === 'integer'
+                ? { numFmt: '#,##0' }
+                : {},
+    }));
 
-  // Header row styling — bold white text on the accent fill, frozen + filtered.
-  const header = ws.getRow(1);
-  header.height = 20;
-  header.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
-  header.alignment = { vertical: 'middle', horizontal: 'left' };
-  header.eachCell((cell) => {
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL } };
-    cell.border = { bottom: { style: 'thin', color: { argb: HEADER_BORDER } } };
-  });
+    // Header row styling — bold white text on the accent fill, frozen + filtered.
+    const header = ws.getRow(1);
+    header.height = 20;
+    header.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+    header.alignment = { vertical: 'middle', horizontal: 'left' };
+    header.eachCell((cell) => {
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_FILL } };
+      cell.border = { bottom: { style: 'thin', color: { argb: HEADER_BORDER } } };
+    });
 
-  for (const row of opts.rows) {
-    ws.addRow(opts.columns.map((c) => coerce(c.type, readValue(c, row))));
+    for (const row of sheet.cells) ws.addRow(row);
+
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: sheet.columns.length } };
   }
-
-  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: opts.columns.length } };
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], {
@@ -119,7 +140,7 @@ export async function exportXlsx<T>(opts: {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${opts.filename}-${stamp(new Date())}.xlsx`;
+  a.download = `${filename}-${stamp(new Date())}.xlsx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

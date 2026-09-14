@@ -11,13 +11,14 @@ import { OpsReportService } from '../src/reports/ops-report.service';
 import { SettingsService } from '../src/settings/settings.service';
 import { BudgetsService } from '../src/budgets/budgets.service';
 import { SprintsReportService } from '../src/reports/sprints-report.service';
+import { WorkReportService } from '../src/reports/work-report.service';
 
 describe('ReportsController', () => {
   // Build a controller wiring the report sub-services + settings + budgets.
   // Each `over` key replaces one collaborator; the rest are inert stubs. Keeps
   // call sites short and resilient to the constructor arg order.
   function makeCtrl(over: Partial<{
-    tasks: any; timeEntries: any; costTrend: any; cycleTime: any; anomaly: any; ops: any; settings: any; budgets: any; sprints: any;
+    tasks: any; timeEntries: any; costTrend: any; cycleTime: any; anomaly: any; ops: any; settings: any; budgets: any; sprints: any; work: any;
   }> = {}) {
     return new ReportsController(
       over.tasks ?? {},
@@ -29,6 +30,7 @@ describe('ReportsController', () => {
       over.settings ?? makeSettings(),
       over.budgets ?? makeBudgets(),
       over.sprints ?? makeSprints(),
+      over.work ?? {},
     );
   }
 
@@ -240,6 +242,26 @@ describe('ReportsController', () => {
     });
   });
 
+  describe('work', () => {
+    it('passes filters through, normalizes sprintStatus and numbers', async () => {
+      const work = { work: jest.fn().mockResolvedValue({ items: [] }), workEntries: jest.fn() };
+      const ctrl = makeCtrl({ work });
+      await ctrl.work('2026-09-01', '2026-09-14', 's1', 'checkout', 'complete', undefined, undefined, 'Sam', 'u1', undefined, 'true', 'Acme', undefined, undefined, undefined, 'include', 'bogus', 'partial', 'cost', 'asc', '25', '50');
+      expect(work.work).toHaveBeenCalledWith(expect.objectContaining({
+        from: '2026-09-01', to: '2026-09-14', spaceId: 's1', search: 'checkout', status: 'complete',
+        assignedTo: 'Sam', loggedBy: 'u1', missingOnly: 'true', client: 'Acme', archived: 'include',
+        sprintStatus: 'all', chargeable: 'partial', sort: 'cost', dir: 'asc', limit: 25, offset: 50,
+      }));
+    });
+
+    it('entries route reuses the same params', async () => {
+      const work = { work: jest.fn(), workEntries: jest.fn().mockResolvedValue({ items: [], truncated: false }) };
+      const ctrl = makeCtrl({ work });
+      await ctrl.workEntries('2026-09-01', '2026-09-14');
+      expect(work.workEntries).toHaveBeenCalledWith(expect.objectContaining({ from: '2026-09-01', sprintStatus: 'all' }));
+    });
+  });
+
   // Regression guard for the route-ordering pitfall: if `sprints/:listId` were
   // declared before the static `sprints/folders` / `sprints/velocity` paths,
   // Nest/Express would capture those requests as `listId = 'folders'` /
@@ -260,6 +282,7 @@ describe('ReportsController', () => {
           { provide: SettingsService, useValue: makeSettings() },
           { provide: BudgetsService, useValue: makeBudgets() },
           { provide: SprintsReportService, useValue: sprints },
+          { provide: WorkReportService, useValue: {} },
         ],
       }).compile();
       const app = moduleRef.createNestApplication();
