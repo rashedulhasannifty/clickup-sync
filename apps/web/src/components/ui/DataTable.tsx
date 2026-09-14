@@ -59,6 +59,16 @@ interface DataTableProps<T> {
    */
   initialSort?: { key: string; dir: 'asc' | 'desc' };
   /**
+   * Controlled server-side sort. When `onSortChange` is set, a header click
+   * reports the next sort instead of reordering the page locally, and the
+   * arrows show `sort`. This works while server-paginated — the reason local
+   * sort is disabled there (it would only reorder one page) doesn't apply when
+   * the server sorts. A second click on the active column flips direction; a
+   * new column starts descending.
+   */
+  sort?: { key: string; dir: 'asc' | 'desc' };
+  onSortChange?: (next: { key: string; dir: 'asc' | 'desc' }) => void;
+  /**
    * Optional controlled column visibility. When BOTH are supplied the table
    * stops self-managing show/hide and instead reports the hidden-key set up to
    * the parent — letting a page mirror the on-screen columns (e.g. so a CSV
@@ -121,6 +131,8 @@ export function DataTable<T extends { [key: string]: unknown }>({
   stickyColumns,
   rowKey = 'id' as keyof T,
   initialSort,
+  sort,
+  onSortChange,
   hiddenColumns,
   onHiddenColumnsChange,
   expandedKeys,
@@ -132,6 +144,10 @@ export function DataTable<T extends { [key: string]: unknown }>({
 }: DataTableProps<T>) {
   const [sortKey, setSortKey] = useState<string | null>(initialSort?.key ?? null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialSort?.dir ?? 'asc');
+  const serverSort = onSortChange != null;
+  // What the arrows and aria-sort show: the server's sort when controlled.
+  const activeKey = serverSort ? (sort?.key ?? null) : sortKey;
+  const activeDir = serverSort ? (sort?.dir ?? 'desc') : sortDir;
   // Column visibility is internal by default, but becomes controlled when the
   // parent passes both `hiddenColumns` and `onHiddenColumnsChange`. `hiddenKeys`
   // / `setHiddenKeys` below abstract over both modes so the rest of the
@@ -162,7 +178,7 @@ export function DataTable<T extends { [key: string]: unknown }>({
   // in that case so users don't get a misleading partial reorder.
   const isServerPaginated = total != null && total > data.length;
 
-  const sorted = sortKey && !isServerPaginated
+  const sorted = sortKey && !isServerPaginated && !serverSort
     ? [...data].sort((a, b) => {
         const av = a[sortKey];
         const bv = b[sortKey];
@@ -227,9 +243,13 @@ export function DataTable<T extends { [key: string]: unknown }>({
   }, [showColMenu]);
 
   function handleSort(key: string) {
-    if (isServerPaginated) return;
     const col = initialColumns.find(c => c.key === key);
     if (col?.sortable === false) return;
+    if (serverSort) {
+      onSortChange({ key, dir: sort?.key === key && sort.dir === 'desc' ? 'asc' : 'desc' });
+      return;
+    }
+    if (isServerPaginated) return;
     if (sortKey === key) {
       sortDir === 'asc' ? setSortDir('desc') : setSortKey(null);
     } else {
@@ -312,12 +332,12 @@ export function DataTable<T extends { [key: string]: unknown }>({
                   const align = col.align || 'left';
                   const sticky = i < stickyCount;
                   const isLastSticky = sticky && i === stickyCount - 1;
-                  const headerClickable = !isServerPaginated && col.sortable !== false;
+                  const headerClickable = (serverSort || !isServerPaginated) && col.sortable !== false;
                   const sortState: 'ascending' | 'descending' | 'none' | undefined =
-                    col.sortable === false || isServerPaginated
+                    col.sortable === false || (isServerPaginated && !serverSort)
                       ? undefined
-                      : sortKey === col.key
-                        ? sortDir === 'asc' ? 'ascending' : 'descending'
+                      : activeKey === col.key
+                        ? activeDir === 'asc' ? 'ascending' : 'descending'
                         : 'none';
                   return (
                     <th
@@ -381,7 +401,7 @@ export function DataTable<T extends { [key: string]: unknown }>({
                       }}
                       >
                         {col.header}
-                        {sortKey === col.key && (sortDir === 'asc' ? '↑' : '↓')}
+                        {activeKey === col.key && (activeDir === 'asc' ? '↑' : '↓')}
                       </span>
                       )}
                     </th>
@@ -665,12 +685,12 @@ export function DataTable<T extends { [key: string]: unknown }>({
           <thead>
             <tr className="border-b border-(--border) bg-(--surface-alt)">
               {visibleCols.map(col => {
-                const clickable = col.sortable !== false && !isServerPaginated;
+                const clickable = col.sortable !== false && (serverSort || !isServerPaginated);
                 const sortState: 'ascending' | 'descending' | 'none' | undefined =
-                  col.sortable === false || isServerPaginated
+                  col.sortable === false || (isServerPaginated && !serverSort)
                     ? undefined
-                    : sortKey === col.key
-                      ? sortDir === 'asc' ? 'ascending' : 'descending'
+                    : activeKey === col.key
+                      ? activeDir === 'asc' ? 'ascending' : 'descending'
                       : 'none';
                 return (
                   <th
@@ -687,7 +707,7 @@ export function DataTable<T extends { [key: string]: unknown }>({
                     onKeyDown={clickable ? onActivate(() => handleSort(col.key)) : undefined}
                   >
                     {col.header}
-                    {col.sortable !== false && sortKey === col.key && (sortDir === 'asc' ? ' ↑' : ' ↓')}
+                    {col.sortable !== false && activeKey === col.key && (activeDir === 'asc' ? ' ↑' : ' ↓')}
                   </th>
                 );
               })}
