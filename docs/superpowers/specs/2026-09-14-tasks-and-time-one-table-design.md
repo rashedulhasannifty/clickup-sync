@@ -322,7 +322,10 @@ Money is `costCents` plus `currency`. The new endpoint doesn't carry the
 
 **Export:** one workbook with two sheets from the same filters. The **Tasks**
 sheet has one row per task. The **Entries** sheet has every counted entry on
-those tasks. A selection exports itself, as on the old pages.
+those tasks. A selection exports itself, as on the old pages. If the Entries
+sheet would exceed 5,000 entries, the export is refused with a message to
+narrow the filters. A partial Entries sheet would silently disagree with the
+Tasks sheet.
 
 ## Known trade-offs
 
