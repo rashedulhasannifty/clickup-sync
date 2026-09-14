@@ -118,10 +118,32 @@ describe('WorkReportService.work', () => {
     expect(res.items[0]).toMatchObject({ chargeable: 'partial', chargeableSource: 'task' });
   });
 
-  it('"(No task)" row appears only when no task-only filter is set', async () => {
+  it('"(No task)" row appears only when no task-only filter is set, with the full item shape defaulted', async () => {
     const mk = () => makePrisma({ groups: [grp(null)], candidates: [], pageTasks: [] });
     const plain = await new WorkReportService(mk()).work({ ...base });
     expect(plain.items.map((r) => r.taskId)).toEqual(['__none__']);
+    // No `clickup_tasks` row backs this synthetic id, so every spec-declared
+    // task field must still come back with an explicit default rather than
+    // `undefined` — a frontend built against the non-nullable `subProjects`/
+    // `archived` types would crash calling `.map`/reading a boolean off `undefined`.
+    expect(plain.items[0]).toMatchObject({
+      taskId: '__none__',
+      taskName: null,
+      parentTaskId: null,
+      status: null,
+      statusColor: null,
+      priority: null,
+      assigneesNames: null,
+      client: null,
+      subProjects: [],
+      listName: null,
+      sprintName: null,
+      sprintPoints: null,
+      updatedDate: null,
+      archived: false,
+      isDeleted: false,
+      url: null,
+    });
     const filtered = await new WorkReportService(mk()).work({ ...base, status: 'complete' });
     expect(filtered.items).toEqual([]);
   });
@@ -135,6 +157,28 @@ describe('WorkReportService.work', () => {
     expect(res.items.map((r) => r.taskId)).toEqual(['b']);
     expect(res.totals.hours).toBe(6);
   });
+
+  it('clamps a negative limit/offset instead of passing them through to slice', async () => {
+    const prisma = makePrisma({
+      groups: [grp('a', { hours: 1 }), grp('b', { hours: 5 })],
+      candidates: [cand('a'), cand('b')], pageTasks: [cand('a'), cand('b')],
+    });
+    const res = await new WorkReportService(prisma).work({ ...base, limit: -5, offset: -10 });
+    expect(res.limit).toBe(1);
+    expect(res.offset).toBe(0);
+    // Same result as limit:1/offset:0 against the same sorted (logged desc) rows.
+    expect(res.items.map((r) => r.taskId)).toEqual(['b']);
+  });
+
+  it('converts the page task lifetime BigInt columns to hours', async () => {
+    const prisma = makePrisma({
+      groups: [grp('t1')],
+      candidates: [cand('t1')],
+      pageTasks: [{ ...cand('t1'), timeEstimate: 7_200_000n, timeSpent: 3_600_000n }],
+    });
+    const res = await new WorkReportService(prisma).work({ ...base });
+    expect(res.items[0]).toMatchObject({ timeEstimateHours: 2, lifetimeSpentHours: 1 });
+  });
 });
 
 describe('WorkReportService.workEntries', () => {
@@ -145,6 +189,41 @@ describe('WorkReportService.workEntries', () => {
     const listWhere = prisma.clickupTimeEntry.findMany.mock.calls[0][0].where;
     expect(listWhere.AND[0]).toEqual(aggWhere);
     expect(listWhere.AND[1]).toEqual({ OR: [{ taskId: { in: ['t2'] } }] });
+  });
+
+  it('maps a non-empty result: Decimal/BigInt conversions, taskName, truncated:false', async () => {
+    const prisma = makePrisma({ groups: [grp('t2')], candidates: [cand('t2')] });
+    const entries = [
+      {
+        timeEntryId: 'e1', taskId: 't2', userId: 'u1', userName: 'Rashedul', userEmail: 'r@x.com',
+        startTime: new Date('2026-09-10T00:00:00Z'), endTime: null, durationHours: dec(2.5),
+        hourlyRateCents: 1500n, costCents: 3750n, currency: 'USD', status: 'COST_CALCULATED',
+        isChargeable: true, chargeableOverride: null, description: 'work', task: { taskName: 't2 name' },
+      },
+      {
+        timeEntryId: 'e2', taskId: 't2', userId: 'u1', userName: 'Rashedul', userEmail: 'r@x.com',
+        startTime: new Date('2026-09-11T00:00:00Z'), endTime: null, durationHours: dec(1),
+        hourlyRateCents: 1500n, costCents: 1500n, currency: 'USD', status: 'COST_CALCULATED',
+        isChargeable: false, chargeableOverride: false, description: null, task: { taskName: 't2 name' },
+      },
+    ];
+    prisma.clickupTimeEntry.findMany.mockResolvedValue(entries);
+    const res = await new WorkReportService(prisma).workEntries({ ...base });
+    expect(res.truncated).toBe(false);
+    expect(res.items).toEqual([
+      {
+        timeEntryId: 'e1', taskId: 't2', taskName: 't2 name', userId: 'u1', userName: 'Rashedul',
+        userEmail: 'r@x.com', startTime: entries[0].startTime, endTime: null, durationHours: 2.5,
+        hourlyRateCents: 1500, costCents: 3750, currency: 'USD', status: 'COST_CALCULATED',
+        chargeable: true, chargeableOverride: null, description: 'work',
+      },
+      {
+        timeEntryId: 'e2', taskId: 't2', taskName: 't2 name', userId: 'u1', userName: 'Rashedul',
+        userEmail: 'r@x.com', startTime: entries[1].startTime, endTime: null, durationHours: 1,
+        hourlyRateCents: 1500, costCents: 1500, currency: 'USD', status: 'COST_CALCULATED',
+        chargeable: false, chargeableOverride: false, description: null,
+      },
+    ]);
   });
 
   it('over the 5000 cap returns no entries and truncated:true (never a partial sheet)', async () => {

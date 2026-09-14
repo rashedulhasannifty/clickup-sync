@@ -50,6 +50,31 @@ const MAX_EXPORT_ENTRIES = 5000;
 const PILL_FOR: Record<string, RowChargeable> = { true: 'yes', false: 'no', partial: 'partial' };
 
 /**
+ * Defaults for the spec's declared task fields on the synthetic `NO_TASK_ID`
+ * row: it has no `clickup_tasks` record to spread from (its id is never in
+ * `pageIds`, so `full`/`fullById` never carries it), so `toItem`'s `rest`
+ * would otherwise leave every one of these `undefined` — including the
+ * response type's non-nullable `subProjects: string[]` and `archived:
+ * boolean`, which a frontend built against that type (`row.subProjects.map`)
+ * would crash on.
+ */
+const NO_TASK_ROW_DEFAULTS = {
+  parentTaskId: null as string | null,
+  status: null as string | null,
+  statusColor: null as string | null,
+  priority: null as string | null,
+  assigneesNames: null as string | null,
+  client: null as string | null,
+  subProjects: [] as string[],
+  listName: null as string | null,
+  sprintName: null as string | null,
+  sprintPoints: null as number | null,
+  updatedDate: null as Date | null,
+  archived: false,
+  url: null as string | null,
+};
+
+/**
  * Backs the /work page: every task with activity in the range (updated OR time
  * logged), each carrying the in-range time on it. See the spec for why this is
  * two reused where-builders plus an in-memory merge rather than one SQL query.
@@ -64,8 +89,10 @@ export class WorkReportService {
   constructor(private readonly prisma: PrismaService) {}
 
   async work(p: WorkParams) {
-    const limit = Math.min(p.limit ?? 50, 5000);
-    const offset = p.offset ?? 0;
+    // Clamp both ends: an unvalidated negative `limit` (e.g. `Number('-5') || 50` === -5)
+    // would reach `rows.slice` untouched and slice from the wrong end.
+    const limit = Math.min(Math.max(p.limit ?? 50, 1), 5000);
+    const offset = Math.max(p.offset ?? 0, 0);
     const { rows, candidatesById } = await this.resolveRows(p);
     const page = rows.slice(offset, offset + limit);
 
@@ -286,6 +313,10 @@ export class WorkReportService {
     // Drop the raw BigInt/Decimal columns; their converted forms are added below.
     const { timeEstimate, timeSpent, cost: _cost, estimation: _estimation, ...rest } = t ?? ({} as Partial<NonNullable<typeof t>>);
     return {
+      // `rest` is `{}` for the synthetic NO_TASK_ID row (no task to spread
+      // from); fill every spec-declared field with its default first so
+      // `rest` only ever overrides it, never leaves it `undefined`.
+      ...(t ? {} : NO_TASK_ROW_DEFAULTS),
       ...rest,
       taskId: r.taskId,
       taskName: t?.taskName ?? null,
