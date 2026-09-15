@@ -1,6 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsISO8601, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
-import { STATUS_BUCKETS, type StatusBucket } from '../finance-math';
+import { INVOICE_STATUS_FILTERS, type InvoiceStatusFilter } from '../finance-math';
 
 const toBool = ({ value }: { value: unknown }) =>
   value === true || value === 'true' ? true : value === false || value === 'false' ? false : value;
@@ -26,7 +26,7 @@ export class ContactListQueryDto extends FinancePageDto {
 
 export class InvoiceListQueryDto extends FinanceRangeDto {
   @IsIn(['ACCREC', 'ACCPAY']) type!: 'ACCREC' | 'ACCPAY';
-  @IsOptional() @IsIn(STATUS_BUCKETS) status?: StatusBucket;
+  @IsOptional() @IsIn(INVOICE_STATUS_FILTERS) status?: InvoiceStatusFilter;
   @IsOptional() @Matches(/^[A-Z]{3}$/) currency?: string;
   @IsOptional() @IsIn(['date', 'dueDate', 'number', 'contactName', 'total', 'amountDue']) sort?: string;
 }

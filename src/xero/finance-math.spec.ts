@@ -68,6 +68,18 @@ describe('invoiceStatusWhere', () => {
     expect(matches({ status: 'AUTHORISED', dueDate: today }, w)).toBe(false);
   });
 
+  it('"unpaid" is exactly AUTHORISED ∪ overdue: a union filter, deliberately NOT one of the exclusive buckets', () => {
+    const w = invoiceStatusWhere('unpaid', today);
+    let hits = 0;
+    for (const inv of invoices) {
+      const union = matches(inv, invoiceStatusWhere('AUTHORISED', today)) || matches(inv, invoiceStatusWhere('overdue', today));
+      expect(matches(inv, w)).toBe(union);
+      if (union) hits += 1;
+    }
+    expect(hits).toBe(4); // every AUTHORISED fixture: overdue, due today, due later, no due date
+    expect(STATUS_BUCKETS).not.toContain('unpaid');
+  });
+
   it('no bucket = everything except DELETED', () => {
     const w = invoiceStatusWhere(undefined, today);
     expect(matches({ status: 'DELETED', dueDate: null }, w)).toBe(false);

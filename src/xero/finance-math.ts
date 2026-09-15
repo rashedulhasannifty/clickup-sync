@@ -51,13 +51,22 @@ export type StatusBucket = 'DRAFT' | 'SUBMITTED' | 'AUTHORISED' | 'overdue' | 'P
 export const STATUS_BUCKETS: StatusBucket[] = ['DRAFT', 'SUBMITTED', 'AUTHORISED', 'overdue', 'PAID', 'VOIDED'];
 
 /**
+ * What the invoice/bill list accepts: every exclusive bucket, plus `unpaid`, a UNION
+ * (AUTHORISED ∪ overdue: everything awaiting payment) that matches the "Owed to you" and
+ * "You owe" KPIs. `unpaid` is deliberately NOT a bucket, so the buckets stay exclusive.
+ */
+export type InvoiceStatusFilter = StatusBucket | 'unpaid';
+export const INVOICE_STATUS_FILTERS: InvoiceStatusFilter[] = [...STATUS_BUCKETS, 'unpaid'];
+
+/**
  * Exclusive status buckets for invoices and bills. "AUTHORISED" means awaiting
  * payment and NOT overdue; "overdue" is its own bucket. Together they cover every
  * non-DELETED invoice exactly once, a property enforced by finance-math.spec.ts.
  * If you add a way for an invoice to be split, change both buckets together.
  */
-export function invoiceStatusWhere(bucket: StatusBucket | undefined, today: Date): Prisma.XeroInvoiceWhereInput {
+export function invoiceStatusWhere(bucket: InvoiceStatusFilter | undefined, today: Date): Prisma.XeroInvoiceWhereInput {
   if (!bucket) return { status: { not: 'DELETED' } };
+  if (bucket === 'unpaid') return { status: 'AUTHORISED' };
   if (bucket === 'overdue') return { status: 'AUTHORISED', dueDate: { lt: today } };
   if (bucket === 'AUTHORISED') return { status: 'AUTHORISED', OR: [{ dueDate: { gte: today } }, { dueDate: null }] };
   return { status: bucket };

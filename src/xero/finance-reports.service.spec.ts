@@ -127,6 +127,13 @@ describe('FinanceReportsService.listInvoices', () => {
     expect(res.items[0]).toMatchObject({ id: 'i1', overdue: true, overdueDays: 14, partPaid: true, total: 1100, date: '2026-08-01', dueDate: '2026-09-01' });
   });
 
+  it('status=unpaid filters AUTHORISED including overdue: no due-date clause (the "Owed to you" / "You owe" tiles)', async () => {
+    const { svc, prisma } = setup();
+    await svc.listInvoices({ type: 'ACCPAY', status: 'unpaid' } as never);
+    expect(prisma.xeroInvoice.findMany.mock.calls[0][0].where).toEqual({ AND: [{ type: 'ACCPAY' }, { status: 'AUTHORISED' }] });
+    expect(prisma.xeroInvoice.aggregate.mock.calls[0][0].where).toEqual({ AND: [{ type: 'ACCPAY' }, { status: 'AUTHORISED' }] });
+  });
+
   it('caps limit at 200', async () => {
     const { svc, prisma } = setup();
     await svc.listInvoices({ type: 'ACCPAY', limit: 5000 } as never);
