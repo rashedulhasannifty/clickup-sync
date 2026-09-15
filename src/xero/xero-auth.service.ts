@@ -43,6 +43,30 @@ type RedisLike = {
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 
+/**
+ * The `authentication_event_id` claim of a Xero access token (a JWT), or null when
+ * the token isn't a JWT or has no such claim. No signature check: the token came
+ * straight from Xero's token endpoint over TLS. Never logs the token or payload.
+ */
+export function authEventIdOf(accessToken: string): string | null {
+  const parts = accessToken.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const payload: unknown = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    const id = (payload as { authentication_event_id?: unknown } | null)?.authentication_event_id;
+    return typeof id === 'string' && id ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fixed text plus the error's class name or Prisma code. Never `message`: a Prisma validation message can quote token ciphertext. */
+function errorKind(e: unknown): string {
+  const code = (e as { code?: unknown } | null)?.code;
+  if (typeof code === 'string' && code) return code;
+  return (e as Error | null)?.name ?? 'unknown';
+}
+
 @Injectable()
 export class XeroAuthService {
   private readonly logger = new Logger(XeroAuthService.name);
@@ -104,7 +128,10 @@ export class XeroAuthService {
 
     try {
       const tokens = await this.identity.exchangeCode(q.code, this.redirectUri());
-      const orgs = (await this.identity.listConnections(tokens.access_token)).filter((c) => c.tenantType === 'ORGANISATION');
+      // Scope to THIS consent: the unfiltered list also holds every organisation this
+      // user connected earlier (e.g. the Demo Company), which would refuse a valid pick.
+      const authEventId = authEventIdOf(tokens.access_token) ?? undefined;
+      const orgs = (await this.identity.listConnections(tokens.access_token, authEventId)).filter((c) => c.tenantType === 'ORGANISATION');
       if (orgs.length !== 1) {
         await this.identity.revoke(tokens.refresh_token);
         return this.settingsUrl('error', orgs.length === 0 ? 'no_tenant' : 'multiple_tenants');
@@ -129,16 +156,24 @@ export class XeroAuthService {
         connectedByUserId: owner.userId,
         connectedByEmail: owner.email,
       });
+      // The connection is saved: from here on the redirect must say `connected`, so the
+      // side effects below are best-effort. The hourly cron picks up a missed first sync.
       // The AuditLogInterceptor skips GETs, so record the connect explicitly.
-      await this.audit.create({
-        actor: owner.email ?? owner.userId, method: 'GET', path: '/api/xero/callback', routePattern: 'xero.connected',
-        statusCode: 302, durationMs: null, ip: null, userAgent: null, requestBody: { tenantName: org.Name }, errorMessage: null,
-      });
-      const data: XeroSyncJobData = { entity: 'all', full: true };
-      await this.queues.get(QUEUES.XERO_SYNC).add(JOBS.XERO_SYNC, data, this.queues.defaultJobOptions());
+      await this.audit
+        .create({
+          actor: owner.email ?? owner.userId, method: 'GET', path: '/api/xero/callback', routePattern: 'xero.connected',
+          statusCode: 302, durationMs: null, ip: null, userAgent: null, requestBody: { tenantName: org.Name }, errorMessage: null,
+        })
+        .catch((e: unknown) => this.logger.error(`Xero connected, but the audit entry could not be written: ${errorKind(e)}`));
+      // Only a first-ever connect is full. Reconnecting the same organisation resumes from the watermarks.
+      const data: XeroSyncJobData = { entity: 'all', full: !existing?.tenantId };
+      await this.queues
+        .get(QUEUES.XERO_SYNC)
+        .add(JOBS.XERO_SYNC, data, this.queues.defaultJobOptions())
+        .catch((e: unknown) => this.logger.error(`Xero connected, but the first sync could not be queued: ${errorKind(e)}`));
       return this.settingsUrl('connected');
     } catch (e) {
-      this.logger.error(`Xero callback failed: ${(e as Error).message}`);
+      this.logger.error(`Xero callback failed: ${errorKind(e)}`);
       return this.settingsUrl('error', 'exchange');
     }
   }

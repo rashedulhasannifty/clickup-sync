@@ -53,10 +53,19 @@ export class XeroIdentityClient {
     }
   }
 
-  async listConnections(accessToken: string): Promise<XeroTenantConnection[]> {
+  /**
+   * Without `authEventId` Xero returns EVERY organisation this user ever connected to
+   * the app. With it, only the ones picked on that consent (the id is a claim in the
+   * new access token; it is not a secret, so it may go in the query string).
+   */
+  async listConnections(accessToken: string, authEventId?: string): Promise<XeroTenantConnection[]> {
     try {
       const res = await firstValueFrom(
-        this.http.get<XeroTenantConnection[]>(XERO_CONNECTIONS_URL, { headers: this.bearer(accessToken), timeout: TIMEOUT_MS }),
+        this.http.get<XeroTenantConnection[]>(XERO_CONNECTIONS_URL, {
+          headers: this.bearer(accessToken),
+          timeout: TIMEOUT_MS,
+          ...(authEventId ? { params: { authEventId } } : {}),
+        }),
       );
       return res.data ?? [];
     } catch (e: any) {
