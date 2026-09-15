@@ -116,4 +116,21 @@ describe('XeroSyncService.reconcileOpen', () => {
     expect(idCalls[0][1].params.IDs.split(',')).toHaveLength(50);
     expect(idCalls[2][1].params.IDs.split(',')).toHaveLength(20);
   });
+
+  it('reports a contacts-pass failure against contacts, not invoices, and never touches the invoice batch', async () => {
+    const { svc, repo } = setup({ '/Contacts': new XeroApiError(500, '/Contacts', 'boom') });
+    await expect(svc.reconcileOpen()).rejects.toBeInstanceOf(XeroApiError);
+    expect(repo.failEntity).toHaveBeenCalledWith('contacts', 'FAILED', expect.stringContaining('boom'));
+    expect(repo.failEntity).not.toHaveBeenCalledWith('invoices', expect.anything(), expect.anything());
+    expect(repo.openInvoiceIds).not.toHaveBeenCalled();
+  });
+
+  it('stops cleanly on the day budget during the contacts pass, recorded against contacts', async () => {
+    const { svc, repo } = setup({ '/Contacts': new XeroRateBudgetExhaustedError(420) });
+    const res = await svc.reconcileOpen();
+    expect(res.stopped).toBe('rate_limited');
+    expect(repo.failEntity).toHaveBeenCalledWith('contacts', 'RATE_LIMITED', expect.any(String));
+    expect(repo.failEntity).not.toHaveBeenCalledWith('invoices', expect.anything(), expect.anything());
+    expect(repo.openInvoiceIds).not.toHaveBeenCalled();
+  });
 });

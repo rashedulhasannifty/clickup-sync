@@ -71,8 +71,15 @@ export class XeroSyncService {
   async reconcileOpen(): Promise<XeroSyncResult> {
     this.client.beginRun();
     const result: XeroSyncResult = { stopped: null, entities: [], attachmentsFetched: 0 };
+    // Each phase is reported under its own entity: a contacts failure must not
+    // overwrite the `invoices` sync-state row (or leave `contacts` stuck RUNNING).
     try {
       result.entities.push(await this.syncEntity('contacts', true, []));
+    } catch (e) {
+      result.stopped = await this.stopReason('contacts', e);
+      return result;
+    }
+    try {
       const ids = await this.repo.openInvoiceIds();
       let upserted = 0;
       for (let i = 0; i < ids.length; i += RECONCILE_ID_BATCH) {
