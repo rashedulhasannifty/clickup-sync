@@ -246,3 +246,46 @@ backward-compatible**:
 - **Never** drop or rename a column in the same deploy that introduces its
   replacement — that breaks instant rollback. Rollback flips *code*, never
   un-migrates the schema.
+
+## Xero finance sync
+
+**Setup**
+1. Xero app (developer.xero.com → My Apps): register the redirect URIs `https://log.niftyitsolution.com/api/xero/callback`
+   and, for local dev, `http://localhost:5173/api/xero/callback`.
+2. Set `XERO_CLIENT_ID` / `XERO_CLIENT_SECRET` in the server `.env` (both or neither). `APP_ENCRYPTION_KEY` must be set.
+   Recreate the web and worker containers.
+3. An Owner connects from Settings → Xero and picks exactly one organisation.
+
+**Schedule** (worker only, Asia/Dhaka)
+
+| Job | When | What |
+|---|---|---|
+| `xero-sync-run` | hourly at :17 | incremental, `If-Modified-Since` = per-entity watermark |
+| `xero-reconcile-open` | 02:00 | full contacts pass + re-read unpaid/submitted invoices by ID |
+| `xero-token-keepalive` | 04:00 | force a token refresh (refresh tokens die after 60 days unused) |
+
+**Rate limits.** Xero allows 60 calls/min, 5,000/day and 5 concurrent. The client paces itself to ≤55/min, and a run stops
+cleanly (`RATE_LIMITED` in `xero_sync_state`) when fewer than 500 daily calls remain. The next hourly run resumes from the watermark.
+
+**Runbook: "Needs reconnect"**
+- Cause: Xero answered `invalid_grant`. Someone removed the app under Xero → Settings → Connected apps, the refresh
+  token went unused for 60 days, or the client secret was rotated.
+- Fix: an Owner opens Settings → Xero → **Reconnect** and picks the **same** organisation. Watermarks are kept, so the
+  first run only fetches what changed.
+
+**Runbook: switching to a different Xero organisation** (destructive; take a DB backup first)
+The app refuses to connect a second organisation (`reason=different_org`), so books never mix. To switch deliberately:
+```sql
+BEGIN;
+TRUNCATE xero_attachments, xero_payments, xero_bank_transactions, xero_credit_notes, xero_invoices, xero_contacts, xero_sync_state;
+DELETE FROM xero_connections;
+COMMIT;
+```
+Then connect the new organisation from Settings.
+
+**Grafana.** Grant the read-only Grafana role `SELECT` on the eight `xero_*` tables. Use the role Grafana's Postgres data source connects as
+(find it with `\du` on the prod database):
+```
+GRANT SELECT ON xero_connections, xero_contacts, xero_invoices, xero_credit_notes, xero_bank_transactions, xero_payments, xero_attachments, xero_sync_state TO <grafana read-only role>;
+```
+Find the role with `\du` on the prod database, or from the Grafana Postgres data source's user. Leave out `xero_connections` if you'd rather not expose the (encrypted) token columns.

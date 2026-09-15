@@ -1,7 +1,7 @@
 # Xero Finance: read-only sync of contacts and transactions
 
 **Date:** 2026-09-15
-**Status:** Draft (design). Screens approved 2026-09-15; architecture awaiting review.
+**Status:** Approved; implemented per docs/superpowers/plans/2026-09-15-xero-finance.md
 **Mockup:** https://claude.ai/code/artifact/5b2bc945-5ba6-4e62-b007-bd57be6d1a45
 (copy in `assets/2026-09-15-xero-finance-prototype.html`)
 
@@ -495,3 +495,35 @@ Added to `src/config/env.validation.ts` (zod):
 
 None blocking. Base-currency conversion direction and the deep-link paths get
 confirmed against the Demo Company during the first implementation task.
+
+## Changes made during planning
+
+1. **Keep-alive job queue.** `XERO_TOKEN_KEEPALIVE` runs on the `xero-sync` queue, not `maintenance`. `maintenance` is owned by `CostRecalcProcessor`; routing a Xero job through it would couple two unrelated features. A keep-alive delayed behind a running sync is harmless because the sync refreshes lazily.
+2. **`If-Modified-Since` format.** Sent as ISO-8601 UTC without zone or milliseconds (`2026-09-15T10:00:00`), the form Xero documents and xero-node sends. The spec said RFC 1123.
+3. **Controller name.** The read controller is `finance-reports.controller.ts` (it serves `/finance`), not `xero-reports.controller.ts`.
+4. **Extra endpoint.** `GET /api/finance/contacts/:id/activity` is added for the contact drawer's Activity sub-tab. The spec listed the tab but not an endpoint.
+5. **Extra columns.** `contact_name` is stored on every transaction row, so lists and search need no join. `xero_connections` also stores `connection_id`, needed by `DELETE /connections/{id}`, and `connected_by_email`, for display.
+6. **Different-organisation guard.** A reconnect that picks a different Xero organisation from the one already synced is refused with `reason=different_org`, and the new grant is revoked. Otherwise two companies' books would mix in one set of tables. Switching organisations deliberately is an ops procedure; see the runbook in Task 13.
+7. **First-sync progress.** Settings shows live per-entity record counts and a status pill during the first sync, instead of the prototype's percentage bars. Xero doesn't report totals up front, so any percentage would be made up.
+
+## Changes made during implementation
+
+1. **Contact spend definition.** A contact's `kpis.spend` = ACCPAY bill totals (AUTHORISED+PAID) + plain `SPEND`
+   bank transactions only. `SPEND-PREPAYMENT` / `SPEND-OVERPAYMENT` are excluded: a prepayment allocated to a bill
+   marks the bill PAID without a Payment, so counting both double-counts. An unallocated prepayment therefore does
+   not appear in spend until it is allocated.
+2. **Token refresh timings.** Identity HTTP timeout 15 s; refresh lock TTL (`xero:token-refresh`) 45 s; waiters give
+   up after 30 s. Invariant: lock TTL > HTTP timeout + DB work, and wait ≥ HTTP timeout. A refresh that outlives its
+   lock logs a warning (no token content).
+3. **Sanitised Xero errors.** Identity and data-client errors are rebuilt from operation + HTTP status (+ Xero error
+   code). The raw axios error — whose config carries the Bearer token or Basic auth — is never attached as `cause`,
+   returned or logged.
+4. **Scheduler runs only in the worker.** `XeroScheduler` is registered only when `ROLE=worker`
+   (`...(isWorker() ? [XeroScheduler] : [])`), matching `SyncScheduler`, so blue/green web colours never fire
+   Xero crons against the 5,000/day budget.
+5. **Per-phase reconcile status.** `reconcileOpen()` records a contacts-pass failure against `contacts` and stops;
+   only the open-invoice batch phase reports against `invoices`.
+6. **Invalid dates.** `parseXeroDateOnly` returns `null` when the constructed date is invalid (e.g. month 13)
+   rather than an Invalid Date.
+7. **Retryable status error.** Settings → Xero shows a retryable error (`QueryError`) when `/xero/status` fails,
+   instead of an endless "Loading Xero status…".
