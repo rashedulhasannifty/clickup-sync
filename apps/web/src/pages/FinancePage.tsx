@@ -40,9 +40,16 @@ function apiErrorMessage(e: unknown): string | undefined {
   return (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
 }
 
+/** The first day of the current month in Asia/Dhaka (the backend's "this month" for the KPIs), as YYYY-MM-01. */
+function dhakaMonthStart(now: Date): string {
+  const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  return `${ymd.slice(0, 7)}-01`;
+}
+
 function rangeFrom(v: string): string | undefined {
   if (!v) return undefined;
   const now = new Date();
+  if (v === 'month') return dhakaMonthStart(now);
   if (v === 'ytd') return `${now.getFullYear()}-01-01`;
   return new Date(now.getTime() - Number(v) * 86_400_000).toISOString().slice(0, 10);
 }
@@ -95,12 +102,14 @@ export function FinancePage() {
   const payments = useFinancePayments(payP, hasData && tab === 'payments');
   const active = { contacts, invoices, bills, bank, credits, payments }[tab];
 
+  // Each tile opens a tab whose filter matches the tile's own figure: owed/owe are
+  // everything unpaid (overdue included); money in/out are this Dhaka month's payments.
   const openKpi = (t: KpiTarget) => {
-    if (t === 'recv') switchTab('invoices', { status: 'AUTHORISED' });
+    if (t === 'recv') switchTab('invoices', { status: 'unpaid' });
     if (t === 'overdue') switchTab('invoices', { status: 'overdue' });
-    if (t === 'pay') switchTab('bills', { status: 'AUTHORISED' });
-    if (t === 'in') switchTab('payments', { direction: 'in' });
-    if (t === 'out') switchTab('bank', { bankType: 'SPEND' });
+    if (t === 'pay') switchTab('bills', { status: 'unpaid' });
+    if (t === 'in') switchTab('payments', { direction: 'in', from: 'month' });
+    if (t === 'out') switchTab('payments', { direction: 'out', from: 'month' });
     document.getElementById('finance-tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
@@ -319,7 +328,7 @@ export function FinancePage() {
             )}
             {tab !== 'contacts' && (
               <select id="finance-range" aria-label="Date range" style={selectStyle} value={f.from} onChange={(e) => set({ from: e.target.value })}>
-                <option value="">Any date</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="ytd">This year</option>
+                <option value="">Any date</option><option value="month">This month</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="ytd">This year</option>
               </select>
             )}
             <span style={{ flex: 1 }} />

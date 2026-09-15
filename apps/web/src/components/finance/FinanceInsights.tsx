@@ -15,8 +15,9 @@ export function FinanceKpis({ s, loading, onOpen }: { s?: FinanceSummary; loadin
         caption={`${s?.overdue.count ?? 0} invoices${s?.overdue.oldestDays ? ` · oldest ${s.overdue.oldestDays}d` : ''}`} onClick={() => onOpen('overdue')} />
       <MetricCard dense loading={loading} label="You owe" value={baseMoney(s?.youOwe.amount ?? 0, cur)}
         caption={`${s?.youOwe.count ?? 0} bills${s?.youOwe.nextDueDate ? ` · next due ${day(s.youOwe.nextDueDate)}` : ''}`} onClick={() => onOpen('pay')} />
-      <MetricCard dense loading={loading} label={`Money in · ${month}`} value={baseMoney(s?.moneyInMonth ?? 0, cur)} caption="Payments + receive money" onClick={() => onOpen('in')} />
-      <MetricCard dense loading={loading} label={`Money out · ${month}`} value={baseMoney(s?.moneyOutMonth ?? 0, cur)} caption="Bills paid + spend money" onClick={() => onOpen('out')} />
+      {/* These open the Payments tab; the receive/spend money part lives in Bank transactions, so the caption says so. */}
+      <MetricCard dense loading={loading} label={`Money in · ${month}`} value={baseMoney(s?.moneyInMonth ?? 0, cur)} caption="Payments + receive money (see Bank transactions)" onClick={() => onOpen('in')} />
+      <MetricCard dense loading={loading} label={`Money out · ${month}`} value={baseMoney(s?.moneyOutMonth ?? 0, cur)} caption="Payments + spend money (see Bank transactions)" onClick={() => onOpen('out')} />
     </div>
   );
 }

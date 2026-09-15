@@ -68,6 +68,6 @@ export function ContactAvatar({ name, size = 30 }: { name: string; size?: number
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const STATUS_OPTIONS = [
-  ['', 'All statuses'], ['DRAFT', 'Draft'], ['SUBMITTED', 'Awaiting approval'], ['AUTHORISED', 'Awaiting payment'],
-  ['overdue', 'Overdue'], ['PAID', 'Paid'], ['VOIDED', 'Voided'],
+  ['', 'All statuses'], ['unpaid', 'Unpaid (incl. overdue)'], ['DRAFT', 'Draft'], ['SUBMITTED', 'Awaiting approval'],
+  ['AUTHORISED', 'Awaiting payment (not overdue)'], ['overdue', 'Overdue'], ['PAID', 'Paid'], ['VOIDED', 'Voided'],
 ] as const;
