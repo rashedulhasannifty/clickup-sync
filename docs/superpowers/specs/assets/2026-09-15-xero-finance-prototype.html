@@ -1,0 +1,1002 @@
+<title>Clicksy Finance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  color-scheme:light;
+  --font-sans:"Geist",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --font-mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --page-bg:#f7f7f5;--surface:#fff;--surface-alt:#fafaf9;--muted-bg:#f5f5f4;
+  --hover:rgba(15,23,42,.04);--sidebar-bg:#fafaf8;--sidebar-active-bg:rgba(123,104,238,.10);
+  --border:#e7e5e2;--border-soft:#efeeec;--border-strong:#d4d4d2;
+  --text:#0f172a;--text-muted:#64748b;--text-faint:#94a3b8;
+  --accent:#7B68EE;--accent-hover:#6953dc;--accent-soft:rgba(123,104,238,.10);
+  --accent-grad:linear-gradient(120deg,#FF02F0 0%,#7B68EE 50%,#49CCF9 100%);
+  --green:#10b981;--amber:#f59e0b;--red:#ef4444;--blue:#3b82f6;
+  --xero:#13B5EA;--xero-soft:rgba(19,181,234,.12);
+  --pill-gray-bg:#f1f5f9;--pill-gray-text:#475569;--pill-green-bg:#d1fae5;--pill-green-text:#065f46;
+  --pill-amber-bg:#fef3c7;--pill-amber-text:#92400e;--pill-red-bg:#fee2e2;--pill-red-text:#991b1b;
+  --pill-blue-bg:#dbeafe;--pill-blue-text:#1e40af;--pill-purple-bg:#ede9fe;--pill-purple-text:#5b21b6;
+  --card-shadow:0 3px 0 0 var(--border-strong),0 9px 20px rgba(15,23,42,.13);
+  --row-shadow:0 5px 16px rgba(15,23,42,.22),0 2px 0 0 var(--border-strong);
+  --inset:inset 0 2px 4px rgba(15,23,42,.16),inset 0 1px 1px rgba(15,23,42,.10);
+  --btn-edge:#00030a;--btn-face:#0f172a;--btn-face-text:#fff;
+  --overlay:rgba(15,23,42,.32);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark;
+  --page-bg:#0a0a0b;--surface:#131316;--surface-alt:#18181b;--muted-bg:#1c1c20;
+  --hover:rgba(255,255,255,.04);--sidebar-bg:#0f0f11;--sidebar-active-bg:rgba(123,104,238,.15);
+  --border:#27272a;--border-soft:#1f1f22;--border-strong:#3f3f46;
+  --text:#fafafa;--text-muted:#a1a1aa;--text-faint:#71717a;
+  --xero-soft:rgba(19,181,234,.16);
+  --pill-gray-bg:rgba(148,163,184,.12);--pill-gray-text:#cbd5e1;--pill-green-bg:rgba(16,185,129,.15);--pill-green-text:#34d399;
+  --pill-amber-bg:rgba(245,158,11,.15);--pill-amber-text:#fbbf24;--pill-red-bg:rgba(239,68,68,.15);--pill-red-text:#f87171;
+  --pill-blue-bg:rgba(59,130,246,.15);--pill-blue-text:#60a5fa;--pill-purple-bg:rgba(139,92,246,.18);--pill-purple-text:#c4b5fd;
+  --card-shadow:0 3px 0 0 #000,0 9px 22px rgba(0,0,0,.6);
+  --row-shadow:0 6px 18px rgba(0,0,0,.65),0 2px 0 0 #000;
+  --inset:inset 0 2px 4px rgba(0,0,0,.55),inset 0 1px 1px rgba(0,0,0,.4);
+  --btn-edge:#b8b8bd;--btn-face:#fafafa;--btn-face-text:#0a0a0b;
+  --overlay:rgba(0,0,0,.55);
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --page-bg:#0a0a0b;--surface:#131316;--surface-alt:#18181b;--muted-bg:#1c1c20;
+  --hover:rgba(255,255,255,.04);--sidebar-bg:#0f0f11;--sidebar-active-bg:rgba(123,104,238,.15);
+  --border:#27272a;--border-soft:#1f1f22;--border-strong:#3f3f46;
+  --text:#fafafa;--text-muted:#a1a1aa;--text-faint:#71717a;
+  --xero-soft:rgba(19,181,234,.16);
+  --pill-gray-bg:rgba(148,163,184,.12);--pill-gray-text:#cbd5e1;--pill-green-bg:rgba(16,185,129,.15);--pill-green-text:#34d399;
+  --pill-amber-bg:rgba(245,158,11,.15);--pill-amber-text:#fbbf24;--pill-red-bg:rgba(239,68,68,.15);--pill-red-text:#f87171;
+  --pill-blue-bg:rgba(59,130,246,.15);--pill-blue-text:#60a5fa;--pill-purple-bg:rgba(139,92,246,.18);--pill-purple-text:#c4b5fd;
+  --card-shadow:0 3px 0 0 #000,0 9px 22px rgba(0,0,0,.6);
+  --row-shadow:0 6px 18px rgba(0,0,0,.65),0 2px 0 0 #000;
+  --inset:inset 0 2px 4px rgba(0,0,0,.55),inset 0 1px 1px rgba(0,0,0,.4);
+  --btn-edge:#b8b8bd;--btn-face:#fafafa;--btn-face-text:#0a0a0b;
+  --overlay:rgba(0,0,0,.55);
+}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;font-family:var(--font-sans);background:var(--page-bg);color:var(--text);font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer;color:inherit}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.mono{font-family:var(--font-mono)}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+svg.i{width:16px;height:16px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+
+/* shell */
+.app{display:flex;min-height:100vh}
+.side{width:232px;flex-shrink:0;border-right:1px solid var(--border);background:var(--sidebar-bg);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.logo{height:56px;padding:0 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border)}
+.logo-mark{width:30px;height:30px;border-radius:8px;background:var(--accent-grad)}
+.logo b{font-size:17px;font-weight:700;letter-spacing:-.02em;display:block;line-height:1.1}
+.logo small{font-size:10px;color:var(--text-muted);font-weight:500}
+.nav{flex:1;padding:8px;display:flex;flex-direction:column;gap:2px;overflow-y:auto}
+.nav-h{font-size:10px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.08em;padding:8px 10px 4px}
+.nav a{display:flex;align-items:center;gap:10px;padding:7px 10px;font-size:13px;font-weight:500;color:var(--text-muted);border-radius:7px;position:relative;text-decoration:none;transition:transform .1s,background .1s}
+.nav a:hover{transform:translateY(-1px);background:var(--hover)}
+.nav a[aria-current="page"]{color:var(--text);background:var(--sidebar-active-bg);box-shadow:0 1px 2px rgba(15,23,42,.06),0 3px 9px rgba(123,104,238,.2)}
+.nav a[aria-current="page"]::before{content:"";position:absolute;left:-8px;top:6px;bottom:6px;width:2px;border-radius:9px;background:var(--accent)}
+.nav a.dim{opacity:.55;cursor:default}
+.nav a.dim:hover{transform:none;background:none}
+.nav a span:not(.tag){flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag{font-size:10px;font-weight:600;padding:2px 6px;border-radius:999px;background:var(--pill-purple-bg);color:var(--pill-purple-text)}
+.side-foot{padding:10px;border-top:1px solid var(--border)}
+.org{display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;background:var(--muted-bg)}
+.org i{width:28px;height:28px;border-radius:6px;background:linear-gradient(135deg,#1f2937,#4b5563);color:#fff;font:700 11px var(--font-sans);display:flex;align-items:center;justify-content:center;font-style:normal}
+.org b{font-size:12px;display:block}.org small{font-size:10px;color:var(--text-muted)}
+.main{flex:1;min-width:0;padding-block:24px 64px;padding-inline:clamp(16px,3vw,32px)}
+.wrap{max-width:1280px;margin:0 auto}
+.topbar{display:none}
+
+/* prototype strip */
+.proto{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:8px 12px;margin-bottom:20px;border:1px dashed var(--border-strong);border-radius:10px;background:var(--surface-alt);font-size:12px;color:var(--text-muted)}
+.proto b{color:var(--text);font-weight:600}
+.proto label{display:inline-flex;align-items:center;gap:6px}
+.proto select{font:inherit;font-size:12px;padding:3px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text)}
+
+/* header */
+.ph{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;row-gap:12px;margin-bottom:20px}
+.ph h1{font-size:22px;font-weight:600;letter-spacing:-.02em;margin:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.ph p{font-size:13px;color:var(--text-muted);margin:4px 0 0;max-width:720px}
+.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.synced{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);padding:0 4px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px var(--pill-green-bg)}
+.dot.red{background:var(--red);box-shadow:0 0 0 3px var(--pill-red-bg)}
+.dot.amber{background:var(--amber);box-shadow:0 0 0 3px var(--pill-amber-bg)}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface);font-size:13px;font-weight:500;color:var(--text);box-shadow:0 2px 0 0 var(--border-strong);transition:transform 90ms,box-shadow 90ms,background .1s;white-space:nowrap}
+.btn:hover{transform:translateY(-1px);box-shadow:0 3px 0 0 var(--border-strong),0 6px 12px rgba(15,23,42,.08)}
+.btn:active{transform:translateY(2px);box-shadow:0 0 0 0 var(--border-strong)}
+.btn.primary{background:var(--btn-face);color:var(--btn-face-text);border-color:transparent;box-shadow:0 3px 0 0 var(--btn-edge)}
+.btn.accent{background:var(--accent);color:#fff;border-color:transparent;box-shadow:0 3px 0 0 #4b3bb0}
+.btn.xero{background:var(--xero);color:#fff;border-color:transparent;box-shadow:0 3px 0 0 #0b7fa6;height:38px;padding:0 16px;font-size:14px}
+.btn.danger{background:var(--pill-red-bg);color:var(--pill-red-text);border-color:transparent;box-shadow:0 2px 0 0 rgba(153,27,27,.35)}
+.btn.ghost{background:transparent;border-color:transparent;box-shadow:none;color:var(--text-muted)}
+.btn.ghost:hover{background:var(--hover);color:var(--text)}
+.btn.sm{height:28px;padding:0 10px;font-size:12px}
+.btn[disabled]{opacity:.6;pointer-events:none}
+.spin{animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--card-shadow)}
+.card-pad{padding:16px 18px}
+.card-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding-bottom:12px;margin-bottom:14px;border-bottom:1px solid var(--border-soft)}
+.card-h h3{font-size:14px;font-weight:600;letter-spacing:-.01em;margin:0}
+.card-h p{font-size:12px;color:var(--text-muted);margin:3px 0 0}
+
+/* KPIs */
+.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.kpi{padding:12px 14px;display:flex;flex-direction:column;gap:4px;text-align:left;font:inherit;width:100%}
+.kpi.clickable{cursor:pointer;transition:transform 140ms,box-shadow 140ms}
+.kpi.clickable:hover{transform:translateY(-3px)}
+.kpi-l{font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;display:flex;justify-content:space-between;gap:8px}
+.kpi-v{font-size:22px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.kpi-c{font-size:12px;color:var(--text-muted)}
+.kpi-c b{font-weight:600}
+.up{color:var(--green)}.down{color:var(--red)}
+
+/* insight row */
+.insights{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:12px;margin-bottom:20px}
+.aged-bar{display:flex;height:14px;border-radius:5px;overflow:hidden;gap:2px;margin:6px 0 12px}
+.aged-bar span{display:block;height:100%}
+.aged-legend{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+.aged-legend div{font-size:11px;color:var(--text-muted);display:flex;flex-direction:column;gap:2px}
+.aged-legend b{font-size:13px;color:var(--text);font-variant-numeric:tabular-nums;font-weight:600}
+.aged-legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.flow svg{width:100%;height:auto;display:block}
+.flow-leg{display:flex;gap:14px;font-size:11px;color:var(--text-muted)}
+.flow-leg i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:middle}
+
+/* tabs */
+.utabs{display:flex;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:none;margin-bottom:14px}
+.utabs button{padding:8px 14px;font-size:13px;font-weight:500;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;background:none;color:var(--text-muted);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.utabs button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+.utabs button:hover{color:var(--text)}
+.cnt{font-size:10px;font-weight:700;padding:1px 5px;border-radius:999px;background:var(--muted-bg);color:var(--text-muted);font-variant-numeric:tabular-nums}
+[aria-selected="true"] .cnt{background:var(--accent-soft);color:var(--accent)}
+.seg{display:inline-flex;background:var(--muted-bg);border-radius:8px;padding:3px;box-shadow:inset 0 1px 3px rgba(15,23,42,.13)}
+.seg button{padding:4px 11px;font-size:12px;font-weight:500;border-radius:6px;border:0;background:transparent;color:var(--text-muted);transition:transform 90ms}
+.seg button[aria-selected="true"]{background:var(--surface);color:var(--text);transform:translateY(-1px);box-shadow:0 2px 0 0 var(--border-strong),0 4px 8px rgba(15,23,42,.14)}
+
+/* toolbar */
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px}
+.search{position:relative;flex:1 1 240px;max-width:340px}
+.search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-faint)}
+.search input,.sel{width:100%;height:32px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font:inherit;font-size:13px;box-shadow:var(--inset)}
+.search input{padding:0 10px 0 32px}
+.sel{width:auto;padding:0 8px}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);user-select:none}
+.chk input{accent-color:var(--accent)}
+.grow{flex:1}
+
+/* table */
+.tcard{overflow:hidden}
+.tscroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{position:sticky;top:0;background:var(--surface-alt);text-align:left;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+th.sortable{cursor:pointer;user-select:none}
+th.sortable:hover{color:var(--text)}
+th .arr{font-size:10px;margin-left:3px;color:var(--accent)}
+td{padding:10px 12px;border-bottom:1px solid var(--border-soft);vertical-align:middle}
+tbody tr{transition:box-shadow .12s,background .12s;cursor:pointer}
+tbody tr:hover{position:relative;z-index:1;box-shadow:var(--row-shadow);background:var(--surface)}
+tbody tr:nth-child(even){background:rgba(127,127,127,.025)}
+tfoot td{background:var(--surface-alt);font-weight:600;border-bottom:0;border-top:1px solid var(--border)}
+.t-sub{font-size:12px;color:var(--text-muted)}
+.muted{color:var(--text-muted)}.faint{color:var(--text-faint)}
+.strike{text-decoration:line-through;color:var(--text-faint)}
+.who{display:flex;align-items:center;gap:10px;min-width:200px}
+.av{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;flex-shrink:0;letter-spacing:.02em}
+.who b{font-weight:600;display:block}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;letter-spacing:.01em;white-space:nowrap;line-height:1.3}
+.pill.xs{padding:2px 6px;font-size:10px}
+.p-gray{background:var(--pill-gray-bg);color:var(--pill-gray-text)}.p-green{background:var(--pill-green-bg);color:var(--pill-green-text)}
+.p-amber{background:var(--pill-amber-bg);color:var(--pill-amber-text)}.p-red{background:var(--pill-red-bg);color:var(--pill-red-text)}
+.p-blue{background:var(--pill-blue-bg);color:var(--pill-blue-text)}.p-purple{background:var(--pill-purple-bg);color:var(--pill-purple-text)}
+.pills{display:flex;gap:4px;flex-wrap:wrap}
+.cur{font-size:10px;font-weight:600;color:var(--text-faint);margin-left:4px;font-family:var(--font-mono)}
+.pager{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border-soft);flex-wrap:wrap}
+.pager .pg{display:flex;gap:4px}
+
+/* drawer */
+.overlay{position:fixed;inset:0;background:var(--overlay);opacity:0;pointer-events:none;transition:opacity .18s;z-index:40}
+.overlay.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;height:100vh;width:min(600px,100vw);background:var(--surface);border-left:1px solid var(--border);box-shadow:-12px 0 40px rgba(0,0,0,.18);transform:translateX(100%);transition:transform .22s cubic-bezier(.16,1,.3,1);z-index:50;display:flex;flex-direction:column}
+.drawer.open{transform:none}
+.dr-h{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border);min-height:52px}
+.dr-h .crumb{flex:1;font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px;min-width:0}
+.dr-b{flex:1;overflow-y:auto;padding:20px}
+.dr-title{display:flex;gap:14px;align-items:flex-start;margin-bottom:16px}
+.dr-title .av{width:44px;height:44px;border-radius:10px;font-size:15px}
+.dr-title h2{font-size:19px;font-weight:600;letter-spacing:-.02em;margin:0 0 6px;text-wrap:balance}
+.facts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px;padding:14px 0;border-block:1px solid var(--border-soft);margin-bottom:16px}
+.facts div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.facts dt{font-size:11px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em}
+.facts dd{margin:0;font-size:13px;overflow-wrap:anywhere}
+.mini{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:18px}
+.mini div{background:var(--surface-alt);border:1px solid var(--border-soft);border-radius:8px;padding:9px 10px}
+.mini small{display:block;font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em}
+.mini b{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.doc-list{display:flex;flex-direction:column}
+.doc{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:10px 8px;border-bottom:1px solid var(--border-soft);cursor:pointer;border-radius:6px;background:none;border-inline:0;border-top:0;text-align:left;font:inherit;width:100%}
+.doc:hover{background:var(--hover)}
+.doc .r1{font-weight:600;display:flex;gap:8px;align-items:center;min-width:0}
+.doc .r2{font-size:12px;color:var(--text-muted)}
+.doc .amt{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.timeline{list-style:none;margin:0;padding:0 0 0 14px;border-left:2px solid var(--border-soft);display:flex;flex-direction:column;gap:14px}
+.timeline li{position:relative;font-size:13px}
+.timeline li::before{content:"";position:absolute;left:-20px;top:4px;width:10px;height:10px;border-radius:50%;background:var(--surface);border:2px solid var(--accent)}
+.timeline small{display:block;color:var(--text-muted);font-size:12px}
+.lines{width:100%;font-size:12.5px;margin-bottom:16px}
+.lines th{position:static;background:none;padding:6px 8px;font-size:10px}
+.lines td{padding:8px;cursor:default}
+.lines tbody tr{cursor:default}.lines tbody tr:hover{box-shadow:none}
+.totals{margin-left:auto;width:min(280px,100%);display:grid;grid-template-columns:1fr auto;gap:6px 16px;font-size:13px;margin-bottom:18px}
+.totals .grand{font-size:15px;font-weight:700;border-top:1px solid var(--border);padding-top:8px}
+.section-l{font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 8px}
+.att{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;font-size:13px;margin-bottom:6px}
+.att .grow{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dr-f{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+
+/* settings */
+.set-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+.hero-x{display:grid;grid-template-columns:auto minmax(0,1fr);gap:18px;align-items:start}
+.xmark{width:52px;height:52px;border-radius:50%;background:var(--xero);color:#fff;display:flex;align-items:center;justify-content:center;font:600 26px/1 var(--font-sans);letter-spacing:-.04em}
+.xmark.sm{width:34px;height:34px;font-size:17px}
+.hero-x h2{font-size:18px;font-weight:600;letter-spacing:-.02em;margin:0 0 6px;text-wrap:balance}
+.hero-x p{margin:0 0 14px;color:var(--text-muted);max-width:60ch}
+.reads{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:14px 0 18px}
+.reads div{display:flex;gap:8px;align-items:flex-start;font-size:13px;padding:8px 10px;border-radius:8px;background:var(--surface-alt);border:1px solid var(--border-soft)}
+.reads svg{color:var(--xero);margin-top:1px}
+.reads small{display:block;color:var(--text-muted);font-size:12px}
+.scopes{display:flex;flex-wrap:wrap;gap:6px}
+.scopes code{font-family:var(--font-mono);font-size:11px;padding:3px 7px;border-radius:6px;background:var(--muted-bg);color:var(--text-muted);border:1px solid var(--border-soft)}
+.note{font-size:12px;color:var(--text-muted);display:flex;gap:8px;align-items:flex-start;margin-top:14px}
+.callout{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;margin-bottom:16px;font-size:13px}
+.callout b{display:block;margin-bottom:2px}
+.callout.red{background:var(--pill-red-bg);color:var(--pill-red-text)}
+.callout.amber{background:var(--pill-amber-bg);color:var(--pill-amber-text)}
+.callout.blue{background:var(--pill-blue-bg);color:var(--pill-blue-text)}
+.callout .grow{min-width:0}
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 16px;font-size:13px}
+.kv dt{color:var(--text-muted)}.kv dd{margin:0;text-align:right;overflow-wrap:anywhere}
+.srow{display:grid;grid-template-columns:minmax(0,1.3fr) 90px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border-soft);font-size:13px}
+.srow:last-child{border-bottom:0}
+.srow.head{font-size:11px;font-weight:600;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;padding-top:0}
+.prog{height:6px;border-radius:9px;background:var(--muted-bg);overflow:hidden}
+.prog span{display:block;height:100%;background:var(--accent);border-radius:9px;transition:width .4s}
+.stabs{margin-bottom:18px}
+
+/* empty / skeleton */
+.empty{text-align:center;padding:56px 20px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.empty h3{margin:6px 0 0;font-size:16px;font-weight:600}
+.empty p{margin:0 0 8px;color:var(--text-muted);max-width:46ch}
+.sk{height:12px;border-radius:5px;background:linear-gradient(90deg,var(--muted-bg) 25%,var(--border-soft) 50%,var(--muted-bg) 75%);background-size:200% 100%;animation:sh 1.4s infinite}
+@keyframes sh{0%{background-position:-200% 0}100%{background-position:200% 0}}
+
+/* modal */
+.modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:60;padding:16px}
+.modal.open{display:flex}
+.modal .card{width:min(440px,100%);padding:20px}
+.modal h3{margin:0 0 8px;font-size:16px}
+.modal p{margin:0 0 16px;color:var(--text-muted);font-size:13px}
+.toast{position:fixed;right:16px;bottom:16px;z-index:70;background:var(--btn-face);color:var(--btn-face-text);padding:10px 14px;border-radius:10px;font-size:13px;display:flex;gap:8px;align-items:center;box-shadow:0 10px 30px rgba(0,0,0,.25);transform:translateY(20px);opacity:0;transition:.2s;pointer-events:none}
+.toast.show{transform:none;opacity:1}
+
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.insights{grid-template-columns:1fr}.set-grid{grid-template-columns:1fr}}
+@media (max-width:860px){
+  .side{display:none}
+  .topbar{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--sidebar-bg);position:sticky;top:0;z-index:30}
+  .topbar .grow{font-weight:700}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .aged-legend{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .reads{grid-template-columns:1fr}.hero-x{grid-template-columns:1fr}
+  .mini{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .srow{grid-template-columns:minmax(0,1fr) auto}.srow .hide-m{display:none}
+  .app{flex-direction:column}
+}
+@media (max-width:560px){.facts{grid-template-columns:1fr}.kv{grid-template-columns:1fr}.kv dd{text-align:left;margin-bottom:4px}.dr-b{padding:16px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="app">
+  <aside class="side" id="side"></aside>
+  <div class="topbar" id="topbar"></div>
+  <main class="main"><div class="wrap" id="view"></div></main>
+</div>
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Details"></aside>
+<div class="modal" id="modal"></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+/* ── Sample data (deterministic, clearly fictional figures) ─────────────── */
+const TODAY = new Date('2026-09-15T10:00:00Z');
+const DAY = 864e5;
+let seed = 42;
+const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+const pick = a => a[Math.floor(rnd() * a.length)];
+const between = (a, b) => a + rnd() * (b - a);
+const round2 = n => Math.round(n * 100) / 100;
+const addDays = (d, n) => new Date(d.getTime() + n * DAY);
+const RATES = { USD: 1, AUD: 0.66, GBP: 1.27 };
+const HUES = ['#7B68EE','#0ea5e9','#10b981','#f59e0b','#ef4444','#8b5cf6','#14b8a6','#ec4899','#6366f1','#84cc16'];
+
+// [name, role C=customer S=supplier B=both, currency, contact person, email, phone, city]
+const RAW_CONTACTS = [
+  ['Harbourline Dental Group','C','AUD','Mia Lawson','accounts@harbourline.com.au','+61 2 9012 4411','Sydney NSW'],
+  ['Kestrel Property Partners','C','USD','Daniel Ortiz','ap@kestrelpp.com','+1 512 555 0142','Austin TX'],
+  ['Bluegum Wellness Clinic','C','AUD','Priya Nair','finance@bluegumwellness.au','+61 3 9555 2090','Melbourne VIC'],
+  ['Meridian Freight Co.','C','USD','Tom Becker','billing@meridianfreight.co','+1 312 555 0199','Chicago IL'],
+  ['Oakridge Legal','C','GBP','Harriet Cole','accounts@oakridgelegal.co.uk','+44 20 7946 0321','London'],
+  ['Saltwater Surf Co.','C','AUD','Jack Reilly','hello@saltwatersurf.com.au','+61 7 5555 7710','Gold Coast QLD'],
+  ['Tallow & Pine Interiors','C','USD','Elena Rossi','studio@tallowpine.com','+1 646 555 0107','New York NY'],
+  ['Vantage Realty Group','C','USD','Marcus Hale','ap@vantagerealty.com','+1 305 555 0175','Miami FL'],
+  ['Brightpath Tutoring','C','AUD','Sophie Tran','admin@brightpath.edu.au','+61 8 9555 3321','Perth WA'],
+  ['Copperleaf Cafés','C','AUD','Liam Walsh','ops@copperleaf.cafe','+61 2 9555 8804','Newcastle NSW'],
+  ['Ironbark Builders','C','AUD','Grace Foster','accounts@ironbarkbuild.com.au','+61 7 3555 6612','Brisbane QLD'],
+  ['Lumen Optometry','C','USD','Noah Kim','billing@lumeneyes.com','+1 206 555 0150','Seattle WA'],
+  ['Northstar Physio','C','GBP','Oliver Grant','admin@northstarphysio.co.uk','+44 161 496 0555','Manchester'],
+  ['Willow Lane Florals','C','USD','Ava Brooks','orders@willowlane.shop','+1 503 555 0118','Portland OR'],
+  ['Pixel & Pine Studio','B','USD','Rafi Ahmed','team@pixelpine.studio','+880 1711 555 210','Dhaka'],
+  ['Amazon Web Services','S','USD','','aws-receivables@amazon.com','','Seattle WA'],
+  ['Google Workspace','S','USD','','','','Mountain View CA'],
+  ['Figma','S','USD','','billing@figma.com','','San Francisco CA'],
+  ['Atlassian','S','USD','','','','Sydney NSW'],
+  ['Upwork Global','S','USD','','','','San Francisco CA'],
+  ['Gulshan Towers Ltd','S','USD','Karim Hossain','leasing@gulshantowers.com.bd','+880 2 5555 0180','Dhaka'],
+  ['Grameenphone','S','USD','','','','Dhaka'],
+  ['Meta Platforms (Ads)','S','USD','','','','Menlo Park CA'],
+];
+const contacts = RAW_CONTACTS.map((r, i) => ({
+  id: 'c' + i, name: r[0], isCustomer: r[1] !== 'S', isSupplier: r[1] !== 'C', currency: r[2],
+  person: r[3], email: r[4], phone: r[5], city: r[6], archived: i === 12,
+  tax: r[2] === 'AUD' ? 'ABN 51 824 753 5' + (10 + i) : r[2] === 'GBP' ? 'VAT GB 2' + (41000 + i * 37) : '',
+  hue: HUES[i % HUES.length],
+}));
+const byName = n => contacts.find(c => c.name === n);
+
+const SERVICES = [
+  ['Website care plan — monthly retainer', 1, 1200, 2400],
+  ['SEO & content — monthly', 1, 900, 1800],
+  ['Google Ads management', 1, 600, 1500],
+  ['Mobile app — sprint delivery', 1, 3200, 6800],
+  ['UI/UX design', 24, 55, 70],
+  ['Landing page build', 1, 1500, 3000],
+  ['Hosting & SSL (annual)', 1, 240, 480],
+];
+const invoices = [], bills = [], bank = [], credits = [], payments = [];
+let invNo = 118, billRef = 1;
+
+function mkLines(currency) {
+  const n = 1 + Math.floor(rnd() * 3);
+  return Array.from({ length: n }, () => {
+    const s = pick(SERVICES);
+    const qty = s[1] === 1 ? 1 : Math.round(between(8, 36));
+    const unit = round2(between(s[2], s[3]));
+    return { desc: s[0], acct: '200 · Sales', tax: currency === 'AUD' ? 'GST on Income 10%' : currency === 'GBP' ? 'Zero rated (exports)' : 'Tax exempt', qty, unit, amount: round2(qty * unit) };
+  });
+}
+function finish(doc) {
+  doc.sub = round2(doc.lines.reduce((s, l) => s + l.amount, 0));
+  doc.taxAmt = doc.currency === 'AUD' && doc.type === 'ACCREC' ? round2(doc.sub * 0.1) : 0;
+  doc.total = round2(doc.sub + doc.taxAmt);
+  doc.rate = RATES[doc.currency];
+  doc.base = round2(doc.total * doc.rate);
+  const paidFull = doc.status === 'PAID';
+  doc.paid = paidFull ? doc.total : doc.partial ? round2(doc.total * 0.4) : 0;
+  doc.due = doc.status === 'VOIDED' || doc.status === 'DRAFT' ? 0 : round2(doc.total - doc.paid);
+  doc.overdue = doc.due > 0 && doc.dueDate < TODAY;
+  doc.updated = addDays(doc.date, Math.floor(between(0, 20)));
+  if (doc.updated > TODAY) doc.updated = addDays(TODAY, -Math.floor(between(0, 3)));
+  if (doc.paid > 0) {
+    const pd = paidFull ? addDays(doc.dueDate, Math.floor(between(-10, 12))) : addDays(doc.date, 20);
+    payments.push({ id: 'p' + payments.length, date: pd > TODAY ? addDays(TODAY, -1) : pd, amount: doc.paid, currency: doc.currency, base: round2(doc.paid * doc.rate), docId: doc.id, docNo: doc.number, contactId: doc.contactId, kind: doc.type === 'ACCREC' ? 'Received' : 'Paid', account: '090 · Business Bank Account', ref: doc.type === 'ACCREC' ? 'Stripe payout' : 'Bank transfer' });
+  }
+  return doc;
+}
+// Customer invoices
+contacts.filter(c => c.isCustomer).forEach(c => {
+  const n = 3 + Math.floor(rnd() * 7);
+  for (let k = 0; k < n; k++) {
+    const stale = c.name === 'Ironbark Builders' && k === 0; // one long-overdue invoice for the 90+ bucket
+    const age = stale ? 118 : Math.floor(between(2, 360));
+    const date = addDays(TODAY, -age);
+    const dueDate = addDays(date, pick([7, 14, 14, 30]));
+    let status = age > 75 ? 'PAID' : age > 40 ? pick(['PAID', 'PAID', 'AUTHORISED']) : pick(['AUTHORISED', 'AUTHORISED', 'PAID', 'SUBMITTED']);
+    if (k === 0 && rnd() < 0.25) status = 'DRAFT';
+    if (rnd() < 0.04) status = 'VOIDED';
+    if (stale) status = 'AUTHORISED';
+    const doc = { id: 'i' + invoices.length, type: 'ACCREC', number: 'INV-0' + invNo++, ref: pick(['PO 4471', 'Aug retainer', 'Sprint 14', '', 'Q3 SEO', 'Website v2']), contactId: c.id, date, dueDate, status, currency: c.currency, partial: status === 'AUTHORISED' && rnd() < 0.2, lines: mkLines(c.currency), attachments: rnd() < 0.3 ? [{ name: 'Statement-of-work.pdf', size: '214 KB' }] : [] };
+    invoices.push(finish(doc));
+  }
+});
+// Supplier bills (monthly)
+const BILL_SPECS = {
+  'Amazon Web Services': ['AWS usage — ', '463 · IT Software & Subscriptions', 1150, 2450],
+  'Google Workspace': ['Workspace Business Standard — ', '463 · IT Software & Subscriptions', 312, 312],
+  'Figma': ['Figma Organization — ', '463 · IT Software & Subscriptions', 180, 225],
+  'Atlassian': ['Jira & Confluence — ', '463 · IT Software & Subscriptions', 410, 410],
+  'Upwork Global': ['Contract developers — ', '412 · Consulting & Contractors', 1500, 4200],
+  'Gulshan Towers Ltd': ['Office rent Level 7 — ', '469 · Rent', 2800, 2800],
+  'Grameenphone': ['Fibre internet & mobiles — ', '489 · Telephone & Internet', 95, 140],
+  'Pixel & Pine Studio': ['Illustration package — ', '412 · Consulting & Contractors', 600, 1400],
+};
+Object.entries(BILL_SPECS).forEach(([name, s]) => {
+  const c = byName(name);
+  const months = name === 'Pixel & Pine Studio' ? 2 : 6;
+  for (let m = 0; m < months; m++) {
+    const date = new Date(Date.UTC(2026, 8 - m * (name === 'Pixel & Pine Studio' ? 3 : 1), 1));
+    const month = date.toLocaleString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+    const amt = round2(between(s[2], s[3]));
+    const status = m === 0 ? pick(['AUTHORISED', 'SUBMITTED', 'AUTHORISED']) : m === 1 && rnd() < 0.4 ? 'AUTHORISED' : 'PAID';
+    const doc = { id: 'b' + bills.length, type: 'ACCPAY', number: (name.split(' ')[0].slice(0, 3).toUpperCase()) + '-' + String(20000 + billRef++ * 7), ref: month, contactId: c.id, date, dueDate: addDays(date, 14), status, currency: 'USD', lines: [{ desc: s[0] + month, acct: s[1], tax: 'No VAT', qty: 1, unit: amt, amount: amt }], attachments: [{ name: name.split(' ')[0] + '-invoice-' + month.replace(' ', '-') + '.pdf', size: Math.floor(between(60, 400)) + ' KB' }] };
+    bills.push(finish(doc));
+  }
+});
+// Spend / receive money
+const SPENDS = [
+  ['Meta Platforms (Ads)', 'Client ad spend — card 4471', '400 · Advertising', 300, 1800, 14],
+  ['Grameenphone', 'Top-up — field team SIMs', '489 · Telephone & Internet', 20, 60, 5],
+  [null, 'Bank fees — international transfer', '404 · Bank Fees', 8, 35, 10],
+  [null, 'Team lunch — sprint demo', '420 · Entertainment', 40, 160, 6],
+  [null, 'Uber — client site visit', '493 · Travel — National', 12, 48, 8],
+];
+SPENDS.forEach(s => {
+  for (let k = 0; k < s[5]; k++) {
+    const date = addDays(TODAY, -Math.floor(between(1, 330)));
+    const amt = round2(between(s[3], s[4]));
+    const c = s[0] ? byName(s[0]) : null;
+    bank.push({ id: 't' + bank.length, type: 'SPEND', contactId: c ? c.id : null, payee: c ? c.name : s[1].split(' — ')[0], desc: s[1], acct: s[2], date, total: amt, base: amt, currency: 'USD', reconciled: date < addDays(TODAY, -6), bankAcct: '090 · Business Bank Account', ref: 'CARD ' + (4400 + Math.floor(rnd() * 99)), attachments: rnd() < 0.5 ? [{ name: 'receipt-' + Math.floor(rnd() * 9e5) + '.jpg', size: '88 KB' }] : [] });
+  }
+});
+// Guaranteed current-month spend so "Money out · Sep" and the Sep bar read realistically
+[[3, 'Meta Platforms (Ads)', 'Client ad spend — card 4471', '400 · Advertising', 1240.5], [5, null, 'Bank fees — international transfer', '404 · Bank Fees', 18], [8, 'Upwork Global', 'Contract developer — milestone 3', '412 · Consulting & Contractors', 1850], [11, null, 'Team lunch — sprint demo', '420 · Entertainment', 96.4]].forEach(([dd, n, desc, acct, amt]) => {
+  const c = n ? byName(n) : null;
+  bank.push({ id: 't' + bank.length, type: 'SPEND', contactId: c ? c.id : null, payee: c ? c.name : desc.split(' — ')[0], desc, acct, date: new Date(Date.UTC(2026, 8, dd)), total: amt, base: amt, currency: 'USD', reconciled: dd < 9, bankAcct: '090 · Business Bank Account', ref: 'CARD 4471', attachments: [{ name: 'receipt-2026-09-' + String(dd).padStart(2, '0') + '.pdf', size: '64 KB' }] });
+});
+[['Saltwater Surf Co.', 'Deposit — brand refresh', '200 · Sales', 1500], ['Kestrel Property Partners', 'Deposit — portal build', '200 · Sales', 4000], [null, 'Interest received', '270 · Interest Income', 14], [null, 'Interest received', '270 · Interest Income', 11], ['Pixel & Pine Studio', 'Referral fee', '260 · Other Revenue', 350]].forEach(r => {
+  const c = r[0] ? byName(r[0]) : null;
+  const date = addDays(TODAY, -Math.floor(between(3, 200)));
+  bank.push({ id: 't' + bank.length, type: 'RECEIVE', contactId: c ? c.id : null, payee: c ? c.name : 'Business Bank', desc: r[1], acct: r[2], date, total: r[3], base: round2(r[3] * RATES[c ? c.currency : 'USD']), currency: c ? c.currency : 'USD', reconciled: true, bankAcct: '090 · Business Bank Account', ref: '', attachments: [] });
+});
+bank.sort((a, b) => b.date - a.date);
+// Credit notes
+[['Harbourline Dental Group', 'ACCRECCREDIT', 'Goodwill credit — delayed launch', 450], ['Meridian Freight Co.', 'ACCRECCREDIT', 'Duplicate hours reversed', 780], ['Amazon Web Services', 'ACCPAYCREDIT', 'AWS Activate credits', 1000]].forEach((r, i) => {
+  const c = byName(r[0]);
+  const date = addDays(TODAY, -(20 + i * 37));
+  credits.push({ id: 'n' + i, type: r[1], number: 'CN-00' + (31 + i), contactId: c.id, date, desc: r[2], total: r[3], base: round2(r[3] * RATES[c.currency]), currency: c.currency, remaining: i === 1 ? 0 : r[3], status: i === 1 ? 'PAID' : 'AUTHORISED' });
+});
+invoices.sort((a, b) => b.date - a.date); bills.sort((a, b) => b.date - a.date); payments.sort((a, b) => b.date - a.date);
+
+// Contact roll-ups (base currency)
+contacts.forEach(c => {
+  const inv = invoices.filter(d => d.contactId === c.id), bl = bills.filter(d => d.contactId === c.id);
+  const sp = bank.filter(t => t.contactId === c.id && t.type === 'SPEND');
+  c.owed = round2(inv.reduce((s, d) => s + d.due * d.rate, 0));
+  c.overdue = round2(inv.filter(d => d.overdue).reduce((s, d) => s + d.due * d.rate, 0));
+  c.owing = round2(bl.reduce((s, d) => s + d.due * d.rate, 0));
+  c.billed = round2(inv.filter(d => d.status !== 'VOIDED' && d.status !== 'DRAFT').reduce((s, d) => s + d.base, 0));
+  c.spent = round2(bl.filter(d => d.status !== 'VOIDED').reduce((s, d) => s + d.base, 0) + sp.reduce((s, t) => s + t.base, 0));
+  const dates = [...inv, ...bl, ...sp].map(d => d.date.getTime());
+  c.last = dates.length ? new Date(Math.max(...dates)) : null;
+  c.docCount = inv.length + bl.length + sp.length;
+});
+</script>
+<script>
+/* ── Helpers ──────────────────────────────────────────────────────────────── */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const money = (n, cur = 'USD') => new Intl.NumberFormat('en-US', { style: 'currency', currency: cur, minimumFractionDigits: 2 }).format(n);
+const base = n => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+const compact = n => '$' + (Math.abs(n) >= 1000 ? (n / 1000).toFixed(1) + 'k' : Math.round(n));
+const dt = d => d ? d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—';
+const dShort = d => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+const daysBetween = (a, b) => Math.round((a - b) / DAY);
+const initials = n => n.replace(/[^A-Za-z& ]/g, '').split(' ').filter(w => w && w !== '&').slice(0, 2).map(w => w[0]).join('').toUpperCase();
+const contact = id => contacts.find(c => c.id === id);
+
+const IC = {
+  home: '<path d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-7h-6v7H4a1 1 0 0 1-1-1z"/>',
+  bar: '<path d="M3 3v18h18"/><path d="M8 17V9m5 8V5m5 12v-6"/>',
+  activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  check: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 12 2 2 4-4"/>',
+  tree: '<path d="M21 12h-8M21 6H8M21 18h-8M3 6v4c0 1.1.9 2 2 2h3M3 10v6c0 1.1.9 2 2 2h3"/>',
+  rocket: '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  cal: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4M12 17h.01"/>',
+  dollar: '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  scale: '<path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1zM2 16l3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1z"/><path d="M7 21h10M12 3v18M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>',
+  wallet: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+  landmark: '<path d="M3 22h18M6 18v-7M10 18v-7M14 18v-7M18 18v-7M12 2l8 5H4z"/>',
+  layers: '<path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5M2 12l10 5 10-5"/>',
+  webhook: '<path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2"/><path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06"/><path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8"/>',
+  users: '<path d="M18 21a8 8 0 0 0-16 0"/><circle cx="10" cy="8" r="5"/><path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3"/>',
+  shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+  settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  back: '<path d="m12 19-7-7 7-7M19 12H5"/>',
+  ext: '<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>',
+  clip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  eye: '<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>',
+  lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  unplug: '<path d="m19 5 3-3M2 22l3-3M6.3 20.3a2.4 2.4 0 0 0 3.4 0L12 18l-6-6-2.3 2.3a2.4 2.4 0 0 0 0 3.4ZM7.5 13.5 10 11M10.5 16.5 13 14M12 6l6 6 2.3-2.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0Z"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+  ok: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  arrowIn: '<path d="M12 5v14M19 12l-7 7-7-7"/>',
+  arrowOut: '<path d="M12 19V5M5 12l7-7 7 7"/>',
+};
+const ic = (n, size) => `<svg class="i" viewBox="0 0 24 24"${size ? ` style="width:${size}px;height:${size}px"` : ''} aria-hidden="true">${IC[n]}</svg>`;
+const pill = (t, tone, xs) => `<span class="pill p-${tone}${xs ? ' xs' : ''}">${t}</span>`;
+const avatar = c => `<span class="av" style="background:${c.hue}">${esc(initials(c.name))}</span>`;
+
+function docStatus(d) {
+  if (d.status === 'DRAFT') return pill('Draft', 'gray');
+  if (d.status === 'SUBMITTED') return pill('Awaiting approval', 'blue');
+  if (d.status === 'VOIDED') return pill('Voided', 'gray');
+  if (d.status === 'PAID') return pill('Paid', 'green');
+  if (d.overdue) return pill('Overdue · ' + daysBetween(TODAY, d.dueDate) + 'd', 'red');
+  if (d.paid > 0) return pill('Part paid', 'amber');
+  return pill('Awaiting payment', 'amber');
+}
+
+/* ── State ────────────────────────────────────────────────────────────────── */
+const S = {
+  page: 'finance', xero: 'connected', role: 'OWNER', tab: 'contacts',
+  q: '', role_f: 'all', status: 'all', archived: false, overdueOnly: false, btype: 'all',
+  sort: { key: 'owed', dir: -1 }, pg: 1, stack: [], lastSync: addDays(TODAY, -6 / 1440), syncing: false,
+};
+const PAGE_SIZE = 12;
+
+/* ── Shell ────────────────────────────────────────────────────────────────── */
+function renderShell() {
+  const items = [
+    ['overview', 'Overview', 'home'], ['analytics', 'Analytics', 'bar'], ['spikes', 'Time Spikes', 'activity'],
+    ['tasks', 'Tasks', 'check'], ['work', 'Tasks & time', 'tree', 'Beta'], ['sprints', 'Sprints', 'rocket'],
+    ['te', 'Time Entries', 'clock'], ['ts', 'Timesheet', 'cal'], ['mr', 'Missing Rates', 'alert'],
+    ['ar', 'Assignee Rates', 'dollar'], ['ch', 'Chargeability', 'scale'], ['bu', 'Budgets', 'wallet'],
+    ['finance', 'Finance', 'landmark', 'Beta'], ['sp', 'Spaces', 'layers'], ['sl', 'Sync Logs', 'webhook'],
+    ['team', 'Team', 'users'], ['audit', 'Audit Log', 'shield'], ['settings', 'Settings', 'settings'],
+  ];
+  const live = k => k === 'finance' || k === 'settings';
+  $('#side').innerHTML = `
+    <div class="logo"><span class="logo-mark"></span><div><b>Clicksy</b><small>operations console</small></div></div>
+    <nav class="nav" aria-label="Main"><div class="nav-h">Workspace</div>
+      ${items.map(([k, l, i, t]) => `<a href="#" data-nav="${k}" class="${live(k) ? '' : 'dim'}" ${S.page === k ? 'aria-current="page"' : ''} ${live(k) ? '' : 'title="Not part of this prototype" tabindex="-1"'}>${ic(i)}<span>${l}</span>${t ? `<span class="tag">${t}</span>` : ''}</a>`).join('')}
+    </nav>
+    <div class="side-foot"><div class="org"><i>N</i><div><b>Nifty IT Solution</b><small>${S.role}</small></div></div></div>`;
+  $('#topbar').innerHTML = `<span class="logo-mark" style="width:24px;height:24px;border-radius:6px"></span><span class="grow">Clicksy</span>
+    <div class="seg" role="tablist"><button role="tab" data-nav="finance" aria-selected="${S.page === 'finance'}">Finance</button><button role="tab" data-nav="settings" aria-selected="${S.page === 'settings'}">Settings</button></div>`;
+}
+
+function protoStrip() {
+  return `<div class="proto" role="group" aria-label="Prototype controls">
+    <b>Prototype</b><span>Sample data only — nothing here is from your Xero yet.</span><span class="grow"></span>
+    <label for="p-xero">Xero state
+      <select id="p-xero" data-proto="xero">
+        ${[['connected', 'Connected'], ['syncing', 'First sync running'], ['none', 'Not connected'], ['reconnect', 'Needs reconnect'], ['error', 'Connect failed']].map(([v, l]) => `<option value="${v}" ${S.xero === v ? 'selected' : ''}>${l}</option>`).join('')}
+      </select></label>
+    <label for="p-role">Viewing as
+      <select id="p-role" data-proto="role"><option value="OWNER" ${S.role === 'OWNER' ? 'selected' : ''}>Owner</option><option value="ADMIN" ${S.role === 'ADMIN' ? 'selected' : ''}>Admin</option></select></label>
+  </div>`;
+}
+
+/* ── Finance page ─────────────────────────────────────────────────────────── */
+function kpis() {
+  const open = invoices.filter(d => d.due > 0), od = open.filter(d => d.overdue);
+  const openB = bills.filter(d => d.due > 0);
+  const oldest = od.length ? Math.max(...od.map(d => daysBetween(TODAY, d.dueDate))) : 0;
+  const nextDue = openB.map(d => d.dueDate).filter(d => d >= addDays(TODAY, -1)).sort((a, b) => a - b)[0];
+  const monthStart = new Date(Date.UTC(2026, 8, 1));
+  const inMonth = d => d.date >= monthStart;
+  const out = payments.filter(p => p.kind === 'Paid' && inMonth(p)).reduce((s, p) => s + p.base, 0) + bank.filter(t => t.type === 'SPEND' && inMonth(t)).reduce((s, t) => s + t.base, 0);
+  const inn = payments.filter(p => p.kind === 'Received' && inMonth(p)).reduce((s, p) => s + p.base, 0) + bank.filter(t => t.type === 'RECEIVE' && inMonth(t)).reduce((s, t) => s + t.base, 0);
+  const sum = a => a.reduce((s, d) => s + d.due * d.rate, 0);
+  const card = (l, v, c, act, tone) => `<button class="card kpi clickable" data-kpi="${act}"><span class="kpi-l">${l}</span><span class="kpi-v"${tone ? ` style="color:var(--${tone})"` : ''}>${v}</span><span class="kpi-c">${c}</span></button>`;
+  return `<div class="kpis">
+    ${card('Owed to you', base(sum(open)), `${open.length} unpaid invoices`, 'recv')}
+    ${card('Overdue', base(sum(od)), `${od.length} invoices · oldest <b>${oldest}d</b>`, 'overdue', 'red')}
+    ${card('You owe', base(sum(openB)), `${openB.length} bills · next due ${nextDue ? dShort(nextDue) : '—'}`, 'pay')}
+    ${card('Money in · Sep', base(inn), `<span class="up">Payments + receive money</span>`, 'in')}
+    ${card('Money out · Sep', base(out), `Bills paid + spend money`, 'out')}
+  </div>`;
+}
+
+function insights() {
+  const open = invoices.filter(d => d.due > 0);
+  const buckets = [['Current', 0, 0, '#10b981'], ['1–30 days', 1, 30, '#f59e0b'], ['31–60 days', 31, 60, '#f97316'], ['61–90 days', 61, 90, '#ef4444'], ['90+ days', 91, 9999, '#b91c1c']].map(([l, a, b, c]) => {
+    const v = open.filter(d => { const o = Math.max(0, daysBetween(TODAY, d.dueDate)); return o >= a && o <= b; }).reduce((s, d) => s + d.due * d.rate, 0);
+    return { l, v, c };
+  });
+  const tot = buckets.reduce((s, b) => s + b.v, 0) || 1;
+  // money in vs out, last 6 months
+  const months = Array.from({ length: 6 }, (_, i) => new Date(Date.UTC(2026, 3 + i, 1)));
+  const inM = (d, m) => d.getUTCFullYear() === m.getUTCFullYear() && d.getUTCMonth() === m.getUTCMonth();
+  const flows = months.map(m => ({
+    m, in: payments.filter(p => p.kind === 'Received' && inM(p.date, m)).reduce((s, p) => s + p.base, 0) + bank.filter(t => t.type === 'RECEIVE' && inM(t.date, m)).reduce((s, t) => s + t.base, 0),
+    out: payments.filter(p => p.kind === 'Paid' && inM(p.date, m)).reduce((s, p) => s + p.base, 0) + bank.filter(t => t.type === 'SPEND' && inM(t.date, m)).reduce((s, t) => s + t.base, 0),
+  }));
+  const max = Math.max(...flows.flatMap(f => [f.in, f.out]));
+  const step = max > 20000 ? 10000 : 5000, top = Math.ceil(max / step) * step;
+  const W = 340, H = 150, L = 34, B = 20, cw = (W - L) / 6, bw = 12;
+  const y = v => H - B - (v / top) * (H - B - 8);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Money in versus money out, April to September 2026">`;
+  for (let v = 0; v <= top; v += step) svg += `<line x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="var(--border-soft)"/><text x="${L - 6}" y="${y(v) + 3}" text-anchor="end" font-size="9" fill="var(--text-faint)">${v ? v / 1000 + 'k' : '0'}</text>`;
+  flows.forEach((f, i) => {
+    const cx = L + cw * i + cw / 2;
+    svg += `<rect x="${cx - bw - 1}" y="${y(f.in)}" width="${bw}" height="${H - B - y(f.in)}" rx="2" fill="var(--green)"><title>${f.m.toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' })} in: ${base(f.in)}</title></rect>`;
+    svg += `<rect x="${cx + 1}" y="${y(f.out)}" width="${bw}" height="${H - B - y(f.out)}" rx="2" fill="var(--accent)"><title>${f.m.toLocaleString('en-GB', { month: 'long', timeZone: 'UTC' })} out: ${base(f.out)}</title></rect>`;
+    svg += `<text x="${cx}" y="${H - 5}" text-anchor="middle" font-size="10" fill="var(--text-muted)">${f.m.toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' })}</text>`;
+  });
+  svg += '</svg>';
+  return `<div class="insights">
+    <section class="card card-pad"><div class="card-h"><div><h3>Aged receivables</h3><p>Unpaid customer invoices by days past due, in USD</p></div><button class="btn sm ghost" data-kpi="overdue">View overdue ${ic('ext', 13)}</button></div>
+      <div class="aged-bar" role="img" aria-label="Aged receivables">${buckets.map(b => b.v ? `<span style="width:${(b.v / tot) * 100}%;background:${b.c}" title="${b.l}: ${base(b.v)}"></span>` : '').join('')}</div>
+      <div class="aged-legend">${buckets.map(b => `<div><span><i style="background:${b.c}"></i>${b.l}</span><b>${base(b.v)}</b></div>`).join('')}</div>
+      <div class="section-l" style="margin-top:16px">Most overdue</div>
+      <div class="doc-list">${contacts.filter(c => c.overdue).sort((a, b) => b.overdue - a.overdue).slice(0, 3).map(c => { const od = invoices.filter(d => d.contactId === c.id && d.overdue); return `<button class="doc" data-open="contact" data-id="${c.id}"><span class="r1">${avatar(c).replace('class="av"', 'class="av" style="width:20px;height:20px;font-size:8px;border-radius:5px;background:' + c.hue + '"')}${esc(c.name)}</span><span class="amt down">${base(c.overdue)}</span><span class="r2">${od.length} overdue ${od.length === 1 ? 'invoice' : 'invoices'} · oldest ${Math.max(...od.map(d => daysBetween(TODAY, d.dueDate)))} days late</span></button>`; }).join('')}</div>
+    </section>
+    <section class="card card-pad flow"><div class="card-h"><div><h3>Money in vs out</h3><p>Last 6 months, USD</p></div><div class="flow-leg"><span><i style="background:var(--green)"></i>In</span><span><i style="background:var(--accent)"></i>Out</span></div></div>${svg}</section>
+  </div>`;
+}
+
+function financeHeader() {
+  const syncLabel = S.syncing ? 'Syncing…' : S.xero === 'reconnect' ? 'Sync paused since 12 Sep' : 'Synced ' + Math.max(1, Math.round((TODAY - S.lastSync) / 6e4)) + ' min ago';
+  const dot = S.xero === 'reconnect' ? 'red' : S.syncing ? 'amber' : '';
+  const connected = S.xero === 'connected' || S.xero === 'reconnect';
+  return `<div class="ph"><div><h1>Finance <span class="tag">Beta</span>${connected ? `<span class="pill p-gray" style="gap:6px"><span class="xmark sm" style="width:16px;height:16px;font-size:9px">x</span>Nifty IT Solution Ltd</span>` : ''}</h1>
+    <p>Contacts, invoices, bills and bank transactions from Xero. Read-only — to change anything, edit it in Xero and it shows up here on the next sync.</p></div>
+    ${connected ? `<div class="actions"><span class="synced"><span class="dot ${dot}"></span>${syncLabel}</span>
+      <button class="btn" data-act="sync" ${S.syncing || S.xero === 'reconnect' ? 'disabled' : ''}>${ic('refresh')}${S.syncing ? 'Syncing' : 'Sync now'}</button>
+      <button class="btn" data-act="export">${ic('download')}Export</button></div>` : ''}</div>`;
+}
+
+function renderFinance() {
+  let h = protoStrip() + financeHeader();
+  if (S.xero === 'none' || S.xero === 'error') {
+    h += `<div class="card"><div class="empty"><span class="xmark">x</span><h3>Connect Xero to see your finances here</h3>
+      <p>Once connected, every Xero contact appears here with its invoices, bills, spend money, credit notes and payments. It usually takes a few minutes for the first sync.</p>
+      ${S.role === 'OWNER' ? `<button class="btn xero" data-nav="settings">${ic('link')}Go to Xero settings</button>` : `<span class="pill p-gray">${ic('lock', 12)} Only an Owner can connect Xero — ask an Owner in your organisation.</span>`}</div></div>`;
+    return h;
+  }
+  if (S.xero === 'syncing') {
+    h += `<div class="callout blue">${ic('info')}<div class="grow"><b>First sync in progress</b>We're copying your Xero data. You can leave this page — it keeps running in the background.</div></div>
+      <div class="card card-pad" style="margin-bottom:16px">${syncRows(true)}</div>
+      <div class="card tcard">${Array.from({ length: 7 }, () => `<div style="display:flex;gap:16px;padding:14px 16px;border-bottom:1px solid var(--border-soft)"><div class="sk" style="width:30%"></div><div class="sk" style="width:15%"></div><div class="sk" style="width:20%"></div><div class="sk" style="width:12%;margin-left:auto"></div></div>`).join('')}</div>`;
+    return h;
+  }
+  if (S.xero === 'reconnect') h += `<div class="callout red">${ic('alert')}<div class="grow"><b>Xero disconnected on 12 Sep</b>Figures below are from before then and may be out of date. ${S.role === 'OWNER' ? 'Reconnect to resume syncing.' : 'Ask an Owner to reconnect Xero.'}</div>${S.role === 'OWNER' ? `<button class="btn sm" data-nav="settings">Reconnect</button>` : ''}</div>`;
+  h += kpis() + insights();
+  const tabs = [['contacts', 'Contacts', contacts.length], ['invoices', 'Invoices', invoices.length], ['bills', 'Bills', bills.length], ['bank', 'Bank transactions', bank.length], ['credits', 'Credit notes', credits.length], ['payments', 'Payments', payments.length]];
+  h += `<div class="utabs" role="tablist" aria-label="Finance records">${tabs.map(([k, l, n]) => `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${l}<span class="cnt">${n}</span></button>`).join('')}</div>`;
+  h += toolbar() + table();
+  return h;
+}
+IC.link = '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>';
+S.range = 'all'; S.cur = 'all'; S.recon = 'all'; S.dtab = 'invoices';
+const guid = id => { let h = 0; for (const ch of id + 'xero') h = (h * 31 + ch.charCodeAt(0)) >>> 0; const x = (h.toString(16) + 'a3f9c2e17b4d').padEnd(32, '0'); return `${x.slice(0, 8)}-${x.slice(8, 12)}-4${x.slice(13, 16)}-9${x.slice(17, 20)}-${x.slice(20, 32)}`; };
+const sel = (id, key, opts) => `<select class="sel" id="${id}" data-f="${key}" aria-label="${id.replace('f-', '')}">${opts.map(([v, l]) => `<option value="${v}" ${S[key] === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+const seg = (key, opts) => `<div class="seg" role="tablist">${opts.map(([v, l]) => `<button role="tab" data-seg="${key}" data-v="${v}" aria-selected="${S[key] === v}">${l}</button>`).join('')}</div>`;
+
+function toolbar() {
+  const search = `<div class="search">${ic('search')}<input id="f-q" data-f="q" type="search" placeholder="${{ contacts: 'Search name, email or person', invoices: 'Search number, contact or reference', bills: 'Search bill, supplier or reference', bank: 'Search payee or description', credits: 'Search credit notes', payments: 'Search payments' }[S.tab]}" value="${esc(S.q)}"></div>`;
+  const range = sel('f-range', 'range', [['all', 'Any date'], ['30', 'Last 30 days'], ['90', 'Last 90 days'], ['ytd', 'This year']]);
+  let f = '';
+  if (S.tab === 'contacts') f = seg('role_f', [['all', 'All'], ['cust', 'Customers'], ['supp', 'Suppliers']]) + `<label class="chk" for="f-arch"><input id="f-arch" type="checkbox" data-f="archived" ${S.archived ? 'checked' : ''}>Show archived</label>`;
+  if (S.tab === 'invoices' || S.tab === 'bills') f = sel('f-status', 'status', [['all', 'All statuses'], ['DRAFT', 'Draft'], ['SUBMITTED', 'Awaiting approval'], ['AUTHORISED', 'Awaiting payment'], ['overdue', 'Overdue'], ['PAID', 'Paid'], ['VOIDED', 'Voided']]) + range + (S.tab === 'invoices' ? sel('f-cur', 'cur', [['all', 'All currencies'], ['USD', 'USD'], ['AUD', 'AUD'], ['GBP', 'GBP']]) : '');
+  if (S.tab === 'bank') f = seg('btype', [['all', 'All'], ['SPEND', 'Spend money'], ['RECEIVE', 'Receive money']]) + range + sel('f-recon', 'recon', [['all', 'Any reconciliation'], ['yes', 'Reconciled'], ['no', 'Unreconciled']]);
+  if (S.tab === 'credits' || S.tab === 'payments') f = range;
+  return `<div class="toolbar">${search}${f}<span class="grow"></span><span class="t-sub">${rows().length} records</span></div>`;
+}
+
+function inRange(d) {
+  if (S.range === 'all') return true;
+  if (S.range === 'ytd') return d >= new Date(Date.UTC(2026, 0, 1));
+  return d >= addDays(TODAY, -Number(S.range));
+}
+const cname = id => (contact(id) || {}).name || '';
+function rows() {
+  const q = S.q.trim().toLowerCase(), has = (...xs) => !q || xs.some(x => String(x || '').toLowerCase().includes(q));
+  // Exclusive buckets: "Awaiting payment" excludes overdue, which has its own option.
+  const stat = d => S.status === 'all' || (S.status === 'overdue' ? d.overdue : d.status === S.status && !(S.status === 'AUTHORISED' && d.overdue));
+  let r;
+  switch (S.tab) {
+    case 'contacts': r = contacts.filter(c => (S.archived || !c.archived) && (S.role_f === 'all' || (S.role_f === 'cust' ? c.isCustomer : c.isSupplier)) && has(c.name, c.email, c.person)); break;
+    case 'invoices': r = invoices.filter(d => stat(d) && inRange(d.date) && (S.cur === 'all' || d.currency === S.cur) && has(d.number, cname(d.contactId), d.ref)); break;
+    case 'bills': r = bills.filter(d => stat(d) && inRange(d.date) && has(d.number, cname(d.contactId), d.ref)); break;
+    case 'bank': r = bank.filter(t => (S.btype === 'all' || t.type === S.btype) && inRange(t.date) && (S.recon === 'all' || (S.recon === 'yes') === t.reconciled) && has(t.payee, t.desc, t.acct)); break;
+    case 'credits': r = credits.filter(n => inRange(n.date) && has(n.number, cname(n.contactId), n.desc)); break;
+    case 'payments': r = payments.filter(p => inRange(p.date) && has(p.docNo, cname(p.contactId))); break;
+  }
+  const col = COLS[S.tab].find(c => c.k === S.sort.key) || COLS[S.tab][0];
+  if (col.v) r = [...r].sort((a, b) => { const x = col.v(a), y = col.v(b); return (x > y ? 1 : x < y ? -1 : 0) * S.sort.dir; });
+  return r;
+}
+
+const who = c => c ? `<div class="who">${avatar(c)}<div><b>${esc(c.name)}</b><span class="t-sub">${esc(c.person || c.email || c.city)}</span></div></div>` : '';
+const whoSmall = id => { const c = contact(id); return c ? `<div class="who" style="min-width:170px">${avatar(c).replace('class="av"', 'class="av" style="width:24px;height:24px;font-size:9px;border-radius:6px;background:' + c.hue + '"')}<span>${esc(c.name)}</span></div>` : ''; };
+const amt = (n, cur) => `${money(n, cur)}${cur !== 'USD' ? `<span class="cur">${cur}</span>` : ''}`;
+const docCols = label => [
+  { k: 'number', l: label, v: d => d.number, r: d => `<span class="mono ${d.status === 'VOIDED' ? 'strike' : ''}" style="font-weight:500">${d.number}</span><div class="t-sub">${esc(d.ref)}</div>` },
+  { k: 'contact', l: 'Contact', v: d => cname(d.contactId), r: d => whoSmall(d.contactId) },
+  { k: 'date', l: 'Date', v: d => d.date, r: d => dt(d.date) },
+  { k: 'dueDate', l: 'Due', v: d => d.dueDate, r: d => `<span class="${d.overdue ? 'down' : ''}">${dt(d.dueDate)}</span>` },
+  { k: 'status', l: 'Status', v: d => d.status, r: docStatus },
+  { k: 'total', l: 'Total', n: 1, v: d => d.base, r: d => amt(d.total, d.currency), sum: d => d.base },
+  { k: 'due', l: 'Amount due', n: 1, v: d => d.due * d.rate, r: d => d.due ? amt(d.due, d.currency) : '<span class="faint">—</span>', sum: d => d.due * d.rate },
+];
+const COLS = {
+  contacts: [
+    { k: 'name', l: 'Contact', v: c => c.name, r: c => who(c) },
+    { k: 'type', l: 'Type', r: c => `<div class="pills">${c.isCustomer ? pill('Customer', 'purple', 1) : ''}${c.isSupplier ? pill('Supplier', 'blue', 1) : ''}${c.archived ? pill('Archived', 'gray', 1) : ''}</div>` },
+    { k: 'email', l: 'Email', r: c => c.email ? `<span class="muted">${esc(c.email)}</span>` : '<span class="faint">—</span>' },
+    { k: 'owed', l: 'Owed to you', n: 1, v: c => c.owed, r: c => c.owed ? base(c.owed) : '<span class="faint">—</span>' },
+    { k: 'overdue', l: 'Overdue', n: 1, v: c => c.overdue, r: c => c.overdue ? `<span class="down" style="font-weight:600">${base(c.overdue)}</span>` : '<span class="faint">—</span>' },
+    { k: 'owing', l: 'You owe', n: 1, v: c => c.owing, r: c => c.owing ? base(c.owing) : '<span class="faint">—</span>' },
+    { k: 'last', l: 'Last activity', v: c => c.last || 0, r: c => `<span class="muted">${dt(c.last)}</span>` },
+  ],
+  invoices: docCols('Invoice'),
+  bills: docCols('Bill'),
+  bank: [
+    { k: 'date', l: 'Date', v: t => t.date, r: t => dt(t.date) },
+    { k: 'payee', l: 'Payee', v: t => t.payee, r: t => t.contactId ? whoSmall(t.contactId) : `<span class="muted">${esc(t.payee)}</span>` },
+    { k: 'desc', l: 'Description', r: t => `${esc(t.desc)}<div class="t-sub mono">${esc(t.acct)}</div>` },
+    { k: 'type', l: 'Type', v: t => t.type, r: t => t.type === 'SPEND' ? pill(ic('arrowOut', 11) + 'Spend money', 'purple', 1) : pill(ic('arrowIn', 11) + 'Receive money', 'green', 1) },
+    { k: 'rec', l: 'Bank rec', r: t => t.reconciled ? pill('Reconciled', 'gray', 1) : pill('Unreconciled', 'amber', 1) },
+    { k: 'total', l: 'Amount', n: 1, v: t => (t.type === 'SPEND' ? -1 : 1) * t.base, r: t => `<span class="${t.type === 'SPEND' ? '' : 'up'}" style="font-weight:500">${t.type === 'SPEND' ? '−' : '+'}${amt(t.total, t.currency)}</span>`, sum: t => (t.type === 'SPEND' ? -1 : 1) * t.base },
+  ],
+  credits: [
+    { k: 'number', l: 'Credit note', v: n => n.number, r: n => `<span class="mono" style="font-weight:500">${n.number}</span>` },
+    { k: 'contact', l: 'Contact', v: n => cname(n.contactId), r: n => whoSmall(n.contactId) },
+    { k: 'date', l: 'Date', v: n => n.date, r: n => dt(n.date) },
+    { k: 'type', l: 'Type', r: n => n.type === 'ACCRECCREDIT' ? pill('Customer credit', 'purple', 1) : pill('Supplier credit', 'blue', 1) },
+    { k: 'desc', l: 'Reason', r: n => `<span class="muted">${esc(n.desc)}</span>` },
+    { k: 'total', l: 'Total', n: 1, v: n => n.base, r: n => amt(n.total, n.currency), sum: n => n.base },
+    { k: 'remaining', l: 'Unallocated', n: 1, v: n => n.remaining, r: n => n.remaining ? amt(n.remaining, n.currency) : pill('Fully applied', 'green', 1) },
+  ],
+  payments: [
+    { k: 'date', l: 'Date', v: p => p.date, r: p => dt(p.date) },
+    { k: 'contact', l: 'Contact', v: p => cname(p.contactId), r: p => whoSmall(p.contactId) },
+    { k: 'doc', l: 'Applied to', v: p => p.docNo, r: p => `<span class="mono">${p.docNo}</span>` },
+    { k: 'kind', l: 'Direction', v: p => p.kind, r: p => p.kind === 'Received' ? pill(ic('arrowIn', 11) + 'Received', 'green', 1) : pill(ic('arrowOut', 11) + 'Paid out', 'purple', 1) },
+    { k: 'acct', l: 'Bank account', r: p => `<span class="muted mono" style="font-size:12px">${p.account}</span>` },
+    { k: 'amount', l: 'Amount', n: 1, v: p => p.base, r: p => amt(p.amount, p.currency), sum: p => (p.kind === 'Received' ? 1 : -1) * p.base },
+  ],
+};
+
+function table() {
+  const cols = COLS[S.tab], all = rows(), pages = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
+  if (S.pg > pages) S.pg = pages;
+  const slice = all.slice((S.pg - 1) * PAGE_SIZE, S.pg * PAGE_SIZE);
+  const kind = { contacts: 'contact', invoices: 'doc', bills: 'doc', bank: 'bank', credits: 'credit', payments: 'payment' }[S.tab];
+  const hasSum = cols.some(c => c.sum);
+  if (!all.length) return `<div class="card"><div class="empty">${ic('search', 28)}<h3>No matches</h3><p>Nothing matches these filters. Try a different search or clear the filters.</p><button class="btn" data-act="clear">Clear filters</button></div></div>`;
+  return `<div class="card tcard"><div class="tscroll"><table>
+    <thead><tr>${cols.map(c => `<th class="${c.v ? 'sortable' : ''} ${c.n ? 'num' : ''}" ${c.v ? `data-sort="${c.k}" aria-sort="${S.sort.key === c.k ? (S.sort.dir > 0 ? 'ascending' : 'descending') : 'none'}"` : ''}>${c.l}${S.sort.key === c.k ? `<span class="arr">${S.sort.dir > 0 ? '▲' : '▼'}</span>` : ''}</th>`).join('')}</tr></thead>
+    <tbody>${slice.map(r => `<tr data-open="${kind}" data-id="${r.id}" tabindex="0">${cols.map(c => `<td class="${c.n ? 'num' : ''}">${c.r(r)}</td>`).join('')}</tr>`).join('')}</tbody>
+    ${hasSum ? `<tfoot><tr>${cols.map((c, i) => `<td class="${c.n ? 'num' : ''}">${i === 0 ? `Total · ${all.length}` : c.sum ? base(all.reduce((s, r) => s + c.sum(r), 0)) : ''}</td>`).join('')}</tr></tfoot>` : ''}
+  </table></div>
+  <div class="pager"><span>${(S.pg - 1) * PAGE_SIZE + 1}–${Math.min(S.pg * PAGE_SIZE, all.length)} of ${all.length}${hasSum ? ' · totals in USD at Xero\'s rate' : ''}</span>
+    <div class="pg"><button class="btn sm" data-pg="-1" ${S.pg === 1 ? 'disabled' : ''}>Previous</button><button class="btn sm" data-pg="1" ${S.pg === pages ? 'disabled' : ''}>Next</button></div></div></div>`;
+}
+
+/* ── Drawer ───────────────────────────────────────────────────────────────── */
+function find(kind, id) { return { contact: contacts, doc: [...invoices, ...bills], bank, credit: credits, payment: payments }[kind].find(x => x.id === id); }
+function titleOf({ kind, id }) {
+  const x = find(kind, id);
+  return kind === 'contact' ? x.name : kind === 'doc' ? (x.type === 'ACCREC' ? 'Invoice ' : 'Bill ') + x.number : kind === 'bank' ? (x.type === 'SPEND' ? 'Spend money' : 'Receive money') : kind === 'credit' ? x.number : 'Payment';
+}
+function docRow(kind, d) {
+  let top, sub, right, st = '';
+  if (kind === 'doc') { top = `<span class="mono">${d.number}</span>`; st = docStatus(d); sub = `${dt(d.date)} · due ${dt(d.dueDate)}${d.ref ? ' · ' + esc(d.ref) : ''}`; right = amt(d.total, d.currency); }
+  if (kind === 'bank') { top = esc(d.desc); st = d.type === 'SPEND' ? pill('Spend', 'purple', 1) : pill('Receive', 'green', 1); sub = `${dt(d.date)} · <span class="mono">${esc(d.acct)}</span>`; right = (d.type === 'SPEND' ? '−' : '+') + amt(d.total, d.currency); }
+  if (kind === 'credit') { top = `<span class="mono">${d.number}</span>`; sub = `${dt(d.date)} · ${esc(d.desc)}`; right = amt(d.total, d.currency); }
+  if (kind === 'payment') { top = `${d.kind === 'Received' ? 'Received' : 'Paid'} · <span class="mono">${d.docNo}</span>`; sub = `${dt(d.date)} · ${d.ref}`; right = amt(d.amount, d.currency); }
+  return `<button class="doc" data-push="${kind}" data-id="${d.id}"><span class="r1">${top}${st}</span><span class="amt">${right}</span><span class="r2">${sub}</span></button>`;
+}
+function contactView(c) {
+  const inv = invoices.filter(d => d.contactId === c.id), bl = bills.filter(d => d.contactId === c.id), bk = bank.filter(t => t.contactId === c.id), cn = credits.filter(n => n.contactId === c.id), py = payments.filter(p => p.contactId === c.id);
+  const tabs = [['invoices', 'Invoices', inv], ['bills', 'Bills', bl], ['bank', 'Bank', bk], ['credits', 'Credit notes', cn], ['payments', 'Payments', py], ['activity', 'Activity', null]].filter(t => t[2] === null || t[2].length || (t[0] === 'invoices' && c.isCustomer) || (t[0] === 'bills' && c.isSupplier));
+  if (!tabs.find(t => t[0] === S.dtab)) S.dtab = tabs[0][0];
+  const cur = tabs.find(t => t[0] === S.dtab);
+  const kindOf = { invoices: 'doc', bills: 'doc', bank: 'bank', credits: 'credit', payments: 'payment' };
+  let list;
+  if (S.dtab === 'activity') {
+    const ev = [...inv.map(d => ({ d: d.updated, t: `Invoice <span class="mono">${d.number}</span> ${d.status === 'PAID' ? 'paid in full' : d.status === 'VOIDED' ? 'voided' : 'updated'}`, s: amt(d.total, d.currency) })), ...py.map(p => ({ d: p.date, t: `Payment ${p.kind === 'Received' ? 'received' : 'sent'} for <span class="mono">${p.docNo}</span>`, s: amt(p.amount, p.currency) })), ...bl.map(d => ({ d: d.date, t: `Bill <span class="mono">${d.number}</span> entered`, s: amt(d.total, d.currency) }))].sort((a, b) => b.d - a.d).slice(0, 10);
+    list = `<ul class="timeline">${ev.map(e => `<li>${e.t}<small>${dt(e.d)} · ${e.s}</small></li>`).join('')}</ul>`;
+  } else list = cur[2].length ? `<div class="doc-list">${cur[2].map(d => docRow(kindOf[S.dtab], d)).join('')}</div>` : `<p class="muted" style="padding:16px 4px">No ${cur[1].toLowerCase()} for this contact.</p>`;
+  return `<div class="dr-title">${avatar(c)}<div><h2>${esc(c.name)}</h2><div class="pills">${c.isCustomer ? pill('Customer', 'purple') : ''}${c.isSupplier ? pill('Supplier', 'blue') : ''}${c.archived ? pill('Archived', 'gray') : ''}</div></div></div>
+    <dl class="facts"><div><dt>Contact person</dt><dd>${esc(c.person) || '—'}</dd></div><div><dt>Email</dt><dd>${c.email ? `<a href="#" onclick="return false">${esc(c.email)}</a>` : '—'}</dd></div>
+      <div><dt>Phone</dt><dd>${esc(c.phone) || '—'}</dd></div><div><dt>Address</dt><dd>${esc(c.city)}</dd></div>
+      <div><dt>Tax number</dt><dd>${esc(c.tax) || '—'}</dd></div><div><dt>Default currency</dt><dd>${c.currency}</dd></div></dl>
+    <div class="mini"><div><small>Lifetime billed</small><b>${compact(c.billed)}</b></div><div><small>Owed to you</small><b>${compact(c.owed)}</b></div><div><small>Overdue</small><b class="${c.overdue ? 'down' : ''}">${compact(c.overdue)}</b></div><div><small>Lifetime spend</small><b>${compact(c.spent)}</b></div></div>
+    <div class="seg" role="tablist" style="margin-bottom:10px;flex-wrap:wrap">${tabs.map(([k, l, a]) => `<button role="tab" data-dtab="${k}" aria-selected="${S.dtab === k}">${l}${a ? ` <span class="cnt">${a.length}</span>` : ''}</button>`).join('')}</div>${list}`;
+}
+function docView(d) {
+  const c = contact(d.contactId), py = payments.filter(p => p.docId === d.id);
+  return `<div class="dr-title"><span class="av" style="background:var(--muted-bg);color:var(--text-muted)">${ic('file', 20)}</span><div><h2><span class="mono" style="font-size:17px">${d.number}</span></h2><div class="pills">${docStatus(d)}${pill(d.type === 'ACCREC' ? 'Sales invoice' : 'Purchase bill', 'gray')}</div></div></div>
+    <dl class="facts"><div><dt>${d.type === 'ACCREC' ? 'To' : 'From'}</dt><dd><a href="#" data-push="contact" data-id="${c.id}">${esc(c.name)}</a></dd></div><div><dt>Reference</dt><dd>${esc(d.ref) || '—'}</dd></div>
+      <div><dt>Date</dt><dd>${dt(d.date)}</dd></div><div><dt>Due date</dt><dd class="${d.overdue ? 'down' : ''}">${dt(d.dueDate)}${d.overdue ? ` · ${daysBetween(TODAY, d.dueDate)} days late` : ''}</dd></div>
+      <div><dt>Currency</dt><dd>${d.currency}${d.currency !== 'USD' ? ` · 1 ${d.currency} = ${d.rate} USD` : ''}</dd></div><div><dt>Last changed in Xero</dt><dd>${dt(d.updated)}</dd></div></dl>
+    <div class="section-l">Line items</div>
+    <div class="tscroll"><table class="lines"><thead><tr><th>Description</th><th>Account</th><th>Tax</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Amount</th></tr></thead>
+    <tbody>${d.lines.map(l => `<tr><td>${esc(l.desc)}</td><td class="mono muted" style="font-size:11.5px;white-space:nowrap">${esc(l.acct)}</td><td class="muted" style="font-size:12px">${esc(l.tax)}</td><td class="num">${l.qty}</td><td class="num">${money(l.unit, d.currency)}</td><td class="num">${money(l.amount, d.currency)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="totals"><span class="muted">Subtotal</span><span class="num">${money(d.sub, d.currency)}</span><span class="muted">Tax</span><span class="num">${money(d.taxAmt, d.currency)}</span>
+      <span class="grand">Total ${d.currency}</span><span class="grand num">${money(d.total, d.currency)}</span>
+      ${d.paid ? `<span class="muted">Less payments</span><span class="num">−${money(d.paid, d.currency)}</span>` : ''}<span style="font-weight:600">Amount due</span><span class="num" style="font-weight:600">${money(d.due, d.currency)}</span></div>
+    <div class="section-l">Payments</div>${py.length ? `<div class="doc-list">${py.map(p => docRow('payment', p)).join('')}</div>` : '<p class="muted" style="font-size:13px;margin:0">No payments recorded yet.</p>'}
+    <div class="section-l">Attachments</div>${attachments(d.attachments)}`;
+}
+const attachments = a => a.length ? a.map(f => `<div class="att">${ic('clip')}<span class="grow">${esc(f.name)}</span><span class="t-sub">${f.size}</span><a href="#" onclick="return false" class="t-sub">Open in Xero ${ic('ext', 12)}</a></div>`).join('') : '<p class="muted" style="font-size:13px;margin:0">No attachments.</p>';
+function bankView(t) {
+  return `<div class="dr-title"><span class="av" style="background:${t.type === 'SPEND' ? 'var(--accent)' : 'var(--green)'}">${ic(t.type === 'SPEND' ? 'arrowOut' : 'arrowIn', 20)}</span><div><h2>${esc(t.desc)}</h2><div class="pills">${t.type === 'SPEND' ? pill('Spend money', 'purple') : pill('Receive money', 'green')}${t.reconciled ? pill('Reconciled', 'gray') : pill('Unreconciled', 'amber')}</div></div></div>
+    <dl class="facts"><div><dt>${t.type === 'SPEND' ? 'Paid to' : 'Received from'}</dt><dd>${t.contactId ? `<a href="#" data-push="contact" data-id="${t.contactId}">${esc(t.payee)}</a>` : esc(t.payee)}</dd></div><div><dt>Date</dt><dd>${dt(t.date)}</dd></div>
+      <div><dt>Bank account</dt><dd class="mono" style="font-size:12px">${t.bankAcct}</dd></div><div><dt>Reference</dt><dd>${esc(t.ref) || '—'}</dd></div></dl>
+    <div class="section-l">Line items</div><div class="tscroll"><table class="lines"><thead><tr><th>Description</th><th>Account</th><th class="num">Amount</th></tr></thead><tbody><tr><td>${esc(t.desc)}</td><td class="mono muted" style="font-size:11.5px">${esc(t.acct)}</td><td class="num">${money(t.total, t.currency)}</td></tr></tbody></table></div>
+    <div class="totals"><span class="grand">Total ${t.currency}</span><span class="grand num">${money(t.total, t.currency)}</span></div>
+    <div class="section-l">Attachments</div>${attachments(t.attachments)}`;
+}
+function creditView(n) {
+  const c = contact(n.contactId);
+  return `<div class="dr-title"><span class="av" style="background:var(--muted-bg);color:var(--text-muted)">${ic('file', 20)}</span><div><h2 class="mono" style="font-size:17px">${n.number}</h2><div class="pills">${n.type === 'ACCRECCREDIT' ? pill('Customer credit', 'purple') : pill('Supplier credit', 'blue')}${n.remaining ? pill('Unallocated ' + money(n.remaining, n.currency), 'amber') : pill('Fully applied', 'green')}</div></div></div>
+    <dl class="facts"><div><dt>Contact</dt><dd><a href="#" data-push="contact" data-id="${c.id}">${esc(c.name)}</a></dd></div><div><dt>Date</dt><dd>${dt(n.date)}</dd></div><div><dt>Reason</dt><dd>${esc(n.desc)}</dd></div><div><dt>Total</dt><dd>${money(n.total, n.currency)}</dd></div></dl>`;
+}
+function paymentView(p) {
+  const d = find('doc', p.docId);
+  return `<div class="dr-title"><span class="av" style="background:${p.kind === 'Received' ? 'var(--green)' : 'var(--accent)'}">${ic(p.kind === 'Received' ? 'arrowIn' : 'arrowOut', 20)}</span><div><h2>${money(p.amount, p.currency)} ${p.kind === 'Received' ? 'received' : 'paid'}</h2><div class="pills">${pill(dt(p.date), 'gray')}</div></div></div>
+    <dl class="facts"><div><dt>Applied to</dt><dd><a href="#" data-push="doc" data-id="${d.id}" class="mono">${d.number}</a></dd></div><div><dt>Contact</dt><dd>${esc(cname(p.contactId))}</dd></div><div><dt>Bank account</dt><dd class="mono" style="font-size:12px">${p.account}</dd></div><div><dt>Reference</dt><dd>${p.ref}</dd></div></dl>`;
+}
+function renderDrawer() {
+  const dr = $('#drawer'), ov = $('#overlay');
+  if (!S.stack.length) { dr.classList.remove('open'); ov.classList.remove('open'); return; }
+  const top = S.stack[S.stack.length - 1], x = find(top.kind, top.id);
+  const body = { contact: contactView, doc: docView, bank: bankView, credit: creditView, payment: paymentView }[top.kind](x);
+  const prev = S.stack[S.stack.length - 2];
+  dr.innerHTML = `<div class="dr-h">${prev ? `<button class="btn sm ghost" data-act="back" aria-label="Back">${ic('back')}</button>` : ''}<span class="crumb">${prev ? esc(titleOf(prev)) + ' ›' : 'Xero'} <b style="color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(titleOf(top))}</b></span><button class="btn sm ghost" data-act="close" aria-label="Close">${ic('x')}</button></div>
+    <div class="dr-b">${body}</div>
+    <div class="dr-f"><span class="t-sub" style="margin-right:auto;align-self:center">Xero ID <span class="mono">${guid(x.id).slice(0, 13)}…</span></span><button class="btn" data-act="toast" data-msg="Opens this record in Xero in a new tab">${ic('ext')}Open in Xero</button></div>`;
+  dr.classList.add('open'); ov.classList.add('open');
+}
+/* ── Settings → Xero ──────────────────────────────────────────────────────── */
+S.progress = 0;
+const ENTITIES = () => [['Contacts', contacts.length], ['Invoices', invoices.length], ['Bills', bills.length], ['Bank transactions', bank.length], ['Credit notes', credits.length], ['Payments', payments.length], ['Attachment list', invoices.concat(bills).filter(d => d.attachments.length).length]];
+function syncRows(progress) {
+  const ago = ['6 min ago', '6 min ago', '6 min ago', '7 min ago', '7 min ago', '7 min ago', '7 min ago'];
+  return `<div class="srow head"><span>Data</span><span class="num">Records</span><span class="hide-m">${progress ? 'Progress' : 'Last change pulled'}</span><span>Status</span></div>` +
+    ENTITIES().map(([l, n], i) => {
+      const p = progress ? Math.max(0, Math.min(100, S.progress * 7 - i * 100)) : 100;
+      const stat = progress ? (p >= 100 ? pill('Done', 'green', 1) : p > 0 ? pill('Syncing', 'blue', 1) : pill('Queued', 'gray', 1)) : S.xero === 'reconnect' ? pill('Paused', 'red', 1) : pill('Up to date', 'green', 1);
+      return `<div class="srow"><span style="font-weight:500">${l}</span><span class="num">${progress ? Math.round(n * p / 100) : n}</span><span class="hide-m">${progress ? `<div class="prog"><span style="width:${p}%"></span></div>` : `<span class="muted">${S.xero === 'reconnect' ? '12 Sep, 23:40' : ago[i]}</span>`}</span><span>${stat}</span></div>`;
+    }).join('');
+}
+const SCOPES = ['accounting.contacts.read', 'accounting.invoices.read', 'accounting.payments.read', 'accounting.banktransactions.read', 'accounting.attachments.read', 'accounting.settings.read', 'offline_access'];
+function renderSettings() {
+  const owner = S.role === 'OWNER';
+  let h = protoStrip() + `<div class="ph"><div><h1>Settings</h1><p>Workspace connections, sync behaviour and notifications.</p></div></div>
+    <div class="seg stabs" role="tablist" aria-label="Settings sections">${['Connection', 'Sync', 'Scopes', 'Notifications'].map(t => `<button role="tab" aria-selected="false" data-act="toast" data-msg="${t} is an existing tab — unchanged by this feature">${t}</button>`).join('')}<button role="tab" aria-selected="true">Xero</button></div>`;
+  if (!owner) h += `<div class="callout amber">${ic('lock')}<div class="grow"><b>View only</b>Only an Owner can connect or disconnect Xero. You can still see sync status and use the Finance page.</div></div>`;
+  if (S.xero === 'error') h += `<div class="callout red">${ic('alert')}<div class="grow"><b>Xero didn't finish connecting</b>The Xero consent screen was cancelled, so nothing was saved. Select Connect to Xero to try again.</div></div>`;
+  if (S.xero === 'none' || S.xero === 'error') {
+    h += `<section class="card card-pad"><div class="hero-x"><span class="xmark">x</span><div>
+      <h2>Connect your Xero organisation</h2>
+      <p>Bring every client's invoices, supplier bills and bank spending into Clicksy. We copy the data on a schedule so Finance pages load instantly and Grafana can report on it.</p>
+      <div class="reads">
+        <div>${ic('users')}<span>Contacts<small>Customers and suppliers, with balances</small></span></div>
+        <div>${ic('file')}<span>Invoices, bills & credit notes<small>Including line items and tax</small></span></div>
+        <div>${ic('wallet')}<span>Spend & receive money<small>Bank transactions and reconciliation state</small></span></div>
+        <div>${ic('clip')}<span>Payments & attachment names<small>Files stay in Xero — we only link to them</small></span></div>
+      </div>
+      <div class="actions"><button class="btn xero" data-act="connect" ${owner ? '' : 'disabled'}>${ic('link')}Connect to Xero</button><span class="t-sub">You'll sign in on Xero and choose the organisation.</span></div>
+      <div class="note">${ic('shield', 14)}<span><b style="color:var(--text)">Read-only.</b> Clicksy can't create, edit or delete anything in Xero. Your Xero sign-in is stored encrypted and never shown again.</span></div>
+      <div class="section-l">Permissions requested</div><div class="scopes">${SCOPES.map(s => `<code>${s}</code>`).join('')}</div>
+    </div></div></section>`;
+    return h;
+  }
+  const statusPill = S.xero === 'reconnect' ? pill('Needs reconnect', 'red') : S.xero === 'syncing' ? pill('First sync running', 'blue') : pill('Connected', 'green');
+  if (S.xero === 'reconnect') h += `<div class="callout red">${ic('alert')}<div class="grow"><b>Xero stopped accepting our connection on 12 Sep</b>This happens if someone removed the app in Xero, or the sign-in wasn't used for 60 days. Synced data is kept. Reconnect with the same organisation to carry on where it left off.</div>${owner ? `<button class="btn sm" data-act="connect">Reconnect</button>` : ''}</div>`;
+  h += `<div class="set-grid"><div style="display:flex;flex-direction:column;gap:16px">
+    <section class="card card-pad"><div class="card-h"><div style="display:flex;gap:12px;align-items:center"><span class="xmark sm">x</span><div><h3>Nifty IT Solution Ltd</h3><p>Xero organisation · connected 15 Aug 2026 by Rashedul Hasan</p></div></div>${statusPill}</div>
+      <dl class="kv"><dt>Base currency</dt><dd>USD — US Dollar</dd><dt>Tenant ID</dt><dd class="mono" style="font-size:12px">${guid('tenant')}</dd><dt>Access</dt><dd>Read-only · ${SCOPES.length} permissions</dd><dt>Callback URL</dt><dd class="mono" style="font-size:12px">https://log.niftyitsolution.com/api/xero/callback</dd></dl></section>
+    <section class="card card-pad"><div class="card-h"><div><h3>Data sync</h3><p>${S.xero === 'syncing' ? 'Copying everything from Xero for the first time.' : 'Changes are pulled every hour. Unpaid invoices and balances are re-checked nightly at 02:00 (Dhaka).'}</p></div>
+      <button class="btn sm" data-act="sync" ${S.xero !== 'connected' || S.syncing ? 'disabled' : ''}>${ic('refresh', 14)}${S.syncing ? 'Syncing…' : 'Sync now'}</button></div>${syncRows(S.xero === 'syncing')}</section>
+  </div><div style="display:flex;flex-direction:column;gap:16px">
+    <section class="card card-pad"><div class="card-h"><div><h3>Connection health</h3></div></div>
+      <dl class="kv"><dt>Sign-in renewed</dt><dd>${S.xero === 'reconnect' ? '<span class="down">Rejected by Xero</span>' : '4 min ago'}</dd><dt>Auto-renews</dt><dd>Every 20 min</dd><dt>API calls today</dt><dd>312 of 5,000</dd></dl>
+      <div class="prog" style="margin-top:10px"><span style="width:6.2%"></span></div>
+      <p class="t-sub" style="margin:10px 0 0">Xero allows 60 calls a minute and 5,000 a day. Syncs pace themselves to stay well under.</p></section>
+    <section class="card card-pad"><div class="card-h"><div><h3>Disconnect</h3><p>Stops syncing and deletes the stored Xero sign-in. Data already copied stays in Finance.</p></div></div>
+      <button class="btn danger" data-act="disconnect" ${owner ? '' : 'disabled'}>${ic('unplug')}Disconnect Xero</button></section>
+  </div></div>`;
+  return h;
+}
+
+/* ── Render + events ──────────────────────────────────────────────────────── */
+function render() {
+  renderShell();
+  $('#view').innerHTML = S.page === 'finance' ? renderFinance() : renderSettings();
+  renderDrawer();
+}
+let toastT;
+function toast(msg) { const t = $('#toast'); t.innerHTML = ic('ok') + esc(msg); t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600); }
+function modal(open) {
+  const m = $('#modal');
+  m.innerHTML = open ? `<div class="card" role="alertdialog" aria-labelledby="m-t"><h3 id="m-t">Disconnect Xero?</h3><p>Syncing stops and the stored Xero sign-in is deleted. Contacts and transactions already copied stay in Finance and reports. You can reconnect any time.</p><div class="actions" style="justify-content:flex-end"><button class="btn" data-act="cancel">Keep connected</button><button class="btn danger" data-act="do-disconnect">${ic('unplug')}Disconnect</button></div></div>` : '';
+  m.classList.toggle('open', open);
+  $('#overlay').classList.toggle('open', open || S.stack.length > 0);
+  if (open) m.querySelector('button').focus();
+}
+let progT;
+function startFirstSync() {
+  S.xero = 'syncing'; S.progress = 0; clearInterval(progT);
+  progT = setInterval(() => {
+    S.progress += 1;
+    if (S.progress >= 16) { clearInterval(progT); S.xero = 'connected'; S.lastSync = TODAY; toast('First sync finished — ' + contacts.length + ' contacts and ' + (invoices.length + bills.length) + ' invoices & bills copied'); }
+    render();
+  }, 450);
+}
+const DEFAULT_SORT = { contacts: { key: 'owed', dir: -1 } };
+function act(a, el) {
+  switch (a) {
+    case 'close': S.stack = []; break;
+    case 'back': S.stack.pop(); break;
+    case 'clear': Object.assign(S, { q: '', role_f: 'all', status: 'all', archived: false, btype: 'all', range: 'all', cur: 'all', recon: 'all', pg: 1 }); break;
+    case 'toast': toast(el.dataset.msg); return;
+    case 'export': toast(`Exported ${rows().length} ${S.tab === 'bank' ? 'bank transactions' : S.tab} to finance-${S.tab}-2026-09-15.xlsx`); return;
+    case 'sync': S.syncing = true; render(); setTimeout(() => { S.syncing = false; S.lastSync = TODAY; render(); toast('Synced — 3 invoices and 1 contact changed since last run'); }, 1600); return;
+    case 'connect': el.innerHTML = `<svg class="i spin" viewBox="0 0 24 24">${IC.refresh}</svg>Opening Xero…`; el.disabled = true; setTimeout(() => { toast('Connected to Nifty IT Solution Ltd — first sync started'); startFirstSync(); render(); }, 1300); return;
+    case 'disconnect': modal(true); return;
+    case 'cancel': modal(false); return;
+    case 'do-disconnect': modal(false); clearInterval(progT); S.xero = 'none'; toast('Xero disconnected'); break;
+  }
+  render();
+}
+function openKpi(k) {
+  const m = { recv: ['invoices', { status: 'AUTHORISED' }], overdue: ['invoices', { status: 'overdue' }], pay: ['bills', { status: 'AUTHORISED' }], in: ['payments', {}], out: ['bank', { btype: 'SPEND' }] }[k];
+  Object.assign(S, { tab: m[0], q: '', status: 'all', btype: 'all', range: 'all', cur: 'all', recon: 'all', pg: 1, sort: { key: 'date', dir: -1 } }, m[1]);
+  render();
+  document.querySelector('.utabs').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-nav],[data-tab],[data-seg],[data-sort],[data-pg],[data-open],[data-push],[data-dtab],[data-act],[data-kpi]');
+  if (!t || t.disabled) return;
+  const d = t.dataset;
+  if (d.nav) { e.preventDefault(); if (t.classList.contains('dim')) return; S.page = d.nav; S.stack = []; render(); window.scrollTo(0, 0); return; }
+  if (d.tab) { Object.assign(S, { tab: d.tab, q: '', status: 'all', range: 'all', cur: 'all', recon: 'all', btype: 'all', role_f: 'all', pg: 1, sort: DEFAULT_SORT[d.tab] || { key: 'date', dir: -1 } }); return render(); }
+  if (d.seg) { S[d.seg] = d.v; S.pg = 1; return render(); }
+  if (d.sort) { S.sort = S.sort.key === d.sort ? { key: d.sort, dir: -S.sort.dir } : { key: d.sort, dir: -1 }; return render(); }
+  if (d.pg) { S.pg += Number(d.pg); return render(); }
+  if (d.open) { S.stack = [{ kind: d.open, id: d.id }]; S.dtab = 'invoices'; return renderDrawer(); }
+  if (d.push) { e.preventDefault(); if (d.push === 'contact') S.dtab = 'invoices'; S.stack.push({ kind: d.push, id: d.id }); return renderDrawer(); }
+  if (d.dtab) { S.dtab = d.dtab; return renderDrawer(); }
+  if (d.kpi) return openKpi(d.kpi);
+  if (d.act) act(d.act, t);
+});
+document.addEventListener('input', e => {
+  const f = e.target.dataset.f; if (!f) return;
+  S[f] = e.target.type === 'checkbox' ? e.target.checked : e.target.value; S.pg = 1;
+  const pos = e.target.selectionStart; render();
+  const again = document.getElementById(e.target.id); if (again) again.focus();
+  if (f === 'q') { try { again.setSelectionRange(pos, pos); } catch (_) {} }
+});
+document.addEventListener('change', e => {
+  const p = e.target.dataset.proto; if (!p) return;
+  S[p] = e.target.value; S.stack = [];
+  if (p === 'xero') { clearInterval(progT); if (S.xero === 'syncing') return startFirstSync(); }
+  render();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { if ($('#modal').classList.contains('open')) modal(false); else if (S.stack.length) { S.stack = []; renderDrawer(); } }
+  if (e.key === 'Enter' && e.target.matches('tr[data-open]')) e.target.click();
+});
+$('#overlay').addEventListener('click', () => { if ($('#modal').classList.contains('open')) return modal(false); S.stack = []; renderDrawer(); });
+render();
+</script>
