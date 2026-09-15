@@ -1,6 +1,7 @@
 import { of, throwError } from 'rxjs';
 import { formatModifiedSince, XeroClient } from './xero.client';
 import { XeroApiError, XeroRateBudgetExhaustedError } from './xero-errors';
+import { MAX_429_RETRIES, MAX_PAGES, PAGE_SIZE } from './xero.constants';
 
 function setup(responses: Array<unknown>) {
   const request = jest.fn();
@@ -84,6 +85,16 @@ describe('XeroClient.get', () => {
     const waits = (client.sleep as jest.Mock).mock.calls.map((c) => c[0]);
     expect(waits.some((ms: number) => ms > 1000)).toBe(true);
   });
+
+  it('gives up after MAX_429_RETRIES and surfaces a XeroApiError instead of retrying again', async () => {
+    const attempts = MAX_429_RETRIES + 1;
+    const responses = Array.from({ length: attempts }, () => ({ response: { status: 429, headers: { 'retry-after': '1' } } }));
+    const { client, request } = setup(responses);
+    const err = await client.get('/Contacts').catch((e: Error) => e);
+    expect(err).toBeInstanceOf(XeroApiError);
+    expect((err as XeroApiError).status).toBe(429);
+    expect(request).toHaveBeenCalledTimes(attempts);
+  });
 });
 
 describe('XeroClient.pages', () => {
@@ -101,6 +112,18 @@ describe('XeroClient.pages', () => {
     for await (const items of client.pages('/Invoices', 'Invoices')) seen.push(items);
     expect(seen).toEqual([]);
     expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops at MAX_PAGES even when every page is full', async () => {
+    const { client, request } = setup([]);
+    const fullPage = ok(page(PAGE_SIZE));
+    request.mockImplementation(() => of(fullPage));
+    const seen: number[] = [];
+    for await (const items of client.pages('/Invoices', 'Invoices')) seen.push(items.length);
+    expect(seen.length).toBe(MAX_PAGES);
+    expect(seen.every((n) => n === PAGE_SIZE)).toBe(true);
+    expect(request).toHaveBeenCalledTimes(MAX_PAGES);
+    expect(request.mock.calls.map((c) => c[0].params.page)).toEqual(Array.from({ length: MAX_PAGES }, (_, i) => String(i + 1)));
   });
 });
 
