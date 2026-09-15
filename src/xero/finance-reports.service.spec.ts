@@ -28,13 +28,21 @@ function setup() {
 describe('FinanceReportsService.summary', () => {
   it('computes KPIs, aging, top overdue and the 6-month series, excluding transfers', async () => {
     const { svc, prisma } = setup();
-    prisma.xeroInvoice.aggregate
-      .mockResolvedValueOnce({ _sum: { amountDueBase: 1500 }, _count: { _all: 3 } }) // owed to you
-      .mockResolvedValueOnce({ _sum: { amountDueBase: 900 }, _count: { _all: 2 } }) // overdue
-      .mockResolvedValueOnce({ _sum: { amountDueBase: 400 }, _count: { _all: 1 } }); // you owe
-    prisma.xeroInvoice.findFirst
-      .mockResolvedValueOnce({ dueDate: d('2026-06-01') }) // oldest overdue
-      .mockResolvedValueOnce({ dueDate: d('2026-09-18') }); // next bill due
+    // Argument-aware: keyed on the actual `where` (type + dueDate presence), not on
+    // call order, so a mutation that swaps which type/dueDate a query filters on
+    // changes the value that comes back — the existing s.owedToYou/s.overdue/s.youOwe
+    // assertions below then do the discriminating instead of a separate assertion.
+    prisma.xeroInvoice.aggregate.mockImplementation(async ({ where }: { where: { type: string; dueDate?: unknown } }) => {
+      if (where.type === 'ACCREC' && where.dueDate) return { _sum: { amountDueBase: 900 }, _count: { _all: 2 } }; // overdue
+      if (where.type === 'ACCREC') return { _sum: { amountDueBase: 1500 }, _count: { _all: 3 } }; // owed to you
+      if (where.type === 'ACCPAY') return { _sum: { amountDueBase: 400 }, _count: { _all: 1 } }; // you owe
+      return { _sum: {}, _count: { _all: 0 } };
+    });
+    prisma.xeroInvoice.findFirst.mockImplementation(async ({ where }: { where: { type: string; dueDate?: { lt?: unknown; gte?: unknown } } }) => {
+      if (where.type === 'ACCREC' && where.dueDate?.lt) return { dueDate: d('2026-06-01') }; // oldest overdue
+      if (where.type === 'ACCPAY' && where.dueDate?.gte) return { dueDate: d('2026-09-18') }; // next bill due
+      return null;
+    });
     prisma.xeroInvoice.findMany.mockResolvedValueOnce([
       { contactId: 'c1', contactName: 'Oakridge', dueDate: d('2026-06-01'), amountDueBase: 700 },
       { contactId: 'c2', contactName: 'Meridian', dueDate: d('2026-09-10'), amountDueBase: 200 },
@@ -152,14 +160,16 @@ describe('FinanceReportsService.contactDetail', () => {
       contactId: 'c1', name: 'AWS', email: null, firstName: null, lastName: null, isCustomer: false, isSupplier: true,
       status: 'ACTIVE', defaultCurrency: 'USD', taxNumber: null, phones: [], addresses: [],
     });
+    // Argument-aware, keyed on `type`: billed and spendBills are the two totalBase
+    // queries (ACCREC vs ACCPAY respectively — see the service's contactDetail Promise.all),
+    // given distinct values so swapping their type literals changes kpis.billed/kpis.spend.
     // spendBills: one PAID ACCPAY bill of 1000 (a prepayment allocated to it marks it PAID
     // without a Payment row — see the comment on the service's spendBank query).
-    prisma.xeroInvoice.aggregate
-      .mockResolvedValueOnce({ _sum: {} }) // billed
-      .mockResolvedValueOnce({ _sum: {} }) // owed
-      .mockResolvedValueOnce({ _sum: {} }) // overdue
-      .mockResolvedValueOnce({ _sum: {} }) // owing
-      .mockResolvedValueOnce({ _sum: { totalBase: 1000 } }); // spendBills (ACCPAY bill total)
+    prisma.xeroInvoice.aggregate.mockImplementation(async ({ where }: { where: { type: string } }) => {
+      if (where.type === 'ACCREC') return { _sum: { totalBase: 1500, amountDueBase: 0 } }; // billed (also feeds owed/overdue, unasserted here)
+      if (where.type === 'ACCPAY') return { _sum: { totalBase: 1000, amountDueBase: 0 } }; // spendBills (also feeds owing, unasserted here)
+      return { _sum: {} };
+    });
     // Bank rows on this contact: a SPEND-PREPAYMENT of 1000 (the allocation for the bill
     // above — must NOT be counted again) and a plain SPEND of 200 (must be counted).
     const bankRows = [
@@ -174,6 +184,7 @@ describe('FinanceReportsService.contactDetail', () => {
 
     const res = await svc.contactDetail('c1');
 
+    expect(res.kpis.billed).toBe(1500);
     expect(res.kpis.spend).toBe(1200);
     const spendBankWhere = prisma.xeroBankTransaction.aggregate.mock.calls[0][0].where;
     expect(spendBankWhere.type).toBe('SPEND');
