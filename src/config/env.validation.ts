@@ -40,8 +40,19 @@ const schema = z.object({
   // Auto-heal suspended ClickUp webhooks on a 15-min cron. Enum+transform (not
   // z.coerce.boolean, which treats the string "false" as true) so it can be disabled.
   WEBHOOK_AUTOHEAL_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  // Xero OAuth app credentials (Settings → Xero). Both empty = feature off.
+  // The secret is only ever read by XeroIdentityClient; never log it.
+  XERO_CLIENT_ID: z.string().optional().default(''),
+  XERO_CLIENT_SECRET: z.string().optional().default(''),
 // Production requires non-empty secrets; dev/test allows empty values for convenience
 }).superRefine((env, ctx) => {
+  // Half-configured Xero is always a mistake, in every environment.
+  if (env.XERO_CLIENT_ID && !env.XERO_CLIENT_SECRET) {
+    ctx.addIssue({ code: 'custom', path: ['XERO_CLIENT_SECRET'], message: 'XERO_CLIENT_SECRET is required when XERO_CLIENT_ID is set' });
+  }
+  if (env.XERO_CLIENT_SECRET && !env.XERO_CLIENT_ID) {
+    ctx.addIssue({ code: 'custom', path: ['XERO_CLIENT_ID'], message: 'XERO_CLIENT_ID is required when XERO_CLIENT_SECRET is set' });
+  }
   if (env.NODE_ENV !== 'production') return;
   // The ClickUp webhook secret is no longer required from env — it can be stored
   // in app_settings via the dashboard (Register webhook). But the encryption key

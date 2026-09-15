@@ -22,6 +22,7 @@ import { WorkersModule } from './workers/workers.module';
 import { AdminModule } from './admin/admin.module';
 import { WebhookHealthModule } from './clickup/webhook-health.module';
 import { BudgetsModule } from './budgets/budgets.module';
+import { XeroModule } from './xero/xero.module';
 import { ReportsModule } from './reports/reports.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
@@ -62,6 +63,7 @@ const worker = isWorker();
     AdminModule,
     WebhookHealthModule,
     BudgetsModule,
+    XeroModule,
     ReportsModule,
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 5 }]),
     AuthModule,

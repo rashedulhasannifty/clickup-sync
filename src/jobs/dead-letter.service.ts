@@ -42,7 +42,7 @@ export class DeadLetterService {
   private entityId(data: unknown): string | undefined {
     if (!data || typeof data !== 'object') return undefined;
     const d = data as Record<string, unknown>;
-    const candidate = d.taskId ?? d.timeEntryId ?? d.spaceId ?? d.assigneeId;
+    const candidate = d.taskId ?? d.timeEntryId ?? d.spaceId ?? d.assigneeId ?? d.entity;
     return typeof candidate === 'string' ? candidate : undefined;
   }
 }

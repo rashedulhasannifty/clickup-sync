@@ -86,6 +86,15 @@ CLICKUP_WEBHOOK_ENDPOINT=https://your-domain.com/webhooks/clickup
 CLICKUP_WEBHOOK_SECRET=...
 ```
 
+Optional (Xero finance):
+
+```env
+XERO_CLIENT_ID=...
+XERO_CLIENT_SECRET=...
+```
+
+The redirect URI is `${APP_BASE_URL}/api/xero/callback`. Both `XERO_CLIENT_ID` and `XERO_CLIENT_SECRET` must be set together, or neither; setting only one is an error.
+
 ## ClickUp permissions and API constraints
 
 Use a dedicated ClickUp Workspace Owner/Admin service account token for production.
@@ -140,6 +149,7 @@ Team ID: `3450636`.
 | BullMQ workers | `src/workers/*` |
 | Database schema | `prisma/schema.prisma` |
 | SQL migration | `prisma/migrations/0001_initial/migration.sql` |
+| Xero finance sync (read-only) | `src/xero/*`, `src/workers/xero-sync.processor.ts`, `apps/web/src/pages/FinancePage.tsx` |
 
 ## Data model rules
 
@@ -246,6 +256,22 @@ See `docs/superpowers/specs/2026-08-27-task-chargeability-design.md` and
 
 `clickup_lists` is the sprint/list catalog: one row per ClickUp list (sprint), keyed on `list_id`, storing `name`, `folderId`/`folderName`, `spaceId`/`spaceName`, `archived`, and sprint `startDate`/`dueDate`. It powers `/reports/sprints`, `/reports/sprints/folders`, `/reports/sprints/velocity`, `/reports/sprints/:listId`, and the `sprintStatus=active|completed|all` filter on `/reports/tasks` and `/reports/time-entries`. See "Sprint / list catalog" in `docs/OPERATIONS.md` for how it's populated (backfill, daily cron, `POST /admin/lists/sync`, opportunistic webhook upserts) and which of those paths are authoritative for `archived`/dates vs. name/folder only.
 
+### Xero finance
+
+Read-only mirror of one Xero organisation (spec: `docs/superpowers/specs/2026-09-15-xero-finance-design.md`).
+
+- Never call a Xero write endpoint; a guardrail test enforces GET-only on `XeroClient`.
+- Tokens live only in `xero_connections`, encrypted, never cached in-process
+  (Xero rotates the refresh token on every use). Refresh only via
+  `XeroTokenService.getAccessToken()`, which is single-flight under the Redis lock `xero:token-refresh`.
+- Xero paging is 1-based (`page=1`); ClickUp's is 0-based.
+- Money is stored in document currency plus `*_base = amount / currency_rate`. KPIs use `*_base`.
+- Voids/deletes are status changes; `DELETED` rows are excluded from every report.
+- The invoice/bill status filter is exclusive: `AUTHORISED` = awaiting payment and not overdue,
+  `overdue` is its own bucket (`finance-math.invoiceStatusWhere`). Keep them exhaustive.
+- `*-TRANSFER` bank transactions are not money in/out.
+- One organisation only; a reconnect to a different org is refused (`different_org`).
+
 ## Worker and queue rules
 
 Webhook controllers should respond quickly and queue work. Do not perform heavy ClickUp fetches or database backfills inside the HTTP request path.
@@ -257,6 +283,7 @@ Expected queues:
 - `clickup-time-entries`
 - `clickup-backfills`
 - `maintenance`
+- `xero-sync`
 
 When adding workers:
 
@@ -374,6 +401,7 @@ This service is internal-only and intentionally narrow in scope. Items still exp
 - Reporting surfaces for the newer event types: `taskMoved`, `taskAssigneeUpdated`, `taskPriorityUpdated` are now captured into `clickup_task_events` (alongside `taskStatusUpdated`) via `HISTORY_FIELDS` in `clickup-event.processor.ts`, but no report/UI reads them yet (cycle-time/time-in-status still query `event_type='taskStatusUpdated'` only).
 - Cycle-time drill-downs by client and department (backend accepts `groupBy=client|department`; UI surface is single bucket).
 - Currency rename (the `*Aud` field names and the `currency` columns hold USD in practice — see the `currency-aud-usd-debt` memory).
+- Xero ↔ ClickUp client matching (revenue vs tracked-time cost per client) is deferred; Xero contacts aren't linked to the ClickUp `client` field yet.
 
 Already in place (do not re-implement):
 
@@ -387,3 +415,4 @@ Already in place (do not re-implement):
 - Sprint/list catalog + reports (`clickup_lists`, populated via manual space backfill, the daily `SYNC_LIST_CATALOG` cron at 03:00, `POST /admin/lists/sync`, and opportunistic upserts from task webhooks — see `docs/OPERATIONS.md`): `/reports/sprints`, `/reports/sprints/folders`, `/reports/sprints/velocity`, `/reports/sprints/:listId`, plus a `sprintStatus=active|completed|all` filter on `/reports/tasks` and `/reports/time-entries`; frontend `/sprints` analytics page and a sprintStatus Select on the Tasks and Time Entries pages.
 - Chargeability, end to end (see the data-model section above): task flag, per-(task, assignee) rules (`task_assignee_chargeability`), and per-entry overrides (`clickup_time_entries.chargeable_override`), each with a scoped `recalculate-costs` job. Write paths are `PATCH /admin/tasks/chargeable`, `PATCH /admin/tasks/:taskId/assignee-chargeable` (`chargeable: null` clears — there is deliberately no DELETE), and `PATCH /admin/time-entries/chargeable-override`. Read surfaces: `GET /admin/chargeability-rules`, `GET /reports/tasks/:taskId/assignee-chargeability`, a tri-state pill and a `chargeable=true|false|partial` filter on the Tasks page, per-assignee controls in the task drawer, a per-row toggle plus bulk action on Time Entries, and the `/chargeability-rules` admin screen.
 - Per-user authentication & RBAC (`src/auth/*`): email/password login (`scrypt` hashing, NIST-style policy), HTTP-only cookie sessions that are DB-backed with SHA-256-hashed tokens and an hourly expired-session sweep (`SessionCleanupService`). One `Organization` tenant with three roles — Owner (org secrets + everything), Admin (ops + invite), Member (read-only) — enforced app-wide by a global `AuthGuard` + `RolesGuard`. Self-serve signup claims the seed org and becomes its first Owner; after that signup is closed and users join by email invitation (`nodemailer`/SMTP, dev transport logs the link). The shared `ADMIN_API_KEY` now authenticates as a synthetic Owner machine credential. The audit log actor is derived from the authenticated session user (the spoofable `X-Admin-User` header is retired). Note: per-ORG data isolation (`org_id` on ClickUp data tables, multi-org sync) is still pending — see Spec 2 and `docs/superpowers/specs/2026-06-06-auth-orgs-rbac-design.md`.
+- Xero Finance: read-only sync of one Xero organisation's contacts, invoices, bills, credit notes, bank transactions, and payments into Postgres. Accessible at `/finance` and Settings → Xero; Owner/Admin only. Routes `/api/xero/*` (auth callbacks, connect/disconnect, status, sync) and `/api/finance/*` (KPIs, lists, details, activity). Worker enqueues sync jobs on the `xero-sync` queue; scheduled crons handle incremental syncs, token keep-alive, and reconciliation. Rate-limit pacing is not a cron: the Xero client spaces every call by `MIN_CALL_INTERVAL_MS`. See `docs/superpowers/specs/2026-09-15-xero-finance-design.md` and `docs/OPERATIONS.md`.
