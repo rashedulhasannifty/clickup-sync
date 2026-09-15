@@ -21,3 +21,19 @@ export class XeroRateBudgetExhaustedError extends Error {
     this.name = 'XeroRateBudgetExhaustedError';
   }
 }
+
+/**
+ * A failed Xero data call, with the axios error stripped. Axios errors carry
+ * `config.headers.Authorization`. Anything thrown out of a processor ends up in
+ * job logs and dead-letter rows, so only status, path and message survive here.
+ */
+export class XeroApiError extends Error {
+  constructor(
+    public readonly status: number | null,
+    public readonly path: string,
+    detail: string,
+  ) {
+    super(`Xero GET ${path} failed: ${status ?? 'network'} ${detail}`.trim());
+    this.name = 'XeroApiError';
+  }
+}
