@@ -160,6 +160,40 @@ describe('FinanceReportsService.listContacts', () => {
   });
 });
 
+describe('FinanceReportsService.listContacts sorting', () => {
+  const contact = (contactId: string, name: string) => ({
+    contactId, name, email: null, firstName: null, lastName: null, isCustomer: true, isSupplier: false, status: 'ACTIVE', defaultCurrency: 'USD',
+  });
+
+  // Alpha and Bravo tie on owed (100); Charlie owes more (500). Argument-aware groupBy,
+  // keyed on the actual `where`, so the rollups can't be fed to the wrong column.
+  function sorted(q: { sort?: 'name' | 'owed'; dir?: 'asc' | 'desc' }) {
+    const { svc, prisma } = setup();
+    prisma.xeroContact.findMany.mockResolvedValueOnce([contact('c2', 'Bravo'), contact('c3', 'Charlie'), contact('c1', 'Alpha')]);
+    prisma.xeroInvoice.groupBy.mockImplementation(async ({ where }: { where: { type?: string; dueDate?: unknown } }) => {
+      if (where.type === 'ACCREC' && !where.dueDate) {
+        return [{ contactId: 'c1', _sum: { amountDueBase: 100 } }, { contactId: 'c2', _sum: { amountDueBase: 100 } }, { contactId: 'c3', _sum: { amountDueBase: 500 } }];
+      }
+      return [];
+    });
+    return svc.listContacts(q).then((r) => r.items.map((i) => i.name));
+  }
+
+  it('ties follow dir: desc breaks a tie Z→A, asc breaks it A→Z', async () => {
+    expect(await sorted({ sort: 'owed', dir: 'desc' })).toEqual(['Charlie', 'Bravo', 'Alpha']);
+    expect(await sorted({ sort: 'owed', dir: 'asc' })).toEqual(['Alpha', 'Bravo', 'Charlie']);
+  });
+
+  it('sort=name honours the default dir (desc) like every other key, and an explicit asc', async () => {
+    expect(await sorted({ sort: 'name' })).toEqual(['Charlie', 'Bravo', 'Alpha']);
+    expect(await sorted({ sort: 'name', dir: 'asc' })).toEqual(['Alpha', 'Bravo', 'Charlie']);
+  });
+
+  it('the default sort is owed desc', async () => {
+    expect(await sorted({})).toEqual(['Charlie', 'Bravo', 'Alpha']);
+  });
+});
+
 describe('FinanceReportsService.contactDetail', () => {
   it('kpis.spend counts bills plus plain SPEND only, excluding prepayments/overpayments already reflected in the bill total', async () => {
     const { svc, prisma } = setup();

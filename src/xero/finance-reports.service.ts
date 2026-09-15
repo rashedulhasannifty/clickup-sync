@@ -139,12 +139,15 @@ export class FinanceReportsService {
       lastActivity: dayString(lastM.get(c.contactId)),
     }));
     const key = q.sort ?? 'owed';
+    // One direction for everything, name included (default desc, like every other key);
+    // ties break by name in that same direction.
     const sign = dir(q.dir) === 'asc' ? 1 : -1;
+    const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name) * sign;
     items.sort((a, b) => {
+      if (key === 'name') return byName(a, b);
       const x = key === 'lastActivity' ? (a.lastActivity ?? '') : (a as any)[key];
       const y = key === 'lastActivity' ? (b.lastActivity ?? '') : (b as any)[key];
-      if (key === 'name') return String(x).localeCompare(String(y)) * (q.dir === 'desc' ? -1 : 1);
-      return (x > y ? 1 : x < y ? -1 : a.name.localeCompare(b.name) * -sign) * sign;
+      return x > y ? sign : x < y ? -sign : byName(a, b);
     });
     const start = off(q.offset);
     return { items: items.slice(start, start + lim(q.limit)), total: items.length };
