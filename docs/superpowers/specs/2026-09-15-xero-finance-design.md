@@ -527,3 +527,11 @@ confirmed against the Demo Company during the first implementation task.
    rather than an Invalid Date.
 7. **Retryable status error.** Settings → Xero shows a retryable error (`QueryError`) when `/xero/status` fails,
    instead of an endless "Loading Xero status…".
+8. **Money in/out includes credit-note refunds.** Payment cash direction also counts credit-note refunds: supplier
+   credit refunds (APCREDITPAYMENT) as money in, customer credit refunds (ARCREDITPAYMENT) as money out.
+9. **Reconnect tenant selection.** A connect filters Xero's connection list to the current authorisation event
+   (`authEventId`), so earlier connections no longer cause a `multiple_tenants` refusal.
+10. **Reconnect is incremental.** Only a first-ever connect runs a full sync. Reconnecting the same organisation
+    resumes from the stored watermarks.
+11. **Attachment phase resumes.** Attachment lists are fetched from the database by an `attachments` watermark, so
+    an interrupted attachment phase resumes instead of losing names.

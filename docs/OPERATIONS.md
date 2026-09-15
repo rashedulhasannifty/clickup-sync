@@ -255,6 +255,7 @@ backward-compatible**:
 2. Set `XERO_CLIENT_ID` / `XERO_CLIENT_SECRET` in the server `.env` (both or neither). `APP_ENCRYPTION_KEY` must be set.
    Recreate the web and worker containers.
 3. An Owner connects from Settings → Xero and picks exactly one organisation.
+4. If the client secret is rotated, update `XERO_CLIENT_SECRET` and recreate the web and worker containers; no reconnect is needed.
 
 **Schedule** (worker only, Asia/Dhaka)
 
@@ -268,8 +269,8 @@ backward-compatible**:
 cleanly (`RATE_LIMITED` in `xero_sync_state`) when fewer than 500 daily calls remain. The next hourly run resumes from the watermark.
 
 **Runbook: "Needs reconnect"**
-- Cause: Xero answered `invalid_grant`. Someone removed the app under Xero → Settings → Connected apps, the refresh
-  token went unused for 60 days, or the client secret was rotated.
+- Cause: Xero answered `invalid_grant`. Someone removed the app under Xero → Settings → Connected apps, or the refresh
+  token went unused for 60 days.
 - Fix: an Owner opens Settings → Xero → **Reconnect** and picks the **same** organisation. Watermarks are kept, so the
   first run only fetches what changed.
 
@@ -283,8 +284,7 @@ COMMIT;
 ```
 Then connect the new organisation from Settings.
 
-**Grafana.** Grant the read-only Grafana role `SELECT` on the eight `xero_*` tables. Use the role Grafana's Postgres data source connects as
-(find it with `\du` on the prod database):
+**Grafana.** Grant the read-only Grafana role `SELECT` on the eight `xero_*` tables. Use the role Grafana's Postgres data source connects as:
 ```
 GRANT SELECT ON xero_connections, xero_contacts, xero_invoices, xero_credit_notes, xero_bank_transactions, xero_payments, xero_attachments, xero_sync_state TO <grafana read-only role>;
 ```
