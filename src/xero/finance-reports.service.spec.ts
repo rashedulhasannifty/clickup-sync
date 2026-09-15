@@ -160,14 +160,18 @@ describe('FinanceReportsService.contactDetail', () => {
       contactId: 'c1', name: 'AWS', email: null, firstName: null, lastName: null, isCustomer: false, isSupplier: true,
       status: 'ACTIVE', defaultCurrency: 'USD', taxNumber: null, phones: [], addresses: [],
     });
-    // Argument-aware, keyed on `type`: billed and spendBills are the two totalBase
-    // queries (ACCREC vs ACCPAY respectively — see the service's contactDetail Promise.all),
-    // given distinct values so swapping their type literals changes kpis.billed/kpis.spend.
+    // Argument-aware, keyed on `type` + whether `dueDate` is present: billed/owed share
+    // one ACCREC-no-dueDate bucket (they differ only by status, which this mock doesn't
+    // key on — the two queries pick different `_sum` fields off the same object, so one
+    // shared object serves both), overdue gets its own ACCREC+dueDate bucket, and
+    // owing/spendBills share an ACCPAY-no-dueDate bucket. Distinct amountDueBase/totalBase
+    // per bucket means swapping any of these type literals changes an asserted kpi.
     // spendBills: one PAID ACCPAY bill of 1000 (a prepayment allocated to it marks it PAID
     // without a Payment row — see the comment on the service's spendBank query).
-    prisma.xeroInvoice.aggregate.mockImplementation(async ({ where }: { where: { type: string } }) => {
-      if (where.type === 'ACCREC') return { _sum: { totalBase: 1500, amountDueBase: 0 } }; // billed (also feeds owed/overdue, unasserted here)
-      if (where.type === 'ACCPAY') return { _sum: { totalBase: 1000, amountDueBase: 0 } }; // spendBills (also feeds owing, unasserted here)
+    prisma.xeroInvoice.aggregate.mockImplementation(async ({ where }: { where: { type: string; dueDate?: unknown } }) => {
+      if (where.type === 'ACCREC' && where.dueDate) return { _sum: { totalBase: 0, amountDueBase: 250 } }; // overdue
+      if (where.type === 'ACCREC') return { _sum: { totalBase: 1500, amountDueBase: 300 } }; // billed / owed
+      if (where.type === 'ACCPAY') return { _sum: { totalBase: 1000, amountDueBase: 150 } }; // owing / spendBills
       return { _sum: {} };
     });
     // Bank rows on this contact: a SPEND-PREPAYMENT of 1000 (the allocation for the bill
@@ -185,6 +189,9 @@ describe('FinanceReportsService.contactDetail', () => {
     const res = await svc.contactDetail('c1');
 
     expect(res.kpis.billed).toBe(1500);
+    expect(res.kpis.owed).toBe(300);
+    expect(res.kpis.overdue).toBe(250);
+    expect(res.owing).toBe(150);
     expect(res.kpis.spend).toBe(1200);
     const spendBankWhere = prisma.xeroBankTransaction.aggregate.mock.calls[0][0].where;
     expect(spendBankWhere.type).toBe('SPEND');
