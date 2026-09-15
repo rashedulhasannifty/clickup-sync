@@ -80,6 +80,7 @@
 4. **Extra endpoint.** `GET /api/finance/contacts/:id/activity` is added for the contact drawer's Activity sub-tab. The spec listed the tab but not an endpoint.
 5. **Extra columns.** `contact_name` is stored on every transaction row, so lists and search need no join. `xero_connections` also stores `connection_id`, needed by `DELETE /connections/{id}`, and `connected_by_email`, for display.
 6. **Different-organisation guard.** A reconnect that picks a different Xero organisation from the one already synced is refused with `reason=different_org`, and the new grant is revoked. Otherwise two companies' books would mix in one set of tables. Switching organisations deliberately is an ops procedure; see the runbook in Task 13.
+7. **First-sync progress.** Settings shows live per-entity record counts and a status pill during the first sync, instead of the prototype's percentage bars. Xero doesn't report totals up front, so any percentage would be made up.
 
 Task 13 updates the spec to record these.
 
@@ -2258,7 +2259,7 @@ and add to the `map` in `get()`:
 
 (`QueuesModule` registers every value in `QUEUES`, so nothing else is needed.)
 
-Then fix the existing tests that build `QueueService` positionally. Run: `grep -rn "new QueueService(" src`. For each hit, insert one extra `{} as never` argument before the settings argument.
+No existing test builds `QueueService` with `new` (checked 2026-09-15: `grep -rn "new QueueService(" src` finds nothing), so the extra constructor argument needs no test changes. If that grep finds a hit by the time you run this, insert one extra `{} as never` argument before the settings argument.
 
 - [ ] **Step 2: Add `listSyncStates()` to the connection repository**
 
@@ -3049,6 +3050,9 @@ describe('XeroSyncService.runSync', () => {
       expect.objectContaining({ attachmentId: 'att-1', parentType: 'invoice', fileName: 'SOW.pdf' }),
     ]);
     expect(res.attachmentsFetched).toBe(1);
+    // The Settings "Attachment lists" row must exist on a healthy run, not only after a failure.
+    expect(repo.startEntity).toHaveBeenCalledWith('attachments');
+    expect(repo.finishEntity).toHaveBeenCalledWith('attachments', null, 1);
   });
 
   it('stops cleanly on the day budget: marks RATE_LIMITED, keeps the watermark, skips later entities', async () => {
@@ -3152,8 +3156,11 @@ export class XeroSyncService {
         return result;
       }
     }
+    // Attachments get their own sync-state row, so Settings shows it on a healthy run too, not only on failure.
+    await this.repo.startEntity('attachments');
     try {
       result.attachmentsFetched = await this.syncAttachments(candidates);
+      await this.repo.finishEntity('attachments', null, result.attachmentsFetched);
     } catch (e) {
       result.stopped = await this.stopReason('attachments', e);
     }
@@ -4900,7 +4907,7 @@ export function XeroSettingsTab({ flash, onFlashShown }: { flash: XeroFlash; onF
 
   useEffect(() => {
     if (!flash) return;
-    if (flash.result === 'connected') toast.show('Connected to Xero. The first sync has started.', 'success');
+    if (flash.result === 'connected') toast.show('Connected to Xero. The first sync has started.', 'green');
     onFlashShown();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -4929,7 +4936,7 @@ export function XeroSettingsTab({ flash, onFlashShown }: { flash: XeroFlash; onF
   );
   const connectBtn = (label: string) => (
     <Button variant="accent" size="lg" icon={<Link2 size={15} />} loading={connect.isPending} disabled={!isOwner || !s.encryptionEnabled}
-      onClick={() => connect.mutate(undefined, { onError: (e: any) => toast.show(e?.response?.data?.message ?? "Couldn't start the Xero connection.", 'error') })}>
+      onClick={() => connect.mutate(undefined, { onError: (e: any) => toast.show(e?.response?.data?.message ?? "Couldn't start the Xero connection.", 'red') })}>
       {label}
     </Button>
   );
@@ -5017,8 +5024,8 @@ export function XeroSettingsTab({ flash, onFlashShown }: { flash: XeroFlash; onF
             action={
               <Button size="sm" icon={<RefreshCw size={14} />} loading={syncNow.isPending} disabled={needsReconnect || s.syncing}
                 onClick={() => syncNow.mutate(undefined, {
-                  onSuccess: () => toast.show('Sync queued.', 'success'),
-                  onError: (e: any) => toast.show(e?.response?.data?.message ?? "Couldn't start a sync.", 'error'),
+                  onSuccess: () => toast.show('Sync queued.', 'green'),
+                  onError: (e: any) => toast.show(e?.response?.data?.message ?? "Couldn't start a sync.", 'red'),
                 })}>
                 {s.syncing ? 'Syncing…' : 'Sync now'}
               </Button>
@@ -5076,7 +5083,7 @@ export function XeroSettingsTab({ flash, onFlashShown }: { flash: XeroFlash; onF
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <Button onClick={() => setConfirmOpen(false)}>Keep connected</Button>
             <Button variant="danger" icon={<Unplug size={14} />} loading={disconnect.isPending}
-              onClick={() => disconnect.mutate(undefined, { onSuccess: () => { setConfirmOpen(false); toast.show('Xero disconnected.', 'success'); } })}>
+              onClick={() => disconnect.mutate(undefined, { onSuccess: () => { setConfirmOpen(false); toast.show('Xero disconnected.', 'green'); } })}>
               Disconnect
             </Button>
           </div>
@@ -5089,7 +5096,6 @@ export function XeroSettingsTab({ flash, onFlashShown }: { flash: XeroFlash; onF
 }
 ```
 
-`toast.show(text, tone)` is the existing `ToastApi` (see `components/ui/Toast.tsx`). If its tone union spells success/error differently (e.g. `'green'`/`'red'`), use those members. The build in Step 5 will catch it.
 
 - [ ] **Step 4: Wire the tab into Settings with URL deep-linking**
 
@@ -5542,7 +5548,7 @@ function PaymentsList({ items, onPush }: { items: PaymentListItem[]; onPush: (r:
 
 type SubTab = 'invoices' | 'bills' | 'bank' | 'credits' | 'payments' | 'activity';
 
-function ContactView({ id, onPush }: { id: string; onPush: (r: RecordRef) => void }) {
+function ContactView({ id, onPush, base }: { id: string; onPush: (r: RecordRef) => void; base: string | null }) {
   const c = useFinanceContact(id);
   const [tab, setTab] = useState<SubTab>('invoices');
   const lp = { contactId: id, limit: 50 };
@@ -5587,7 +5593,7 @@ function ContactView({ id, onPush }: { id: string; onPush: (r: RecordRef) => voi
         {([['Lifetime billed', d.kpis.billed], ['Owed to you', d.kpis.owed], ['Overdue', d.kpis.overdue], ['Lifetime spend', d.kpis.spend]] as const).map(([k, v]) => (
           <div key={k} style={{ background: 'var(--surface-alt)', border: '1px solid var(--border-soft)', borderRadius: 8, padding: '9px 10px' }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{k}</div>
-            <b style={{ fontSize: 15, fontVariantNumeric: 'tabular-nums', color: k === 'Overdue' && v > 0 ? 'var(--red)' : undefined }}>{baseMoney(v, null)}</b>
+            <b style={{ fontSize: 15, fontVariantNumeric: 'tabular-nums', color: k === 'Overdue' && v > 0 ? 'var(--red)' : undefined }}>{baseMoney(v, base)}</b>
           </div>
         ))}
       </div>
@@ -5708,8 +5714,8 @@ function PaymentView({ p, onPush }: { p: PaymentListItem; onPush: (r: RecordRef)
 
 const TITLE: Record<RecordRef['kind'], string> = { contact: 'Contact', invoice: 'Invoice', bank: 'Bank transaction', creditNote: 'Credit note', payment: 'Payment' };
 
-export function RecordDrawer({ stack, onPush, onBack, onClose, xeroUrlFor }: {
-  stack: RecordRef[]; onPush: (r: RecordRef) => void; onBack: () => void; onClose: () => void;
+export function RecordDrawer({ stack, onPush, onBack, onClose, xeroUrlFor, base }: {
+  stack: RecordRef[]; onPush: (r: RecordRef) => void; onBack: () => void; onClose: () => void; base: string | null;
   xeroUrlFor?: (r: RecordRef) => string | undefined;
 }) {
   const top = stack[stack.length - 1];
@@ -5726,7 +5732,7 @@ export function RecordDrawer({ stack, onPush, onBack, onClose, xeroUrlFor }: {
           {xeroUrl && <a href={xeroUrl} target="_blank" rel="noreferrer"><Button icon={<ExternalLink size={14} />}>Open in Xero</Button></a>}
         </div>
       }>
-      {top?.kind === 'contact' && <ContactView key={top.id} id={top.id} onPush={onPush} />}
+      {top?.kind === 'contact' && <ContactView key={top.id} id={top.id} onPush={onPush} base={base} />}
       {top?.kind === 'invoice' && <InvoiceView key={top.id} id={top.id} onPush={onPush} />}
       {top?.kind === 'bank' && <BankView key={top.id} id={top.id} onPush={onPush} />}
       {top?.kind === 'creditNote' && <CreditNoteView key={top.id} id={top.id} onPush={onPush} />}
@@ -5882,9 +5888,9 @@ export function FinancePage() {
         payments: [{ header: 'Date', value: 'date' }, { header: 'Contact', value: 'contactName' }, { header: 'Applied to', value: (r) => r.invoiceNumber ?? r.creditNoteNumber }, { header: 'Direction', value: 'direction' }, { header: 'Bank account', value: 'bankAccountName' }, { header: 'Currency', value: 'currencyCode' }, { header: 'Amount', value: 'amount', type: 'number' }, { header: `Amount (${base})`, value: 'amountBase', type: 'number' }],
       };
       await exportXlsx({ filename: `finance-${tab}`, sheetName: tab, rows: all, columns: cols[tab] });
-      toast.show(`Exported ${all.length} rows.`, 'success');
+      toast.show(`Exported ${all.length} rows.`, 'green');
     } catch {
-      toast.show("Export failed. Try again, or narrow the filters.", 'error');
+      toast.show("Export failed. Try again, or narrow the filters.", 'red');
     }
   }
 
@@ -5901,7 +5907,7 @@ export function FinancePage() {
             {s?.syncing ? 'Syncing…' : s?.status === 'NEEDS_RECONNECT' ? 'Sync paused' : lastSync ? `Synced ${fmt.relative(lastSync)}` : 'Not synced yet'}
           </span>
           <Button icon={<RefreshCw size={14} />} loading={syncNow.isPending} disabled={s?.syncing || s?.status !== 'CONNECTED'}
-            onClick={() => syncNow.mutate(undefined, { onSuccess: () => toast.show('Sync queued.', 'success'), onError: (e: any) => toast.show(e?.response?.data?.message ?? "Couldn't start a sync.", 'error') })}>
+            onClick={() => syncNow.mutate(undefined, { onSuccess: () => toast.show('Sync queued.', 'green'), onError: (e: any) => toast.show(e?.response?.data?.message ?? "Couldn't start a sync.", 'red') })}>
             Sync now
           </Button>
           <Button icon={<Download size={14} />} onClick={exportTab}>Export</Button>
@@ -5932,6 +5938,13 @@ export function FinancePage() {
       {s.status === 'NEEDS_RECONNECT' && (
         <Callout tone="red">
           <b>Xero is disconnected.</b> Figures below may be out of date. {hasRole('OWNER') ? <Link to="/settings?tab=xero">Reconnect in Settings</Link> : 'Ask an Owner to reconnect Xero.'}
+        </Callout>
+      )}
+      {!s.syncing && !s.entities.some((e) => e.lastSuccessAt) && s.entities.some((e) => e.status === 'FAILED' || e.status === 'RATE_LIMITED') && (
+        // A first sync that failed or hit the daily limit would otherwise show a page of unexplained zeros.
+        <Callout tone="amber">
+          <b>The first sync hasn't finished.</b> {s.entities.find((e) => e.lastError)?.lastError ?? 'It retries automatically.'}{' '}
+          {hasRole('OWNER') && <Link to="/settings?tab=xero">See sync status</Link>}
         </Callout>
       )}
       {firstSync ? (
@@ -6007,7 +6020,7 @@ export function FinancePage() {
           {table}
         </>
       )}
-      <RecordDrawer stack={stack} onPush={(r) => setStack((x) => [...x, r])} onBack={() => setStack((x) => x.slice(0, -1))} onClose={() => setStack([])} />
+      <RecordDrawer base={base} stack={stack} onPush={(r) => setStack((x) => [...x, r])} onBack={() => setStack((x) => x.slice(0, -1))} onClose={() => setStack([])} />
     </div>
   );
 }
@@ -6226,19 +6239,19 @@ COMMIT;
 ```
 Then connect the new organisation from Settings.
 
-**Grafana.** Grant the read-only Grafana role `SELECT` on the eight `xero_*` tables, using the same role as the existing
-grants in this document:
-`GRANT SELECT ON xero_connections, xero_contacts, xero_invoices, xero_credit_notes, xero_bank_transactions, xero_payments, xero_attachments, xero_sync_state TO <that role>;`
+**Grafana.** Grant the read-only Grafana role `SELECT` on the eight `xero_*` tables. Use the role Grafana's Postgres data source connects as
+(find it with `\du` on the prod database):
+`GRANT SELECT ON xero_connections, xero_contacts, xero_invoices, xero_credit_notes, xero_bank_transactions, xero_payments, xero_attachments, xero_sync_state TO <grafana read-only role>;`
 Leave out `xero_connections` if you'd rather not expose the (encrypted) token columns.
 ````
 
-(For the Grafana role name, run `grep -n "GRANT SELECT" docs/OPERATIONS.md` and substitute the role found there before committing.)
+The repo doesn't record the Grafana role's name. OPERATIONS.md only says "Keep Grafana read-only credentials separate from app credentials." So write the GRANT with the literal token `<grafana read-only role>` as shown, then add one line under it: "Find the role with `\du` on the prod database, or from the Grafana Postgres data source's user." The operator fills it in on the server; the name is prod config, not repo content.
 
 - [ ] **Step 7: Record the planning deviations in the spec**
 
 In `docs/superpowers/specs/2026-09-15-xero-finance-design.md`:
 - Change `**Status:**` to `Approved; implemented per docs/superpowers/plans/2026-09-15-xero-finance.md`.
-- Add a `## Changes made during planning` section at the end. Copy in the six numbered items from this plan's "Deliberate deviations from the spec" list, plus any deep-link or currency-rate correction from Step 3.
+- Add a `## Changes made during planning` section at the end. Copy in the seven numbered items from this plan's "Deliberate deviations from the spec" list, plus any deep-link or currency-rate correction from Step 3.
 
 - [ ] **Step 8: Full verification**
 
