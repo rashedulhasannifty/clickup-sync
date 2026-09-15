@@ -23,7 +23,10 @@ export function parseXeroTimestamp(value?: string | null): Date | null {
  */
 export function parseXeroDateOnly(dateString?: string | null, legacy?: string | null): Date | null {
   const m = dateString ? /^(\d{4}-\d{2}-\d{2})/.exec(dateString) : null;
-  if (m) return new Date(`${m[1]}T00:00:00.000Z`);
+  if (m) {
+    const d = new Date(`${m[1]}T00:00:00.000Z`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
   const ts = parseXeroTimestamp(legacy);
   return ts ? new Date(Date.UTC(ts.getUTCFullYear(), ts.getUTCMonth(), ts.getUTCDate())) : null;
 }

@@ -27,6 +27,9 @@ describe('parseXeroDateOnly', () => {
   it('falls back to the legacy timestamp, truncated to its UTC date', () => {
     expect(parseXeroDateOnly(undefined, '/Date(1757930400000+0000)/')?.toISOString()).toBe('2025-09-15T00:00:00.000Z');
   });
+  it('returns null for malformed DateString that regex matches but Date is invalid', () => {
+    expect(parseXeroDateOnly('2026-13-45T00:00:00')).toBeNull();
+  });
 });
 
 describe('toBase', () => {
