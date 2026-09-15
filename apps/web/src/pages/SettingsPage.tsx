@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   CircleCheck,
@@ -15,6 +16,7 @@ import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks, useRec
 import { useSettings, useUpdateSettings } from '../hooks/useSettings';
 import { useAuth } from '../hooks/useAuth';
 import { RequireRole } from '../components/RequireRole';
+import { XeroSettingsTab, type XeroFlash } from '../components/finance/XeroSettingsTab';
 import type { SettingsPatch } from '../api/settings';
 import type { TagAssignee } from '../api/tag-assignee';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -37,6 +39,7 @@ const ALL_TAB_ITEMS = [
   { value: 'sync', label: 'Sync rules', ownerOnly: false },
   { value: 'scopes', label: 'Scope filters', ownerOnly: false },
   { value: 'notifications', label: 'Notifications', ownerOnly: false },
+  { value: 'xero', label: 'Xero', ownerOnly: false },
 ];
 
 const PALETTE = ['#7B68EE', '#FF02F0', '#49CCF9', '#10b981', '#f59e0b', '#ef4444'];
@@ -339,7 +342,23 @@ const emptyForm: TagFormState = {
 
 export function SettingsPage() {
   const { hasRole } = useAuth();
-  const [activeTab, setActiveTab] = useState(() => (hasRole('OWNER') ? 'connection' : 'sync'));
+  const [searchParams, setSearchParams] = useSearchParams();
+  // ?tab= is honoured only if this role may see that tab (no opening owner-only tabs by URL).
+  const allowedTabs = ALL_TAB_ITEMS.filter((t) => !t.ownerOnly || hasRole('OWNER')).map((t) => t.value);
+  const [activeTab, setActiveTab] = useState(() => {
+    const fromUrl = searchParams.get('tab');
+    if (fromUrl && allowedTabs.includes(fromUrl)) return fromUrl;
+    return hasRole('OWNER') ? 'connection' : 'sync';
+  });
+  const xeroParam = searchParams.get('xero');
+  const xeroFlash: XeroFlash =
+    xeroParam === 'connected' || xeroParam === 'error' ? { result: xeroParam, reason: searchParams.get('reason') ?? undefined } : null;
+  const clearXeroFlash = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('xero');
+    next.delete('reason');
+    setSearchParams(next, { replace: true });
+  };
   const syncHealth = useSyncHealth();
   const stats = useStats();
   const spacesQuery = useSpaces();
@@ -1634,6 +1653,8 @@ export function SettingsPage() {
           </Card>
         </div>
       )}
+
+      {activeTab === 'xero' && <XeroSettingsTab flash={xeroFlash} onFlashShown={clearXeroFlash} />}
     </div>
   );
 }
