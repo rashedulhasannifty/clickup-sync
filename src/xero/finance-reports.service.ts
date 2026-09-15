@@ -160,7 +160,10 @@ export class FinanceReportsService {
       this.prisma.xeroInvoice.aggregate({ where: { contactId: id, type: 'ACCREC', status: 'AUTHORISED', dueDate: { lt: today } }, _sum: { amountDueBase: true } }),
       this.prisma.xeroInvoice.aggregate({ where: { contactId: id, type: 'ACCPAY', status: 'AUTHORISED' }, _sum: { amountDueBase: true } }),
       this.prisma.xeroInvoice.aggregate({ where: { contactId: id, type: 'ACCPAY', status: { in: ['AUTHORISED', 'PAID'] } }, _sum: { totalBase: true } }),
-      this.prisma.xeroBankTransaction.aggregate({ where: { contactId: id, status: 'AUTHORISED', type: { in: OUT_BANK_TYPES } }, _sum: { totalBase: true } }),
+      // Plain 'SPEND' only: a prepayment/overpayment allocated to a bill marks the bill
+      // PAID without a Payment row, so counting SPEND-PREPAYMENT/SPEND-OVERPAYMENT here
+      // alongside the ACCPAY bill total above would double-count that spend.
+      this.prisma.xeroBankTransaction.aggregate({ where: { contactId: id, status: 'AUTHORISED', type: 'SPEND' }, _sum: { totalBase: true } }),
       this.prisma.xeroInvoice.count({ where: { contactId: id, type: 'ACCREC', status: { not: 'DELETED' } } }),
       this.prisma.xeroInvoice.count({ where: { contactId: id, type: 'ACCPAY', status: { not: 'DELETED' } } }),
       this.prisma.xeroBankTransaction.count({ where: { contactId: id, status: { not: 'DELETED' } } }),

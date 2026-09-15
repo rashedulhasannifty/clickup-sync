@@ -1,5 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { FinanceReportsService } from './finance-reports.service';
+import { IN_BANK_TYPES, OUT_BANK_TYPES } from './finance-math';
 
 const d = (s: string) => new Date(`${s}T00:00:00.000Z`);
 const NOW = new Date('2026-09-15T06:00:00Z'); // 12:00 Dhaka, 15 Sep
@@ -65,6 +66,24 @@ describe('FinanceReportsService.summary', () => {
     const bankWhere = prisma.xeroBankTransaction.findMany.mock.calls[0][0].where;
     expect(bankWhere.type.in).not.toContain('SPEND-TRANSFER');
     expect(bankWhere.type.in).not.toContain('RECEIVE-TRANSFER');
+
+    // KPI where-clause assertions, matched by content (not call index) so a
+    // harmless reorder of the Promise.all array doesn't break the test, but a
+    // wrong filter (wrong type, missing status/dueDate/cashDirection) does.
+    const aggCalls = prisma.xeroInvoice.aggregate.mock.calls.map(([arg]) => arg);
+    const owedCall = aggCalls.find((c) => c.where.type === 'ACCREC' && !('dueDate' in c.where));
+    expect(owedCall?.where).toEqual({ type: 'ACCREC', status: 'AUTHORISED' });
+    const overdueCall = aggCalls.find((c) => c.where.type === 'ACCREC' && 'dueDate' in c.where);
+    expect(overdueCall?.where).toEqual({ type: 'ACCREC', status: 'AUTHORISED', dueDate: { lt: d('2026-09-15') } });
+    const oweCall = aggCalls.find((c) => c.where.type === 'ACCPAY');
+    expect(oweCall?.where).toEqual({ type: 'ACCPAY', status: 'AUTHORISED' });
+
+    expect(prisma.xeroPayment.findMany.mock.calls[0][0].where).toEqual({
+      status: { not: 'DELETED' }, cashDirection: { not: null }, date: { gte: d('2026-04-01') },
+    });
+    expect(bankWhere).toEqual({
+      status: 'AUTHORISED', type: { in: [...IN_BANK_TYPES, ...OUT_BANK_TYPES] }, date: { gte: d('2026-04-01') },
+    });
   });
 });
 
@@ -123,6 +142,41 @@ describe('FinanceReportsService.listContacts', () => {
     expect(prisma.xeroContact.findMany.mock.calls[0][0].where.AND).toContainEqual({ status: { not: 'ARCHIVED' } });
     expect(res.total).toBe(2);
     expect(res.items).toEqual([expect.objectContaining({ id: 'c2', owed: 900, overdue: 300, owing: 50, person: 'Bo Li' })]);
+  });
+});
+
+describe('FinanceReportsService.contactDetail', () => {
+  it('kpis.spend counts bills plus plain SPEND only, excluding prepayments/overpayments already reflected in the bill total', async () => {
+    const { svc, prisma } = setup();
+    prisma.xeroContact.findUnique.mockResolvedValueOnce({
+      contactId: 'c1', name: 'AWS', email: null, firstName: null, lastName: null, isCustomer: false, isSupplier: true,
+      status: 'ACTIVE', defaultCurrency: 'USD', taxNumber: null, phones: [], addresses: [],
+    });
+    // spendBills: one PAID ACCPAY bill of 1000 (a prepayment allocated to it marks it PAID
+    // without a Payment row — see the comment on the service's spendBank query).
+    prisma.xeroInvoice.aggregate
+      .mockResolvedValueOnce({ _sum: {} }) // billed
+      .mockResolvedValueOnce({ _sum: {} }) // owed
+      .mockResolvedValueOnce({ _sum: {} }) // overdue
+      .mockResolvedValueOnce({ _sum: {} }) // owing
+      .mockResolvedValueOnce({ _sum: { totalBase: 1000 } }); // spendBills (ACCPAY bill total)
+    // Bank rows on this contact: a SPEND-PREPAYMENT of 1000 (the allocation for the bill
+    // above — must NOT be counted again) and a plain SPEND of 200 (must be counted).
+    const bankRows = [
+      { type: 'SPEND', totalBase: 200 },
+      { type: 'SPEND-PREPAYMENT', totalBase: 1000 },
+    ];
+    prisma.xeroBankTransaction.aggregate.mockImplementationOnce(async (args: { where: { type: unknown } }) => {
+      const t = args.where.type;
+      const matches = typeof t === 'string' ? bankRows.filter((r) => r.type === t) : bankRows.filter((r) => (t as { in: string[] })?.in?.includes(r.type));
+      return { _sum: { totalBase: matches.reduce((sum, r) => sum + r.totalBase, 0) } };
+    });
+
+    const res = await svc.contactDetail('c1');
+
+    expect(res.kpis.spend).toBe(1200);
+    const spendBankWhere = prisma.xeroBankTransaction.aggregate.mock.calls[0][0].where;
+    expect(spendBankWhere.type).toBe('SPEND');
   });
 });
 
