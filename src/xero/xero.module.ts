@@ -11,6 +11,8 @@ import { XeroTokenService } from './xero-token.service';
 import { XeroClient } from './xero.client';
 import { XeroAuthService } from './xero-auth.service';
 import { XeroAuthController } from './xero-auth.controller';
+import { XeroRepository } from './xero.repository';
+import { XeroSyncService } from './xero-sync.service';
 
 @Module({
   imports: [
@@ -20,9 +22,10 @@ import { XeroAuthController } from './xero-auth.controller';
   controllers: [XeroAuthController],
   providers: [
     XeroConnectionRepository, XeroIdentityClient, XeroTokenService, XeroClient, XeroAuthService,
+    XeroRepository, XeroSyncService,
     // Provided locally rather than importing AdminModule and its whole graph.
     AuditLogRepository, AuditLogInterceptor,
   ],
-  exports: [XeroConnectionRepository, XeroTokenService, XeroClient, XeroAuthService],
+  exports: [XeroConnectionRepository, XeroTokenService, XeroClient, XeroAuthService, XeroRepository, XeroSyncService],
 })
 export class XeroModule {}
