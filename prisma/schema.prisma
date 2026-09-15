@@ -457,3 +457,214 @@ model ClickupList {
   @@index([archived])
   @@map("clickup_lists")
 }
+
+// ─── Xero (read-only finance sync) ─────────────────────────────────────────
+// See docs/superpowers/specs/2026-09-15-xero-finance-design.md. Primary keys are
+// Xero GUIDs (natural upsert keys, like clickup_tasks.task_id). Money is in the
+// DOCUMENT currency; *_base columns are base-currency (amount / currency_rate).
+
+enum XeroConnectionStatus {
+  CONNECTED
+  NEEDS_RECONNECT
+  DISCONNECTED
+}
+
+model XeroConnection {
+  id                String               @id @default("singleton")
+  tenantId          String?              @map("tenant_id")
+  connectionId      String?              @map("connection_id")
+  tenantName        String?              @map("tenant_name")
+  shortCode         String?              @map("short_code")
+  baseCurrency      String?              @map("base_currency")
+  accessTokenEnc    String?              @map("access_token_enc")
+  refreshTokenEnc   String?              @map("refresh_token_enc")
+  accessExpiresAt   DateTime?            @map("access_expires_at")
+  refreshedAt       DateTime?            @map("refreshed_at")
+  connectedByUserId String?              @map("connected_by_user_id")
+  connectedByEmail  String?              @map("connected_by_email")
+  connectedAt       DateTime?            @map("connected_at")
+  status            XeroConnectionStatus @default(DISCONNECTED)
+  lastError         String?              @map("last_error")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @default(now()) @updatedAt @map("updated_at")
+
+  @@map("xero_connections")
+}
+
+model XeroContact {
+  contactId       String   @id @map("contact_id") @db.Uuid
+  name            String
+  firstName       String?  @map("first_name")
+  lastName        String?  @map("last_name")
+  email           String?
+  phones          Json?
+  addresses       Json?
+  taxNumber       String?  @map("tax_number")
+  defaultCurrency String?  @map("default_currency")
+  isCustomer      Boolean  @default(false) @map("is_customer")
+  isSupplier      Boolean  @default(false) @map("is_supplier")
+  status          String
+  updatedDateUtc  DateTime @map("updated_date_utc")
+  raw             Json
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([name])
+  @@map("xero_contacts")
+}
+
+model XeroInvoice {
+  invoiceId      String    @id @map("invoice_id") @db.Uuid
+  type           String
+  number         String?
+  reference      String?
+  contactId      String?   @map("contact_id") @db.Uuid
+  contactName    String?   @map("contact_name")
+  status         String
+  date           DateTime? @db.Date
+  dueDate        DateTime? @map("due_date") @db.Date
+  currencyCode   String    @map("currency_code")
+  currencyRate   Decimal   @default(1) @map("currency_rate") @db.Decimal(18, 6)
+  subTotal       Decimal   @default(0) @map("sub_total") @db.Decimal(14, 2)
+  totalTax       Decimal   @default(0) @map("total_tax") @db.Decimal(14, 2)
+  total          Decimal   @default(0) @db.Decimal(14, 2)
+  amountDue      Decimal   @default(0) @map("amount_due") @db.Decimal(14, 2)
+  amountPaid     Decimal   @default(0) @map("amount_paid") @db.Decimal(14, 2)
+  amountCredited Decimal   @default(0) @map("amount_credited") @db.Decimal(14, 2)
+  totalBase      Decimal   @default(0) @map("total_base") @db.Decimal(14, 2)
+  amountDueBase  Decimal   @default(0) @map("amount_due_base") @db.Decimal(14, 2)
+  lineItems      Json      @map("line_items")
+  hasAttachments Boolean   @default(false) @map("has_attachments")
+  updatedDateUtc DateTime  @map("updated_date_utc")
+  raw            Json
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([contactId])
+  @@index([type, status])
+  @@index([dueDate])
+  @@index([date])
+  @@index([updatedDateUtc])
+  @@map("xero_invoices")
+}
+
+model XeroCreditNote {
+  creditNoteId    String    @id @map("credit_note_id") @db.Uuid
+  type            String
+  number          String?
+  reference       String?
+  contactId       String?   @map("contact_id") @db.Uuid
+  contactName     String?   @map("contact_name")
+  status          String
+  date            DateTime? @db.Date
+  currencyCode    String    @map("currency_code")
+  currencyRate    Decimal   @default(1) @map("currency_rate") @db.Decimal(18, 6)
+  subTotal        Decimal   @default(0) @map("sub_total") @db.Decimal(14, 2)
+  totalTax        Decimal   @default(0) @map("total_tax") @db.Decimal(14, 2)
+  total           Decimal   @default(0) @db.Decimal(14, 2)
+  remainingCredit Decimal   @default(0) @map("remaining_credit") @db.Decimal(14, 2)
+  totalBase       Decimal   @default(0) @map("total_base") @db.Decimal(14, 2)
+  lineItems       Json      @map("line_items")
+  hasAttachments  Boolean   @default(false) @map("has_attachments")
+  updatedDateUtc  DateTime  @map("updated_date_utc")
+  raw             Json
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([contactId])
+  @@index([type, status])
+  @@index([date])
+  @@index([updatedDateUtc])
+  @@map("xero_credit_notes")
+}
+
+model XeroBankTransaction {
+  bankTransactionId String    @id @map("bank_transaction_id") @db.Uuid
+  type              String
+  contactId         String?   @map("contact_id") @db.Uuid
+  contactName       String?   @map("contact_name")
+  bankAccountCode   String?   @map("bank_account_code")
+  bankAccountName   String?   @map("bank_account_name")
+  reference         String?
+  status            String
+  isReconciled      Boolean   @default(false) @map("is_reconciled")
+  date              DateTime? @db.Date
+  currencyCode      String    @map("currency_code")
+  currencyRate      Decimal   @default(1) @map("currency_rate") @db.Decimal(18, 6)
+  subTotal          Decimal   @default(0) @map("sub_total") @db.Decimal(14, 2)
+  totalTax          Decimal   @default(0) @map("total_tax") @db.Decimal(14, 2)
+  total             Decimal   @default(0) @db.Decimal(14, 2)
+  totalBase         Decimal   @default(0) @map("total_base") @db.Decimal(14, 2)
+  lineItems         Json      @map("line_items")
+  hasAttachments    Boolean   @default(false) @map("has_attachments")
+  updatedDateUtc    DateTime  @map("updated_date_utc")
+  raw               Json
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([contactId])
+  @@index([type, status])
+  @@index([date])
+  @@index([updatedDateUtc])
+  @@map("xero_bank_transactions")
+}
+
+model XeroPayment {
+  paymentId        String    @id @map("payment_id") @db.Uuid
+  paymentType      String    @map("payment_type")
+  // 'in' | 'out' | null — null = not a cash movement we count (see cashDirection()).
+  cashDirection    String?   @map("cash_direction")
+  status           String
+  invoiceId        String?   @map("invoice_id") @db.Uuid
+  invoiceNumber    String?   @map("invoice_number")
+  creditNoteId     String?   @map("credit_note_id") @db.Uuid
+  creditNoteNumber String?   @map("credit_note_number")
+  contactId        String?   @map("contact_id") @db.Uuid
+  contactName      String?   @map("contact_name")
+  date             DateTime? @db.Date
+  currencyCode     String?   @map("currency_code")
+  amount           Decimal   @default(0) @db.Decimal(14, 2)
+  currencyRate     Decimal   @default(1) @map("currency_rate") @db.Decimal(18, 6)
+  amountBase       Decimal   @default(0) @map("amount_base") @db.Decimal(14, 2)
+  bankAccountCode  String?   @map("bank_account_code")
+  bankAccountName  String?   @map("bank_account_name")
+  reference        String?
+  updatedDateUtc   DateTime  @map("updated_date_utc")
+  raw              Json
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([invoiceId])
+  @@index([creditNoteId])
+  @@index([contactId])
+  @@index([date])
+  @@map("xero_payments")
+}
+
+model XeroAttachment {
+  id            BigInt   @id @default(autoincrement())
+  attachmentId  String   @map("attachment_id") @db.Uuid
+  parentType    String   @map("parent_type")
+  parentId      String   @map("parent_id") @db.Uuid
+  fileName      String   @map("file_name")
+  mimeType      String?  @map("mime_type")
+  contentLength Int?     @map("content_length")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([parentId, attachmentId])
+  @@index([parentId])
+  @@map("xero_attachments")
+}
+
+model XeroSyncState {
+  entity          String    @id
+  watermark       DateTime?
+  lastRunAt       DateTime? @map("last_run_at")
+  lastSuccessAt   DateTime? @map("last_success_at")
+  status          String    @default("IDLE")
+  recordsUpserted Int       @default(0) @map("records_upserted")
+  lastError       String?   @map("last_error")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("xero_sync_state")
+}
