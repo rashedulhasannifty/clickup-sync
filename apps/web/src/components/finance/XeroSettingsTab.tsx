@@ -6,6 +6,7 @@ import { Pill } from '../ui/Pill';
 import { Callout } from '../ui/Callout';
 import { Modal } from '../ui/Modal';
 import { useToast } from '../ui/Toast';
+import { QueryError } from '../ui/QueryError';
 import { useAuth } from '../../hooks/useAuth';
 import { useConnectXero, useDisconnectXero, useXeroStatus, useXeroSyncNow } from '../../hooks/useFinance';
 import { fmt } from '../../lib/formatters';
@@ -70,6 +71,7 @@ export function XeroSettingsTab({ flash, onFlashShown }: { flash: XeroFlash; onF
   }, []);
 
   const s = status.data;
+  if (status.isError) return <Card><QueryError query={status} what="Xero status" /></Card>;
   if (status.isLoading || !s) return <Card><div style={{ padding: 24, color: 'var(--text-muted)' }}>Loading Xero status…</div></Card>;
 
   if (!s.configured) {
