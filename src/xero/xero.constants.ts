@@ -67,3 +67,5 @@ export const ATTACHMENT_PARENTS = {
   bankTransaction: '/BankTransactions',
 } as const;
 export type AttachmentParentType = keyof typeof ATTACHMENT_PARENTS;
+/** Parents read from the DB per page in the attachment phase (each costs one Xero call). */
+export const ATTACHMENT_BATCH = 100;

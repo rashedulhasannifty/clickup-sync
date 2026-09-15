@@ -1,10 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { XeroClient } from './xero.client';
-import { XeroRepository, type SyncStateStatus } from './xero.repository';
+import { XeroRepository, type AttachmentCursor, type SyncStateStatus } from './xero.repository';
 import { XeroRateBudgetExhaustedError, XeroReconnectRequiredError } from './xero-errors';
-import {
-  ATTACHMENT_PARENTS, ENTITY_ENDPOINTS, RECONCILE_ID_BATCH, XERO_ENTITIES, type AttachmentParentType, type XeroEntity,
-} from './xero.constants';
+import { ATTACHMENT_BATCH, ATTACHMENT_PARENTS, ENTITY_ENDPOINTS, RECONCILE_ID_BATCH, XERO_ENTITIES, type XeroEntity } from './xero.constants';
 import {
   normalizeAttachment, normalizeBankTransaction, normalizeContact, normalizeCreditNote, normalizeInvoice, normalizePayment,
 } from './xero-normalize';
@@ -18,7 +16,7 @@ export interface XeroSyncResult {
   attachmentsFetched: number;
 }
 
-type Candidate = { parentType: AttachmentParentType; id: string };
+type AttachmentProgress = { fetched: number; completedAt: Date | null };
 
 const maxDate = (dates: Date[]): Date | null =>
   dates.reduce<Date | null>((m, d) => (!m || d > m ? d : m), null);
@@ -33,6 +31,8 @@ const maxDate = (dates: Date[]): Date | null =>
 @Injectable()
 export class XeroSyncService {
   private readonly logger = new Logger(XeroSyncService.name);
+  /** Overridable in tests. */
+  attachmentBatch = ATTACHMENT_BATCH;
 
   constructor(
     private readonly client: XeroClient,
@@ -42,22 +42,26 @@ export class XeroSyncService {
   async runSync(opts: { full?: boolean } = {}): Promise<XeroSyncResult> {
     this.client.beginRun();
     const result: XeroSyncResult = { stopped: null, entities: [], attachmentsFetched: 0 };
-    const candidates: Candidate[] = [];
     for (const entity of XERO_ENTITIES) {
       try {
-        result.entities.push(await this.syncEntity(entity, !!opts.full, candidates));
+        result.entities.push(await this.syncEntity(entity, !!opts.full));
       } catch (e) {
         result.stopped = await this.stopReason(entity, e);
         return result;
       }
     }
     // Attachments get their own sync-state row, so Settings shows it on a healthy run too, not only on failure.
+    // Its watermark is independent of `full`: a first-ever connect has none, so it starts from the beginning anyway.
+    const since = (await this.repo.getSyncState('attachments'))?.watermark ?? null;
     await this.repo.startEntity('attachments');
+    const progress: AttachmentProgress = { fetched: 0, completedAt: null };
     try {
-      result.attachmentsFetched = await this.syncAttachments(candidates);
-      await this.repo.finishEntity('attachments', null, result.attachmentsFetched);
+      await this.syncAttachments(since, progress);
+      await this.repo.finishEntity('attachments', progress.completedAt, progress.fetched);
     } catch (e) {
       result.stopped = await this.stopReason('attachments', e);
+    } finally {
+      result.attachmentsFetched = progress.fetched;
     }
     this.logger.log(`Xero sync finished: ${result.entities.map((r) => `${r.entity}=${r.upserted}`).join(' ')} attachments=${result.attachmentsFetched}`);
     return result;
@@ -74,7 +78,7 @@ export class XeroSyncService {
     // Each phase is reported under its own entity: a contacts failure must not
     // overwrite the `invoices` sync-state row (or leave `contacts` stuck RUNNING).
     try {
-      result.entities.push(await this.syncEntity('contacts', true, []));
+      result.entities.push(await this.syncEntity('contacts', true));
     } catch (e) {
       result.stopped = await this.stopReason('contacts', e);
       return result;
@@ -96,7 +100,7 @@ export class XeroSyncService {
     return result;
   }
 
-  private async syncEntity(entity: XeroEntity, full: boolean, candidates: Candidate[]) {
+  private async syncEntity(entity: XeroEntity, full: boolean) {
     const state = await this.repo.getSyncState(entity);
     const since = full ? null : (state?.watermark ?? null);
     await this.repo.startEntity(entity);
@@ -104,7 +108,7 @@ export class XeroSyncService {
     let upserted = 0;
     let watermark: Date | null = null;
     for await (const page of this.client.pages<unknown>(path, key, { params, modifiedSince: since })) {
-      const newest = await this.writePage(entity, page, candidates);
+      const newest = await this.writePage(entity, page);
       upserted += page.length;
       if (newest && (!watermark || newest > watermark)) watermark = newest;
       await this.repo.recordProgress(entity, upserted);
@@ -114,7 +118,7 @@ export class XeroSyncService {
   }
 
   /** Writes one page and returns its newest UpdatedDateUTC. */
-  private async writePage(entity: XeroEntity, page: unknown[], candidates: Candidate[]): Promise<Date | null> {
+  private async writePage(entity: XeroEntity, page: unknown[]): Promise<Date | null> {
     switch (entity) {
       case 'contacts': {
         const rows = (page as XeroContact[]).map(normalizeContact);
@@ -124,19 +128,16 @@ export class XeroSyncService {
       case 'invoices': {
         const rows = (page as XeroInvoice[]).map(normalizeInvoice);
         await this.repo.upsertInvoices(rows);
-        rows.filter((r) => r.hasAttachments).forEach((r) => candidates.push({ parentType: 'invoice', id: r.invoiceId }));
         return maxDate(rows.map((r) => r.updatedDateUtc));
       }
       case 'creditNotes': {
         const rows = (page as XeroCreditNote[]).map(normalizeCreditNote);
         await this.repo.upsertCreditNotes(rows);
-        rows.filter((r) => r.hasAttachments).forEach((r) => candidates.push({ parentType: 'creditNote', id: r.creditNoteId }));
         return maxDate(rows.map((r) => r.updatedDateUtc));
       }
       case 'bankTransactions': {
         const rows = (page as XeroBankTransaction[]).map(normalizeBankTransaction);
         await this.repo.upsertBankTransactions(rows);
-        rows.filter((r) => r.hasAttachments).forEach((r) => candidates.push({ parentType: 'bankTransaction', id: r.bankTransactionId }));
         return maxDate(rows.map((r) => r.updatedDateUtc));
       }
       case 'payments': {
@@ -147,19 +148,34 @@ export class XeroSyncService {
     }
   }
 
-  /** One call per changed record that has attachments, so cost scales with change, not history. */
-  private async syncAttachments(candidates: Candidate[]): Promise<number> {
-    const seen = new Set<string>();
-    let fetched = 0;
-    for (const c of candidates) {
-      if (seen.has(c.id)) continue;
-      seen.add(c.id);
-      const body = await this.client.get<{ Attachments?: XeroAttachment[] }>(`${ATTACHMENT_PARENTS[c.parentType]}/${c.id}/Attachments`);
-      const rows = (body?.Attachments ?? []).map((a) => normalizeAttachment(c.parentType, c.id, a));
-      await this.repo.replaceAttachments(c.id, rows);
-      fetched += 1;
+  /**
+   * One call per flagged record newer than the `attachments` watermark, so cost scales
+   * with change, not history. Driven by the DB rather than by what this run wrote, so a
+   * stop (day budget, reconnect, failure) resumes from the last completed parent next
+   * run instead of losing its names.
+   */
+  private async syncAttachments(since: Date | null, progress: AttachmentProgress): Promise<void> {
+    let cursor: AttachmentCursor | null = since ? { updatedDateUtc: since } : null;
+    let persisted = since;
+    for (;;) {
+      const batch = await this.repo.attachmentParentsAfter(cursor, this.attachmentBatch);
+      for (const p of batch) {
+        // Persist a timestamp only once every parent carrying it is done. The next run reads
+        // strictly newer rows, so saving it mid-group would skip a parent that shares it.
+        const done = progress.completedAt;
+        if (done && p.updatedDateUtc > done && (!persisted || done > persisted)) {
+          await this.repo.advanceWatermark('attachments', done, progress.fetched);
+          persisted = done;
+        }
+        const body = await this.client.get<{ Attachments?: XeroAttachment[] }>(`${ATTACHMENT_PARENTS[p.parentType]}/${p.id}/Attachments`);
+        const rows = (body?.Attachments ?? []).map((a) => normalizeAttachment(p.parentType, p.id, a));
+        await this.repo.replaceAttachments(p.id, rows);
+        progress.fetched += 1;
+        progress.completedAt = p.updatedDateUtc;
+        cursor = { updatedDateUtc: p.updatedDateUtc, id: p.id };
+      }
+      if (batch.length < this.attachmentBatch) return;
     }
-    return fetched;
   }
 
   /**

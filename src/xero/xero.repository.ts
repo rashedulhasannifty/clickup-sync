@@ -2,8 +2,24 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import type { NormalizedRows } from './xero-normalize';
+import type { AttachmentParentType } from './xero.constants';
 
 export type SyncStateStatus = 'IDLE' | 'RUNNING' | 'OK' | 'RATE_LIMITED' | 'NEEDS_RECONNECT' | 'FAILED';
+
+/** Where the attachment phase is up to. `id` absent = strictly newer than the timestamp (a stored watermark). */
+export type AttachmentCursor = { updatedDateUtc: Date; id?: string };
+export type AttachmentParent = { parentType: AttachmentParentType; id: string; updatedDateUtc: Date };
+
+/** Flagged rows after the cursor, in (updatedDateUtc, id) order. `idAfter` names the table's primary key. */
+function attachmentWhere<W extends object>(c: AttachmentCursor | null, idAfter: (id: string) => W) {
+  if (!c) return { hasAttachments: true };
+  if (c.id === undefined) return { hasAttachments: true, updatedDateUtc: { gt: c.updatedDateUtc } };
+  return { hasAttachments: true, OR: [{ updatedDateUtc: { gt: c.updatedDateUtc } }, { updatedDateUtc: c.updatedDateUtc, ...idAfter(c.id) }] };
+}
+
+// Postgres orders uuid columns bytewise, which matches comparing the lowercase hex strings Prisma returns.
+const byDateThenId = (a: AttachmentParent, b: AttachmentParent) =>
+  a.updatedDateUtc.getTime() - b.updatedDateUtc.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /**
  * All Xero writes. Upserts are idempotent (Xero GUID = conflict key), so a
@@ -46,6 +62,42 @@ export class XeroRepository {
       this.prisma.xeroAttachment.deleteMany({ where: { parentId } }),
       this.prisma.xeroAttachment.createMany({ data: rows, skipDuplicates: true }),
     ]);
+  }
+
+  /**
+   * The next page of records whose attachment list must be fetched: every flagged
+   * invoice, credit note and bank transaction after `cursor`, in ONE global
+   * (updatedDateUtc, id) order across the three tables, because one watermark covers
+   * all three. Each table returns at most `take`, so the merged head is exact.
+   */
+  async attachmentParentsAfter(cursor: AttachmentCursor | null, take: number): Promise<AttachmentParent[]> {
+    const order = { updatedDateUtc: 'asc' as const };
+    const [invoices, creditNotes, bankTransactions] = await Promise.all([
+      this.prisma.xeroInvoice.findMany({
+        where: attachmentWhere(cursor, (id) => ({ invoiceId: { gt: id } })),
+        orderBy: [order, { invoiceId: 'asc' }], take, select: { invoiceId: true, updatedDateUtc: true },
+      }),
+      this.prisma.xeroCreditNote.findMany({
+        where: attachmentWhere(cursor, (id) => ({ creditNoteId: { gt: id } })),
+        orderBy: [order, { creditNoteId: 'asc' }], take, select: { creditNoteId: true, updatedDateUtc: true },
+      }),
+      this.prisma.xeroBankTransaction.findMany({
+        where: attachmentWhere(cursor, (id) => ({ bankTransactionId: { gt: id } })),
+        orderBy: [order, { bankTransactionId: 'asc' }], take, select: { bankTransactionId: true, updatedDateUtc: true },
+      }),
+    ]);
+    const rows: AttachmentParent[] = [
+      ...invoices.map((r) => ({ parentType: 'invoice' as const, id: r.invoiceId, updatedDateUtc: r.updatedDateUtc })),
+      ...creditNotes.map((r) => ({ parentType: 'creditNote' as const, id: r.creditNoteId, updatedDateUtc: r.updatedDateUtc })),
+      ...bankTransactions.map((r) => ({ parentType: 'bankTransaction' as const, id: r.bankTransactionId, updatedDateUtc: r.updatedDateUtc })),
+    ];
+    return rows.sort(byDateThenId).slice(0, take);
+  }
+
+  /** Moves a watermark (and progress) mid-phase WITHOUT marking the entity OK: it's still running. */
+  async advanceWatermark(entity: string, watermark: Date, recordsUpserted: number) {
+    const data = { watermark, recordsUpserted };
+    await this.prisma.xeroSyncState.upsert({ where: { entity }, create: { entity, ...data }, update: data });
   }
 
   getSyncState(entity: string) {
