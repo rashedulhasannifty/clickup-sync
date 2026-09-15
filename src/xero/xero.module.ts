@@ -15,13 +15,15 @@ import { XeroAuthController } from './xero-auth.controller';
 import { XeroRepository } from './xero.repository';
 import { XeroSyncService } from './xero-sync.service';
 import { XeroScheduler } from './xero.scheduler';
+import { FinanceReportsController } from './finance-reports.controller';
+import { FinanceReportsService } from './finance-reports.service';
 
 @Module({
   imports: [
     HttpModule.register({ httpAgent: new HttpAgent({ keepAlive: true }), httpsAgent: new HttpsAgent({ keepAlive: true }) }),
     QueuesModule,
   ],
-  controllers: [XeroAuthController],
+  controllers: [XeroAuthController, FinanceReportsController],
   providers: [
     XeroConnectionRepository, XeroIdentityClient, XeroTokenService, XeroClient, XeroAuthService,
     XeroRepository, XeroSyncService,
@@ -30,6 +32,7 @@ import { XeroScheduler } from './xero.scheduler';
     // Worker-gated, like SyncScheduler in sync.module.ts: the crons must fire only
     // in the single worker container, never in the web blue/green colors.
     ...(isWorker() ? [XeroScheduler] : []),
+    FinanceReportsService,
   ],
   exports: [XeroConnectionRepository, XeroTokenService, XeroClient, XeroAuthService, XeroRepository, XeroSyncService],
 })
