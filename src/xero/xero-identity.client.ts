@@ -6,7 +6,9 @@ import { XERO_API_BASE, XERO_CONNECTIONS_URL, XERO_REVOKE_URL, XERO_TOKEN_URL } 
 import { XeroInvalidGrantError } from './xero-errors';
 import type { XeroOrganisation, XeroTenantConnection, XeroTokenSet } from './xero.types';
 
-const TIMEOUT_MS = 30_000;
+// Kept well under TOKEN_LOCK_TTL_MS (xero.constants.ts) so the token-refresh lock
+// always outlives an in-flight request plus the DB work around it.
+const TIMEOUT_MS = 15_000;
 
 /**
  * identity.xero.com (code exchange, refresh, revoke) plus the two non-accounting
@@ -52,10 +54,14 @@ export class XeroIdentityClient {
   }
 
   async listConnections(accessToken: string): Promise<XeroTenantConnection[]> {
-    const res = await firstValueFrom(
-      this.http.get<XeroTenantConnection[]>(XERO_CONNECTIONS_URL, { headers: this.bearer(accessToken), timeout: TIMEOUT_MS }),
-    );
-    return res.data ?? [];
+    try {
+      const res = await firstValueFrom(
+        this.http.get<XeroTenantConnection[]>(XERO_CONNECTIONS_URL, { headers: this.bearer(accessToken), timeout: TIMEOUT_MS }),
+      );
+      return res.data ?? [];
+    } catch (e: any) {
+      throw this.sanitizedError('listConnections', e);
+    }
   }
 
   async deleteConnection(accessToken: string, connectionId: string): Promise<void> {
@@ -72,12 +78,17 @@ export class XeroIdentityClient {
   }
 
   async getOrganisation(accessToken: string, tenantId: string): Promise<XeroOrganisation> {
-    const res = await firstValueFrom(
-      this.http.get<{ Organisations: XeroOrganisation[] }>(`${XERO_API_BASE}/Organisation`, {
-        headers: { ...this.bearer(accessToken), 'xero-tenant-id': tenantId },
-        timeout: TIMEOUT_MS,
-      }),
-    );
+    let res;
+    try {
+      res = await firstValueFrom(
+        this.http.get<{ Organisations: XeroOrganisation[] }>(`${XERO_API_BASE}/Organisation`, {
+          headers: { ...this.bearer(accessToken), 'xero-tenant-id': tenantId },
+          timeout: TIMEOUT_MS,
+        }),
+      );
+    } catch (e: any) {
+      throw this.sanitizedError('getOrganisation', e);
+    }
     const org = res.data?.Organisations?.[0];
     if (!org) throw new Error('Xero returned no organisation');
     return org;
@@ -96,16 +107,24 @@ export class XeroIdentityClient {
       const status = e?.response?.status;
       const code = e?.response?.data?.error;
       if (status === 400 && code === 'invalid_grant') throw new XeroInvalidGrantError();
-      // Log only the status and Xero's error code, never the request.
-      this.logger.error(`Xero token request (${form.grant_type}) failed: ${status ?? 'network'} ${code ?? e?.message ?? ''}`);
-      // Deliberately NOT attaching `e` as `cause`: it's the raw axios error and
-      // `e.config.headers` carries the Basic-auth client secret (and, for
-      // refresh/exchange, a bearer token). Attaching it risks a later
-      // `console.error`/util.inspect on this error printing that header. Status
-      // and Xero's error code above are the full diagnostic surface we want kept.
-      // eslint-disable-next-line preserve-caught-error
-      throw new Error(`Xero token request failed (${status ?? 'network'}${code ? ` ${code}` : ''})`);
+      throw this.sanitizedError(`token request (${form.grant_type})`, e);
     }
+  }
+
+  /**
+   * Logs the status + Xero's error code (never the request) and returns a plain
+   * `Error` carrying only those two facts. Deliberately does NOT attach `e` as
+   * `cause` and does not return the raw axios error at all: `e.config.headers`
+   * carries either the Basic-auth client secret (token endpoints) or a bearer
+   * access token (`bearer()`, used by `listConnections`/`getOrganisation`/`deleteConnection`).
+   * Returning it — even as `cause` — risks a later `console.error`/util.inspect
+   * or `JSON.stringify` on the thrown error printing that header.
+   */
+  private sanitizedError(op: string, e: any): Error {
+    const status = e?.response?.status;
+    const code = e?.response?.data?.error;
+    this.logger.error(`Xero ${op} failed: ${status ?? 'network'} ${code ?? e?.message ?? ''}`);
+    return new Error(`Xero ${op} failed (${status ?? 'network'}${code ? ` ${code}` : ''})`);
   }
 
   private formHeaders() {

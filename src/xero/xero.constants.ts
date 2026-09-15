@@ -32,8 +32,9 @@ export const XERO_REDIS = {
 export const OAUTH_STATE_TTL_SECONDS = 600;
 /** Treat an access token as stale this long before Xero's expiry (clock skew + in-flight calls). */
 export const TOKEN_FRESH_MARGIN_MS = 120_000;
-export const TOKEN_LOCK_TTL_MS = 30_000;
-export const TOKEN_WAIT_TIMEOUT_MS = 10_000;
+// Ordering invariant: TOKEN_LOCK_TTL_MS > identity-client HTTP timeout (15s) + DB read/write, and TOKEN_WAIT_TIMEOUT_MS >= that HTTP timeout — a lock must outlive the refresh it guards, and a waiter must not give up on a healthy in-flight one.
+export const TOKEN_LOCK_TTL_MS = 45_000;
+export const TOKEN_WAIT_TIMEOUT_MS = 30_000;
 export const TOKEN_WAIT_POLL_MS = 250;
 
 /** Xero allows 60/min per tenant; 1,100 ms spacing keeps us at ≤55/min. */

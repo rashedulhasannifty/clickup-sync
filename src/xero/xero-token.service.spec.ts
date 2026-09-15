@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { XeroTokenService } from './xero-token.service';
 import { XeroInvalidGrantError, XeroReconnectRequiredError } from './xero-errors';
 
@@ -14,6 +15,14 @@ class FakeLockRedis {
       return 1;
     }
     return 0;
+  }
+}
+
+/** Simulates a lock whose TTL already expired (or was stolen) by the time release() runs. */
+class FakeLockRedisLostRelease extends FakeLockRedis {
+  async eval(_s: string, _n: number, k: string, _v: string) {
+    this.store.delete(k);
+    return 0 as const;
   }
 }
 
@@ -98,5 +107,32 @@ describe('XeroTokenService.getAccessToken', () => {
     const { svc, identity } = setup();
     await svc.getAccessToken({ force: true });
     expect(identity.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs a warning when the lock TTL expired before release, but still returns the refreshed token', async () => {
+    const row: Record<string, any> = makeRow({ accessExpiresAt: new Date(Date.now() - 1_000) });
+    const repo = {
+      get: jest.fn(async () => ({ ...row })),
+      saveTokens: jest.fn(async (d: Record<string, unknown>) => {
+        Object.assign(row, d);
+      }),
+      markNeedsReconnect: jest.fn(),
+    };
+    const identity = {
+      refresh: jest.fn(async () => ({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 1800 })),
+    };
+    const redis = new FakeLockRedisLostRelease();
+    const queues = { redis: async () => redis };
+    const svc = new XeroTokenService(repo as never, identity as never, crypto as never, queues as never);
+    svc.pollMs = 5;
+    svc.waitTimeoutMs = 1_000;
+
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    await expect(svc.getAccessToken()).resolves.toEqual({ accessToken: 'new-access', tenantId: 'tenant-1' });
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('lock'));
+    const loggedText = warnSpy.mock.calls.map((c) => String(c[0])).join(' ');
+    expect(loggedText).not.toContain('new-access');
+    expect(loggedText).not.toContain('new-refresh');
+    warnSpy.mockRestore();
   });
 });

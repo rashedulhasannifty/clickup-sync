@@ -45,4 +45,30 @@ describe('XeroIdentityClient', () => {
     const off = new XeroIdentityClient({} as never, { get: () => '' } as never);
     expect(off.isConfigured()).toBe(false);
   });
+
+  it('listConnections sanitises a failure: no access token in the message or JSON', async () => {
+    const get = jest.fn().mockReturnValue(
+      throwError(() => ({
+        response: { status: 401, data: { error: 'unauthorized' } },
+        config: { headers: { Authorization: 'Bearer secret-access-token' } },
+      })),
+    );
+    const err = await make({ get }).listConnections('secret-access-token').catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).not.toContain('secret-access-token');
+    expect(JSON.stringify(err)).not.toContain('secret-access-token');
+  });
+
+  it('getOrganisation sanitises a failure: no access token in the message or JSON', async () => {
+    const get = jest.fn().mockReturnValue(
+      throwError(() => ({
+        response: { status: 401, data: { error: 'unauthorized' } },
+        config: { headers: { Authorization: 'Bearer secret-access-token' } },
+      })),
+    );
+    const err = await make({ get }).getOrganisation('secret-access-token', 'tenant-1').catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).not.toContain('secret-access-token');
+    expect(JSON.stringify(err)).not.toContain('secret-access-token');
+  });
 });

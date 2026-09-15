@@ -56,7 +56,13 @@ export class XeroTokenService {
       if (this.isFresh(current) && (!opts.force || someoneRefreshed)) return this.toAccess(current);
       return await this.refresh(current);
     } finally {
-      await lock.release();
+      const released = await lock.release();
+      if (!released) {
+        // The TTL expired (or another process's lock now occupies the key) before we
+        // released — the refresh took longer than TOKEN_LOCK_TTL_MS. A concurrent
+        // refresh may now be racing this one; carries no tokens.
+        this.logger.warn('Xero token refresh outlived its lock: TTL expired before release');
+      }
     }
   }
 
