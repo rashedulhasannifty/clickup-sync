@@ -72,3 +72,12 @@ describe('DeadLetterService.recordIfExhausted', () => {
     expect(recorded).toBe(true);
   });
 });
+
+describe('DeadLetterService.entityId (Xero payloads)', () => {
+  it('uses `entity` when no ClickUp id is present', async () => {
+    const repo = { create: jest.fn().mockResolvedValue({}) };
+    const svc = new DeadLetterService(repo as never);
+    await svc.recordIfExhausted({ opts: { attempts: 1 }, attemptsMade: 1, queueName: 'xero-sync', name: 'xero-sync-run', data: { entity: 'all' }, id: '9' } as never, new Error('x'));
+    expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ entityId: 'all' }));
+  });
+});
