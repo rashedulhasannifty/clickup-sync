@@ -91,6 +91,9 @@ const AcceptInvitePage = React.lazy(() =>
 		default: m.AcceptInvitePage,
 	})),
 );
+const FinancePage = React.lazy(() =>
+	import('./pages/FinancePage').then((m) => ({ default: m.FinancePage })),
+);
 
 function PageLoader() {
 	return (
@@ -187,6 +190,14 @@ export default function App() {
 										<Route path="/assignee-rates" element={<SuspenseRoute><AssigneeRatesPage /></SuspenseRoute>} />
 										<Route path="/chargeability-rules" element={<SuspenseRoute><ChargeabilityRulesPage /></SuspenseRoute>} />
 										<Route path="/budgets" element={<SuspenseRoute><BudgetsPage /></SuspenseRoute>} />
+										<Route
+											path="/finance"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><FinancePage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
 										<Route path="/spaces" element={<SuspenseRoute><SpacesPage /></SuspenseRoute>} />
 										<Route path="/sync-logs" element={<SuspenseRoute><SyncLogsPage /></SuspenseRoute>} />
 										<Route

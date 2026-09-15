@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Home, BarChart3, Activity, CheckSquare, Clock, AlertTriangle, DollarSign,
-  Layers, Webhook, Settings, Search, Wallet, Users, ScrollText, Scale, ListTree,
+  Layers, Webhook, Settings, Search, Wallet, Users, ScrollText, Scale, ListTree, Landmark,
 } from 'lucide-react';
 import { Kbd } from '../ui/Kbd';
 import { useSearch } from '../../hooks/useSearch';
@@ -19,6 +19,7 @@ const NAV_ITEMS: { label: string; to: string; sub: string; icon: typeof Home; ad
   { label: 'Assignee Rates', to: '/assignee-rates', sub: '/assignee-rates', icon: DollarSign },
   { label: 'Chargeability Rules', to: '/chargeability-rules', sub: '/chargeability-rules', icon: Scale },
   { label: 'Budgets', to: '/budgets', sub: '/budgets', icon: Wallet },
+  { label: 'Finance (beta)', to: '/finance', sub: '/finance', icon: Landmark, adminOnly: true },
   { label: 'Spaces', to: '/spaces', sub: '/spaces', icon: Layers },
   { label: 'Sync Logs', to: '/sync-logs', sub: '/sync-logs', icon: Webhook },
   { label: 'Team', to: '/team', sub: '/team', icon: Users, adminOnly: true },

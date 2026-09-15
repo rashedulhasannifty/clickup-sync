@@ -23,9 +23,11 @@ import {
   Wallet,
   Rocket,
   ListTree,
+  Landmark,
 } from "lucide-react";
 import { useStats } from "../../hooks/useReports";
 import { useAuth } from "../../hooks/useAuth";
+import { useXeroStatus } from "../../hooks/useFinance";
 
 interface NavItem {
   to: string;
@@ -52,6 +54,9 @@ export function Sidebar({
   const { data: stats } = useStats();
   const { hasRole, user, org } = useAuth();
   const isAdmin = hasRole("ADMIN");
+  // Finance is admin-only and appears only once the server has Xero credentials.
+  const xeroStatus = useXeroStatus(isAdmin);
+  const showFinance = isAdmin && !!xeroStatus.data?.configured;
 
   // On mobile the sidebar is a full-width off-canvas drawer — never the narrow
   // icon-rail. The desktop collapse preference is kept separately so the two
@@ -81,6 +86,7 @@ export function Sidebar({
     { to: "/assignee-rates", label: "Assignee Rates", icon: DollarSign },
     { to: "/chargeability-rules", label: "Chargeability", icon: Scale },
     { to: "/budgets", label: "Budgets", icon: Wallet },
+    ...(showFinance ? [{ to: "/finance", label: "Finance", icon: Landmark, tag: "Beta" }] : []),
     { to: "/spaces", label: "Spaces", icon: Layers },
     { to: "/sync-logs", label: "Sync Logs", icon: Webhook },
     ...(isAdmin
