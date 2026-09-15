@@ -72,18 +72,26 @@ export class XeroTokenService {
       tokens = await this.identity.refresh(this.crypto.decrypt(row.refreshTokenEnc));
     } catch (e) {
       if (e instanceof XeroInvalidGrantError) {
-        await this.repo.markNeedsReconnect('Xero rejected the saved sign-in (invalid_grant). An Owner must reconnect Xero.');
+        // Compare-and-set: if the row was reconnected or disconnected meanwhile, the dead
+        // grant was the OLD one, so nothing is marked. This caller's grant is dead either way.
+        await this.repo.markNeedsReconnect(row.refreshTokenEnc, 'Xero rejected the saved sign-in (invalid_grant). An Owner must reconnect Xero.');
         throw new XeroReconnectRequiredError();
       }
       throw e;
     }
     const now = Date.now();
-    await this.repo.saveTokens({
+    const saved = await this.repo.saveTokens(row.refreshTokenEnc, {
       accessTokenEnc: this.crypto.encrypt(tokens.access_token),
       refreshTokenEnc: this.crypto.encrypt(tokens.refresh_token),
       accessExpiresAt: new Date(now + tokens.expires_in * 1000),
       refreshedAt: new Date(now),
     });
+    if (!saved) {
+      // The row was replaced (reconnect) or disconnected while we refreshed: discard the
+      // old-grant tokens and read once more. `usable` throws if it's no longer CONNECTED. No loop.
+      this.logger.warn('Xero token refresh discarded: the connection was replaced or disconnected mid-refresh');
+      return this.toAccess(this.usable(await this.repo.get()));
+    }
     this.logger.log('Xero access token refreshed');
     return { accessToken: tokens.access_token, tenantId: row.tenantId };
   }

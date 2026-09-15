@@ -41,15 +41,34 @@ export class XeroConnectionRepository {
     });
   }
 
-  async saveTokens(input: { accessTokenEnc: string; refreshTokenEnc: string; accessExpiresAt: Date; refreshedAt: Date }) {
-    await this.prisma.xeroConnection.update({ where: { id: XERO_CONNECTION_ID }, data: { ...input, lastError: null } });
+  /**
+   * Compare-and-set on the refresh token the caller read. A refresh that finishes
+   * after a disconnect or reconnect must not write the old grant back. A status-only
+   * guard isn't enough, because after a reconnect the row is CONNECTED again.
+   * Returns whether a row changed.
+   */
+  async saveTokens(
+    readRefreshTokenEnc: string,
+    input: { accessTokenEnc: string; refreshTokenEnc: string; accessExpiresAt: Date; refreshedAt: Date },
+  ): Promise<boolean> {
+    const { count } = await this.prisma.xeroConnection.updateMany({
+      where: this.sameGrant(readRefreshTokenEnc),
+      data: { ...input, lastError: null },
+    });
+    return count > 0;
   }
 
-  async markNeedsReconnect(error: string) {
-    await this.prisma.xeroConnection.updateMany({
-      where: { id: XERO_CONNECTION_ID },
+  /** Same compare-and-set as saveTokens: only the grant that was read can be marked dead. */
+  async markNeedsReconnect(readRefreshTokenEnc: string, error: string): Promise<boolean> {
+    const { count } = await this.prisma.xeroConnection.updateMany({
+      where: this.sameGrant(readRefreshTokenEnc),
       data: { status: XeroConnectionStatus.NEEDS_RECONNECT, lastError: error },
     });
+    return count > 0;
+  }
+
+  private sameGrant(refreshTokenEnc: string) {
+    return { id: XERO_CONNECTION_ID, status: XeroConnectionStatus.CONNECTED, refreshTokenEnc };
   }
 
   /** Clears the tokens only. Synced data and the tenant identity are kept for the next reconnect. */
