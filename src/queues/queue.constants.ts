@@ -17,6 +17,8 @@ export const QUEUES = {
   CLICKUP_BACKFILLS: 'clickup-backfills',
   MAINTENANCE: 'maintenance',
   CLICKUP_ASSIGNEE_REPLACEMENT: 'clickup-assignee-replacement',
+  /** All Xero work: sync runs, nightly reconcile, token keep-alive. Worker concurrency 1. */
+  XERO_SYNC: 'xero-sync',
 } as const;
 
 /**
@@ -68,6 +70,9 @@ export const JOBS = {
   REPLACE_TIME_ENTRY_ASSIGNEES: 'replace-time-entry-assignees',
   RECALCULATE_COSTS: 'recalculate-costs',
   SYNC_LIST_CATALOG: 'sync-list-catalog',
+  XERO_SYNC: 'xero-sync-run',
+  XERO_RECONCILE_OPEN: 'xero-reconcile-open',
+  XERO_TOKEN_KEEPALIVE: 'xero-token-keepalive',
 } as const;
 
 /**

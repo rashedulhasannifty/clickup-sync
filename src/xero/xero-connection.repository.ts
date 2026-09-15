@@ -65,4 +65,8 @@ export class XeroConnectionRepository {
       },
     });
   }
+
+  listSyncStates() {
+    return this.prisma.xeroSyncState.findMany({ orderBy: { entity: 'asc' } });
+  }
 }
