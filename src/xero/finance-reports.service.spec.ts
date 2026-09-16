@@ -253,10 +253,12 @@ describe('FinanceReportsService.invoiceDetail', () => {
       totalTax: 0, totalBase: 100, amountDueBase: 0, lineItems: [], hasAttachments: true, updatedDateUtc: new Date(), contactId: 'c9', contactName: 'AWS', reference: null,
     });
     prisma.xeroPayment.findMany.mockResolvedValueOnce([{ paymentId: 'p1', paymentType: 'ACCPAYPAYMENT', cashDirection: 'out', status: 'AUTHORISED', invoiceId: 'b1', amount: 100, amountBase: 100, date: d('2026-08-10') }]);
-    prisma.xeroAttachment.findMany.mockResolvedValueOnce([{ attachmentId: 'a1', fileName: 'inv.pdf', mimeType: 'application/pdf', contentLength: 900 }]);
+    prisma.xeroAttachment.findMany.mockResolvedValueOnce([{ attachmentId: 'a1', parentId: 'inv-1', fileName: 'inv.pdf', mimeType: 'application/pdf', contentLength: 900 }]);
     const res = await svc.invoiceDetail('b1');
     expect(res.payments).toHaveLength(1);
-    expect(res.attachments).toEqual([{ id: 'a1', fileName: 'inv.pdf', mimeType: 'application/pdf', contentLength: 900 }]);
+    // toStrictEqual, not toEqual: toEqual ignores undefined keys, so it passed even when parentId was
+    // missing. The in-app viewer builds the file URL from parentId; without it every Open is broken.
+    expect(res.attachments).toStrictEqual([{ id: 'a1', parentId: 'inv-1', fileName: 'inv.pdf', mimeType: 'application/pdf', contentLength: 900 }]);
     expect(decodeURIComponent(res.xeroUrl)).toContain('/AccountsPayable/View.aspx?InvoiceID=b1');
   });
 });
