@@ -58,8 +58,8 @@ export class XeroAuthController {
   @Post('sync')
   @HttpCode(202)
   @Roles(Role.OWNER, Role.ADMIN)
-  @ApiOperation({ summary: 'Queue an incremental Xero sync now' })
-  sync() {
-    return this.auth.requestSync();
+  @ApiOperation({ summary: 'Queue a Xero sync now; full=true re-reads everything, ignoring watermarks' })
+  sync(@Query('full') full?: string) {
+    return this.auth.requestSync({ full: full === 'true' });
   }
 }

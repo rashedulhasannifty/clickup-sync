@@ -106,7 +106,8 @@ export const xeroApi = {
   connect: (): Promise<{ url: string }> => apiClient.post('/xero/connect').then((r) => r.data),
   disconnect: (): Promise<{ disconnected: true }> => apiClient.delete('/xero/connection').then((r) => r.data),
   eraseData: (): Promise<{ erased: true }> => apiClient.delete('/xero/data').then((r) => r.data),
-  sync: (): Promise<{ queued: true }> => apiClient.post('/xero/sync').then((r) => r.data),
+  sync: (full?: boolean): Promise<{ queued: true }> =>
+    apiClient.post(`/xero/sync${full ? '?full=true' : ''}`).then((r) => r.data),
 };
 
 export const financeApi = {

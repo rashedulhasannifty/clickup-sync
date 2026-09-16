@@ -47,7 +47,10 @@ export function useEraseXeroData() {
 
 export function useXeroSyncNow() {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: xeroApi.sync, onSuccess: () => qc.invalidateQueries({ queryKey: ['xero', 'status'] }) });
+  return useMutation({
+    mutationFn: (full?: boolean) => xeroApi.sync(full),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['xero', 'status'] }),
+  });
 }
 
 export const useFinanceSummary = (enabled = true) =>

@@ -64,6 +64,7 @@ function setup(
     attachmentParentsAfter: jest.fn(async (cursor: Cursor, take: number) => parents.filter((p) => isAfter(p, cursor)).sort(cmp).slice(0, take)),
     upsertContacts: jest.fn(), upsertInvoices: jest.fn(), upsertCreditNotes: jest.fn(), upsertBankTransactions: jest.fn(),
     upsertPayments: jest.fn(), replaceAttachments: jest.fn(), openInvoiceIds: jest.fn().mockResolvedValue([]),
+    attachmentFlagParentIds: jest.fn().mockResolvedValue({ invoices: [], creditNotes: [], bankTransactions: [] }),
   };
   return { svc: new XeroSyncService(client as never, repo as never), client, repo, att };
 }
@@ -118,13 +119,47 @@ describe('XeroSyncService.runSync', () => {
     expect(att.watermark).toEqual(T('2026-09-10T00:00:00Z'));
   });
 
+  it('a FULL run ignores the stored attachments watermark and revisits older parents', async () => {
+    // The case this exists for: a file attached to an OLD document. Xero doesn't bump the parent's
+    // UpdatedDateUTC, so the newly flagged parent sits BEHIND the watermark and an incremental run
+    // can never reach it. `full` must start from the beginning or the re-read button is theatre.
+    const wm = T('2026-09-05T00:00:00Z');
+    const parents = [parent(1, '2026-09-01T00:00:00Z', 'invoice')]; // older than the watermark
+    const { svc, client, repo, att } = setup({}, null, { parents, attachmentsWatermark: wm });
+
+    const res = await svc.runSync({ full: true });
+
+    expect(repo.attachmentParentsAfter).toHaveBeenCalledWith(null, expect.any(Number));
+    expect(client.get.mock.calls.map((c) => c[0])).toEqual([`/Invoices/${PID(1)}/Attachments`]);
+    expect(res.attachmentsFetched).toBe(1);
+    // Full means re-VISIT everything, not rewind the resume point: the parent behind the watermark
+    // is fetched, but the watermark itself must not move backwards to that parent's timestamp.
+    expect(att.watermark).toEqual(wm);
+  });
+
+  it('an INCREMENTAL run still honours the watermark, so full-vs-incremental stays a real distinction', async () => {
+    const wm = T('2026-09-05T00:00:00Z');
+    const parents = [parent(1, '2026-09-01T00:00:00Z', 'invoice')];
+    const { svc, client, repo } = setup({}, null, { parents, attachmentsWatermark: wm });
+
+    await svc.runSync();
+
+    expect(repo.attachmentParentsAfter).toHaveBeenCalledWith({ updatedDateUtc: wm }, expect.any(Number));
+    expect(client.get).not.toHaveBeenCalled();
+  });
+
   it('with no flagged parents the attachments row still finishes OK and the watermark is kept', async () => {
     const wm = T('2026-09-01T00:00:00Z');
-    const { svc, client, repo } = setup({}, null, { attachmentsWatermark: wm });
+    const { svc, client, repo, att } = setup({}, null, { attachmentsWatermark: wm });
     await svc.runSync();
     expect(client.get).not.toHaveBeenCalled();
     expect(repo.attachmentParentsAfter).toHaveBeenCalledWith({ updatedDateUtc: wm }, expect.any(Number));
-    expect(repo.finishEntity).toHaveBeenCalledWith('attachments', null, 0);
+    // Asserts the OUTCOME this test is named for rather than the argument: the pass now hands
+    // finishEntity the stored watermark explicitly (it is clamped so a restarted walk can never
+    // rewind it) instead of null + finishEntity's internal "only write a truthy watermark" rule.
+    // Either way the stored value must survive a run that found nothing to do.
+    expect(repo.finishEntity).toHaveBeenCalledWith('attachments', wm, 0);
+    expect(att.watermark).toEqual(wm);
   });
 
   it('stops cleanly on the day budget: marks RATE_LIMITED, keeps the watermark, skips later entities', async () => {
@@ -151,6 +186,20 @@ describe('XeroSyncService.runSync', () => {
 
 describe('XeroSyncService attachment phase resumes from its own watermark', () => {
   const three = () => [parent(1, '2026-09-01T00:00:00Z'), parent(2, '2026-09-02T00:00:00Z', 'creditNote'), parent(3, '2026-09-03T00:00:00Z')];
+
+  it('a FULL pass that stops partway never leaves the watermark BEHIND where it started', async () => {
+    // `full` restarts the walk at null, advanceWatermark moves forward mid-phase, and finishEntity
+    // only writes a truthy watermark — so a full pass that dies early must not rewind a watermark an
+    // earlier run already earned, or the next incremental run silently redoes work it had finished.
+    const wm = T('2026-09-05T00:00:00Z');
+    const { svc, client, att } = setup({}, null, { parents: three(), attachmentsWatermark: wm });
+    client.get.mockImplementation(failOn(PID(2), new XeroRateBudgetExhaustedError(420)));
+
+    const res = await svc.runSync({ full: true });
+
+    expect(res.stopped).toBe('rate_limited');
+    expect(att.watermark === null || att.watermark >= wm).toBe(true);
+  });
   const failOn = (id: string, err: Error) => (path: string) =>
     path.includes(id) ? Promise.reject(err) : Promise.resolve({ Attachments: [{ AttachmentID: 'att-1', FileName: 'SOW.pdf' }] });
 
@@ -235,6 +284,42 @@ describe('XeroSyncService attachment phase resumes from its own watermark', () =
     await svc.runSync();
     expect(client.get.mock.calls.map((c) => c[0])).toEqual([1, 2, 3].map((n) => `/Invoices/${PID(n)}/Attachments`));
     expect(att.watermark).toEqual(T('2026-09-02T00:00:00Z'));
+  });
+});
+
+describe('XeroSyncService.reconcileOpen attachment-flag refresh', () => {
+  it('re-reads all three parent types by ID, then walks attachments from the window start', async () => {
+    // Attaching a file doesn't bump UpdatedDateUTC, so the nightly pass must re-read parents to
+    // discover the flag — and must NOT start from the attachments watermark, or the parent it
+    // just flagged (older than that watermark) is skipped and the whole pass achieves nothing.
+    const wm = T('2026-09-05T00:00:00Z');
+    const parents = [parent(1, '2026-09-01T00:00:00Z', 'invoice')];
+    const { svc, client, repo } = setup({}, null, { parents, attachmentsWatermark: wm });
+    repo.attachmentFlagParentIds.mockResolvedValue({
+      invoices: ['inv-a'], creditNotes: ['cn-a'], bankTransactions: ['bt-a'],
+    });
+    client.get.mockResolvedValue({ Invoices: [], CreditNotes: [], BankTransactions: [], Attachments: [] });
+
+    await svc.reconcileOpen();
+
+    const paths = client.get.mock.calls.map((c) => c[0]);
+    // All three parent types re-read by ID — the old reconcile only ever re-read invoices, so a file
+    // on a credit note or bank transaction was invisible forever.
+    expect(paths).toEqual(expect.arrayContaining(['/Invoices', '/CreditNotes', '/BankTransactions']));
+    // and the walk starts from the window, not the stored watermark
+    const walkCall = repo.attachmentParentsAfter.mock.calls.at(-1)!;
+    expect(walkCall[0]).not.toBeNull();
+    expect((walkCall[0] as { updatedDateUtc: Date }).updatedDateUtc.getTime()).toBeLessThan(wm.getTime());
+  });
+
+  it('asks for parents across every status, not just open ones', async () => {
+    const { svc, repo, client } = setup();
+    client.get.mockResolvedValue({ Invoices: [], CreditNotes: [], BankTransactions: [], Attachments: [] });
+    await svc.reconcileOpen();
+    // One bounded window argument; the repository query itself carries no status filter.
+    expect(repo.attachmentFlagParentIds).toHaveBeenCalledWith(expect.any(Date));
+    const since = repo.attachmentFlagParentIds.mock.calls[0][0] as Date;
+    expect(since.getTime()).toBeLessThan(Date.now());
   });
 });
 

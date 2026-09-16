@@ -2,7 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { XeroClient } from './xero.client';
 import { XeroRepository, type AttachmentCursor, type SyncStateStatus } from './xero.repository';
 import { XeroApiError, XeroRateBudgetExhaustedError, XeroReconnectRequiredError } from './xero-errors';
-import { ATTACHMENT_BATCH, ATTACHMENT_PARENTS, ENTITY_ENDPOINTS, RECONCILE_ID_BATCH, XERO_ENTITIES, type XeroEntity } from './xero.constants';
+import {
+  ATTACHMENT_BATCH, ATTACHMENT_PARENTS, ATTACHMENT_RECONCILE_DAYS, ENTITY_ENDPOINTS, RECONCILE_ID_BATCH, XERO_ENTITIES, type XeroEntity,
+} from './xero.constants';
 import {
   normalizeAttachment, normalizeBankTransaction, normalizeContact, normalizeCreditNote, normalizeInvoice, normalizePayment,
 } from './xero-normalize';
@@ -51,13 +53,17 @@ export class XeroSyncService {
       }
     }
     // Attachments get their own sync-state row, so Settings shows it on a healthy run too, not only on failure.
-    // Its watermark is independent of `full`: a first-ever connect has none, so it starts from the beginning anyway.
-    const since = (await this.repo.getSyncState('attachments'))?.watermark ?? null;
+    // A full run restarts from the beginning. That is what makes `full` mean full: attaching a file in Xero
+    // does NOT bump the parent's UpdatedDateUTC, so a parent only becomes flagged when it is re-read — and a
+    // newly flagged parent is usually OLDER than this watermark, which would skip it for good. Honouring the
+    // watermark here would leave the one case a full re-read exists to fix still broken.
+    const stored = (await this.repo.getSyncState('attachments'))?.watermark ?? null;
+    const since = opts.full ? null : stored;
     await this.repo.startEntity('attachments');
     const progress: AttachmentProgress = { fetched: 0, completedAt: null };
     try {
-      await this.syncAttachments(since, progress);
-      await this.repo.finishEntity('attachments', progress.completedAt, progress.fetched);
+      await this.syncAttachments(since, progress, stored);
+      await this.repo.finishEntity('attachments', maxDate([progress.completedAt, stored].filter((d): d is Date => !!d)), progress.fetched);
     } catch (e) {
       result.stopped = await this.stopReason('attachments', e);
     } finally {
@@ -96,8 +102,60 @@ export class XeroSyncService {
       result.entities.push({ entity: 'invoices', upserted, watermark: null });
     } catch (e) {
       result.stopped = await this.stopReason('invoices', e);
+      return result;
+    }
+    // Third phase: refresh `has_attachments` for recent parents, then walk attachments from the
+    // window start rather than the stored watermark. Both halves are needed. Re-reading alone
+    // would flag the parent but the attachment phase skips anything older than its watermark;
+    // walking alone would find nothing, because the flag is what makes a parent eligible.
+    try {
+      await this.reconcileAttachments(result);
+    } catch (e) {
+      result.stopped = await this.stopReason('attachments', e);
     }
     return result;
+  }
+
+  /**
+   * Re-reads recent parents by ID so a file attached in Xero becomes visible. Xero does not bump
+   * UpdatedDateUTC when a file is attached, so nothing else ever discovers it: the hourly
+   * incremental asks "what changed?" and Xero truthfully answers "not this".
+   */
+  private async reconcileAttachments(result: XeroSyncResult): Promise<void> {
+    const since = new Date(Date.now() - ATTACHMENT_RECONCILE_DAYS * 86_400_000);
+    const ids = await this.repo.attachmentFlagParentIds(since);
+    const phases: { path: string; key: string; ids: string[]; write: (rows: unknown[]) => Promise<void> }[] = [
+      { path: '/Invoices', key: 'Invoices', ids: ids.invoices, write: (r) => this.repo.upsertInvoices(r as never) },
+      { path: '/CreditNotes', key: 'CreditNotes', ids: ids.creditNotes, write: (r) => this.repo.upsertCreditNotes(r as never) },
+      { path: '/BankTransactions', key: 'BankTransactions', ids: ids.bankTransactions, write: (r) => this.repo.upsertBankTransactions(r as never) },
+    ];
+    const normalize: Record<string, (x: never) => unknown> = {
+      Invoices: normalizeInvoice as never, CreditNotes: normalizeCreditNote as never, BankTransactions: normalizeBankTransaction as never,
+    };
+    let refreshed = 0;
+    for (const p of phases) {
+      for (let i = 0; i < p.ids.length; i += RECONCILE_ID_BATCH) {
+        const batch = p.ids.slice(i, i + RECONCILE_ID_BATCH);
+        const body = await this.client.get<Record<string, unknown[]>>(p.path, { params: { IDs: batch.join(',') } });
+        const rows = (body?.[p.key] ?? []).map((x) => normalize[p.key](x as never));
+        await p.write(rows);
+        refreshed += rows.length;
+      }
+    }
+    result.entities.push({ entity: 'attachmentFlags', upserted: refreshed, watermark: null });
+
+    // Walk from the window start, not the watermark: a newly flagged parent is almost always
+    // older than the watermark, which is exactly the record this pass exists to reach.
+    const stored = (await this.repo.getSyncState('attachments'))?.watermark ?? null;
+    await this.repo.startEntity('attachments');
+    const progress: AttachmentProgress = { fetched: 0, completedAt: null };
+    try {
+      // Walk from the window start, but never persist behind the stored watermark (see syncAttachments).
+      await this.syncAttachments(since, progress, stored);
+      await this.repo.finishEntity('attachments', maxDate([progress.completedAt, stored].filter((d): d is Date => !!d)), progress.fetched);
+    } finally {
+      result.attachmentsFetched = progress.fetched;
+    }
   }
 
   private async syncEntity(entity: XeroEntity, full: boolean) {
@@ -154,9 +212,15 @@ export class XeroSyncService {
    * stop (day budget, reconnect, failure) resumes from the last completed parent next
    * run instead of losing its names.
    */
-  private async syncAttachments(since: Date | null, progress: AttachmentProgress): Promise<void> {
+  private async syncAttachments(since: Date | null, progress: AttachmentProgress, floor: Date | null = since): Promise<void> {
     let cursor: AttachmentCursor | null = since ? { updatedDateUtc: since } : null;
-    let persisted = since;
+    // `floor` is the watermark ALREADY stored, which is not the same as where this pass starts
+    // walking. A full pass (or the nightly window pass) deliberately restarts behind the stored
+    // watermark to revisit parents, but must never persist a value older than one an earlier run
+    // earned — that would rewind the resume point and make the next incremental run redo days of
+    // work against the same 5,000/day budget. Seeding `persisted` with `since` did exactly that,
+    // because on a full pass `since` is null.
+    let persisted = floor;
     for (;;) {
       const batch = await this.repo.attachmentParentsAfter(cursor, this.attachmentBatch);
       for (const p of batch) {

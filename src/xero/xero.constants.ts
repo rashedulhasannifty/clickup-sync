@@ -46,6 +46,19 @@ export const MAX_PAGES = 2_000;
 export const MAX_429_RETRIES = 3;
 export const MAX_BACKOFF_MS = 60_000;
 export const RECONCILE_ID_BATCH = 50;
+
+/**
+ * How far back the nightly pass re-reads parents to refresh `has_attachments`.
+ *
+ * Attaching a file in Xero does NOT bump the parent's UpdatedDateUTC, so an attachment is
+ * invisible to us until the parent is re-read — and incremental sync never re-reads it.
+ * This window is deliberately bounded rather than "everything": a nightly full re-read grows
+ * with the whole ledger forever, and Xero allows 5,000 calls a day shared with the hourly
+ * incrementals, which would start reporting "Paused · daily limit" once the nightly pass ate
+ * the budget. An attachment added to a document older than this window is picked up by
+ * Settings -> Xero -> "Re-read everything" instead.
+ */
+export const ATTACHMENT_RECONCILE_DAYS = 90;
 export const UPSERT_BATCH = 100;
 
 export const XERO_ENTITIES = ['contacts', 'invoices', 'creditNotes', 'bankTransactions', 'payments'] as const;
