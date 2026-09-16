@@ -27,6 +27,47 @@ describe('formatModifiedSince', () => {
   });
 });
 
+describe('XeroClient.getFile', () => {
+  it('issues a GET asking for the file type, as raw bytes, bounded in size', async () => {
+    const { client, request } = setup([ok(new Uint8Array([37, 80, 68, 70]).buffer, { 'content-type': 'application/pdf' })]);
+    const file = await client.getFile('/Invoices/p/Attachments/a', 'application/pdf');
+    const cfg = request.mock.calls[0][0];
+    expect(cfg.method).toBe('GET');
+    expect(cfg.url).toBe('https://api.xero.com/api.xro/2.0/Invoices/p/Attachments/a');
+    expect(cfg.headers.Accept).toBe('application/pdf');
+    expect(cfg.headers['xero-tenant-id']).toBe('tenant-1');
+    expect(cfg.responseType).toBe('arraybuffer');
+    expect(cfg.maxContentLength).toBe(25 * 1024 * 1024);
+    expect(file.data.toString()).toBe('%PDF');
+    expect(file.contentType).toBe('application/pdf');
+  });
+
+  it('retries a 429 like every other read', async () => {
+    const e429 = { response: { status: 429, headers: { 'retry-after': '0' } } };
+    const { client, request } = setup([e429, ok(new Uint8Array([1]).buffer)]);
+    await client.getFile('/Invoices/p/Attachments/a', 'image/png');
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('is not blocked by a stale low day-budget reading (web role never calls beginRun)', async () => {
+    const { client, request } = setup([
+      ok({ Invoices: [] }, { 'x-daylimit-remaining': '10' }),
+      ok(new Uint8Array([1]).buffer),
+    ]);
+    await client.get('/Invoices');
+    await expect(client.get('/Invoices')).rejects.toBeInstanceOf(XeroRateBudgetExhaustedError);
+    await expect(client.getFile('/Invoices/p/Attachments/a', 'image/png')).resolves.toBeDefined();
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps JSON reads JSON: get() does not ask for bytes', async () => {
+    const { client, request } = setup([ok({ Invoices: [] })]);
+    await client.get('/Invoices');
+    expect(request.mock.calls[0][0].headers.Accept).toBe('application/json');
+    expect(request.mock.calls[0][0].responseType).toBeUndefined();
+  });
+});
+
 describe('XeroClient.get', () => {
   it('sends an authenticated GET with the tenant header', async () => {
     const { client, request } = setup([ok({ Contacts: [] })]);
