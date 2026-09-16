@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { XeroConnectionStatus, type XeroConnection } from '@prisma/client';
+import { Prisma, XeroConnectionStatus, type XeroConnection } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 
 export const XERO_CONNECTION_ID = 'singleton';
@@ -69,6 +69,41 @@ export class XeroConnectionRepository {
 
   private sameGrant(refreshTokenEnc: string) {
     return { id: XERO_CONNECTION_ID, status: XeroConnectionStatus.CONNECTED, refreshTokenEnc };
+  }
+
+  /**
+   * Clears the tokens AND the tenant identity, as one statement of an erase transaction.
+   *
+   * Order matters: `XeroTokenService.getAccessToken()` throws once `tenantId` is null, so
+   * running this BEFORE the data deletes kills any sync already in flight — it dies on its
+   * next token read instead of writing rows back into the tables being emptied. A busy check
+   * cannot promise that on its own (the cron can enqueue between the check and the purge).
+   *
+   * The row itself is kept rather than deleted: `saveConnected` upserts the fixed `singleton`
+   * id either way, and keeping it preserves `createdAt` and avoids racing a concurrent reader.
+   * With `tenantId` null the `different_org` guard has nothing to match, so a DIFFERENT
+   * organisation may then connect — which is the whole point of the erase.
+   */
+  clearConnection(tx: Prisma.TransactionClient = this.prisma) {
+    return tx.xeroConnection.updateMany({
+      where: { id: XERO_CONNECTION_ID },
+      data: {
+        status: XeroConnectionStatus.DISCONNECTED,
+        accessTokenEnc: null,
+        refreshTokenEnc: null,
+        accessExpiresAt: null,
+        lastError: null,
+        tenantId: null,
+        connectionId: null,
+        tenantName: null,
+        shortCode: null,
+        baseCurrency: null,
+        connectedAt: null,
+        connectedByUserId: null,
+        connectedByEmail: null,
+        refreshedAt: null,
+      },
+    });
   }
 
   /** Clears the tokens only. Synced data and the tenant identity are kept for the next reconnect. */

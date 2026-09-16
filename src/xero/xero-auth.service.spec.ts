@@ -37,7 +37,11 @@ function setup(over: { configured?: boolean; encryption?: boolean; connections?:
   const listConnections = jest.fn(async (_token: string, authEventId?: string) =>
     authEventId ? (conns.byEvent?.[authEventId] ?? []) : (conns.all ?? [PICKED]),
   );
-  const queue = { add: jest.fn().mockResolvedValue(undefined), getJobs: jest.fn().mockResolvedValue(over.busy ? [{ name: 'xero-sync-run' }] : []) };
+  const queue = {
+    add: jest.fn().mockResolvedValue(undefined),
+    getJobs: jest.fn().mockResolvedValue(over.busy ? [{ name: 'xero-sync-run' }] : []),
+    drain: jest.fn().mockResolvedValue(undefined),
+  };
   const queues = { redis: async () => redis, get: () => queue, defaultJobOptions: () => ({ attempts: 5 }) };
   const identity = {
     isConfigured: () => over.configured ?? true,
@@ -58,8 +62,11 @@ function setup(over: { configured?: boolean; encryption?: boolean; connections?:
   const crypto = { isEnabled: over.encryption ?? true, encrypt: (s: string) => `enc(${s})`, decrypt: (s: string) => s.replace(/^enc\((.*)\)$/, '$1') };
   const audit = { create: jest.fn().mockResolvedValue(undefined) };
   const config = { get: (k: string) => (k === 'APP_BASE_URL' ? BASE : undefined) };
-  const svc = new XeroAuthService(identity as never, repo as never, tokens as never, crypto as never, queues as never, audit as never, config as never);
-  return { svc, redis, queue, identity, repo, audit, tokens };
+  const data = { eraseAll: jest.fn().mockResolvedValue(undefined) };
+  const svc = new XeroAuthService(
+    identity as never, repo as never, tokens as never, crypto as never, queues as never, audit as never, config as never, data as never,
+  );
+  return { svc, redis, queue, identity, repo, audit, tokens, data };
 }
 
 async function connectAndGetState(svc: XeroAuthService) {
@@ -88,6 +95,49 @@ describe('XeroAuthService.startConnect', () => {
   it('refuses when the server is not configured or encryption is off', async () => {
     await expect(setup({ configured: false }).svc.startConnect(owner)).rejects.toBeInstanceOf(BadRequestException);
     await expect(setup({ encryption: false }).svc.startConnect(owner)).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('XeroAuthService.eraseData', () => {
+  const CONNECTED = { tenantId: 'tenant-1', status: 'CONNECTED', connectionId: 'conn-1', refreshTokenEnc: 'enc(ref)' };
+  let warn: jest.SpyInstance;
+  beforeEach(() => {
+    warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+  });
+  afterEach(() => warn.mockRestore());
+
+  it('refuses while a sync is running, erasing and draining nothing', async () => {
+    const { svc, data, queue, identity } = setup({ busy: true, existing: CONNECTED });
+    await expect(svc.eraseData()).rejects.toBeInstanceOf(ConflictException);
+    expect(data.eraseAll).not.toHaveBeenCalled();
+    expect(queue.drain).not.toHaveBeenCalled();
+    expect(identity.deleteConnection).not.toHaveBeenCalled();
+  });
+
+  it('revokes at Xero, erases every row, then drains delayed retries too', async () => {
+    const { svc, data, queue, identity, repo } = setup({ existing: CONNECTED });
+    const order: string[] = [];
+    identity.deleteConnection.mockImplementation(async () => void order.push('deleteConnection'));
+    identity.revoke.mockImplementation(async () => void order.push('revoke'));
+    repo.markDisconnected.mockImplementation(async () => void order.push('markDisconnected'));
+    data.eraseAll.mockImplementation(async () => void order.push('eraseAll'));
+    queue.drain.mockImplementation(async () => void order.push('drain'));
+
+    await expect(svc.eraseData()).resolves.toEqual({ erased: true });
+
+    // Revoking is HTTP and must happen before the rows go; the drain comes last so a job
+    // queued earlier can't run, fail on the dead connection, and re-create a sync-state row.
+    expect(order).toEqual(['deleteConnection', 'revoke', 'markDisconnected', 'eraseAll', 'drain']);
+    // `true` also drops delayed/backoff retries that a bare drain() would leave queued.
+    expect(queue.drain).toHaveBeenCalledWith(true);
+  });
+
+  it('still erases when Xero was never connected', async () => {
+    const { svc, data, queue, identity } = setup({ existing: null });
+    await expect(svc.eraseData()).resolves.toEqual({ erased: true });
+    expect(identity.deleteConnection).not.toHaveBeenCalled();
+    expect(data.eraseAll).toHaveBeenCalled();
+    expect(queue.drain).toHaveBeenCalledWith(true);
   });
 });
 

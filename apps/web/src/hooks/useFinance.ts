@@ -33,6 +33,18 @@ export function useDisconnectXero() {
   });
 }
 
+/** Disconnects AND deletes every synced row, so a different Xero organisation can be connected. */
+export function useEraseXeroData() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: xeroApi.eraseData,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['xero'] });
+      qc.invalidateQueries({ queryKey: ['finance'] });
+    },
+  });
+}
+
 export function useXeroSyncNow() {
   const qc = useQueryClient();
   return useMutation({ mutationFn: xeroApi.sync, onSuccess: () => qc.invalidateQueries({ queryKey: ['xero', 'status'] }) });

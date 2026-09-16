@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { XeroConnectionRepository } from './xero-connection.repository';
 import type { NormalizedRows } from './xero-normalize';
 import type { AttachmentParentType } from './xero.constants';
 
@@ -27,7 +28,10 @@ const byDateThenId = (a: AttachmentParent, b: AttachmentParent) =>
  */
 @Injectable()
 export class XeroRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly connections: XeroConnectionRepository,
+  ) {}
 
   async upsertContacts(rows: NormalizedRows['contacts'][]) {
     if (!rows.length) return;
@@ -125,6 +129,29 @@ export class XeroRepository {
   async failEntity(entity: string, status: SyncStateStatus, error: string) {
     const data = { status, lastError: error.slice(0, 1000) };
     await this.prisma.xeroSyncState.upsert({ where: { entity }, create: { entity, ...data }, update: data });
+  }
+
+  /**
+   * Erases the local Xero mirror: the connection's tenant identity first, then every synced
+   * row. Nothing in Xero itself is touched — this only drops our copy.
+   *
+   * The connection clear leads the transaction on purpose (see `clearConnection`): it revokes
+   * the in-process ability to sync, so a run already under way cannot write rows back behind
+   * the deletes. The tables have no foreign keys between them (every link is a denormalised
+   * scalar `contactId`/`parentId`), so delete order can't abort the transaction; children are
+   * still listed before parents to keep the intent readable if constraints are ever added.
+   */
+  async eraseAll(): Promise<void> {
+    await this.prisma.$transaction([
+      this.connections.clearConnection(this.prisma),
+      this.prisma.xeroAttachment.deleteMany({}),
+      this.prisma.xeroPayment.deleteMany({}),
+      this.prisma.xeroBankTransaction.deleteMany({}),
+      this.prisma.xeroCreditNote.deleteMany({}),
+      this.prisma.xeroInvoice.deleteMany({}),
+      this.prisma.xeroContact.deleteMany({}),
+      this.prisma.xeroSyncState.deleteMany({}),
+    ]);
   }
 
   async openInvoiceIds(): Promise<string[]> {

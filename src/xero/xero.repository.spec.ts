@@ -1,5 +1,10 @@
 import { XeroRepository } from './xero.repository';
 
+/** Stands in for XeroConnectionRepository: `clearConnection` returns a marker op the fake $transaction collects. */
+function makeConnections() {
+  return { clearConnection: jest.fn(() => ({ op: 'clearConnection' })) };
+}
+
 function makePrisma() {
   const model = () => ({
     upsert: jest.fn((a) => a), deleteMany: jest.fn((a) => a), createMany: jest.fn((a) => a), update: jest.fn(), upsert2: jest.fn(),
@@ -8,7 +13,7 @@ function makePrisma() {
   const prisma = {
     xeroInvoice: model(), xeroContact: model(), xeroCreditNote: model(), xeroBankTransaction: model(), xeroPayment: model(),
     xeroAttachment: model(),
-    xeroSyncState: { upsert: jest.fn(), findUnique: jest.fn() },
+    xeroSyncState: { upsert: jest.fn(), findUnique: jest.fn(), deleteMany: jest.fn((a) => a) },
     $transaction: jest.fn(async (ops: unknown[]) => ops),
   };
   return prisma;
@@ -17,7 +22,7 @@ function makePrisma() {
 describe('XeroRepository', () => {
   it('upserts invoices keyed on invoiceId in one transaction', async () => {
     const prisma = makePrisma();
-    const repo = new XeroRepository(prisma as never);
+    const repo = new XeroRepository(prisma as never, makeConnections() as never);
     await repo.upsertInvoices([{ invoiceId: 'a' }, { invoiceId: 'b' }] as never);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(prisma.xeroInvoice.upsert).toHaveBeenCalledWith({ where: { invoiceId: 'a' }, create: { invoiceId: 'a' }, update: { invoiceId: 'a' } });
@@ -26,14 +31,14 @@ describe('XeroRepository', () => {
 
   it('skips the transaction for an empty batch', async () => {
     const prisma = makePrisma();
-    await new XeroRepository(prisma as never).upsertContacts([]);
+    await new XeroRepository(prisma as never, makeConnections() as never).upsertContacts([]);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it('replaceAttachments deletes the parent set, then inserts the new one atomically', async () => {
     const prisma = makePrisma();
     const rows = [{ attachmentId: 'x', parentType: 'invoice', parentId: 'p', fileName: 'a.pdf', mimeType: null, contentLength: null }];
-    await new XeroRepository(prisma as never).replaceAttachments('p', rows);
+    await new XeroRepository(prisma as never, makeConnections() as never).replaceAttachments('p', rows);
     expect(prisma.xeroAttachment.deleteMany).toHaveBeenCalledWith({ where: { parentId: 'p' } });
     expect(prisma.xeroAttachment.createMany).toHaveBeenCalledWith({ data: rows, skipDuplicates: true });
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
@@ -41,10 +46,31 @@ describe('XeroRepository', () => {
 
   it('finishEntity keeps the old watermark when the run saw no records', async () => {
     const prisma = makePrisma();
-    await new XeroRepository(prisma as never).finishEntity('invoices', null, 0);
+    await new XeroRepository(prisma as never, makeConnections() as never).finishEntity('invoices', null, 0);
     const arg = prisma.xeroSyncState.upsert.mock.calls[0][0];
     expect(arg.update).not.toHaveProperty('watermark');
     expect(arg.update).toMatchObject({ status: 'OK', recordsUpserted: 0 });
+  });
+
+  describe('eraseAll', () => {
+    it('clears the connection FIRST, then empties all seven tables, in one transaction', async () => {
+      const prisma = makePrisma();
+      const connections = makeConnections();
+      await new XeroRepository(prisma as never, connections as never).eraseAll();
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      const ops = prisma.$transaction.mock.calls[0][0] as unknown[];
+      // Order is the race fix, not decoration: once the tenant identity is gone, a sync already
+      // in flight dies on its next token read instead of writing rows back behind the deletes.
+      expect(ops[0]).toEqual({ op: 'clearConnection' });
+      expect(connections.clearConnection).toHaveBeenCalledWith(prisma);
+      expect(ops).toHaveLength(8);
+
+      for (const model of [prisma.xeroAttachment, prisma.xeroPayment, prisma.xeroBankTransaction, prisma.xeroCreditNote, prisma.xeroInvoice, prisma.xeroContact]) {
+        expect(model.deleteMany).toHaveBeenCalledWith({});
+      }
+      expect(prisma.xeroSyncState.deleteMany).toHaveBeenCalledWith({});
+    });
   });
 
   describe('attachment parents (the DB-driven attachment phase)', () => {
@@ -53,7 +79,7 @@ describe('XeroRepository', () => {
 
     it('asks each parent table for flagged rows, oldest first then by id, bounded by take', async () => {
       const prisma = makePrisma();
-      await new XeroRepository(prisma as never).attachmentParentsAfter(null, 50);
+      await new XeroRepository(prisma as never, makeConnections() as never).attachmentParentsAfter(null, 50);
       expect(prisma.xeroInvoice.findMany).toHaveBeenCalledWith({
         where: { hasAttachments: true },
         orderBy: [{ updatedDateUtc: 'asc' }, { invoiceId: 'asc' }],
@@ -70,7 +96,7 @@ describe('XeroRepository', () => {
 
     it('a watermark alone means strictly newer; a watermark plus id is a keyset cursor for the next page', async () => {
       const prisma = makePrisma();
-      const repo = new XeroRepository(prisma as never);
+      const repo = new XeroRepository(prisma as never, makeConnections() as never);
       await repo.attachmentParentsAfter({ updatedDateUtc: t('2026-09-10T00:00:00Z') }, 10);
       expect(prisma.xeroInvoice.findMany.mock.calls[0][0].where).toEqual({ hasAttachments: true, updatedDateUtc: { gt: t('2026-09-10T00:00:00Z') } });
       await repo.attachmentParentsAfter({ updatedDateUtc: t('2026-09-10T00:00:00Z'), id: ID(5) }, 10);
@@ -91,7 +117,7 @@ describe('XeroRepository', () => {
         { bankTransactionId: ID(2), updatedDateUtc: t('2026-09-03T00:00:00Z') },
         { bankTransactionId: ID(3), updatedDateUtc: t('2026-09-04T00:00:00Z') },
       ]);
-      const rows = await new XeroRepository(prisma as never).attachmentParentsAfter(null, 4);
+      const rows = await new XeroRepository(prisma as never, makeConnections() as never).attachmentParentsAfter(null, 4);
       expect(rows).toEqual([
         { parentType: 'creditNote', id: ID(4), updatedDateUtc: t('2026-09-01T00:00:00Z') },
         { parentType: 'invoice', id: ID(1), updatedDateUtc: t('2026-09-03T00:00:00Z') },
@@ -102,7 +128,7 @@ describe('XeroRepository', () => {
 
     it('advanceWatermark moves the watermark and progress mid-phase without marking the entity OK', async () => {
       const prisma = makePrisma();
-      await new XeroRepository(prisma as never).advanceWatermark('attachments', t('2026-09-04T00:00:00Z'), 7);
+      await new XeroRepository(prisma as never, makeConnections() as never).advanceWatermark('attachments', t('2026-09-04T00:00:00Z'), 7);
       const arg = prisma.xeroSyncState.upsert.mock.calls[0][0];
       expect(arg.where).toEqual({ entity: 'attachments' });
       expect(arg.update).toEqual({ watermark: t('2026-09-04T00:00:00Z'), recordsUpserted: 7 });
