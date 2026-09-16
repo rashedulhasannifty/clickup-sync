@@ -161,12 +161,14 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
           WEBHOOK_AUTOHEAL_ENABLED: ${{ secrets.WEBHOOK_AUTOHEAL_ENABLED }}
+          XERO_CLIENT_ID: ${{ secrets.XERO_CLIENT_ID }}
+          XERO_CLIENT_SECRET: ${{ secrets.XERO_CLIENT_SECRET }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          envs: DOMAIN,DATABASE_URL,POSTGRES_PASSWORD,REDIS_URL,APP_ENCRYPTION_KEY,ADMIN_API_KEY,ALLOWED_ORIGINS,APP_BASE_URL,SMTP_HOST,SMTP_PORT,SMTP_USER,SMTP_PASS,MAIL_FROM,WEBHOOK_AUTOHEAL_ENABLED
+          envs: DOMAIN,DATABASE_URL,POSTGRES_PASSWORD,REDIS_URL,APP_ENCRYPTION_KEY,ADMIN_API_KEY,ALLOWED_ORIGINS,APP_BASE_URL,SMTP_HOST,SMTP_PORT,SMTP_USER,SMTP_PASS,MAIL_FROM,WEBHOOK_AUTOHEAL_ENABLED,XERO_CLIENT_ID,XERO_CLIENT_SECRET
           script: |
             set -euo pipefail
             cd "${{ secrets.DEPLOY_PATH }}"
@@ -193,6 +195,13 @@ jobs:
             # unset secret must leave the key absent and let the schema default apply.
             if [ -n "${WEBHOOK_AUTOHEAL_ENABLED:-}" ]; then
               echo "WEBHOOK_AUTOHEAL_ENABLED=${WEBHOOK_AUTOHEAL_ENABLED}" >> .env.tmp
+            fi
+            # Xero is optional and both-or-neither: env.validation.ts rejects one without the
+            # other, which would crash web and worker on boot. Write the pair only when both
+            # secrets are set; with neither, the Finance feature simply stays hidden.
+            if [ -n "${XERO_CLIENT_ID:-}" ] && [ -n "${XERO_CLIENT_SECRET:-}" ]; then
+              echo "XERO_CLIENT_ID=${XERO_CLIENT_ID}" >> .env.tmp
+              echo "XERO_CLIENT_SECRET=${XERO_CLIENT_SECRET}" >> .env.tmp
             fi
             mv .env.tmp .env
 
