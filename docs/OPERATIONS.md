@@ -252,10 +252,13 @@ backward-compatible**:
 **Setup**
 1. Xero app (developer.xero.com → My Apps): register the redirect URIs `https://log.niftyitsolution.com/api/xero/callback`
    and, for local dev, `http://localhost:5173/api/xero/callback`.
-2. Set `XERO_CLIENT_ID` / `XERO_CLIENT_SECRET` in the server `.env` (both or neither). `APP_ENCRYPTION_KEY` must be set.
-   Recreate the web and worker containers.
+2. Add the repo secrets `XERO_CLIENT_ID` and `XERO_CLIENT_SECRET` (GitHub → Settings → Secrets and variables → Actions),
+   then re-run the Deploy workflow. Set both or neither: `env.validation.ts` rejects one without the other, and the deploy
+   writes the pair only when both are present. Do NOT edit the server `.env` by hand — the deploy renders it from secrets
+   on every run and would overwrite the change. `APP_ENCRYPTION_KEY` must also be set, and `APP_BASE_URL` must match the
+   redirect URI registered in step 1.
 3. An Owner connects from Settings → Xero and picks exactly one organisation.
-4. If the client secret is rotated, update `XERO_CLIENT_SECRET` and recreate the web and worker containers; no reconnect is needed.
+4. If the client secret is rotated, update the `XERO_CLIENT_SECRET` repo secret and re-run the Deploy workflow; no reconnect is needed.
 
 **Schedule** (worker only, Asia/Dhaka)
 
