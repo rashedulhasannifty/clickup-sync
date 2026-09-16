@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CircleCheck, Link2, Lock, RefreshCw, ShieldCheck, Unplug } from 'lucide-react';
+import { AlertTriangle, CircleCheck, Link2, Lock, RefreshCw, ShieldCheck, Trash2, Unplug } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Pill } from '../ui/Pill';
@@ -8,7 +8,7 @@ import { Modal } from '../ui/Modal';
 import { useToast } from '../ui/Toast';
 import { QueryError } from '../ui/QueryError';
 import { useAuth } from '../../hooks/useAuth';
-import { useConnectXero, useDisconnectXero, useXeroStatus, useXeroSyncNow } from '../../hooks/useFinance';
+import { useConnectXero, useDisconnectXero, useEraseXeroData, useXeroStatus, useXeroSyncNow } from '../../hooks/useFinance';
 import { fmt } from '../../lib/formatters';
 import type { XeroEntityState } from '../../api/finance';
 
@@ -26,7 +26,7 @@ const REASONS: Record<string, string> = {
   exchange: "Xero didn't finish the sign-in. Try again. If it keeps failing, check that the redirect URI on the Xero app matches exactly.",
   no_tenant: 'No Xero organisation was chosen. On the Xero screen, pick your organisation.',
   multiple_tenants: 'More than one organisation was chosen. Clicksy supports one. Reconnect and pick just one.',
-  different_org: "That's a different Xero organisation from the one already synced. Mixing two sets of books isn't allowed. See the OPERATIONS runbook to switch organisations.",
+  different_org: "That's a different Xero organisation from the one already synced. Mixing two sets of books isn't allowed. To switch deliberately, use Erase Xero data below, then connect again.",
   xero_error: 'Xero returned an error. Try again in a minute.',
 };
 
@@ -59,9 +59,18 @@ export function XeroSettingsTab({ flash, onFlashShown }: { flash: XeroFlash; onF
   const status = useXeroStatus();
   const connect = useConnectXero();
   const disconnect = useDisconnectXero();
+  const eraseData = useEraseXeroData();
   const syncNow = useXeroSyncNow();
   const [banner] = useState<XeroFlash>(flash); // keep the banner after the URL param is cleared
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Erase keeps its own state: sharing `confirmOpen` would let a Disconnect click open the
+  // destructive dialog. `eraseTyped` is cleared on close so a previous ERASE can't re-arm it.
+  const [eraseOpen, setEraseOpen] = useState(false);
+  const [eraseTyped, setEraseTyped] = useState('');
+  const closeErase = () => {
+    setEraseOpen(false);
+    setEraseTyped('');
+  };
 
   useEffect(() => {
     if (!flash) return;
@@ -231,6 +240,9 @@ export function XeroSettingsTab({ flash, onFlashShown }: { flash: XeroFlash; onF
           <Card title="Disconnect" subtitle="Stops syncing and deletes the stored Xero sign-in. Data already copied stays in Finance.">
             <Button variant="danger" icon={<Unplug size={14} />} disabled={!isOwner} onClick={() => setConfirmOpen(true)}>Disconnect Xero</Button>
           </Card>
+          <Card title="Erase Xero data" subtitle="Deletes every contact and transaction copied from Xero and unlinks the organisation, so a different one can be connected.">
+            <Button variant="danger" icon={<Trash2 size={14} />} disabled={!isOwner} onClick={() => setEraseOpen(true)}>Erase Xero data</Button>
+          </Card>
         </div>
       </div>
       <Modal
@@ -249,6 +261,54 @@ export function XeroSettingsTab({ flash, onFlashShown }: { flash: XeroFlash; onF
         }
       >
         <div style={{ display: 'flex', gap: 8, fontSize: 13, color: 'var(--text-muted)' }}><CircleCheck size={14} /> Nothing in Xero is changed.</div>
+      </Modal>
+      <Modal
+        open={eraseOpen}
+        onClose={closeErase}
+        title="Erase all Xero data?"
+        subtitle="Every contact, invoice, bill, credit note, bank transaction, payment and attachment copied from Xero is deleted, and the organisation is unlinked. This cannot be undone."
+        footer={
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Button onClick={closeErase}>Keep the data</Button>
+            <Button
+              variant="danger"
+              icon={<Trash2 size={14} />}
+              loading={eraseData.isPending}
+              disabled={eraseTyped.trim() !== 'ERASE'}
+              onClick={() =>
+                eraseData.mutate(undefined, {
+                  onSuccess: () => {
+                    closeErase();
+                    toast.show('Xero data erased. You can now connect a different organisation.', 'green');
+                  },
+                  onError: (e) => toast.show(apiErrorMessage(e) ?? 'Could not erase the Xero data.', 'red'),
+                })
+              }
+            >
+              Erase everything
+            </Button>
+          </div>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 8, fontSize: 13, color: 'var(--text-muted)' }}>
+            <CircleCheck size={14} /> Nothing in Xero is changed — only this app's copy is deleted.
+          </div>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13 }}>
+            Type <b>ERASE</b> to confirm
+            <input
+              id="xero-erase-confirm"
+              value={eraseTyped}
+              onChange={(e) => setEraseTyped(e.target.value)}
+              autoComplete="off"
+              placeholder="ERASE"
+              style={{
+                padding: '8px 10px', borderRadius: 'var(--radius)', border: '1px solid var(--border)',
+                background: 'var(--bg)', color: 'var(--text)', fontSize: 13,
+              }}
+            />
+          </label>
+        </div>
       </Modal>
     </div>
   );

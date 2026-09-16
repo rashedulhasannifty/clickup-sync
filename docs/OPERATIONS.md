@@ -278,14 +278,16 @@ cleanly (`RATE_LIMITED` in `xero_sync_state`) when fewer than 500 daily calls re
   first run only fetches what changed.
 
 **Runbook: switching to a different Xero organisation** (destructive; take a DB backup first)
-The app refuses to connect a second organisation (`reason=different_org`), so books never mix. To switch deliberately:
-```sql
-BEGIN;
-TRUNCATE xero_attachments, xero_payments, xero_bank_transactions, xero_credit_notes, xero_invoices, xero_contacts, xero_sync_state;
-DELETE FROM xero_connections;
-COMMIT;
-```
-Then connect the new organisation from Settings.
+The app refuses to connect a second organisation (`reason=different_org`), so books never mix. To switch deliberately,
+an Owner opens Settings → Xero → **Erase Xero data**, types `ERASE` to confirm, and then connects the new organisation.
+
+That one action disconnects (revoking the tokens at Xero), deletes every synced row from all seven `xero_*` data tables,
+and clears the stored organisation — which is what lets a different one connect. Nothing in Xero itself is changed; only
+our copy is deleted, and it cannot be undone except by re-syncing from Xero.
+
+It refuses with `409` while a sync is running: wait for Settings → Xero to stop showing "Syncing", then retry. No SQL is
+needed — do not `TRUNCATE` these tables by hand, because that leaves the stored organisation in place and the next
+connect still fails with `different_org`.
 
 **Grafana.** Grant the read-only Grafana role `SELECT` on the eight `xero_*` tables. Use the role Grafana's Postgres data source connects as:
 ```

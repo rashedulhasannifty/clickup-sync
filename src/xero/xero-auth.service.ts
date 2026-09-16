@@ -7,6 +7,7 @@ import { JOBS, QUEUES } from '../queues/queue.constants';
 import { AuditLogRepository } from '../admin/audit-log.repository';
 import type { AuthPrincipal } from '../auth/auth.types';
 import { XeroConnectionRepository } from './xero-connection.repository';
+import { XeroRepository } from './xero.repository';
 import { XeroIdentityClient } from './xero-identity.client';
 import { XeroTokenService } from './xero-token.service';
 import { OAUTH_STATE_TTL_SECONDS, XERO_AUTHORIZE_URL, XERO_REDIS, XERO_SCOPES, XERO_SCOPE_STRING } from './xero.constants';
@@ -79,6 +80,7 @@ export class XeroAuthService {
     private readonly queues: QueueService,
     private readonly audit: AuditLogRepository,
     private readonly config: ConfigService,
+    private readonly data: XeroRepository,
   ) {}
 
   private base(): string {
@@ -192,6 +194,32 @@ export class XeroAuthService {
     if (latest?.refreshTokenEnc) await this.identity.revoke(this.crypto.decrypt(latest.refreshTokenEnc));
     await this.repo.markDisconnected();
     return { disconnected: true };
+  }
+
+  /**
+   * Disconnects (if connected) and then erases every synced Xero row, clearing the tenant
+   * identity so a DIFFERENT organisation can be connected afterwards. Nothing in Xero changes.
+   *
+   * Three steps, in this order:
+   *  1. Refuse while a sync is running, so the common case is a clean stop rather than a race.
+   *  2. Revoke at Xero over HTTP — must be outside the transaction, and `disconnect()` already
+   *     no-ops when the row isn't CONNECTED, so it is safe to call unconditionally.
+   *  3. Erase in one transaction, tenant identity first. That ordering is the real guarantee:
+   *     a sync that slipped past step 1 dies on its next token read instead of writing rows back.
+   * Finally drain the queue — not for the race, but so a job queued before the erase can't run,
+   * fail on the dead connection, and write a NEEDS_RECONNECT row into the table just emptied.
+   */
+  async eraseData(): Promise<{ erased: true }> {
+    if (await this.isSyncBusy()) {
+      throw new ConflictException('A Xero sync is running. Wait for it to finish, then erase.');
+    }
+    await this.disconnect();
+    await this.data.eraseAll();
+    // `true` also drops delayed/backoff retries, which a bare drain() leaves behind.
+    // Not obliterate(): it throws when a job is active.
+    await this.queues.get(QUEUES.XERO_SYNC).drain(true);
+    this.logger.warn('Xero data erased: every synced row was deleted and the organisation was unlinked.');
+    return { erased: true };
   }
 
   async isSyncBusy(): Promise<boolean> {

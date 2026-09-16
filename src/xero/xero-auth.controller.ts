@@ -41,6 +41,13 @@ export class XeroAuthController {
     return this.auth.disconnect();
   }
 
+  @Delete('data')
+  @Roles(Role.OWNER)
+  @ApiOperation({ summary: 'Disconnect Xero AND erase every synced row, so a different organisation can be connected' })
+  eraseData() {
+    return this.auth.eraseData();
+  }
+
   @Get('status')
   @Roles(Role.OWNER, Role.ADMIN)
   @ApiOperation({ summary: 'Xero connection and per-entity sync status' })
