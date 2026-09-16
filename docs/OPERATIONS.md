@@ -298,6 +298,16 @@ The window is bounded deliberately. A nightly full re-read grows with the whole 
 5,000 calls/day are shared with the hourly incrementals — starve them and they start reporting
 `RATE_LIMITED` ("Paused · daily limit"). Widen `ATTACHMENT_RECONCILE_DAYS` only with that budget in mind.
 
+**Opening attachments in the app.** Settings-independent: any record drawer's Attachments list has **Open** and a
+download icon. Nothing is stored — each open or download is one live Xero API call (counted against the 5,000/day), and
+files over 25 MB are refused with a pointer to Xero. PDFs and images show inline; CSV and `.xlsx` render as a table
+(first 500 rows per sheet); `.xls` and other types download only. If an open fails:
+- `Xero no longer has this file` (404) — the attachment was removed in Xero; the next sync that re-reads the record drops it.
+- `Xero needs reconnecting` (409) — reconnect in Settings → Xero.
+- `daily API limit is nearly used up` / `Xero is busy` (503) — retry later.
+- A blank PDF frame in Chrome almost always means someone changed the attachment response CSP; see
+  `src/xero/xero-attachment-delivery.ts` (no `sandbox`/`object-src` on PDFs).
+
 **Runbook: switching to a different Xero organisation** (destructive; take a DB backup first)
 The app refuses to connect a second organisation (`reason=different_org`), so books never mix. To switch deliberately,
 an Owner opens Settings → Xero → **Erase Xero data**, types `ERASE` to confirm, and then connects the new organisation.

@@ -53,7 +53,19 @@ export type LineItem = {
   description: string | null; quantity: number | null; unitAmount: number | null; accountCode: string | null;
   taxType: string | null; taxAmount: number | null; lineAmount: number | null;
 };
-export type AttachmentItem = { id: string; fileName: string; mimeType: string | null; contentLength: number | null };
+export type AttachmentItem = { id: string; parentId: string; fileName: string; mimeType: string | null; contentLength: number | null };
+
+/** Relative to the API client's `/api` base. */
+const attachmentPath = (a: AttachmentItem) =>
+  `/finance/attachments/${encodeURIComponent(a.parentId)}/${encodeURIComponent(a.id)}/content`;
+
+export const attachmentApi = {
+  /** Absolute URL for <iframe>/<img>/<a>: same origin, so the session cookie authenticates it. */
+  url: (a: AttachmentItem, download = false) => `/api${attachmentPath(a)}${download ? '?download=1' : ''}`,
+  /** The file's bytes, for the CSV and Excel table previews. Each call is one Xero API call. */
+  bytes: (a: AttachmentItem): Promise<ArrayBuffer> =>
+    apiClient.get<ArrayBuffer>(attachmentPath(a), { responseType: 'arraybuffer' }).then((r) => r.data),
+};
 
 export type InvoiceListItem = {
   id: string; type: 'ACCREC' | 'ACCPAY'; number: string | null; reference: string | null; contactId: string | null;

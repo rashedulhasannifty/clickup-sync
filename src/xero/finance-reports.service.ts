@@ -363,7 +363,7 @@ export class FinanceReportsService {
   }
 
   private attachmentItem(a: any) {
-    return { id: a.attachmentId, fileName: a.fileName, mimeType: a.mimeType, contentLength: a.contentLength };
+    return { id: a.attachmentId, parentId: a.parentId, fileName: a.fileName, mimeType: a.mimeType, contentLength: a.contentLength };
   }
 
   async listPayments(q: PaymentListQueryDto) {

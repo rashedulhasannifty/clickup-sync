@@ -1,8 +1,10 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Query, Res, StreamableFile } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles } from '../auth/decorators';
 import { FinanceReportsService } from './finance-reports.service';
+import { XeroAttachmentContentService } from './xero-attachment-content.service';
 import {
   BankTxListQueryDto, ContactListQueryDto, CreditNoteListQueryDto, InvoiceListQueryDto, PaymentListQueryDto,
 } from './dto/finance-query.dto';
@@ -13,7 +15,28 @@ import {
 @Roles(Role.OWNER, Role.ADMIN)
 @Controller('finance')
 export class FinanceReportsController {
-  constructor(private readonly finance: FinanceReportsService) {}
+  constructor(
+    private readonly finance: FinanceReportsService,
+    private readonly attachments: XeroAttachmentContentService,
+  ) {}
+
+  /**
+   * An attachment's file, fetched live from Xero. PDFs and raster images are served inline for the
+   * in-app viewer; everything else — and anything with `download=1` — is a download. Headers are
+   * set per file type (see xero-attachment-delivery.ts); do not replace them with a global policy.
+   */
+  @Get('attachments/:parentId/:attachmentId/content')
+  @ApiOperation({ summary: "Stream an attachment's file from Xero (one Xero API call per request)" })
+  async attachmentContent(
+    @Param('parentId', ParseUUIDPipe) parentId: string,
+    @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
+    @Query('download') download: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const file = await this.attachments.content(parentId, attachmentId, download === '1' || download === 'true');
+    res.set(file.headers);
+    return new StreamableFile(file.data);
+  }
 
   @Get('summary') @ApiOperation({ summary: 'KPIs, aged receivables, top overdue, 6-month money in/out' })
   summary() { return this.finance.summary(); }

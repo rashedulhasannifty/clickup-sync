@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { ArrowLeft, ExternalLink, FileText, Paperclip } from 'lucide-react';
+import { ArrowLeft, Download, ExternalLink, FileText, Paperclip } from 'lucide-react';
 import { Drawer } from '../ui/Drawer';
 import { Button } from '../ui/Button';
 import { Pill } from '../ui/Pill';
@@ -8,7 +8,8 @@ import {
   useContactActivity, useFinanceBankTx, useFinanceBankTxDetail, useFinanceContact, useFinanceCreditNote, useFinanceCreditNotes,
   useFinanceInvoice, useFinanceInvoices, useFinancePayments,
 } from '../../hooks/useFinance';
-import type { AttachmentItem, LineItem, PaymentListItem } from '../../api/finance';
+import { attachmentApi, type AttachmentItem, type LineItem, type PaymentListItem } from '../../api/finance';
+import { AttachmentViewer } from './AttachmentViewer';
 import { Amount, baseMoney, ContactAvatar, day, InvoiceStatus, money } from './format';
 
 export type RecordRef = { kind: 'contact' | 'invoice' | 'bank' | 'creditNote' | 'payment'; id: string; payment?: PaymentListItem };
@@ -59,16 +60,22 @@ function LinesTable({ lines, currency }: { lines: LineItem[]; currency: string }
 }
 
 function Attachments({ items, xeroUrl }: { items: AttachmentItem[]; xeroUrl: string }) {
+  const [open, setOpen] = useState<AttachmentItem | null>(null);
   if (!items.length) return <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>No attachments.</p>;
   return (
     <>
       {items.map((a) => (
         <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', border: '1px solid var(--border-soft)', borderRadius: 8, fontSize: 13, marginBottom: 6 }}>
-          <Paperclip size={14} /><span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.fileName}</span>
+          <Paperclip size={14} /><span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={a.fileName}>{a.fileName}</span>
           {a.contentLength != null && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{Math.max(1, Math.round(a.contentLength / 1024))} KB</span>}
+          <Button size="sm" variant="subtle" onClick={() => setOpen(a)}>Open</Button>
+          <a href={attachmentApi.url(a, true)} download={a.fileName} aria-label={`Download ${a.fileName}`} title="Download" style={{ display: 'inline-flex' }}>
+            <Download size={14} />
+          </a>
           <a href={xeroUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>Open in Xero</a>
         </div>
       ))}
+      <AttachmentViewer item={open} onClose={() => setOpen(null)} />
     </>
   );
 }

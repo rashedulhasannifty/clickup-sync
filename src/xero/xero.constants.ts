@@ -59,6 +59,9 @@ export const RECONCILE_ID_BATCH = 50;
  * Settings -> Xero -> "Re-read everything" instead.
  */
 export const ATTACHMENT_RECONCILE_DAYS = 90;
+
+/** Largest attachment we will fetch and serve. Larger files are opened in Xero instead. */
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 export const UPSERT_BATCH = 100;
 
 export const XERO_ENTITIES = ['contacts', 'invoices', 'creditNotes', 'bankTransactions', 'payments'] as const;
