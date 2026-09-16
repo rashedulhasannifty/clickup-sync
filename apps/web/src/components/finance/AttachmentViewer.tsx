@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, FileWarning } from 'lucide-react';
+import { Download, ExternalLink, FileWarning } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Tabs } from '../ui/Tabs';
 import { attachmentApi, type AttachmentItem } from '../../api/finance';
@@ -113,7 +113,12 @@ export function AttachmentViewer({ item, onClose }: { item: AttachmentItem | nul
     // No `sandbox` attribute: Chromium refuses to run its PDF viewer in a sandboxed frame and shows
     // a blank box. It is safe unsandboxed because the server only ever serves allowlisted PDFs and
     // raster images inline, with nosniff (see src/xero/xero-attachment-delivery.ts).
-    body = <iframe title={item.fileName} src={url} style={{ width: '100%', height: '70vh', border: 0, borderRadius: 8, background: 'var(--surface)' }} />;
+    body = (
+      <>
+        <iframe title={item.fileName} src={url} style={{ width: '100%', height: '70vh', border: 0, borderRadius: 8, background: 'var(--surface)' }} />
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '8px 0 0' }}>Preview blank? Use Open in new tab — some PDF browser extensions block embedded previews.</p>
+      </>
+    );
   } else if (kind === 'image') {
     body = imageFailed
       ? <Problem text="Couldn't load this image from Xero. Try Download instead." />
@@ -134,7 +139,16 @@ export function AttachmentViewer({ item, onClose }: { item: AttachmentItem | nul
       title={item.fileName}
       subtitle="Fetched from Xero. Nothing in Xero is changed."
       footer={
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16 }}>
+          {(kind === 'pdf' || kind === 'image') && (
+            // The fallback when the inline frame stays blank: PDF-intercepting extensions (Adobe
+            // Acrobat's is common) take over PDFs and can leave an embedded frame empty, but they
+            // handle a top-level tab fine. Same URL, same headers, so no extra exposure.
+            <a href={url} target="_blank" rel="noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500 }}>
+              <ExternalLink size={14} /> Open in new tab
+            </a>
+          )}
           <a href={attachmentApi.url(item, true)} download={item.fileName}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500 }}>
             <Download size={14} /> Download
