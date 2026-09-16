@@ -187,6 +187,28 @@ describe('XeroSyncService attachment phase resumes from its own watermark', () =
     expect(att.watermark).toEqual(T('2026-09-02T00:00:00Z'));
   });
 
+  it('a 404 on one parent is skipped, so the phase finishes and the watermark passes it', async () => {
+    // Without the skip this parent stalls the phase forever: every run restarts at the same
+    // watermark, fails on the same row, and never reaches a newer parent.
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    try {
+      const { svc, client, repo, att } = setup({}, null, { parents: three() });
+      client.get.mockImplementation(failOn(PID(2), new XeroApiError(404, `/CreditNotes/${PID(2)}/Attachments`, 'not found')));
+
+      const res = await svc.runSync();
+
+      expect(res.stopped).toBeNull();
+      expect(res.attachmentsFetched).toBe(2); // parents 1 and 3; the skipped one is not counted
+      expect(repo.replaceAttachments).not.toHaveBeenCalledWith(PID(2), expect.anything());
+      expect(repo.failEntity).not.toHaveBeenCalledWith('attachments', expect.anything(), expect.anything());
+      expect(repo.finishEntity).toHaveBeenCalledWith('attachments', T('2026-09-03T00:00:00Z'), 2);
+      expect(att.watermark).toEqual(T('2026-09-03T00:00:00Z'));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(PID(2)));
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it('pages through the parents in bounded batches with a keyset cursor', async () => {
     const parents = [1, 2, 3, 4, 5].map((n) => parent(n, `2026-09-0${n}T00:00:00Z`));
     const { svc, client, repo } = setup({}, null, { parents });

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { XeroClient } from './xero.client';
 import { XeroRepository, type AttachmentCursor, type SyncStateStatus } from './xero.repository';
-import { XeroRateBudgetExhaustedError, XeroReconnectRequiredError } from './xero-errors';
+import { XeroApiError, XeroRateBudgetExhaustedError, XeroReconnectRequiredError } from './xero-errors';
 import { ATTACHMENT_BATCH, ATTACHMENT_PARENTS, ENTITY_ENDPOINTS, RECONCILE_ID_BATCH, XERO_ENTITIES, type XeroEntity } from './xero.constants';
 import {
   normalizeAttachment, normalizeBankTransaction, normalizeContact, normalizeCreditNote, normalizeInvoice, normalizePayment,
@@ -167,10 +167,20 @@ export class XeroSyncService {
           await this.repo.advanceWatermark('attachments', done, progress.fetched);
           persisted = done;
         }
-        const body = await this.client.get<{ Attachments?: XeroAttachment[] }>(`${ATTACHMENT_PARENTS[p.parentType]}/${p.id}/Attachments`);
-        const rows = (body?.Attachments ?? []).map((a) => normalizeAttachment(p.parentType, p.id, a));
-        await this.repo.replaceAttachments(p.id, rows);
-        progress.fetched += 1;
+        try {
+          const body = await this.client.get<{ Attachments?: XeroAttachment[] }>(`${ATTACHMENT_PARENTS[p.parentType]}/${p.id}/Attachments`);
+          const rows = (body?.Attachments ?? []).map((a) => normalizeAttachment(p.parentType, p.id, a));
+          await this.repo.replaceAttachments(p.id, rows);
+          progress.fetched += 1;
+        } catch (e) {
+          // A parent Xero no longer serves (404 — e.g. the record was deleted there) would
+          // otherwise stall the phase for good: every run restarts at the same watermark and
+          // fails on the same row, so no newer attachment list is ever fetched. Skip just this
+          // parent and keep going. Everything else still halts the phase: budget exhaustion,
+          // reconnect, 5xx, network, and 429s the client already gave up retrying.
+          if (!(e instanceof XeroApiError) || e.status !== 404) throw e;
+          this.logger.warn(`Xero attachments: skipped ${p.parentType} ${p.id} (404 from Xero)`);
+        }
         progress.completedAt = p.updatedDateUtc;
         cursor = { updatedDateUtc: p.updatedDateUtc, id: p.id };
       }
