@@ -154,6 +154,26 @@ export class XeroRepository {
     ]);
   }
 
+  /**
+   * Parents updated on or after `since`, every status, for the nightly attachment-flag refresh.
+   * Deliberately NOT filtered by `hasAttachments`: the whole point is to discover parents whose
+   * flag is stale-false because a file was attached without Xero bumping UpdatedDateUTC.
+   * `updatedDateUtc` is indexed on all three tables.
+   */
+  async attachmentFlagParentIds(since: Date): Promise<{ invoices: string[]; creditNotes: string[]; bankTransactions: string[] }> {
+    const where = { updatedDateUtc: { gte: since } };
+    const [invoices, creditNotes, bankTransactions] = await Promise.all([
+      this.prisma.xeroInvoice.findMany({ where, select: { invoiceId: true } }),
+      this.prisma.xeroCreditNote.findMany({ where, select: { creditNoteId: true } }),
+      this.prisma.xeroBankTransaction.findMany({ where, select: { bankTransactionId: true } }),
+    ]);
+    return {
+      invoices: invoices.map((r) => r.invoiceId),
+      creditNotes: creditNotes.map((r) => r.creditNoteId),
+      bankTransactions: bankTransactions.map((r) => r.bankTransactionId),
+    };
+  }
+
   async openInvoiceIds(): Promise<string[]> {
     const rows = await this.prisma.xeroInvoice.findMany({
       where: { status: { in: ['AUTHORISED', 'SUBMITTED'] } },

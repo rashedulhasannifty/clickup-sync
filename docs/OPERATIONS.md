@@ -277,6 +277,27 @@ cleanly (`RATE_LIMITED` in `xero_sync_state`) when fewer than 500 daily calls re
 - Fix: an Owner opens Settings → Xero → **Reconnect** and picks the **same** organisation. Watermarks are kept, so the
   first run only fetches what changed.
 
+**Runbook: an attachment added in Xero doesn't appear**
+Xero does **not** bump `UpdatedDateUTC` when a file is attached to an invoice, credit note or bank
+transaction ([Xero documents this class of change](https://developer.xero.com/documentation/api/accounting/requests-and-responses)).
+The hourly incremental asks "what changed since the watermark?" and Xero truthfully answers "not this",
+so the parent is never re-read, `has_attachments` stays false, and the attachment phase — which only
+visits flagged records — correctly fetches nothing. Settings shows `Attachment lists · Up to date · 0`,
+which looks like a failure but is the phase working on an empty list.
+
+Two paths close the gap:
+- **Nightly**, the 02:00 reconcile re-reads every invoice, credit note and bank transaction updated in
+  the last `ATTACHMENT_RECONCILE_DAYS` (90) days — all statuses, not just open ones — then walks
+  attachments from that window's start rather than the stored watermark. Both halves are needed: the
+  re-read sets the flag, and the window start is what stops the walk skipping a parent older than its
+  watermark.
+- **On demand**, Settings → Xero → **Re-read everything** (`POST /api/xero/sync?full=true`) ignores every
+  watermark. This is the only way to pick up a file attached to a document older than the 90-day window.
+
+The window is bounded deliberately. A nightly full re-read grows with the whole ledger, and Xero's
+5,000 calls/day are shared with the hourly incrementals — starve them and they start reporting
+`RATE_LIMITED` ("Paused · daily limit"). Widen `ATTACHMENT_RECONCILE_DAYS` only with that budget in mind.
+
 **Runbook: switching to a different Xero organisation** (destructive; take a DB backup first)
 The app refuses to connect a second organisation (`reason=different_org`), so books never mix. To switch deliberately,
 an Owner opens Settings → Xero → **Erase Xero data**, types `ERASE` to confirm, and then connects the new organisation.

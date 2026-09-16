@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CircleCheck, Link2, Lock, RefreshCw, ShieldCheck, Trash2, Unplug } from 'lucide-react';
+import { AlertTriangle, CircleCheck, Link2, Lock, RefreshCcwDot, RefreshCw, ShieldCheck, Trash2, Unplug } from 'lucide-react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Pill } from '../ui/Pill';
@@ -67,6 +67,8 @@ export function XeroSettingsTab({ flash, onFlashShown }: { flash: XeroFlash; onF
   // destructive dialog. `eraseTyped` is cleared on close so a previous ERASE can't re-arm it.
   const [eraseOpen, setEraseOpen] = useState(false);
   const [eraseTyped, setEraseTyped] = useState('');
+  // Which of the two sync buttons is in flight, so only that one shows a spinner.
+  const [fullSync, setFullSync] = useState(false);
   const closeErase = () => {
     setEraseOpen(false);
     setEraseTyped('');
@@ -188,15 +190,31 @@ export function XeroSettingsTab({ flash, onFlashShown }: { flash: XeroFlash; onF
           </Card>
           <Card
             title="Data sync"
-            subtitle={firstSync ? 'Copying everything from Xero for the first time.' : 'Changes are pulled every hour. Unpaid invoices and balances are re-checked nightly at 02:00 (Dhaka).'}
+            subtitle={firstSync
+              ? 'Copying everything from Xero for the first time.'
+              : 'Changes are pulled every hour. Nightly at 02:00 (Dhaka) unpaid invoices, balances, and attachments added in the last 90 days are re-checked.'}
             action={
-              <Button size="sm" icon={<RefreshCw size={14} />} loading={syncNow.isPending} disabled={needsReconnect || s.syncing}
-                onClick={() => syncNow.mutate(undefined, {
-                  onSuccess: () => toast.show('Sync queued.', 'green'),
-                  onError: (e: unknown) => toast.show(apiErrorMessage(e) ?? "Couldn't start a sync.", 'red'),
-                })}>
-                {s.syncing ? 'Syncing…' : 'Sync now'}
-              </Button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button size="sm" icon={<RefreshCw size={14} />} loading={syncNow.isPending && !fullSync} disabled={needsReconnect || s.syncing}
+                  onClick={() => { setFullSync(false); syncNow.mutate(false, {
+                    onSuccess: () => toast.show('Sync queued.', 'green'),
+                    onError: (e: unknown) => toast.show(apiErrorMessage(e) ?? "Couldn't start a sync.", 'red'),
+                  }); }}>
+                  {s.syncing ? 'Syncing…' : 'Sync now'}
+                </Button>
+                {/* Attaching a file in Xero doesn't change the record, so an ordinary sync can never
+                    notice it. This re-reads everything and is the only way to pick up a file added
+                    to an older document. */}
+                <Button size="sm" variant="subtle" icon={<RefreshCcwDot size={14} />} loading={syncNow.isPending && fullSync}
+                  disabled={needsReconnect || s.syncing}
+                  title="Re-reads every record from Xero, ignoring what we synced before. Use this after attaching a file in Xero."
+                  onClick={() => { setFullSync(true); syncNow.mutate(true, {
+                    onSuccess: () => toast.show('Full re-read queued. This takes longer than a normal sync.', 'green'),
+                    onError: (e: unknown) => toast.show(apiErrorMessage(e) ?? "Couldn't start a full re-read.", 'red'),
+                  }); }}>
+                  Re-read everything
+                </Button>
+              </div>
             }
           >
             {s.entities.length === 0 ? (

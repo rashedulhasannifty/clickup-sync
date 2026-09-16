@@ -227,11 +227,16 @@ export class XeroAuthService {
     return live.some((j) => j?.name === JOBS.XERO_SYNC);
   }
 
-  async requestSync(): Promise<{ queued: true }> {
+  /**
+   * `full` ignores every watermark and re-reads everything, including attachment flags. It is the
+   * only way to discover a file attached to an OLD document: Xero does not bump UpdatedDateUTC
+   * when a file is attached, so an incremental run can never see it.
+   */
+  async requestSync(opts: { full?: boolean } = {}): Promise<{ queued: true }> {
     const row = await this.repo.get();
     if (row?.status !== 'CONNECTED') throw new ConflictException('Xero is not connected');
     if (await this.isSyncBusy()) throw new ConflictException('A Xero sync is already running');
-    const data: XeroSyncJobData = { entity: 'all' };
+    const data: XeroSyncJobData = { entity: 'all', ...(opts.full ? { full: true } : {}) };
     await this.queues.get(QUEUES.XERO_SYNC).add(JOBS.XERO_SYNC, data, this.queues.defaultJobOptions());
     return { queued: true };
   }
