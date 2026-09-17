@@ -424,9 +424,11 @@ export function DataTable<T extends { [key: string]: unknown }>({
                 sorted.map((row, idx) => {
                   const id = rowId(row, idx);
                   const isExpanded = expandable && expandedSet.has(id);
-                  const baseBg = selectedSet.has(id)
-                    ? 'var(--selected-bg, var(--table-zebra))'
-                    : idx % 2 === 0 ? 'transparent' : 'var(--table-zebra)';
+                  const isSelected = selectable && selectedSet.has(id);
+                  // Translucent tint shared by the row and its sticky cells, which
+                  // must stay opaque and so layer it over --surface themselves.
+                  const tint = isSelected ? 'var(--selected-bg)' : idx % 2 !== 0 ? 'var(--table-zebra)' : null;
+                  const baseBg = tint ?? 'transparent';
                   // Expansion wins over onRowClick — see the prop docs.
                   const activate = expandable
                     ? () => onToggleExpand(id, row)
@@ -472,11 +474,14 @@ export function DataTable<T extends { [key: string]: unknown }>({
                             // zebra rows we composite it over the solid surface.
                             background: sticky ? 'var(--surface)' : undefined,
                             backgroundImage:
-                              sticky && idx % 2 !== 0
-                                ? 'linear-gradient(var(--table-zebra), var(--table-zebra))'
-                                : undefined,
+                              sticky && tint ? `linear-gradient(${tint}, ${tint})` : undefined,
                             borderRight: isLastSticky ? '1px solid var(--border-soft)' : undefined,
-                            boxShadow: isLastSticky ? stickyShadow : undefined,
+                            // Accent bar on the leading edge marks a checked row
+                            // even where the tint is faint (e.g. mid-hover).
+                            boxShadow: [
+                              i === 0 && isSelected ? 'inset 3px 0 0 var(--accent)' : null,
+                              isLastSticky ? stickyShadow : null,
+                            ].filter(Boolean).join(', ') || undefined,
                             zIndex: sticky ? 1 : 0,
                           }}
                         >
