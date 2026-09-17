@@ -61,8 +61,8 @@ export function WorkEntryRows({ taskId, params, selectedIds, onToggle, onOpen }:
             const cur = e.currency ?? 'USD';
             const checked = selectedIds.has(e.timeEntryId);
             return (
-              <tr key={e.timeEntryId} onClick={() => onOpen(e)} style={{ cursor: 'pointer', background: checked ? 'var(--accent-soft, var(--hover))' : undefined }}>
-                <td style={cell}>
+              <tr key={e.timeEntryId} onClick={() => onOpen(e)} style={{ cursor: 'pointer', background: checked ? 'var(--selected-bg)' : undefined }}>
+                <td style={checked ? { ...cell, boxShadow: 'inset 3px 0 0 var(--accent)' } : cell}>
                   <input
                     type="checkbox"
                     aria-label={`Select ${e.userName}'s entry on ${fmt.dateTime(e.startTime)}`}
