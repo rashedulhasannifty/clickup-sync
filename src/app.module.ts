@@ -27,6 +27,7 @@ import { XeroModule } from './xero/xero.module';
 import { ReportsModule } from './reports/reports.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
+import { AccessModule } from './access/access.module';
 
 // Background work (BullMQ processors + cron) only runs in the worker role. In
 // the web role these are omitted so blue-green's warm old web color can't
@@ -68,6 +69,7 @@ const worker = isWorker();
     XeroModule,
     ReportsModule,
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 5 }]),
+    AccessModule,
     AuthModule,
     HealthModule,
   ],

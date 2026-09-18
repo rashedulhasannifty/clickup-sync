@@ -21,9 +21,11 @@ import { AuthController } from './auth.controller';
 import { InvitationController } from './invitation.controller';
 import { UsersController } from './users.controller';
 import { isWorker } from '../config/role';
+import { AccessModule } from '../access/access.module';
+import { AccessScopeGuard } from '../access/access-scope.guard';
 
 @Module({
-  imports: [ConfigModule, MailerModule, AdminModule],
+  imports: [ConfigModule, MailerModule, AdminModule, AccessModule],
   controllers: [AuthController, InvitationController, UsersController],
   providers: [
     PasswordService, TokenService, PermissionsService, SessionService,
@@ -31,8 +33,20 @@ import { isWorker } from '../config/role';
     OrgRepository, UserRepository, SessionRepository, InvitationRepository,
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    // Registration order matters: Nest runs APP_GUARDs in the order they're
+    // provided, so this must come after RolesGuard (it depends on req.user,
+    // attached by AuthGuard, and only makes sense once RBAC has already passed).
+    { provide: APP_GUARD, useClass: AccessScopeGuard },
     ...(isWorker() ? [SessionCleanupService] : []),
   ],
+  // AccessScopeService/AccessScopeGuard are NOT re-exported here: AuthModule
+  // doesn't own them (AccessModule does), and re-exporting an imported
+  // module's provider by bare token is a Nest error ("cannot export a
+  // provider that is not part of the currently processed module"). They
+  // don't need to be — AccessModule is @Global(), so AuthController (and
+  // every other module) can inject AccessScopeService directly once
+  // AccessModule is anywhere in the graph (it's imported here and in
+  // app.module.ts).
   exports: [SessionService, OrgRepository],
 })
 export class AuthModule {}

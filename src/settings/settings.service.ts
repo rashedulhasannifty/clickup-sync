@@ -23,6 +23,7 @@ export interface SettingsPreferences {
   failure: { webhookRetryAttempts: number };
   spike: { medianEnabled: boolean };
   spaces: Record<string, { enabled: boolean }>;
+  access: { teamScopingEnabled: boolean };
 }
 
 export const DEFAULT_PREFERENCES: SettingsPreferences = {
@@ -35,6 +36,7 @@ export const DEFAULT_PREFERENCES: SettingsPreferences = {
   failure: { webhookRetryAttempts: 5 },
   spike: { medianEnabled: true },
   spaces: {},
+  access: { teamScopingEnabled: false },
 };
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
@@ -242,6 +244,14 @@ export class SettingsService implements OnModuleInit {
 
   isSpaceEnabled(spaceId: string): boolean {
     return this.cache.preferences.spaces[spaceId]?.enabled ?? true;
+  }
+
+  /** Whether team-scoped visibility is enforced (AccessScopeGuard consults this
+   *  on every request). Defaults to false: an old stored preferences blob with
+   *  no `access` key must read as off, not crash. Runtime-toggleable; the
+   *  Redis change-publisher propagates a flip to every process. */
+  isTeamScopingEnabled(): boolean {
+    return this.getPreferences().access?.teamScopingEnabled === true;
   }
 
   // ── Read for the admin UI (secrets masked) ─────────────────────────────────
