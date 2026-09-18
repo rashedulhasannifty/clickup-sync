@@ -69,7 +69,7 @@ export function WorkEntryRows({ taskId, params, selectedIds, onToggle, onOpen }:
                     checked={checked}
                     onClick={(ev) => ev.stopPropagation()}
                     onChange={() => onToggle(e)}
-                    style={{ borderRadius: 999, cursor: 'pointer' }}
+                    style={{ borderRadius: 999, cursor: 'pointer', accentColor: 'var(--accent)', width: 15, height: 15 }}
                   />
                 </td>
                 <td style={cell}>

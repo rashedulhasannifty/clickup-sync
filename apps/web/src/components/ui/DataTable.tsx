@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { ChevronDown, Check, Square, SquareCheck, SquareMinus } from 'lucide-react';
+import { ChevronDown, Check, Minus } from 'lucide-react';
 import { Button } from './Button';
 import { EmptyState } from './EmptyState';
 import { Select } from './Select';
@@ -382,14 +382,9 @@ export function DataTable<T extends { [key: string]: unknown }>({
                           style={{
                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                             background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                            color: allPageSelected || somePageSelected ? 'var(--accent, var(--text))' : 'var(--text-muted)',
                           }}
                         >
-                          {allPageSelected
-                            ? <SquareCheck size={15} strokeWidth={2} />
-                            : somePageSelected
-                              ? <SquareMinus size={15} strokeWidth={2} />
-                              : <Square size={15} strokeWidth={2} />}
+                          <CheckBox state={allPageSelected ? 'on' : somePageSelected ? 'mixed' : 'off'} />
                         </button>
                       ) : (
                       <span style={{
@@ -497,12 +492,9 @@ export function DataTable<T extends { [key: string]: unknown }>({
                               style={{
                                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                                 background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-                                color: selectedSet.has(id) ? 'var(--accent, var(--text))' : 'var(--text-muted)',
                               }}
                             >
-                              {selectedSet.has(id)
-                                ? <SquareCheck size={15} strokeWidth={2} />
-                                : <Square size={15} strokeWidth={2} />}
+                              <CheckBox state={selectedSet.has(id) ? 'on' : 'off'} />
                             </button>
                           ) : col.key === renderCols[selectable ? 1 : 0]?.key && expandable ? (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
@@ -771,5 +763,29 @@ export function DataTable<T extends { [key: string]: unknown }>({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Solid selection box: filled accent with a white mark when on/mixed, a
+ * strong-bordered empty box when off. Same look as the Columns menu toggles.
+ */
+function CheckBox({ state }: { state: 'on' | 'off' | 'mixed' }) {
+  const filled = state !== 'off';
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: 16, height: 16, borderRadius: 4, flexShrink: 0,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        background: filled ? 'var(--accent)' : 'var(--surface)',
+        border: filled ? '1px solid var(--accent)' : '1.5px solid var(--border-strong)',
+        boxShadow: filled ? '0 1px 2px rgba(123, 104, 238, 0.45)' : undefined,
+        transition: 'background 120ms, border-color 120ms',
+      }}
+    >
+      {state === 'on' && <Check size={11} strokeWidth={3.5} color="#fff" />}
+      {state === 'mixed' && <Minus size={11} strokeWidth={3.5} color="#fff" />}
+    </span>
   );
 }
