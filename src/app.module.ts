@@ -12,6 +12,7 @@ import { DatabaseModule } from './database/database.module';
 import { SettingsModule } from './settings/settings.module';
 import { SettingsSyncModule } from './settings/settings-sync.module';
 import { ClickupModule } from './clickup/clickup.module';
+import { ClientsModule } from './clients/clients.module';
 import { QueuesModule } from './queues/queues.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { TasksModule } from './tasks/tasks.module';
@@ -53,6 +54,7 @@ const worker = isWorker();
     SettingsModule,
     SettingsSyncModule,
     ClickupModule,
+    ClientsModule,
     QueuesModule,
     WebhooksModule,
     TasksModule,
