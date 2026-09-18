@@ -49,17 +49,36 @@ async function main() {
   const own = await prisma.$executeRaw`
     UPDATE clickup_tasks SET scope_client_option_id = client_option_id
     WHERE client_option_id IS NOT NULL AND scope_client_option_id IS DISTINCT FROM client_option_id`;
+  // A task whose own client was cleared (pass 1 set client_option_id NULL) and
+  // that has no resolvable parent can't be reached by "own" (needs client_option_id
+  // NOT NULL) or by the inheritance UPDATE below (needs a joinable parent row), so
+  // its old scope would otherwise survive stale. Clear it explicitly.
+  const cleared = await prisma.$executeRaw`
+    UPDATE clickup_tasks SET scope_client_option_id = NULL
+    WHERE client_option_id IS NULL AND scope_client_option_id IS NOT NULL
+      AND (parent_task_id IS NULL
+        OR NOT EXISTS (SELECT 1 FROM clickup_tasks p WHERE p.task_id = clickup_tasks.parent_task_id))`;
   let inherited = 0;
-  for (let pass = 0; pass < 5; pass++) {
+  const MAX_PASSES = 5;
+  let lastPassChanged = 0;
+  let passesRun = 0;
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
     const n = await prisma.$executeRaw`
       UPDATE clickup_tasks c SET scope_client_option_id = p.scope_client_option_id
       FROM clickup_tasks p
       WHERE c.parent_task_id = p.task_id AND c.client_option_id IS NULL
         AND c.scope_client_option_id IS DISTINCT FROM p.scope_client_option_id`;
     inherited += n;
+    lastPassChanged = n;
+    passesRun = pass + 1;
     if (n === 0) break;
   }
-  console.log(`scope_client_option_id: ${own} own, ${inherited} inherited`);
+  if (passesRun === MAX_PASSES && lastPassChanged > 0) {
+    console.warn(
+      `scope_client_option_id: inheritance may be incomplete — hit the ${MAX_PASSES}-pass cap while the last pass still changed ${lastPassChanged} row(s); rerun the script`,
+    );
+  }
+  console.log(`scope_client_option_id: ${own} own, ${cleared} cleared, ${inherited} inherited`);
   await prisma.$disconnect();
 }
 
