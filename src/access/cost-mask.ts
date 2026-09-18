@@ -1,18 +1,18 @@
-import { AccessScope, canSeeCost } from "./access-scope";
+import { AccessScope, canSeeCost } from './access-scope';
 
 /** Every money field a report row can carry. Hours are never masked. */
 // `currency` is deliberately absent: it's a label, not an amount, and keeping it a
 // non-null string lets the web type every cost field as `number | null`.
 export const COST_FIELDS = [
-  "costCents",
-  "hourlyRateCents",
-  "rateId",
-  "cost",
-  "estimation",
-  "validCostCents",
-  "costAud",
-  "totalCostAud",
-  "totalCostCents",
+  'costCents',
+  'hourlyRateCents',
+  'rateId',
+  'cost',
+  'estimation',
+  'validCostCents',
+  'costAud',
+  'totalCostAud',
+  'totalCostCents',
 ] as const;
 
 /**

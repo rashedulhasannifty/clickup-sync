@@ -1,5 +1,5 @@
-import { Prisma } from "@prisma/client";
-import { AccessScope, leadClientIds, visibleClientIds } from "./access-scope";
+import { Prisma } from '@prisma/client';
+import { AccessScope, leadClientIds, visibleClientIds } from './access-scope';
 
 const IDENT = /^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?$/i;
 function ident(name: string): Prisma.Sql {
@@ -14,9 +14,7 @@ export function taskScopeWhere(s: AccessScope): Prisma.ClickupTaskWhereInput {
 }
 
 /** Prisma filter for `clickup_time_entries`, through the task. Task-less entries are excluded when scoped. */
-export function timeEntryScopeWhere(
-  s: AccessScope,
-): Prisma.ClickupTimeEntryWhereInput {
+export function timeEntryScopeWhere(s: AccessScope): Prisma.ClickupTimeEntryWhereInput {
   const ids = visibleClientIds(s);
   return ids === null ? {} : { task: { scopeClientOptionId: { in: ids } } };
 }
@@ -29,18 +27,12 @@ function inIds(ids: string[] | null, column: Prisma.Sql): Prisma.Sql {
 
 /** `<alias>.scope_client_option_id` is in scope. A NULL (no client / no task on a LEFT JOIN) is out of scope. */
 export function taskScopeSql(s: AccessScope, alias: string): Prisma.Sql {
-  return inIds(
-    visibleClientIds(s),
-    Prisma.sql`${ident(alias)}.scope_client_option_id`,
-  );
+  return inIds(visibleClientIds(s), Prisma.sql`${ident(alias)}.scope_client_option_id`);
 }
 
 /** Same, restricted to clients the viewer LEADS — use inside `CASE WHEN ... THEN cost_cents` sums. */
 export function leadScopeSql(s: AccessScope, alias: string): Prisma.Sql {
-  return inIds(
-    leadClientIds(s),
-    Prisma.sql`${ident(alias)}.scope_client_option_id`,
-  );
+  return inIds(leadClientIds(s), Prisma.sql`${ident(alias)}.scope_client_option_id`);
 }
 
 /** For queries with no `clickup_tasks` join (e.g. `clickup_task_events`): `<column> IN (in-scope task ids)`. */
