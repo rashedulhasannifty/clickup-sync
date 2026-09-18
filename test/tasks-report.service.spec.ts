@@ -1,4 +1,5 @@
 import { TasksReportService } from '../src/reports/tasks-report.service';
+import { resolveScope } from '../src/access/access-scope';
 
 describe('TasksReportService', () => {
   function makePrisma(overrides: Partial<Record<string, any>> = {}) {
@@ -905,6 +906,70 @@ describe('TasksReportService', () => {
         chargeabilityRules: { none: { chargeable: true } },
         timeEntries: { none: { isChargeable: true } },
       });
+    });
+  });
+
+  describe('tasks (access scope)', () => {
+    // A MEMBER of exactly zero teams: `visibleClientIds` resolves to `[]`, so
+    // the where-clause must pin to an empty IN list (matches nothing) rather
+    // than fall through to "no filter".
+    const NONE = resolveScope({
+      role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+      memberships: [], teamClients: [], teamMembers: [],
+    });
+    // LEAD of team A (client 'acme'), plain MEMBER of team B (client 'bolt').
+    const LEAD_A_MEMBER_B = resolveScope({
+      role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+      memberships: [
+        { teamId: 'A', role: 'LEAD' },
+        { teamId: 'B', role: 'MEMBER' },
+      ],
+      teamClients: [
+        { teamId: 'A', optionId: 'acme' },
+        { teamId: 'B', optionId: 'bolt' },
+      ],
+      teamMembers: [],
+    });
+
+    const dec = (n: number) => ({ toNumber: () => n }) as any;
+    function taskRow(taskId: string, scopeClientOptionId: string | null) {
+      return {
+        taskId, taskName: 'T', url: null, spaceId: '1', spaceName: 'S', status: 'open',
+        statusType: 'open', statusColor: null, priority: null, parentTaskId: null,
+        assigneesNames: null, assigneesEmails: null, updatedDate: new Date(), syncedAt: new Date(),
+        sprintPoints: null, sprintName: null, cost: dec(500), client: null, department: null,
+        isDeleted: false, archived: false, listName: null, dueDate: null, timeEstimate: null,
+        timeSpent: null, createdDate: null, closedDate: null, startDate: null, syncCount: 1,
+        estimation: dec(10), folderName: null, creatorName: null, executiveName: null,
+        isChargeable: true, scopeClientOptionId,
+      };
+    }
+
+    it('an empty scope pins the query to an empty id list', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, NONE,
+      );
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.AND).toContainEqual({ scopeClientOptionId: { in: [] } });
+    });
+
+    it('masks cost/estimation on rows outside the clients the viewer LEADS, keeps them on led rows', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([taskRow('t-acme', 'acme'), taskRow('t-bolt', 'bolt')]);
+      const result = await new TasksReportService(prisma).tasks(
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, LEAD_A_MEMBER_B,
+      );
+      const acme = result.items.find((i: any) => i.taskId === 't-acme')!;
+      const bolt = result.items.find((i: any) => i.taskId === 't-bolt')!;
+      expect(acme.cost).toBe(500);
+      expect(acme.estimation).toBe(10);
+      expect(bolt.cost).toBeNull();
+      expect(bolt.estimation).toBeNull();
     });
   });
 

@@ -2,6 +2,8 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { parseDate } from './report-date.util';
 import { csvList, sprintStatusListIds, taskSearchOr } from './report-filter.util';
+import { AccessScope } from '../access/access-scope';
+import { taskScopeWhere } from '../access/scope-query';
 
 /**
  * "Everything on this task is chargeable": the flag says so, no (task,
@@ -32,6 +34,9 @@ export const TASK_LIST_SELECT = {
   createdDate: true, closedDate: true, startDate: true, syncCount: true,
   estimation: true, folderName: true, creatorName: true, executiveName: true,
   isChargeable: true,
+  // Read only to resolve access scope (which team's client this task belongs
+  // to) — never rendered directly. See `maskCost`/`canSeeCost`.
+  scopeClientOptionId: true,
 } satisfies Prisma.ClickupTaskSelect;
 
 /** Every filter the Tasks page accepts. Multi-selects are comma-separated (see `csvList`). */
@@ -72,6 +77,7 @@ export interface TaskWhereOptions {
 export async function buildTaskWhere(
   prisma: Pick<PrismaService, '$queryRaw'>,
   f: TaskFilters,
+  scope: AccessScope,
   opts: TaskWhereOptions = {},
 ): Promise<Prisma.ClickupTaskWhereInput> {
   const where: Prisma.ClickupTaskWhereInput = {};
@@ -80,6 +86,9 @@ export async function buildTaskWhere(
   // free-text search each need their own OR group, so neither can own a bare
   // top-level key. Same pattern as `timeEntriesList`.
   const and: Prisma.ClickupTaskWhereInput[] = [];
+  // Team scope first: every filter below narrows WITHIN what the viewer may see.
+  const scoped = taskScopeWhere(scope);
+  if (Object.keys(scoped).length) and.push(scoped);
   // ClickUp `archived` flag (exclude / include / only) is handled below. Soft-deleted
   // rows are hidden by default; `excludeDeleted: false` keeps them (the /work page lists deleted tasks that have time in range).
   if (opts.excludeDeleted !== false) where.isDeleted = false;

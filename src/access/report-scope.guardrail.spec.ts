@@ -47,7 +47,6 @@ const PENDING = new Set<string>([
   'ReportsController.tasksSubProjects',
   'ReportsController.tasksLists',
   'ReportsController.tasksFolders',
-  'ReportsController.tasks',
   'ReportsController.taskDescription',
   'ReportsController.taskAssigneeChargeability',
   'ReportsController.chargeablePreview',
@@ -55,14 +54,11 @@ const PENDING = new Set<string>([
   'ReportsController.timeEntriesByClient',
   'ReportsController.timeEntriesByDepartment',
   'ReportsController.timeEntriesChargeableSummary',
-  'ReportsController.timeEntriesAggregates',
   'ReportsController.costTrend',
   'ReportsController.costTrendByAssignee',
   'ReportsController.costTrendByClient',
   'ReportsController.budgetStatus',
   'ReportsController.overviewDeltas',
-  'ReportsController.timeEntriesByTask',
-  'ReportsController.timeEntriesList',
   'ReportsController.sprintPoints',
   'ReportsController.sprints',
   'ReportsController.sprintFolders',
@@ -71,8 +67,6 @@ const PENDING = new Set<string>([
   'ReportsController.spaces',
   'ReportsController.cycleTime',
   'ReportsController.timeInStatus',
-  'ReportsController.work',
-  'ReportsController.workEntries',
 ]);
 
 /**

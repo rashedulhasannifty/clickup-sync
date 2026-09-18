@@ -1,4 +1,5 @@
 import { WorkReportService } from '../src/reports/work-report.service';
+import { resolveScope } from '../src/access/access-scope';
 
 const dec = (n: number) => ({ toNumber: () => n });
 
@@ -13,10 +14,11 @@ function grp(taskId: string | null, over: Partial<{ userId: string; isChargeable
   };
 }
 
-function cand(taskId: string, over: Partial<{ updatedDate: Date | null; isDeleted: boolean; isChargeable: boolean; taskName: string }> = {}) {
+function cand(taskId: string, over: Partial<{ updatedDate: Date | null; isDeleted: boolean; isChargeable: boolean; taskName: string; scopeClientOptionId: string | null }> = {}) {
   return {
     taskId, taskName: over.taskName ?? taskId, updatedDate: over.updatedDate ?? new Date('2026-09-05T00:00:00Z'),
     isDeleted: over.isDeleted ?? false, isChargeable: over.isChargeable ?? true,
+    scopeClientOptionId: over.scopeClientOptionId ?? null,
   };
 }
 
@@ -192,6 +194,50 @@ describe('WorkReportService.work', () => {
   });
 });
 
+describe('WorkReportService.work (access scope)', () => {
+  // A MEMBER of exactly zero teams: `visibleClientIds` resolves to `[]`, so
+  // the candidate query must pin to an empty IN list (matches nothing) rather
+  // than fall through to "no filter".
+  const NONE = resolveScope({
+    role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+    memberships: [], teamClients: [], teamMembers: [],
+  });
+  // LEAD of team A (client 'acme'), plain MEMBER of team B (client 'bolt').
+  const LEAD_A_MEMBER_B = resolveScope({
+    role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+    memberships: [
+      { teamId: 'A', role: 'LEAD' },
+      { teamId: 'B', role: 'MEMBER' },
+    ],
+    teamClients: [
+      { teamId: 'A', optionId: 'acme' },
+      { teamId: 'B', optionId: 'bolt' },
+    ],
+    teamMembers: [],
+  });
+
+  it('an empty scope pins the candidate query to an empty id list', async () => {
+    const prisma = makePrisma({});
+    await new WorkReportService(prisma).work({ ...base, scope: NONE });
+    const where = prisma.clickupTask.findMany.mock.calls[0][0].where;
+    expect(JSON.stringify(where)).toContain('"scopeClientOptionId":{"in":[]}');
+  });
+
+  it('masks logged.costCents on rows outside the clients the viewer LEADS; totals sum only visible cost and flag costPartial', async () => {
+    const prisma = makePrisma({
+      groups: [grp('t-acme', { cost: 500n }), grp('t-bolt', { cost: 700n })],
+      candidates: [cand('t-acme', { scopeClientOptionId: 'acme' }), cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+      pageTasks: [cand('t-acme', { scopeClientOptionId: 'acme' }), cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+    });
+    const res = await new WorkReportService(prisma).work({ ...base, scope: LEAD_A_MEMBER_B });
+    const byId = Object.fromEntries(res.items.map((r: any) => [r.taskId, r]));
+    expect(byId['t-acme'].logged.costCents).toBe(500);
+    expect(byId['t-bolt'].logged.costCents).toBeNull();
+    expect(res.totals.costCents).toBe(500);
+    expect((res.totals as any).costPartial).toBe(true);
+  });
+});
+
 describe('WorkReportService.workEntries', () => {
   it('uses the same entry where as the aggregation, limited to the listed tasks', async () => {
     const prisma = makePrisma({ groups: [grp('t2')], candidates: [cand('t2')] });
@@ -249,5 +295,45 @@ describe('WorkReportService.workEntries', () => {
     const res = await new WorkReportService(prisma).workEntries({ ...base });
     expect(res).toEqual({ items: [], truncated: true });
     expect(prisma.clickupTimeEntry.findMany.mock.calls[0][0].take).toBe(5001);
+  });
+
+  it('masks hourlyRateCents/costCents on entries outside the clients the viewer LEADS', async () => {
+    // LEAD of team A (client 'acme'), plain MEMBER of team B (client 'bolt').
+    const LEAD_A_MEMBER_B = resolveScope({
+      role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+      memberships: [
+        { teamId: 'A', role: 'LEAD' },
+        { teamId: 'B', role: 'MEMBER' },
+      ],
+      teamClients: [
+        { teamId: 'A', optionId: 'acme' },
+        { teamId: 'B', optionId: 'bolt' },
+      ],
+      teamMembers: [],
+    });
+    const prisma = makePrisma({ groups: [grp('t-acme'), grp('t-bolt')], candidates: [cand('t-acme'), cand('t-bolt')] });
+    prisma.clickupTimeEntry.findMany.mockResolvedValue([
+      {
+        timeEntryId: 'e-acme', taskId: 't-acme', userId: 'u1', userName: 'A', userEmail: null,
+        startTime: new Date(), endTime: null, durationHours: dec(1), hourlyRateCents: 1500n,
+        costCents: 1500n, currency: 'USD', status: 'COST_CALCULATED', isChargeable: true,
+        chargeableOverride: null, description: null, task: { taskName: 'A', scopeClientOptionId: 'acme' },
+      },
+      {
+        timeEntryId: 'e-bolt', taskId: 't-bolt', userId: 'u1', userName: 'A', userEmail: null,
+        startTime: new Date(), endTime: null, durationHours: dec(1), hourlyRateCents: 1500n,
+        costCents: 1500n, currency: 'USD', status: 'COST_CALCULATED', isChargeable: true,
+        chargeableOverride: null, description: null, task: { taskName: 'B', scopeClientOptionId: 'bolt' },
+      },
+    ]);
+    const res = await new WorkReportService(prisma).workEntries({ ...base, scope: LEAD_A_MEMBER_B });
+    const acme = res.items.find((e) => e.timeEntryId === 'e-acme')!;
+    const bolt = res.items.find((e) => e.timeEntryId === 'e-bolt')!;
+    expect(acme.hourlyRateCents).toBe(1500);
+    expect(acme.costCents).toBe(1500);
+    expect(bolt.hourlyRateCents).toBeNull();
+    expect(bolt.costCents).toBeNull();
+    // Non-cost fields survive the mask.
+    expect(bolt.durationHours).toBe(1);
   });
 });

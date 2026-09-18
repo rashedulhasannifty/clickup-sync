@@ -5,6 +5,15 @@ import { assembleTimesheet, dhakaDate, type TimesheetAggRow } from './timesheet.
 import { defaultFrom, parseDate } from './report-date.util';
 import { buildTimeEntryWhere, NO_TASK_ID } from './report-filter.util';
 import { isPartiallyChargeable, resolveChargeability } from '../time-entries/chargeability';
+import { AccessScope, leadClientIds } from '../access/access-scope';
+import { maskCost } from '../access/cost-mask';
+
+/**
+ * Only reached by callers that haven't threaded a real scope through yet
+ * (e.g. older unit tests). Every HTTP path supplies a real, resolved scope
+ * via the controller's `@Scope()`.
+ */
+const UNRESTRICTED_SCOPE: AccessScope = { kind: 'unrestricted', canEdit: true };
 
 /** Time-entry report queries (timesheets, per-user/client/department rollups, list + aggregates). */
 @Injectable()
@@ -248,13 +257,14 @@ export class TimeEntriesReportService {
     archived?: string,
     sprintStatus?: string,
     subProject?: string,
+    scope: AccessScope = UNRESTRICTED_SCOPE,
   ) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
     const where = await buildTimeEntryWhere(this.prisma, {
       from, to, userId, status, chargeable, search, spaceId, missingOnly,
       client, listId, folderId, archived, sprintStatus, subProject,
-    });
+    }, scope);
 
     // The totals come from the caller's `where` verbatim — the same row set
     // `timeEntriesList` pages with `count({ where })` and `timeEntriesByTask`
@@ -268,10 +278,20 @@ export class TimeEntriesReportService {
     // `status`, not `isChargeable`. Only that half is queried; the
     // non-chargeable side is the remainder, so the two can never disagree.
     const chargeableWhere = { AND: [where, { isChargeable: true }] };
-    const [totalAgg, chargeableAgg, byStatus] = await Promise.all([
+    // Cost is masked at the aggregate level too: `where` is already scoped to
+    // every VISIBLE entry (member or lead), but cost may only be summed over
+    // entries whose client the viewer LEADS. `leadClientIds` is null only when
+    // unrestricted, so this narrows further ONLY for a scoped viewer.
+    const leadIds = leadClientIds(scope);
+    const costWhere =
+      leadIds !== null ? { AND: [where, { task: { scopeClientOptionId: { in: leadIds } } }] } : where;
+    const [totalAgg, chargeableAgg, byStatus, costAgg] = await Promise.all([
       this.prisma.clickupTimeEntry.aggregate({ where, _count: true, _sum: { durationHours: true, costCents: true } }),
-      this.prisma.clickupTimeEntry.aggregate({ where: chargeableWhere, _count: true, _sum: { durationHours: true, costCents: true } }),
+      this.prisma.clickupTimeEntry.aggregate({ where: chargeableWhere, _sum: { durationHours: true } }),
       this.prisma.clickupTimeEntry.groupBy({ by: ['status'], where, _count: true }),
+      leadIds !== null
+        ? this.prisma.clickupTimeEntry.aggregate({ where: costWhere, _count: true, _sum: { costCents: true } })
+        : Promise.resolve(null),
     ]);
 
     const totalEntries = totalAgg._count;
@@ -282,12 +302,19 @@ export class TimeEntriesReportService {
     // aggregates can push the subset above the total. Clamp rather than print a
     // negative figure beside a positive one.
     const nonChargeableHours = Math.max(0, totalHours - chargeableHours);
-    const totalCostCents = Number(totalAgg._sum.costCents ?? 0n);
+    // Every cost total comes from the LEAD-scoped aggregate when the viewer is
+    // scoped (`costAgg`), never from `totalAgg` — that would leak cost from a
+    // client the viewer only has member visibility on.
+    const totalCostCents = Number((costAgg ?? totalAgg)._sum.costCents ?? 0n);
     // Weighted-by-hours average rate — matches what users expect from
     // "avg $X/h": effective rate across all logged time in the period.
     const avgRateCents = totalHours > 0 ? Math.round(totalCostCents / totalHours) : 0;
     const costCalculatedCount = byStatus.find(s => s.status === 'COST_CALCULATED')?._count ?? 0;
     const noRateFoundCount = byStatus.find(s => s.status === 'NO_RATE_FOUND')?._count ?? 0;
+    // True only when the cost aggregate excluded rows the totals above still
+    // count (visible-but-not-led) — i.e. the viewer is scoped AND some entries
+    // in `where` fell outside the lead-scoped cost aggregate.
+    const costPartial = leadIds !== null && totalAgg._count !== (costAgg?._count ?? 0);
 
     return {
       totalEntries,
@@ -298,6 +325,7 @@ export class TimeEntriesReportService {
       avgRateCents,
       costCalculatedCount,
       noRateFoundCount,
+      costPartial,
     };
   }
 
@@ -319,6 +347,7 @@ export class TimeEntriesReportService {
     sprintStatus?: string,
     taskId?: string,
     subProject?: string,
+    scope: AccessScope = UNRESTRICTED_SCOPE,
   ) {
     // Same rationale as `tasks()`: cap allows CSV export to fetch the entire
     // filtered set; normal pagination tops out at 100 rows/page.
@@ -328,7 +357,7 @@ export class TimeEntriesReportService {
     const where = await buildTimeEntryWhere(this.prisma, {
       from, to, userId, status, chargeable, search, spaceId, missingOnly,
       client, listId, folderId, archived, sprintStatus, taskId, subProject,
-    });
+    }, scope);
     const [items, total] = await Promise.all([
       this.prisma.clickupTimeEntry.findMany({
         where,
@@ -340,44 +369,48 @@ export class TimeEntriesReportService {
           startTime: true, endTime: true, durationHours: true, hourlyRateCents: true,
           costCents: true, status: true, description: true, syncedAt: true,
           rateId: true, currency: true, isChargeable: true, chargeableOverride: true,
-          task: { select: { taskName: true, client: true, subProjects: true, listName: true } },
+          task: { select: { taskName: true, client: true, subProjects: true, listName: true, scopeClientOptionId: true } },
         },
       }),
       this.prisma.clickupTimeEntry.count({ where }),
     ]);
     return {
-      items: items.map(e => ({
-        timeEntryId: e.timeEntryId,
-        taskId: e.taskId ?? '',
-        taskName: e.task?.taskName ?? null,
-        client: e.task?.client ?? null,
-        subProjects: e.task?.subProjects ?? [],
-        listName: e.task?.listName ?? null,
-        userId: e.userId ?? '',
-        userName: e.userName,
-        userEmail: e.userEmail,
-        startTime: e.startTime,
-        endTime: e.endTime,
-        durationHours: e.durationHours.toNumber(),
-        hourlyRateCents: Number(e.hourlyRateCents),
-        costAud: Number(e.costCents) / 100,
-        status: e.status,
-        // Resolved and stored on the row itself (see the chargeability
-        // resolver) — not derived from the joined task, which can't see a
-        // per-assignee rule.
-        chargeable: e.isChargeable,
-        // The RAW override, alongside the resolved answer above. The two are
-        // different questions: `chargeable` is what applies, `chargeableOverride`
-        // is whether THIS row is what decided it. Without both, a row reading
-        // "non-chargeable" gives no way to tell an inherited answer from an
-        // explicit one, and no way to know whether "clear override" means
-        // anything here. null = inherited from the rule or the task flag.
-        chargeableOverride: e.chargeableOverride,
-        description: e.description,
-        syncedAt: e.syncedAt,
-        rateId: e.rateId != null ? e.rateId.toString() : null,
-        currency: e.currency ?? 'USD',
-      })),
+      items: items.map(e => maskCost(
+        {
+          timeEntryId: e.timeEntryId,
+          taskId: e.taskId ?? '',
+          taskName: e.task?.taskName ?? null,
+          client: e.task?.client ?? null,
+          subProjects: e.task?.subProjects ?? [],
+          listName: e.task?.listName ?? null,
+          userId: e.userId ?? '',
+          userName: e.userName,
+          userEmail: e.userEmail,
+          startTime: e.startTime,
+          endTime: e.endTime,
+          durationHours: e.durationHours.toNumber(),
+          hourlyRateCents: Number(e.hourlyRateCents),
+          costAud: Number(e.costCents) / 100,
+          status: e.status,
+          // Resolved and stored on the row itself (see the chargeability
+          // resolver) — not derived from the joined task, which can't see a
+          // per-assignee rule.
+          chargeable: e.isChargeable,
+          // The RAW override, alongside the resolved answer above. The two are
+          // different questions: `chargeable` is what applies, `chargeableOverride`
+          // is whether THIS row is what decided it. Without both, a row reading
+          // "non-chargeable" gives no way to tell an inherited answer from an
+          // explicit one, and no way to know whether "clear override" means
+          // anything here. null = inherited from the rule or the task flag.
+          chargeableOverride: e.chargeableOverride,
+          description: e.description,
+          syncedAt: e.syncedAt,
+          rateId: e.rateId != null ? e.rateId.toString() : null,
+          currency: e.currency ?? 'USD',
+        },
+        scope,
+        e.task?.scopeClientOptionId ?? null,
+      )),
       total,
       limit: safeLimit,
       offset,
@@ -427,6 +460,9 @@ export class TimeEntriesReportService {
     sprintStatus?: string;
     limit?: number;
     offset?: number;
+    /** Optional so pre-existing direct callers (e.g. older tests) keep working;
+     *  every HTTP path supplies a real one via the controller's `@Scope()`. */
+    scope?: AccessScope;
   }) {
     // Same rationale as `timeEntriesList`: the cap lets the Excel export pull the
     // whole filtered set in one call; the pager tops out at 100 rows.
@@ -434,7 +470,8 @@ export class TimeEntriesReportService {
     const offset = params.offset ?? 0;
     const from = parseDate(params.from, defaultFrom());
     const to = parseDate(params.to, new Date());
-    const where = await buildTimeEntryWhere(this.prisma, { ...params, from, to });
+    const scope = params.scope ?? UNRESTRICTED_SCOPE;
+    const where = await buildTimeEntryWhere(this.prisma, { ...params, from, to }, scope);
 
     const groups = await this.prisma.clickupTimeEntry.groupBy({
       by: ['taskId', 'userId', 'userName', 'status', 'currency', 'isChargeable'],
@@ -514,7 +551,7 @@ export class TimeEntriesReportService {
     const tasks = taskIds.length
       ? await this.prisma.clickupTask.findMany({
           where: { taskId: { in: taskIds } },
-          select: { taskId: true, taskName: true, client: true, subProjects: true, listName: true },
+          select: { taskId: true, taskName: true, client: true, subProjects: true, listName: true, scopeClientOptionId: true },
         })
       : [];
     const taskById = new Map(tasks.map((t) => [t.taskId, t]));
@@ -522,40 +559,44 @@ export class TimeEntriesReportService {
     return {
       items: page.map((b) => {
         const t = taskById.get(b.taskId);
-        return {
-          taskId: b.taskId,
-          taskName: t?.taskName ?? null,
-          client: t?.client ?? null,
-          subProjects: t?.subProjects ?? [],
-          listName: t?.listName ?? null,
-          entryCount: b.entryCount,
-          assignees: [...b.assignees.entries()]
-            .map(([userId, userName]) => ({ userId, userName }))
-            .sort((x, y) => (x.userName ?? '').localeCompare(y.userName ?? '')),
-          totalHours: b.hours,
-          // `chargeable` is tri-state at the row level: all, none, or some.
-          // Decided by entry counts, not the hours sum — a bucket of only
-          // 0-duration non-chargeable entries must not read as "all
-          // chargeable" just because 0 hours equals 0 hours.
-          chargeable: b.nonChargeableCount === 0,
-          // `rules: []` on purpose. Every other number on this row — hours,
-          // cost, entry count — is scoped to the current filter window, so the
-          // pill must be too. A standing rule for someone whose entries fall
-          // OUTSIDE the window would otherwise print "partial" beside columns
-          // showing nothing partial about them. The Tasks page asks the
-          // unscoped question and does pass rules.
-          partiallyChargeable: isPartiallyChargeable({
-            rules: [],
+        return maskCost(
+          {
+            taskId: b.taskId,
+            taskName: t?.taskName ?? null,
+            client: t?.client ?? null,
+            subProjects: t?.subProjects ?? [],
+            listName: t?.listName ?? null,
             entryCount: b.entryCount,
-            nonChargeableCount: b.nonChargeableCount,
-          }),
-          chargeableHours: b.chargeableHours,
-          costAud: b.validCostCents / 100,
-          missingRateCount: b.missingRateCount,
-          excludedCount: b.excludedCount,
-          lastActivity: b.lastActivity,
-          currency: b.currency ?? 'USD',
-        };
+            assignees: [...b.assignees.entries()]
+              .map(([userId, userName]) => ({ userId, userName }))
+              .sort((x, y) => (x.userName ?? '').localeCompare(y.userName ?? '')),
+            totalHours: b.hours,
+            // `chargeable` is tri-state at the row level: all, none, or some.
+            // Decided by entry counts, not the hours sum — a bucket of only
+            // 0-duration non-chargeable entries must not read as "all
+            // chargeable" just because 0 hours equals 0 hours.
+            chargeable: b.nonChargeableCount === 0,
+            // `rules: []` on purpose. Every other number on this row — hours,
+            // cost, entry count — is scoped to the current filter window, so the
+            // pill must be too. A standing rule for someone whose entries fall
+            // OUTSIDE the window would otherwise print "partial" beside columns
+            // showing nothing partial about them. The Tasks page asks the
+            // unscoped question and does pass rules.
+            partiallyChargeable: isPartiallyChargeable({
+              rules: [],
+              entryCount: b.entryCount,
+              nonChargeableCount: b.nonChargeableCount,
+            }),
+            chargeableHours: b.chargeableHours,
+            costAud: b.validCostCents / 100,
+            missingRateCount: b.missingRateCount,
+            excludedCount: b.excludedCount,
+            lastActivity: b.lastActivity,
+            currency: b.currency ?? 'USD',
+          },
+          scope,
+          t?.scopeClientOptionId ?? null,
+        );
       }),
       total: buckets.size,
       limit: safeLimit,

@@ -1,5 +1,6 @@
 import { TimeEntriesReportService } from '../src/reports/time-entries-report.service';
 import { buildTimeEntryWhere } from '../src/reports/report-filter.util';
+import { resolveScope } from '../src/access/access-scope';
 
 describe('TimeEntriesReportService', () => {
   function makePrisma(overrides: Partial<Record<string, any>> = {}) {
@@ -635,6 +636,53 @@ describe('TimeEntriesReportService', () => {
     });
   });
 
+  describe('timeEntriesAggregates (access scope)', () => {
+    // LEAD of team A (client 'acme'), plain MEMBER of team B (client 'bolt').
+    const LEAD_A_MEMBER_B = resolveScope({
+      role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+      memberships: [
+        { teamId: 'A', role: 'LEAD' },
+        { teamId: 'B', role: 'MEMBER' },
+      ],
+      teamClients: [
+        { teamId: 'A', optionId: 'acme' },
+        { teamId: 'B', optionId: 'bolt' },
+      ],
+      teamMembers: [],
+    });
+
+    it('narrows every cost total to led clients only, and flags costPartial when visible-but-not-led rows exist', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.aggregate
+        // totalAgg: every VISIBLE (member-or-lead) entry — 5 of them. Its
+        // costCents must NEVER surface: that would leak 'bolt' cost.
+        .mockResolvedValueOnce({ _count: 5, _sum: { durationHours: { toNumber: () => 15 }, costCents: BigInt(999999) } })
+        .mockResolvedValueOnce({ _sum: { durationHours: { toNumber: () => 10 } } })
+        // costAgg: only the 3 entries on a LED client.
+        .mockResolvedValueOnce({ _count: 3, _sum: { costCents: BigInt(50000) } });
+      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, LEAD_A_MEMBER_B,
+      );
+      expect(result.totalCostCents).toBe(50000);
+      expect(result.costPartial).toBe(true);
+      const calls = prisma.clickupTimeEntry.aggregate.mock.calls;
+      expect(calls).toHaveLength(3);
+      expect((calls[2][0].where as any).AND).toContainEqual({ task: { scopeClientOptionId: { in: ['acme'] } } });
+    });
+
+    it('unrestricted scope skips the extra cost aggregate and costPartial is false', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.aggregate
+        .mockResolvedValueOnce({ _count: 5, _sum: { durationHours: { toNumber: () => 15 }, costCents: BigInt(100000) } })
+        .mockResolvedValueOnce({ _sum: { durationHours: { toNumber: () => 10 } } });
+      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates();
+      expect(result.totalCostCents).toBe(100000);
+      expect(result.costPartial).toBe(false);
+      expect(prisma.clickupTimeEntry.aggregate.mock.calls).toHaveLength(2);
+    });
+  });
+
   describe('timeEntriesAggregates (chargeable partition)', () => {
     // Regression: the status groupBy (asserted everywhere else in this file)
     // reuses the plain `where`, so it can't catch a bug in the chargeable
@@ -656,7 +704,7 @@ describe('TimeEntriesReportService', () => {
       );
       const expectedWhere = await buildTimeEntryWhere(prisma, {
         from: new Date(from), to: new Date(to), client: 'Acme Corp',
-      });
+      }, { kind: 'unrestricted', canEdit: true });
       const calls = prisma.clickupTimeEntry.aggregate.mock.calls;
       expect(calls).toHaveLength(2);
       expect(calls[0][0].where).toEqual(expectedWhere);
@@ -790,6 +838,74 @@ describe('TimeEntriesReportService', () => {
       ]);
 
       expect(await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1')).toEqual([]);
+    });
+  });
+
+  describe('timeEntriesList (access scope)', () => {
+    // A MEMBER of exactly zero teams: `visibleClientIds` resolves to `[]`, so
+    // the where-clause must pin to an empty IN list (matches nothing) rather
+    // than fall through to "no filter".
+    const NONE = resolveScope({
+      role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+      memberships: [], teamClients: [], teamMembers: [],
+    });
+    // LEAD of team A (client 'acme'), plain MEMBER of team B (client 'bolt').
+    const LEAD_A_MEMBER_B = resolveScope({
+      role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+      memberships: [
+        { teamId: 'A', role: 'LEAD' },
+        { teamId: 'B', role: 'MEMBER' },
+      ],
+      teamClients: [
+        { teamId: 'A', optionId: 'acme' },
+        { teamId: 'B', optionId: 'bolt' },
+      ],
+      teamMembers: [],
+    });
+
+    function entryRow(timeEntryId: string, scopeClientOptionId: string | null) {
+      return {
+        timeEntryId, taskId: 'k1', userId: 'u1', userName: 'Alice', userEmail: 'a@x.com',
+        startTime: new Date('2026-05-01T00:00:00Z'), endTime: null,
+        durationHours: { toNumber: () => 2 }, hourlyRateCents: BigInt(15000),
+        costCents: BigInt(30000), status: 'COST_CALCULATED', billable: true,
+        description: null, syncedAt: new Date('2026-05-01T00:00:00Z'), rateId: 7n, currency: 'USD',
+        isChargeable: true, chargeableOverride: null,
+        task: { taskName: 'T', client: 'Acme', subProjects: [], listName: null, scopeClientOptionId },
+      };
+    }
+
+    it('an empty scope pins the query to an empty id list', async () => {
+      const prisma = makePrisma();
+      await new TimeEntriesReportService(prisma).timeEntriesList(
+        undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, NONE,
+      );
+      const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
+      const and = (arg.where.AND ?? []) as any[];
+      expect(and).toContainEqual({ task: { scopeClientOptionId: { in: [] } } });
+    });
+
+    it('masks cost fields on rows outside the clients the viewer LEADS, keeps them on led rows', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.findMany.mockResolvedValue([entryRow('e-acme', 'acme'), entryRow('e-bolt', 'bolt')]);
+      const result = await new TimeEntriesReportService(prisma).timeEntriesList(
+        undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, LEAD_A_MEMBER_B,
+      );
+      const acme = result.items.find((i) => i.timeEntryId === 'e-acme')!;
+      const bolt = result.items.find((i) => i.timeEntryId === 'e-bolt')!;
+      expect(acme.hourlyRateCents).toBe(15000);
+      expect(acme.costAud).toBe(300);
+      expect(acme.rateId).toBe('7');
+      expect(bolt.hourlyRateCents).toBeNull();
+      expect(bolt.costAud).toBeNull();
+      expect(bolt.rateId).toBeNull();
+      // Non-cost fields (hours, currency) survive the mask.
+      expect(bolt.durationHours).toBe(2);
+      expect(bolt.currency).toBe('USD');
     });
   });
 });
@@ -1010,5 +1126,72 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
     );
     expect(prisma.clickupTimeEntry.groupBy.mock.calls[0][0].where)
       .toEqual(listPrisma.clickupTimeEntry.findMany.mock.calls[0][0].where);
+  });
+});
+
+describe('TimeEntriesReportService.timeEntriesByTask (access scope)', () => {
+  function group(over: Partial<Record<string, any>> = {}) {
+    return {
+      taskId: 't1', userId: 'u1', userName: 'Alice',
+      status: 'COST_CALCULATED', currency: 'USD', isChargeable: true,
+      _count: 1,
+      _sum: { durationHours: { toNumber: () => 1 }, costCents: BigInt(0) },
+      _max: { startTime: new Date('2026-01-10T09:00:00.000Z') },
+      ...over,
+    };
+  }
+  function makePrisma(groups: any[] = [], tasks: any[] = []) {
+    return {
+      clickupTimeEntry: { groupBy: jest.fn().mockResolvedValue(groups) },
+      clickupTask: { findMany: jest.fn().mockResolvedValue(tasks) },
+      $queryRaw: jest.fn().mockResolvedValue([]),
+    } as any;
+  }
+  const svc = (prisma: any) => new TimeEntriesReportService(prisma);
+
+  // A MEMBER of exactly zero teams: `visibleClientIds` resolves to `[]`, so
+  // the where-clause must pin to an empty IN list (matches nothing) rather
+  // than fall through to "no filter".
+  const NONE = resolveScope({
+    role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+    memberships: [], teamClients: [], teamMembers: [],
+  });
+  // LEAD of team A (client 'acme'), plain MEMBER of team B (client 'bolt').
+  const LEAD_A_MEMBER_B = resolveScope({
+    role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+    memberships: [
+      { teamId: 'A', role: 'LEAD' },
+      { teamId: 'B', role: 'MEMBER' },
+    ],
+    teamClients: [
+      { teamId: 'A', optionId: 'acme' },
+      { teamId: 'B', optionId: 'bolt' },
+    ],
+    teamMembers: [],
+  });
+
+  it('an empty scope pins the query to an empty id list', async () => {
+    const prisma = makePrisma([]);
+    await svc(prisma).timeEntriesByTask({ scope: NONE });
+    const where = prisma.clickupTimeEntry.groupBy.mock.calls[0][0].where;
+    expect((where.AND ?? [])).toContainEqual({ task: { scopeClientOptionId: { in: [] } } });
+  });
+
+  it('masks costAud on tasks outside the clients the viewer LEADS, keeps it on led tasks', async () => {
+    const prisma = makePrisma(
+      [
+        group({ taskId: 't-acme', _sum: { durationHours: { toNumber: () => 1 }, costCents: BigInt(500) } }),
+        group({ taskId: 't-bolt', userId: 'u2', userName: 'B', _sum: { durationHours: { toNumber: () => 1 }, costCents: BigInt(700) } }),
+      ],
+      [
+        { taskId: 't-acme', taskName: 'A', client: null, listName: null, scopeClientOptionId: 'acme' },
+        { taskId: 't-bolt', taskName: 'B', client: null, listName: null, scopeClientOptionId: 'bolt' },
+      ],
+    );
+    const { items } = await svc(prisma).timeEntriesByTask({ scope: LEAD_A_MEMBER_B });
+    const acme = items.find((i) => i.taskId === 't-acme')!;
+    const bolt = items.find((i) => i.taskId === 't-bolt')!;
+    expect(acme.costAud).toBe(5);
+    expect(bolt.costAud).toBeNull();
   });
 });

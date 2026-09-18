@@ -1,7 +1,19 @@
 import { buildTimeEntryWhere, csvList, NO_TASK_ID, taskSearchOr, timeEntryTaskSearchOr } from './report-filter.util';
+import { buildTaskWhere } from './task-filter.util';
+import { resolveScope } from '../access/access-scope';
 
 /** The task column each clause targets, e.g. `{ taskName: {...} }` -> 'taskName'. */
 const fieldsOf = (clauses: Record<string, unknown>[]) => clauses.map((c) => Object.keys(c)[0]).sort();
+
+// Shared scopes for every `buildTimeEntryWhere`/`buildTaskWhere` call in this file:
+// ADMIN is unrestricted (adds no clause), NONE is a scoped MEMBER of no team (an
+// empty scope, which must pin to `{ in: [] }` rather than "no filter").
+const ADMIN = resolveScope({
+  role: 'ADMIN', scopingEnabled: true, selfClickupId: null, memberships: [], teamClients: [], teamMembers: [],
+});
+const NONE = resolveScope({
+  role: 'MEMBER', scopingEnabled: true, selfClickupId: null, memberships: [], teamClients: [], teamMembers: [],
+});
 
 describe('taskSearchOr', () => {
   it('searches every short task column the dashboard exposes as a filter', () => {
@@ -84,53 +96,53 @@ describe('buildTimeEntryWhere', () => {
     (where.AND ?? []) as Record<string, unknown>[];
 
   it('matches taskId exactly rather than by substring', async () => {
-    const where = await buildTimeEntryWhere(prisma, { from, to, taskId: '86abc' });
+    const where = await buildTimeEntryWhere(prisma, { from, to, taskId: '86abc' }, ADMIN);
     expect(where.taskId).toBe('86abc');
   });
 
   it('resolves the no-task sentinel to entries with a null taskId', async () => {
-    const where = await buildTimeEntryWhere(prisma, { from, to, taskId: NO_TASK_ID });
+    const where = await buildTimeEntryWhere(prisma, { from, to, taskId: NO_TASK_ID }, ADMIN);
     expect(where.taskId).toBeNull();
   });
 
   it('leaves taskId unconstrained when the caller passes none', async () => {
-    const where = await buildTimeEntryWhere(prisma, { from, to });
+    const where = await buildTimeEntryWhere(prisma, { from, to }, ADMIN);
     expect(where.taskId).toBeUndefined();
   });
 
   it('windows on start_time inclusively at both ends', async () => {
-    const where = await buildTimeEntryWhere(prisma, { from, to });
+    const where = await buildTimeEntryWhere(prisma, { from, to }, ADMIN);
     expect(where.startTime).toEqual({ gte: from, lte: to });
   });
 
   it('splits comma-separated multi-select params into IN clauses', async () => {
-    const where = await buildTimeEntryWhere(prisma, { from, to, client: 'Acme, Beta', userId: 'u1,u2' });
+    const where = await buildTimeEntryWhere(prisma, { from, to, client: 'Acme, Beta', userId: 'u1,u2' }, ADMIN);
     expect(where.userId).toEqual({ in: ['u1', 'u2'] });
     expect(clausesOf(where)).toContainEqual({ task: { client: { in: ['Acme', 'Beta'] } } });
   });
 
   it('filters sub-projects through the task relation with hasSome (exact, any-of)', async () => {
-    const where = await buildTimeEntryWhere(prisma, { from, to, subProject: 'Mobile App,Website' });
+    const where = await buildTimeEntryWhere(prisma, { from, to, subProject: 'Mobile App,Website' }, ADMIN);
     expect(clausesOf(where)).toContainEqual({ task: { subProjects: { hasSome: ['Mobile App', 'Website'] } } });
   });
 
   it('adds no sub-project clause when none is selected', async () => {
-    const where = await buildTimeEntryWhere(prisma, { from, to, subProject: '' });
+    const where = await buildTimeEntryWhere(prisma, { from, to, subProject: '' }, ADMIN);
     expect(JSON.stringify(where)).not.toContain('subProjects');
   });
 
   it('lets missingOnly override an explicit status selection', async () => {
-    const where = await buildTimeEntryWhere(prisma, { from, to, status: 'COST_CALCULATED', missingOnly: 'true' });
+    const where = await buildTimeEntryWhere(prisma, { from, to, status: 'COST_CALCULATED', missingOnly: 'true' }, ADMIN);
     expect(where.status).toBe('NO_RATE_FOUND');
   });
 
   it("keeps task-less entries when archived='exclude'", async () => {
-    const where = await buildTimeEntryWhere(prisma, { from, to, archived: 'exclude' });
+    const where = await buildTimeEntryWhere(prisma, { from, to, archived: 'exclude' }, ADMIN);
     expect(clausesOf(where)).toContainEqual({ NOT: { task: { archived: true } } });
   });
 
   it('still constrains to an empty list when sprintStatus matches no sprints', async () => {
-    const where = await buildTimeEntryWhere(prisma, { from, to, sprintStatus: 'completed' });
+    const where = await buildTimeEntryWhere(prisma, { from, to, sprintStatus: 'completed' }, ADMIN);
     expect(clausesOf(where)).toContainEqual({ task: { listId: { in: [] } } });
   });
 });
@@ -154,18 +166,39 @@ describe('chargeable filter', () => {
     // asserted at the resolver level by `resolveChargeability({})` in
     // `chargeability.spec.ts` — a mocked `where` object here can't observe
     // what the database does with it.
-    const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'true' });
+    const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'true' }, ADMIN);
     expect(clausesOf(where)).toContainEqual({ isChargeable: true });
     expect(JSON.stringify(clausesOf(where))).not.toContain('task');
   });
 
   it('selects only entries flagged non-chargeable', async () => {
-    const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'false' });
+    const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'false' }, ADMIN);
     expect(clausesOf(where)).toContainEqual({ isChargeable: false });
   });
 
   it('no longer constrains the entry\'s own billable column', async () => {
-    const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'false' });
+    const where = await buildTimeEntryWhere(prisma, { from, to, chargeable: 'false' }, ADMIN);
     expect(where.billable).toBeUndefined();
+  });
+});
+
+describe('buildTimeEntryWhere scope', () => {
+  const win = { from: new Date('2026-01-01'), to: new Date('2026-02-01') };
+
+  it('unrestricted adds no scope clause', async () => {
+    const w = await buildTimeEntryWhere({ $queryRaw: jest.fn().mockResolvedValue([]) } as never, win, ADMIN);
+    expect(JSON.stringify(w)).not.toContain('scopeClientOptionId');
+  });
+
+  it('empty scope pins to an empty id list (matches nothing)', async () => {
+    const w = await buildTimeEntryWhere({ $queryRaw: jest.fn().mockResolvedValue([]) } as never, win, NONE);
+    expect(w.AND).toContainEqual({ task: { scopeClientOptionId: { in: [] } } });
+  });
+});
+
+describe('buildTaskWhere scope', () => {
+  it('empty scope pins to an empty id list', async () => {
+    const w = await buildTaskWhere({ $queryRaw: jest.fn().mockResolvedValue([]) } as never, {}, NONE);
+    expect(w.AND).toContainEqual({ scopeClientOptionId: { in: [] } });
   });
 });

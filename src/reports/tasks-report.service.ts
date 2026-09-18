@@ -4,6 +4,15 @@ import { PrismaService } from '../database/prisma.service';
 import { parseDate } from './report-date.util';
 import { buildTaskWhere, TASK_LIST_SELECT } from './task-filter.util';
 import { isPartiallyChargeable } from '../time-entries/chargeability';
+import { AccessScope } from '../access/access-scope';
+import { maskCost } from '../access/cost-mask';
+
+/**
+ * Only reached by callers that haven't threaded a real scope through yet
+ * (e.g. older unit tests calling `tasks()` directly). Every HTTP path
+ * supplies a real, resolved scope via the controller's `@Scope()`.
+ */
+const UNRESTRICTED_SCOPE: AccessScope = { kind: 'unrestricted', canEdit: true };
 
 /** Task-centric report queries (counts, filters, per-space aggregates). */
 @Injectable()
@@ -226,6 +235,7 @@ export class TasksReportService {
     sprintStatus?: string,
     chargeable?: string,
     subProject?: string,
+    scope: AccessScope = UNRESTRICTED_SCOPE,
   ) {
     // Cap kept generous so the dashboard's "Export CSV" can pull a complete
     // filtered set in one shot. The page UI never offers > 100 rows/page, so
@@ -235,7 +245,7 @@ export class TasksReportService {
       spaceId, status, search, from: fromParam, to: toParam, priority,
       assigneeNames: assigneeId, type, archived, client, taskIds, listId,
       folderId, sprintStatus, chargeable, subProject,
-    });
+    }, scope);
     const [items, total] = await Promise.all([
       this.prisma.clickupTask.findMany({
         where,
@@ -293,19 +303,23 @@ export class TasksReportService {
     const MS_PER_H = 3600000;
     return {
       items: items.map((t) => {
-        const { timeEstimate, timeSpent, cost, estimation, ...rest } = t;
-        return {
-          ...rest,
-          partiallyChargeable: isPartiallyChargeable({
-            taskChargeable: t.isChargeable,
-            rules: rulesByTask.get(t.taskId) ?? [],
-            ...(countsByTask.get(t.taskId) ?? {}),
-          }),
-          cost: cost.toNumber(),
-          estimation: estimation.toNumber(),
-          timeEstimateHours: timeEstimate != null ? Number(timeEstimate) / MS_PER_H : null,
-          timeSpentHours: timeSpent != null ? Number(timeSpent) / MS_PER_H : null,
-        };
+        const { timeEstimate, timeSpent, cost, estimation, scopeClientOptionId, ...rest } = t;
+        return maskCost(
+          {
+            ...rest,
+            partiallyChargeable: isPartiallyChargeable({
+              taskChargeable: t.isChargeable,
+              rules: rulesByTask.get(t.taskId) ?? [],
+              ...(countsByTask.get(t.taskId) ?? {}),
+            }),
+            cost: cost.toNumber(),
+            estimation: estimation.toNumber(),
+            timeEstimateHours: timeEstimate != null ? Number(timeEstimate) / MS_PER_H : null,
+            timeSpentHours: timeSpent != null ? Number(timeSpent) / MS_PER_H : null,
+          },
+          scope,
+          scopeClientOptionId,
+        );
       }),
       total,
       limit: safeLimit,

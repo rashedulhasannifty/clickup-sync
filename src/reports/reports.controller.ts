@@ -102,6 +102,7 @@ export class ReportsController {
   @Get('tasks')
   @ApiOperation({ summary: 'Paginated task list with filters. `status`, `priority`, `assigneeId`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `archived`: exclude (default, hide archived) | include | only (archived tasks). `sprintStatus=active|completed|all` (default `all`) scopes to tasks whose list (sprint) is/isn\'t archived. `chargeable=true|false|partial` filters on the task flag together with its (task, assignee) rules: `partial` means a rule disagrees with the flag, `true`/`false` mean the flag with no such rule. The three are mutually exclusive. Soft-deleted rows are always excluded.' })
   tasks(
+    @Scope() scope: AccessScope,
     @Query('spaceId') spaceId?: string,
     @Query('status') status?: string,
     @Query('search') search?: string,
@@ -121,7 +122,7 @@ export class ReportsController {
     @Query('chargeable') chargeable?: string,
     @Query('subProject') subProject?: string,
   ) {
-    return this.tasksReports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId, normalizeSprintStatus(sprintStatus, 'all'), chargeable, subProject);
+    return this.tasksReports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId, normalizeSprintStatus(sprintStatus, 'all'), chargeable, subProject, scope);
   }
 
   @Get('tasks/:taskId/description')
@@ -197,6 +198,7 @@ export class ReportsController {
   @Get('time-entries/aggregates')
   @ApiOperation({ summary: 'Server-side aggregates for the Time Entries page metric cards. Accepts the same filters as /time-entries, including the same comma-separated multi-value support and `sprintStatus`.' })
   timeEntriesAggregates(
+    @Scope() scope: AccessScope,
     @Query('userId') userId?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -212,7 +214,7 @@ export class ReportsController {
     @Query('sprintStatus') sprintStatus?: string,
     @Query('subProject') subProject?: string,
   ) {
-    return this.timeEntriesReports.timeEntriesAggregates(userId, from, to, status, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), subProject);
+    return this.timeEntriesReports.timeEntriesAggregates(userId, from, to, status, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), subProject, scope);
   }
 
   @Get('time-entries/cost-trend')
@@ -269,6 +271,7 @@ export class ReportsController {
   @Get('time-entries/by-task')
   @ApiOperation({ summary: 'The time entry list grouped by task: one row per task with summed hours, valid cost, entry count and distinct assignees. Accepts exactly the same filters as /time-entries (same comma-separated multi-value support), so a row\'s total always equals the sum of the entries /time-entries returns for the same filters plus `taskId`. `total` is the number of TASKS, not entries. Entries with no task are grouped under the synthetic task id `__none__`. Cost sums only entries that have a rate — `missingRateCount` reports how many did not.' })
   timeEntriesByTask(
+    @Scope() scope: AccessScope,
     @Query('userId') userId?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -290,12 +293,14 @@ export class ReportsController {
       userId, from, to, status, limit: Number(limit) || 50, offset: Number(offset) || 0,
       chargeable, search, spaceId, missingOnly, client, subProject, listId, folderId, archived,
       sprintStatus: normalizeSprintStatus(sprintStatus, 'all'),
+      scope,
     });
   }
 
   @Get('time-entries')
   @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, sprintStatus). `userId`, `status`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `missingOnly=true` overrides `status`. `archived` filters by the joined task: `exclude` (hide archived-task entries + keep task-less entries), `only`, or `include`/omitted (no constraint). `sprintStatus=active|completed|all` (default `all`) scopes to entries whose task\'s list (sprint) is/isn\'t archived, dropping task-less entries. `taskId` matches one task exactly (use `__none__` for entries with no task) — this is how the grouped view expands a row. `chargeable=true|false` filters on each entry\'s own resolved chargeability; entries with no task default to chargeable.' })
   timeEntriesList(
+    @Scope() scope: AccessScope,
     @Query('userId') userId?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -315,7 +320,7 @@ export class ReportsController {
     @Query('subProject') subProject?: string,
   ) {
     return this.timeEntriesReports.timeEntriesList(
-      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), taskId, subProject,
+      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), taskId, subProject, scope,
     );
   }
 
@@ -452,6 +457,7 @@ export class ReportsController {
 
   /** Both /work routes take the same params; one mapper keeps them identical. */
   private static workParams(
+    scope: AccessScope,
     from?: string, to?: string, spaceId?: string, search?: string, status?: string, priority?: string,
     type?: string, assignedTo?: string, loggedBy?: string, costStatus?: string, missingOnly?: string,
     client?: string, subProject?: string, listId?: string, folderId?: string, archived?: string,
@@ -464,12 +470,14 @@ export class ReportsController {
       chargeable, sort, dir,
       limit: Number(limit) || 50,
       offset: Number(offset) || 0,
+      scope,
     };
   }
 
   @Get('work')
   @ApiOperation({ summary: 'The Tasks & time (/work) page: every task with activity in [from, to] — updated in range OR with time logged in range — each carrying the in-range time on it (`logged`, null when none). Task filters (status, priority, type, assignedTo=task assignee names, search) choose rows. Entry filters (loggedBy=entry userIds, costStatus, missingOnly) choose which entries are counted and hide tasks left with none. Task attributes (client, subProject, listId, folderId, archived — default include, sprintStatus) apply to both. `chargeable=true|false|partial` filters on the row pill before paging. `sort=logged|updated|name|cost|lastActivity` (default logged), `dir=asc|desc` (default desc). `totals` sums every matching row, not the page. Entries with no task appear as `__none__` only when no task filter is set.' })
   work(
+    @Scope() scope: AccessScope,
     @Query('from') from?: string, @Query('to') to?: string, @Query('spaceId') spaceId?: string,
     @Query('search') search?: string, @Query('status') status?: string, @Query('priority') priority?: string,
     @Query('type') type?: string, @Query('assignedTo') assignedTo?: string, @Query('loggedBy') loggedBy?: string,
@@ -481,7 +489,7 @@ export class ReportsController {
     @Query('limit') limit?: string, @Query('offset') offset?: string,
   ) {
     return this.workReports.work(ReportsController.workParams(
-      from, to, spaceId, search, status, priority, type, assignedTo, loggedBy, costStatus, missingOnly,
+      scope, from, to, spaceId, search, status, priority, type, assignedTo, loggedBy, costStatus, missingOnly,
       client, subProject, listId, folderId, archived, sprintStatus, chargeable, sort, dir, limit, offset,
     ));
   }
@@ -489,6 +497,7 @@ export class ReportsController {
   @Get('work/entries')
   @ApiOperation({ summary: 'Every counted time entry behind the rows /reports/work lists for the same params (used by the two-sheet export). Newest first, capped at 5000: over the cap it returns no items and `truncated: true` rather than a partial list, so an export can never disagree with its Tasks sheet.' })
   workEntries(
+    @Scope() scope: AccessScope,
     @Query('from') from?: string, @Query('to') to?: string, @Query('spaceId') spaceId?: string,
     @Query('search') search?: string, @Query('status') status?: string, @Query('priority') priority?: string,
     @Query('type') type?: string, @Query('assignedTo') assignedTo?: string, @Query('loggedBy') loggedBy?: string,
@@ -499,6 +508,7 @@ export class ReportsController {
     @Query('sort') sort?: string, @Query('dir') dir?: string,
   ) {
     return this.workReports.workEntries(ReportsController.workParams(
+      scope,
       from, to, spaceId, search, status, priority, type, assignedTo, loggedBy, costStatus, missingOnly,
       client, subProject, listId, folderId, archived, sprintStatus, chargeable, sort, dir, undefined, undefined,
     ));

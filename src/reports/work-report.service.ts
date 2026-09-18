@@ -9,6 +9,8 @@ import {
   type ChargeableSource, type EntryBucket, type ResolvedRow, type RowChargeable,
   type TaskChargeInputs, type WorkCandidate,
 } from './work.assemble';
+import { AccessScope, canSeeCost } from '../access/access-scope';
+import { maskCost } from '../access/cost-mask';
 
 /** Query params of `/reports/work` and `/reports/work/entries`. */
 export interface WorkParams {
@@ -40,9 +42,23 @@ export interface WorkParams {
   dir?: string;
   limit?: number;
   offset?: number;
+  /** Optional so pre-existing direct callers (e.g. older tests) keep working;
+   *  every HTTP path supplies a real one via the controller's `@Scope()`. */
+  scope?: AccessScope;
 }
 
+/**
+ * Only reached when `WorkParams.scope` is omitted (older direct callers).
+ * Every HTTP path supplies a real, resolved scope via the controller.
+ */
+const UNRESTRICTED_SCOPE: AccessScope = { kind: 'unrestricted', canEdit: true };
+
 type PillRow = ResolvedRow & { pill?: { chargeable: RowChargeable; source: ChargeableSource } };
+/** A candidate task carrying the client-scope id needed to mask its cost. */
+type CandidateWithScope = WorkCandidate & { scopeClientOptionId: string | null };
+/** One resolved /work row, scope id included so both `toItem` and the totals
+ *  can decide cost visibility per row without a second task fetch. */
+type Row = PillRow & { scopeClientOptionId: string | null };
 
 const MS_PER_H = 3_600_000;
 /** Same cap as the Time Entries export. */
@@ -93,6 +109,7 @@ export class WorkReportService {
     // would reach `rows.slice` untouched and slice from the wrong end.
     const limit = Math.min(Math.max(p.limit ?? 50, 1), 5000);
     const offset = Math.max(p.offset ?? 0, 0);
+    const scope = p.scope ?? UNRESTRICTED_SCOPE;
     const { rows, candidatesById } = await this.resolveRows(p);
     const page = rows.slice(offset, offset + limit);
 
@@ -108,17 +125,28 @@ export class WorkReportService {
       : [];
     const fullById = new Map(full.map((t) => [t.taskId, t]));
 
+    // `sumTotals` sums every matching row's cost regardless of visibility —
+    // narrow it to rows the viewer LEADS, and flag when anything was excluded
+    // (`totals.cost` must never leak a member-visible-only client's cost).
+    const rawTotals = sumTotals(rows);
+    const visibleCostCents = rows.reduce(
+      (sum, r) => sum + (canSeeCost(scope, r.scopeClientOptionId) ? (r.bucket?.costCents ?? 0) : 0),
+      0,
+    );
+    const costPartial = rows.some((r) => !canSeeCost(scope, r.scopeClientOptionId));
+
     return {
-      items: page.map((r) => this.toItem(r, fullById.get(r.taskId))),
+      items: page.map((r) => this.toItem(r, fullById.get(r.taskId), scope)),
       total: rows.length,
       limit,
       offset,
-      totals: sumTotals(rows),
+      totals: { ...rawTotals, costCents: visibleCostCents, costPartial },
     };
   }
 
   /** Every counted entry behind the rows `work(p)` would list (export). */
   async workEntries(p: WorkParams) {
+    const scope = p.scope ?? UNRESTRICTED_SCOPE;
     const { rows, entryWhere } = await this.resolveRows(p);
     const taskIds = rows.map((r) => r.taskId).filter((id) => id !== NO_TASK_ID);
     const or: Prisma.ClickupTimeEntryWhereInput[] = [];
@@ -133,7 +161,8 @@ export class WorkReportService {
         timeEntryId: true, taskId: true, userId: true, userName: true, userEmail: true,
         startTime: true, endTime: true, durationHours: true, hourlyRateCents: true,
         costCents: true, currency: true, status: true, isChargeable: true,
-        chargeableOverride: true, description: true, task: { select: { taskName: true } },
+        chargeableOverride: true, description: true,
+        task: { select: { taskName: true, scopeClientOptionId: true } },
       },
     });
     // Over the cap, return nothing rather than a partial list: a workbook whose
@@ -141,24 +170,28 @@ export class WorkReportService {
     // than no workbook. The page tells the user to narrow the filters.
     if (found.length > MAX_EXPORT_ENTRIES) return { items: [], truncated: true };
     return {
-      items: found.map((e) => ({
-        timeEntryId: e.timeEntryId,
-        taskId: e.taskId,
-        taskName: e.task?.taskName ?? null,
-        userId: e.userId,
-        userName: e.userName,
-        userEmail: e.userEmail,
-        startTime: e.startTime,
-        endTime: e.endTime,
-        durationHours: e.durationHours.toNumber(),
-        hourlyRateCents: Number(e.hourlyRateCents),
-        costCents: Number(e.costCents),
-        currency: e.currency,
-        status: e.status,
-        chargeable: e.isChargeable,
-        chargeableOverride: e.chargeableOverride,
-        description: e.description,
-      })),
+      items: found.map((e) => maskCost(
+        {
+          timeEntryId: e.timeEntryId,
+          taskId: e.taskId,
+          taskName: e.task?.taskName ?? null,
+          userId: e.userId,
+          userName: e.userName,
+          userEmail: e.userEmail,
+          startTime: e.startTime,
+          endTime: e.endTime,
+          durationHours: e.durationHours.toNumber(),
+          hourlyRateCents: Number(e.hourlyRateCents),
+          costCents: Number(e.costCents),
+          currency: e.currency,
+          status: e.status,
+          chargeable: e.isChargeable,
+          chargeableOverride: e.chargeableOverride,
+          description: e.description,
+        },
+        scope,
+        e.task?.scopeClientOptionId ?? null,
+      )),
       truncated: false,
     };
   }
@@ -206,7 +239,7 @@ export class WorkReportService {
 
     const candidates = await this.candidates(p, from, to, buckets);
     const candidatesById = new Map(candidates.map((c) => [c.taskId, c]));
-    let rows: PillRow[] = candidates.map((c) => {
+    let rows: Row[] = candidates.map((c) => {
       const bucket = buckets.get(c.taskId);
       return { ...c, bucket, inRangeBecause: inRangeBecause(c, bucket, from, to) };
     });
@@ -240,7 +273,7 @@ export class WorkReportService {
       folderId: p.folderId,
       archived: p.archived,
       sprintStatus: p.sprintStatus,
-    });
+    }, p.scope ?? UNRESTRICTED_SCOPE);
     // buildTimeEntryWhere's own space clause adds `isDeleted: false`, which
     // would drop deleted tasks' time only when a space is picked.
     return p.spaceId ? { AND: [where, { task: { spaceId: p.spaceId } }] } : where;
@@ -251,12 +284,12 @@ export class WorkReportService {
     from: Date,
     to: Date,
     buckets: Map<string, EntryBucket>,
-  ): Promise<WorkCandidate[]> {
+  ): Promise<CandidateWithScope[]> {
     const taskBase = await buildTaskWhere(this.prisma, {
       spaceId: p.spaceId, status: p.status, priority: p.priority, type: p.type,
       assigneeNames: p.assignedTo, client: p.client, subProject: p.subProject,
       listId: p.listId, folderId: p.folderId, archived: p.archived, sprintStatus: p.sprintStatus,
-    }, { dateWindow: false, excludeDeleted: false });
+    }, p.scope ?? UNRESTRICTED_SCOPE, { dateWindow: false, excludeDeleted: false });
 
     const bucketIds = [...buckets.keys()].filter((id) => id !== NO_TASK_ID);
     const inclusion: Prisma.ClickupTaskWhereInput = WorkReportService.entryFiltersActive(p)
@@ -273,13 +306,18 @@ export class WorkReportService {
 
     const found = await this.prisma.clickupTask.findMany({
       where: { AND: and },
-      select: { taskId: true, taskName: true, updatedDate: true, isDeleted: true, isChargeable: true },
+      select: { taskId: true, taskName: true, updatedDate: true, isDeleted: true, isChargeable: true, scopeClientOptionId: true },
     });
-    const out: WorkCandidate[] = found;
+    const out: CandidateWithScope[] = found;
     // Entries with no task: one synthetic row, only when no task-only filter
     // could have excluded it (a task-less entry has no status/priority/name).
+    // No client to scope it by — `null` reads as visible-cost only when the
+    // viewer is unrestricted (see `canSeeCost`), same as before scoping existed.
     if (buckets.has(NO_TASK_ID) && !WorkReportService.taskOnlyFiltersActive(p)) {
-      out.push({ taskId: NO_TASK_ID, taskName: null, updatedDate: null, isDeleted: false, isChargeable: true });
+      out.push({
+        taskId: NO_TASK_ID, taskName: null, updatedDate: null, isDeleted: false, isChargeable: true,
+        scopeClientOptionId: null,
+      });
     }
     return out;
   }
@@ -310,10 +348,17 @@ export class WorkReportService {
     return out;
   }
 
-  private toItem(r: PillRow, t: Prisma.ClickupTaskGetPayload<{ select: typeof TASK_LIST_SELECT }> | undefined) {
+  private toItem(
+    r: Row,
+    t: Prisma.ClickupTaskGetPayload<{ select: typeof TASK_LIST_SELECT }> | undefined,
+    scope: AccessScope,
+  ) {
     const b = r.bucket;
     // Drop the raw BigInt/Decimal columns: timeEstimate/timeSpent are re-added as hours below; cost/estimation are not used by /work.
     const { timeEstimate, timeSpent, cost: _cost, estimation: _estimation, ...rest } = t ?? ({} as Partial<NonNullable<typeof t>>);
+    // `logged.costCents` is the only money figure this response carries — masked
+    // per row here rather than via `maskCost` because it's nested, not top-level.
+    const canSee = canSeeCost(scope, r.scopeClientOptionId);
     return {
       // `rest` is `{}` for the synthetic NO_TASK_ID row (no task to spread
       // from); fill every spec-declared field with its default first so
@@ -332,7 +377,7 @@ export class WorkReportService {
         entryCount: b.entryCount,
         hours: b.hours,
         chargeableHours: b.chargeableHours,
-        costCents: b.costCents,
+        costCents: canSee ? b.costCents : null,
         currency: b.currency ?? 'USD',
         missingRateCount: b.missingRateCount,
         excludedCount: b.excludedCount,

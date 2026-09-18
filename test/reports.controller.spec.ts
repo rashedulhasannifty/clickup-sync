@@ -288,7 +288,7 @@ describe('ReportsController', () => {
     it('passes filters through, normalizes sprintStatus and numbers', async () => {
       const work = { work: jest.fn().mockResolvedValue({ items: [] }), workEntries: jest.fn() };
       const ctrl = makeCtrl({ work });
-      await ctrl.work('2026-09-01', '2026-09-14', 's1', 'checkout', 'complete', undefined, undefined, 'Sam', 'u1', undefined, 'true', 'Acme', undefined, undefined, undefined, 'include', 'bogus', 'partial', 'cost', 'asc', '25', '50');
+      await ctrl.work(OWNER_SCOPE, '2026-09-01', '2026-09-14', 's1', 'checkout', 'complete', undefined, undefined, 'Sam', 'u1', undefined, 'true', 'Acme', undefined, undefined, undefined, 'include', 'bogus', 'partial', 'cost', 'asc', '25', '50');
       expect(work.work).toHaveBeenCalledWith(expect.objectContaining({
         from: '2026-09-01', to: '2026-09-14', spaceId: 's1', search: 'checkout', status: 'complete',
         assignedTo: 'Sam', loggedBy: 'u1', missingOnly: 'true', client: 'Acme', archived: 'include',
@@ -299,7 +299,7 @@ describe('ReportsController', () => {
     it('entries route reuses the same params', async () => {
       const work = { work: jest.fn(), workEntries: jest.fn().mockResolvedValue({ items: [], truncated: false }) };
       const ctrl = makeCtrl({ work });
-      await ctrl.workEntries('2026-09-01', '2026-09-14');
+      await ctrl.workEntries(OWNER_SCOPE, '2026-09-01', '2026-09-14');
       expect(work.workEntries).toHaveBeenCalledWith(expect.objectContaining({ from: '2026-09-01', sprintStatus: 'all' }));
     });
   });
@@ -369,6 +369,7 @@ describe('ReportsController', () => {
 
     function callTasks(ctrl: ReportsController, sprintStatus?: string, chargeable?: string) {
       return ctrl.tasks(
+        OWNER_SCOPE,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         sprintStatus, chargeable,
@@ -454,6 +455,7 @@ describe('ReportsController', () => {
       const timeEntries = { timeEntriesList: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
       const ctrl = makeCtrl({ timeEntries });
       await ctrl.timeEntriesList(
+        OWNER_SCOPE,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, 'active',
@@ -465,6 +467,7 @@ describe('ReportsController', () => {
       const timeEntries = { timeEntriesList: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
       const ctrl = makeCtrl({ timeEntries });
       await ctrl.timeEntriesList(
+        OWNER_SCOPE,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, 'nonsense',
@@ -476,6 +479,7 @@ describe('ReportsController', () => {
       const timeEntries = { timeEntriesList: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
       const ctrl = makeCtrl({ timeEntries });
       await ctrl.timeEntriesList(
+        OWNER_SCOPE,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, '86abc123',
@@ -493,6 +497,7 @@ describe('ReportsController', () => {
       const timeEntries = makeGrouped();
       const ctrl = makeCtrl({ timeEntries });
       await ctrl.timeEntriesByTask(
+        OWNER_SCOPE,
         'u1,u2', '2026-01-01', '2026-02-01', 'NO_RATE_FOUND', '25', '50',
         'true', 'webhook', 'space-1', undefined, 'Acme', 'list-1', 'folder-1', 'exclude', 'active',
       );
@@ -500,7 +505,7 @@ describe('ReportsController', () => {
         userId: 'u1,u2', from: '2026-01-01', to: '2026-02-01', status: 'NO_RATE_FOUND',
         limit: 25, offset: 50, chargeable: 'true', search: 'webhook', spaceId: 'space-1',
         missingOnly: undefined, client: 'Acme', listId: 'list-1', folderId: 'folder-1',
-        archived: 'exclude', sprintStatus: 'active',
+        archived: 'exclude', sprintStatus: 'active', scope: OWNER_SCOPE,
       });
     });
 
@@ -508,6 +513,7 @@ describe('ReportsController', () => {
       const timeEntries = makeGrouped();
       const ctrl = makeCtrl({ timeEntries });
       await ctrl.timeEntriesByTask(
+        OWNER_SCOPE,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, 'nonsense',
@@ -518,7 +524,7 @@ describe('ReportsController', () => {
     it('falls back to a 50-task page when limit/offset are absent', async () => {
       const timeEntries = makeGrouped();
       const ctrl = makeCtrl({ timeEntries });
-      await ctrl.timeEntriesByTask();
+      await ctrl.timeEntriesByTask(OWNER_SCOPE);
       expect(timeEntries.timeEntriesByTask.mock.calls[0][0]).toMatchObject({ limit: 50, offset: 0 });
     });
   });
