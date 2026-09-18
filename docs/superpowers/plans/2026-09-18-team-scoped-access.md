@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-18-team-scoped-access-design.md`. Read it before starting any task; this plan argues from it.
 
+**Delivery: two PRs.** PR 1 = Tasks 1–14: backend scoping, dark behind the flag, no UI change, safe to merge on its own. PR 2 = Tasks 15–19: teams management, invites, web UI, rollout switch. Don't ship all 19 tasks as one branch.
+
 ## Global Constraints
 
 - Org `Role` enum (OWNER / ADMIN / MEMBER) is unchanged. "Lead" is `TeamMember.role = LEAD`.
@@ -19,7 +21,7 @@
 - A client (ClickUp option id) belongs to at most one team (`team_clients.option_id` is the PK).
 - Scope is resolved **per request** and never cached across requests.
 - Access filters read **only** `clickup_tasks.scope_client_option_id`, never the `client` name.
-- Cost fields (`costCents`, `hourlyRateCents`, `rateId`, `currency`, task `cost`, task `estimation`, cost aggregates) are set to `null` on rows whose client the viewer does not LEAD. Aggregates sum only visible cost and return `costPartial: true` when rows were excluded.
+- Cost fields (`costCents`, `hourlyRateCents`, `rateId`, task `cost`, task `estimation`, cost aggregates; not `currency`) are set to `null` on rows whose client the viewer does not LEAD. Aggregates sum only visible cost and return `costPartial: true` when rows were excluded.
 - Chargeability writes by a lead are all-or-nothing: one out-of-scope id means a 403 for the whole request.
 - `scope_client_option_id` is **derived**, written by sync. It is not a local annotation. `isChargeable` / `chargeableOverride` stay sync-untouchable (existing guardrails).
 - No Xero write endpoints, no rate/finance exposure to scoped users.
@@ -397,8 +399,8 @@ describe('maskCost', () => {
     expect(maskCost(row, lead, 'acme')).toEqual(row);
   });
 
-  it('nulls every cost field on a MEMBER client, keeps hours', () => {
-    expect(maskCost(row, lead, 'bolt')).toEqual({ ...row, costCents: null, hourlyRateCents: null, rateId: null, currency: null });
+  it('nulls every cost field on a MEMBER client, keeps hours and the currency label', () => {
+    expect(maskCost(row, lead, 'bolt')).toEqual({ ...row, costCents: null, hourlyRateCents: null, rateId: null });
   });
 
   it('only touches fields present on the row', () => {
@@ -467,8 +469,10 @@ export function taskIdInScopeSql(s: AccessScope, column: string): Prisma.Sql {
 import { AccessScope, canSeeCost } from './access-scope';
 
 /** Every money field a report row can carry. Hours are never masked. */
+// `currency` is deliberately absent: it's a label, not an amount, and keeping it a
+// non-null string lets the web type every cost field as `number | null`.
 export const COST_FIELDS = [
-  'costCents', 'hourlyRateCents', 'rateId', 'currency', 'cost', 'estimation',
+  'costCents', 'hourlyRateCents', 'rateId', 'cost', 'estimation',
   'validCostCents', 'costAud', 'totalCostAud', 'totalCostCents',
 ] as const;
 
@@ -690,12 +694,24 @@ describe('TasksRepository.upsert scope_client_option_id', () => {
     expect(tx.clickupTask.upsert.mock.calls[0][0].update.scopeClientOptionId).toBe('acme');
   });
 
-  it('propagates to client-less children', async () => {
+  it('propagates to client-less children, touching only rows that actually differ', async () => {
     const { repo, tx } = setup();
     await repo.upsert(makeTask({ taskId: 'p1', clientOptionId: 'bolt', parentTaskId: null }));
     expect(tx.clickupTask.updateMany).toHaveBeenCalledWith({
-      where: { parentTaskId: 'p1', clientOptionId: null },
+      where: {
+        parentTaskId: 'p1', clientOptionId: null,
+        OR: [{ scopeClientOptionId: null }, { scopeClientOptionId: { not: 'bolt' } }],
+      },
       data: { scopeClientOptionId: 'bolt' },
+    });
+  });
+
+  it('a null scope only clears children that currently have one', async () => {
+    const { repo, tx } = setup();
+    await repo.upsert(makeTask({ taskId: 'p1', clientOptionId: null, parentTaskId: null }));
+    expect(tx.clickupTask.updateMany).toHaveBeenCalledWith({
+      where: { parentTaskId: 'p1', clientOptionId: null, scopeClientOptionId: { not: null } },
+      data: { scopeClientOptionId: null },
     });
   });
 
@@ -734,9 +750,18 @@ Also update the existing `setup()` helpers in this file so `prisma` provides `$t
         create: { ...shared, scopeClientOptionId, syncCount: 1 },
         update: { ...update, scopeClientOptionId },
       });
-      // Subtasks without their own client follow this task's scope.
+      // Subtasks without their own client follow this task's scope. This runs for
+      // EVERY upsert (whole-space reconciles on a 1.9 GB host), so it must only
+      // match rows that actually differ — an unchanged parent is an indexed no-op.
+      // Prisma's `not` excludes NULLs, hence the explicit OR.
       await tx.clickupTask.updateMany({
-        where: { parentTaskId: task.taskId, clientOptionId: null },
+        where: {
+          parentTaskId: task.taskId,
+          clientOptionId: null,
+          ...(scopeClientOptionId === null
+            ? { scopeClientOptionId: { not: null } }
+            : { OR: [{ scopeClientOptionId: null }, { scopeClientOptionId: { not: scopeClientOptionId } }] }),
+        },
         data: { scopeClientOptionId },
       });
       return row;
@@ -745,6 +770,8 @@ Also update the existing `setup()` helpers in this file so `prisma` provides `$t
 ```
 
 - [ ] **Step 4: Run** `npx jest src/tasks test/` → PASS; `npm run build` → OK.
+
+- [ ] **Step 4b: Performance check.** Locally, run a full space backfill (`POST /admin/sync/backfill` for the largest space, lookback 3650) before and after this change and compare the `sync_job_logs` durations. The per-task transaction adds two indexed round-trips. If the duration grows by more than ~25%, move the child propagation out of `upsert` into one set-based `UPDATE ... FROM` at the end of `TasksService.syncTasks`, and keep only the webhook path per-task.
 
 - [ ] **Step 5: Write the backfill script** `src/scripts/backfill-client-option-ids.ts`, modelled on `src/scripts/backfill-sub-projects.ts` (same header style, same `PrismaClient` + `PrismaPg` + `buildPgPoolConfig` setup, same `--dry-run` flag, `BATCH = 500`, cursor over `taskId`):
 
@@ -1344,7 +1371,7 @@ git commit -m "feat(access): per-request scope guard, @Scope decorator, /auth/me
 import 'reflect-metadata';
 import { ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 import { Role } from '@prisma/client';
-import { ROLES_KEY } from '../auth/decorators';
+import { IS_PUBLIC_KEY, ROLES_KEY } from '../auth/decorators';
 import { ReportsController } from '../reports/reports.controller';
 import { AdminTasksController } from '../admin/admin-tasks.controller';
 import { scopeFactory } from './scope.decorator';
@@ -1374,7 +1401,46 @@ const PENDING = new Set<string>([
   'AdminTasksController.setEntryChargeableOverride', 'AdminTasksController.setAssigneeChargeable',
 ]);
 
-const CONTROLLERS = [ReportsController, AdminTasksController];
+/**
+ * EVERY controller in src/, not just reports: the spec promises 403s on /finance,
+ * /xero, /users, /invitations and all other /admin routes, so CI must check them.
+ * Import each one here (list them with: grep -rl "@Controller" src | grep -v spec).
+ */
+const CONTROLLERS: Function[] = [
+  ReportsController, AdminTasksController,
+  // + AuthController, UsersController, InvitationController, FinanceReportsController,
+  //   XeroAuthController, HealthController, AdminController, AdminSpikesController,
+  //   AdminSyncController, AdminRatesController, AdminBudgetsController,
+  //   AdminWebhooksController, AdminDeadLettersController, AdminTagsController,
+  //   ClickupMembersController, ClickupWebhookController (import each above)
+  // Task 15 adds TeamsController and MyTeamsController.
+];
+
+/**
+ * Routes that are neither scoped nor admin-only ON PURPOSE. Each needs a reason.
+ * Adding to this list is a design decision — say why in the PR.
+ */
+const NON_DATA: Record<string, string> = {
+  'AuthController.logout': 'session only',
+  'AuthController.logoutAll': 'session only',
+  'ClickupMembersController.members':
+    'workspace directory (names, emails, avatars) — every ClickUp member already sees it in ClickUp; ' +
+    'the avatar component and the invite picker depend on it being open to all signed-in users',
+  // Task 15: 'MyTeamsController.mine': 'returns only the caller’s own memberships',
+  //          'MyTeamsController.addMember': 'authorised in TeamsService.leadAddMember (lead of that team)',
+};
+
+function isPublic(ctrl: Function, method: string): boolean {
+  return Reflect.getMetadata(IS_PUBLIC_KEY, (ctrl.prototype as any)[method]) === true
+    || Reflect.getMetadata(IS_PUBLIC_KEY, ctrl) === true;
+}
+
+it('CONTROLLERS lists every controller in src/', () => {
+  const { execSync } = require('child_process');
+  const files: string[] = execSync('grep -rl "@Controller(" src --include=*.ts').toString().trim().split('\n')
+    .filter((f: string) => !f.endsWith('.spec.ts'));
+  expect(CONTROLLERS.length).toBe(files.length);
+});
 
 /** Custom param decorators are stored as `{ index, factory, data, pipes }` under a `__customRouteArgs__` key. */
 function takesScope(ctrl: Function, method: string): boolean {
@@ -1398,8 +1464,8 @@ describe('report scope guardrail', () => {
   for (const ctrl of CONTROLLERS) {
     for (const m of routes(ctrl)) {
       const key = `${ctrl.name}.${m}`;
-      it(`${key} is scoped or admin-only`, () => {
-        const ok = takesScope(ctrl, m) || adminOnly(ctrl, m);
+      it(`${key} is scoped, admin-only, public, or a reasoned non-data route`, () => {
+        const ok = takesScope(ctrl, m) || adminOnly(ctrl, m) || isPublic(ctrl, m) || key in NON_DATA;
         if (PENDING.has(key)) {
           // Fails once migrated so the entry gets deleted from PENDING.
           expect(ok).toBe(false);
@@ -1413,6 +1479,8 @@ describe('report scope guardrail', () => {
 ```
 
 Sanity-check that the guardrail can see `@Scope()` at all: temporarily add `it('sees @Scope on AuthController.me', () => expect(takesScope(AuthController, 'me')).toBe(true))` (Task 7 added `@Scope()` there), run it, confirm it PASSES, and keep it. It proves the metadata shape matches `takesScope`. If it fails, inspect `Reflect.getMetadata(ROUTE_ARGS_METADATA, AuthController, 'me')` and adjust `takesScope` to the shape you see, still comparing by `scopeFactory` identity.
+
+Replace the comment in `CONTROLLERS` with real imports of every controller, then run the test. Expected: every existing admin controller passes through its class-level `@Roles`; `AuthController.me` passes through `@Scope()` (Task 7); `signup`/`login`, `XeroAuthController.callback`, `HealthController` and `ClickupWebhookController` pass as `@Public()`; `UsersController`, `InvitationController` and `XeroAuthController` pass through their per-route `@Roles`. Anything else that fails is a real gap: fix it, or add it to `NON_DATA` with a reason.
 
 - [ ] **Step 2: Make the admin-only routes explicit.** In `reports.controller.ts` add `@Roles(Role.OWNER, Role.ADMIN)` to: `anomalies`, `hourSpikes`, `syncHealth`, `webhookEvents`, `jobLogs`, `deadLetters`, `stats`, `missingRates`. (Import `Roles` from `../auth/decorators`, `Role` from `@prisma/client`.)
 
@@ -2084,6 +2152,8 @@ export class TeamsRepository {
 
 - [ ] **Step 5: Implement the controllers.** `TeamsController` (`@Controller('teams')`, class-level `@Roles(Role.OWNER, Role.ADMIN)`, `@UseInterceptors(AuditLogInterceptor)`) with the routes above. Declare static paths (`client-options`, `readiness`) **before** `:id` routes. `MyTeamsController` (`@Controller('my-teams')`, no `@Roles`, `@UseInterceptors(AuditLogInterceptor)`): `GET /my-teams` returns the caller's memberships (clients by name, members by name/email, the caller's role; no cost, no ClickUp ids); `POST /my-teams/:id/members` calls `leadAddMember`. DTOs use `class-validator` like `src/auth/dto/*`: `@IsString() @MaxLength(80) name`, `@IsArray() @ArrayMaxSize(500) @IsString({ each: true }) optionIds`, `@IsIn(['LEAD','MEMBER']) role`, `@IsOptional() @IsBoolean() move`.
 
+- [ ] **Step 5a: Guardrail.** Add `TeamsController` and `MyTeamsController` to `CONTROLLERS` in `src/access/report-scope.guardrail.spec.ts` and uncomment their two `NON_DATA` entries.
+
 - [ ] **Step 6: Module** `TeamsModule` imports `DatabaseModule`, `ClientsModule`, `AdminModule` (or wherever `AuditLogInterceptor`/`AuditLogRepository` are provided; check with `grep -rn "AuditLogRepository" src/admin/*.module.ts`). Register it in `app.module.ts`.
 
 - [ ] **Step 7: Run** `npm run test && npm run build` → PASS. Smoke test: `npm run start:dev`, `curl -H "x-admin-key: $ADMIN_API_KEY" localhost:3000/teams/readiness`.
@@ -2184,7 +2254,26 @@ export function RequireAccess({ when, redirect, children }: { when: (a: AccessSu
   - Add **Teams** (`/teams`, icon `UsersRound` or `Network`) in the admin group, and **My team** (`/my-team`) when `access.teams.some(t => t.role === 'LEAD')`.
 - [ ] **Step 3: Routes** in `App.tsx`: wrap `/sprints` in `RequireAccess when={a => a.canSeeSprints}`, `/analytics` and `/budgets` in `when={a => a.canSeeCost}`, `/chargeability-rules` in `when={a => a.canEditChargeability}`, and the admin pages in `RequireRole min="ADMIN"`, all with `redirect="/overview"`. Add lazy routes `/teams` (`RequireRole min="ADMIN"`) and `/my-team`.
 - [ ] **Step 4: No-team empty state.** In `AppLayout.tsx`, when `access.scopingEnabled && !access.unrestricted && access.teams.length === 0`, render an `EmptyState` instead of the outlet: "You're not on a team yet — ask an admin to add you." If `!access.hasClickupLink`, add a note to the Timesheet page: "Your login isn't linked to a ClickUp user yet, so your own timesheet is empty."
-- [ ] **Step 5: Nullable cost.** Change the money formatter(s) in `lib/formatters.ts` to accept `number | null | undefined` and return `'—'` for null. Update the TS types in `api/reports.ts` for every cost field to `number | null`, and add `costPartial?: boolean` to aggregate responses. Where a card shows a cost total and `costPartial` is true, show the caption "Cost shown for your clients only". In `OverviewPage.tsx`, don't render the cost KPI / cost-trend / budget cards (or their queries — use `enabled: access.canSeeCost`) when `!access.canSeeCost`, so members don't fire requests that would return 403.
+- [ ] **Step 5: Nullable cost.** Change the money formatter(s) in `lib/formatters.ts` to accept `number | null | undefined` and return `'—'` for null. Update the TS types in `api/reports.ts` for every cost field to `number | null`, and add `costPartial?: boolean` to aggregate responses. Where a card shows a cost total and `costPartial` is true, show the caption "Cost shown for your clients only". 
+
+  **Query gating: no page may fire a request the server will 403.** This table covers every endpoint that Tasks 8 and 10–14 restricted, plus the existing admin-only ones used on shared pages. Add the listed predicate as `enabled:` on the hook (pass it in as a hook argument), and hide the card or section that renders it:
+
+  | Hook (`hooks/*`) | Endpoint | `enabled` when | Used on |
+  |---|---|---|---|
+  | `useStats` | `/reports/ops/stats` | `isAdmin` | Overview, TopBar/NotificationCenter |
+  | `useSyncHealth`, `useWebhookEvents`, `useJobLogs` | `/reports/ops/*` | `isAdmin` | Overview, Sync Logs |
+  | `useMissingRates` | `/reports/ops/missing-rates` | `isAdmin` | Missing Rates, Overview |
+  | `useAnomalies` (`AnomaliesPanel`) | `/reports/anomalies` | `isAdmin` | Overview |
+  | `useHourSpikes`, `useHourSpikeWatch` | `/reports/time-entries/hour-spikes` | `isAdmin` | Time Spikes, Overview |
+  | `useBudgets` | `/admin/budgets` | `isAdmin` | Overview, Budgets |
+  | `useBudgetStatus` | `/reports/budgets/status` | `access.canSeeCost` | Overview, Budgets |
+  | `useOverviewDeltas` | `/reports/overview-deltas` | `access.canSeeCost` | Overview |
+  | `useCostTrend`, `useAssigneeCostTrend`, `useClientCostTrend` | `/reports/time-entries/cost-trend*` | `access.canSeeCost` | Overview, Analytics |
+  | `useSprintPoints`, `useSprints`, `useSprintFolders`, `useSprintVelocity`, `useSprintDetail` | `/reports/sprint*` | `access.canSeeSprints` | Sprints, Overview |
+  | `useChargeabilityRules` | `/admin/chargeability-rules` | `access.canEditChargeability` | Chargeability |
+  | search (`api/search.ts`) | `/admin/search` | `isAdmin` | CommandPalette: fall back to page navigation only |
+
+  Confirm the table is complete: `grep -rn "requireLead\|@Roles(Role.OWNER, Role.ADMIN)" src/reports src/budgets` lists every restricted report route; each must map to a row. Then `grep -rln "<hook name>" apps/web/src` for each hook, so no call site is missed. Manual check: sign in as a plain member with scoping on, open every page in the sidebar with the browser Network tab open, and confirm there are **zero** 403 responses.
 - [ ] **Step 6: Timesheet picker.** In `TimesheetPage.tsx`, when `access.timesheetUserIds !== null`, filter `assigneeOptions` to those ids. If there's exactly one (a plain member), preselect it and hide the picker. The xlsx export passes `includeCost: showCost && access.canSeeCost`.
 - [ ] **Step 7: Chargeability controls.** Hide the chargeable toggles and bulk actions (Tasks page pill actions, task drawer per-assignee controls, Time Entries per-row toggle and bulk action) when `!access.canEditChargeability`. A lead who is only a member on some rows gets a 403 from the server for those rows. Show the server's message in the existing error toast, not a generic one.
 - [ ] **Step 8: Verify** `cd apps/web && npm run lint && npm run build`. Expected: no errors. Then run the app (`npm run start:dev` + `cd apps/web && npm run dev`), create a MEMBER user in a team with scoping enabled, and check: nav trimmed, cost shows `—`, `/sprints` redirects.
