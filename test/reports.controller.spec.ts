@@ -95,22 +95,11 @@ describe('ReportsController', () => {
       });
     });
 
-    // Ruling R1: requireLeadView, not requireLead — a scoped non-lead 403s,
-    // but a flag-off MEMBER (unrestricted, canEdit: false) reads it exactly
-    // as today.
-    it('scoped MEMBER (Ruling R1): throws ForbiddenException, service not called', () => {
-      const timeEntries = makeTimeEntriesWithDeltas();
-      const ctrl = makeCtrl({ timeEntries });
-      expect(() => ctrl.overviewDeltas(SCOPED_MEMBER_SCOPE)).toThrow(ForbiddenException);
-      expect(timeEntries.overviewDeltas).not.toHaveBeenCalled();
-    });
-
-    it('flag-off MEMBER (Ruling R1): reproduces today exactly — service is called', async () => {
-      const timeEntries = makeTimeEntriesWithDeltas();
-      const ctrl = makeCtrl({ timeEntries });
-      await ctrl.overviewDeltas(FLAG_OFF_MEMBER_SCOPE);
-      expect(timeEntries.overviewDeltas).toHaveBeenCalledTimes(1);
-    });
+    // Fix round 1 (R15): the requireLeadView gate moved into
+    // TimeEntriesReportService.overviewDeltas itself — this controller
+    // handler is a thin passthrough with no gating of its own. The
+    // Forbidden/flag-off-allowed coverage now lives in
+    // test/time-entries-report.service.spec.ts ('overviewDeltas (access scope)').
   });
 
   describe('anomalies', () => {

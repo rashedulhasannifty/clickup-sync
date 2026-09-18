@@ -1,7 +1,7 @@
 import { BadRequestException, Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { AccessScope } from '../access/access-scope';
-import { requireLeadView, requireUnrestricted, Scope } from '../access/scope.decorator';
+import { requireUnrestricted, Scope } from '../access/scope.decorator';
 import { BudgetsService } from '../budgets/budgets.service';
 import { SettingsService } from '../settings/settings.service';
 import { TasksReportService } from './tasks-report.service';
@@ -273,13 +273,12 @@ export class ReportsController {
     return this.budgets.clientBudgetStatus({ month });
   }
 
-  // requireLeadView (not requireLead, Ruling R1): a flag-off MEMBER's scope is
-  // 'unrestricted' (canEdit: false) and must keep reading these KPI deltas
-  // exactly as today; a scoped non-lead gets 403.
+  // The lead-view gate (Ruling R1: requireLeadView, not requireLead) lives in
+  // TimeEntriesReportService.overviewDeltas itself, not here — this handler is
+  // a thin passthrough.
   @Get('overview-deltas')
   @ApiOperation({ summary: 'Current-period totals (hours, cost) and equal-length prior-period totals for the Overview KPI deltas.' })
   overviewDeltas(@Scope() scope: AccessScope, @Query('from') from?: string, @Query('to') to?: string) {
-    requireLeadView(scope);
     return this.timeEntriesReports.overviewDeltas(scope, from, to);
   }
 
