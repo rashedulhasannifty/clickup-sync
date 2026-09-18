@@ -1,0 +1,194 @@
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { resolveScope } from '../access/access-scope';
+import { TeamsService } from './teams.service';
+
+const admin = { userId: 'admin', orgId: 'org', role: 'ADMIN', email: 'a@x', isMachine: false } as any;
+const leadOf = (teamId: string) =>
+  resolveScope({
+    role: 'MEMBER',
+    scopingEnabled: true,
+    selfClickupId: null,
+    memberships: [{ teamId, role: 'LEAD' }],
+    teamClients: [],
+    teamMembers: [],
+  });
+
+function make(over: Record<string, jest.Mock> = {}) {
+  const repo = {
+    ownersOf: jest.fn().mockResolvedValue([]),
+    replaceClients: jest.fn().mockResolvedValue([]),
+    countClients: jest.fn().mockResolvedValue(0),
+    delete: jest.fn().mockResolvedValue({}),
+    create: jest.fn().mockResolvedValue({ id: 'A', name: 'Team A' }),
+    addMember: jest.fn().mockResolvedValue({}),
+    readinessData: jest.fn(),
+    membershipsOf: jest.fn().mockResolvedValue([]),
+    activeOrgUsers: jest.fn().mockResolvedValue([]),
+    ...over,
+  };
+  const users = { findById: jest.fn() };
+  return { svc: new TeamsService(repo as any, users as any), repo, users };
+}
+
+describe('TeamsService', () => {
+  it('setClients refuses options owned by another team without move', async () => {
+    const { svc, repo } = make({
+      ownersOf: jest.fn().mockResolvedValue([{ optionId: 'o1', teamId: 'B', team: { id: 'B', name: 'Apps' } }]),
+    });
+    const err = await svc.setClients(admin, 'A', ['o1'], false).catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(err.getResponse().conflicts).toEqual([{ optionId: 'o1', teamId: 'B', teamName: 'Apps' }]);
+    expect(repo.replaceClients).not.toHaveBeenCalled();
+  });
+
+  it('setClients with move reassigns and reports the from-team', async () => {
+    const { svc, repo } = make({
+      ownersOf: jest.fn().mockResolvedValue([{ optionId: 'o1', teamId: 'B', team: { id: 'B', name: 'Apps' } }]),
+    });
+    const res = await svc.setClients(admin, 'A', ['o1', 'o2'], true);
+    expect(repo.replaceClients).toHaveBeenCalledWith('A', ['o1', 'o2'], 'admin');
+    expect(res).toEqual({ clients: 2, moved: [{ optionId: 'o1', fromTeamId: 'B' }] });
+  });
+
+  it('options already on this team are not conflicts', async () => {
+    const { svc, repo } = make({
+      ownersOf: jest.fn().mockResolvedValue([{ optionId: 'o1', teamId: 'A', team: { id: 'A', name: 'Team A' } }]),
+    });
+    await svc.setClients(admin, 'A', ['o1'], false);
+    expect(repo.replaceClients).toHaveBeenCalled();
+  });
+
+  it('create rolls the team back when its clients conflict', async () => {
+    const { svc, repo } = make({
+      ownersOf: jest.fn().mockResolvedValue([{ optionId: 'o1', teamId: 'B', team: { id: 'B', name: 'Apps' } }]),
+    });
+    await expect(svc.create(admin, 'Team A', ['o1'])).rejects.toBeInstanceOf(ConflictException);
+    expect(repo.delete).toHaveBeenCalledWith('A');
+  });
+
+  it('deleteTeam returns the number of released clients', async () => {
+    const { svc, repo } = make({ countClients: jest.fn().mockResolvedValue(5) });
+    await expect(svc.deleteTeam('A')).resolves.toEqual({ releasedClients: 5 });
+    expect(repo.delete).toHaveBeenCalledWith('A');
+  });
+
+  it('lead adds an existing ACTIVE org user, always as MEMBER', async () => {
+    const { svc, repo, users } = make();
+    users.findById.mockResolvedValue({ id: 'u2', orgId: 'org', status: 'ACTIVE' });
+    await svc.leadAddMember(leadOf('A'), { ...admin, userId: 'lead', role: 'MEMBER' }, 'A', 'u2');
+    expect(repo.addMember).toHaveBeenCalledWith('A', 'u2', 'MEMBER', 'lead');
+  });
+
+  it('lead cannot add to a team they do not lead', async () => {
+    const { svc, repo } = make();
+    await expect(svc.leadAddMember(leadOf('B'), { ...admin, role: 'MEMBER' }, 'A', 'u2')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(repo.addMember).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['unknown', null],
+    ['disabled', { id: 'u2', orgId: 'org', status: 'DISABLED' }],
+    ['other org', { id: 'u2', orgId: 'other', status: 'ACTIVE' }],
+  ])('lead cannot add a %s user', async (_label, user) => {
+    const { svc, repo, users } = make();
+    users.findById.mockResolvedValue(user);
+    await expect(svc.leadAddMember(leadOf('A'), { ...admin, role: 'MEMBER' }, 'A', 'u2')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(repo.addMember).not.toHaveBeenCalled();
+  });
+
+  it('readiness lists unassigned clients, team-less members, unlinked users and ambiguous names', async () => {
+    const { svc } = make({
+      readinessData: jest.fn().mockResolvedValue([
+        [{ optionId: 'o9', name: 'Hotel' }],
+        [{ id: 'u3', name: 'M', email: 'm@x' }],
+        [{ id: 'u4', name: 'N', email: 'n@x' }],
+        [
+          { optionId: 'o1', name: 'Shared', team: { id: 'A' } },
+          { optionId: 'o2', name: 'Shared', team: { id: 'B' } },
+          { optionId: 'o3', name: 'Acme', team: { id: 'A' } },
+          { optionId: 'o4', name: 'Acme', team: { id: 'A' } },
+        ],
+      ]),
+    });
+    await expect(svc.readiness('org')).resolves.toEqual({
+      unassignedClients: [{ optionId: 'o9', name: 'Hotel' }],
+      membersWithoutTeam: [{ id: 'u3', name: 'M', email: 'm@x' }],
+      usersWithoutClickupLink: [{ id: 'u4', name: 'N', email: 'n@x' }],
+      ambiguousNames: ['Shared'],
+    });
+  });
+
+  describe('myTeams (R20)', () => {
+    it('returns candidates: active org users not already a member of a led team', async () => {
+      const { svc, repo } = make({
+        membershipsOf: jest.fn().mockResolvedValue([
+          {
+            role: 'LEAD',
+            team: {
+              id: 'A',
+              name: 'Team A',
+              clients: [{ option: { name: 'Acme' } }],
+              members: [
+                { user: { id: 'lead', name: 'Lead', email: 'lead@x' } },
+                { user: { id: 'u1', name: 'Existing', email: 'u1@x' } },
+              ],
+            },
+          },
+        ]),
+        activeOrgUsers: jest.fn().mockResolvedValue([
+          { id: 'lead', name: 'Lead', email: 'lead@x' },
+          { id: 'u1', name: 'Existing', email: 'u1@x' },
+          { id: 'u2', name: 'Candidate', email: 'u2@x' },
+        ]),
+      });
+      const res = await svc.myTeams({ ...admin, userId: 'lead', role: 'MEMBER' }, leadOf('A'));
+      expect(res.teams).toEqual([
+        {
+          id: 'A',
+          name: 'Team A',
+          role: 'LEAD',
+          clients: ['Acme'],
+          members: [
+            { userId: 'lead', name: 'Lead', email: 'lead@x' },
+            { userId: 'u1', name: 'Existing', email: 'u1@x' },
+          ],
+        },
+      ]);
+      expect(res.candidates).toEqual([{ id: 'u2', name: 'Candidate', email: 'u2@x' }]);
+      expect(repo.activeOrgUsers).toHaveBeenCalledWith('org');
+    });
+
+    it('returns no candidates when the caller leads nothing', async () => {
+      const { svc, repo } = make({
+        membershipsOf: jest.fn().mockResolvedValue([
+          {
+            role: 'MEMBER',
+            team: { id: 'A', name: 'Team A', clients: [], members: [] },
+          },
+        ]),
+      });
+      const scope = resolveScope({
+        role: 'MEMBER',
+        scopingEnabled: true,
+        selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'MEMBER' }],
+        teamClients: [],
+        teamMembers: [],
+      });
+      const res = await svc.myTeams({ ...admin, userId: 'member', role: 'MEMBER' }, scope);
+      expect(res.candidates).toEqual([]);
+      expect(repo.activeOrgUsers).not.toHaveBeenCalled();
+    });
+
+    it('returns no candidates for an unrestricted (Owner/Admin) caller', async () => {
+      const { svc, repo } = make();
+      const res = await svc.myTeams(admin, { kind: 'unrestricted', canEdit: true });
+      expect(res.candidates).toEqual([]);
+      expect(repo.activeOrgUsers).not.toHaveBeenCalled();
+    });
+  });
+});

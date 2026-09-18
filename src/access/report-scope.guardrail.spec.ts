@@ -21,6 +21,8 @@ import { HealthController } from '../health/health.controller';
 import { ClickupWebhookController } from '../webhooks/clickup-webhook.controller';
 import { FinanceReportsController } from '../xero/finance-reports.controller';
 import { XeroAuthController } from '../xero/xero-auth.controller';
+import { MyTeamsController } from '../teams/my-teams.controller';
+import { TeamsController } from '../teams/teams.controller';
 import { scopeFactory } from './scope.decorator';
 
 /** A controller class, used only as a reflection-metadata target — not instantiated here. */
@@ -63,7 +65,8 @@ const CONTROLLERS: ControllerClass[] = [
   ClickupWebhookController,
   FinanceReportsController,
   XeroAuthController,
-  // Task 15 adds TeamsController and MyTeamsController.
+  TeamsController,
+  MyTeamsController,
 ];
 
 /**
@@ -78,8 +81,8 @@ const NON_DATA: Record<string, string> = {
   'ClickupMembersController.list':
     'workspace directory (names, emails, avatars) — every ClickUp member already sees it in ClickUp; ' +
     'the avatar component and the invite picker depend on it being open to all signed-in users',
-  // Task 15: 'MyTeamsController.mine': 'returns only the caller’s own memberships',
-  //          'MyTeamsController.addMember': 'authorised in TeamsService.leadAddMember (lead of that team)',
+  'MyTeamsController.mine': 'returns only the caller’s own memberships',
+  'MyTeamsController.addMember': 'authorised in TeamsService.leadAddMember (lead of that team)',
 };
 
 function isPublic(ctrl: ControllerClass, method: string): boolean {
