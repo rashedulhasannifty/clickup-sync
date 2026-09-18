@@ -1,12 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { assembleTimesheet, dhakaDate, type TimesheetAggRow } from './timesheet.assemble';
 import { defaultFrom, parseDate } from './report-date.util';
 import { buildTimeEntryWhere, NO_TASK_ID } from './report-filter.util';
 import { isPartiallyChargeable, resolveChargeability } from '../time-entries/chargeability';
-import { AccessScope, leadClientIds } from '../access/access-scope';
+import { AccessScope, canSeeCost, isUnrestricted, leadClientIds, timesheetUserIds } from '../access/access-scope';
 import { maskCost } from '../access/cost-mask';
+import { leadScopeSql, taskScopeSql, taskScopeWhere, timeEntryScopeWhere } from '../access/scope-query';
 
 /** Time-entry report queries (timesheets, per-user/client/department rollups, list + aggregates). */
 @Injectable()
@@ -15,17 +16,41 @@ export class TimeEntriesReportService {
 
   /** Distinct assignees that have at least one time entry. Feeds the
    *  "Exclude assignee" picker (all assignees with tracked time, so an admin
-   *  can pre-emptively exclude someone who currently has a rate). */
-  async timeEntriesAssignees() {
+   *  can pre-emptively exclude someone who currently has a rate) AND the
+   *  timesheet picker.
+   *
+   *  Unrestricted: unchanged. Scoped: joins the task so a viewer only sees
+   *  assignees who logged time on an in-scope task — OR'd with
+   *  `timesheetUserIds` so a led member who has zero in-scope entries (e.g. an
+   *  expense-only or task-less logger) still appears in the timesheet picker. */
+  async timeEntriesAssignees(scope: AccessScope) {
     type Row = { user_id: string; user_name: string | null; user_email: string | null };
+    if (isUnrestricted(scope)) {
+      const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
+        SELECT user_id,
+               MAX(user_name)  AS user_name,
+               MAX(user_email) AS user_email
+        FROM clickup_time_entries
+        WHERE user_id IS NOT NULL
+        GROUP BY user_id
+        ORDER BY MAX(user_name) NULLS LAST
+      `);
+      return rows.map((r) => ({ id: r.user_id, name: r.user_name, email: r.user_email }));
+    }
+    // Always an array for a scoped viewer (never null) — but `?? []` guards
+    // the type regardless, and passing an empty array through `= ANY(...)`
+    // is valid Postgres (matches nothing), not an error.
+    const allowed = timesheetUserIds(scope) ?? [];
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
-      SELECT user_id,
-             MAX(user_name)  AS user_name,
-             MAX(user_email) AS user_email
+      SELECT clickup_time_entries.user_id AS user_id,
+             MAX(clickup_time_entries.user_name)  AS user_name,
+             MAX(clickup_time_entries.user_email) AS user_email
       FROM clickup_time_entries
-      WHERE user_id IS NOT NULL
-      GROUP BY user_id
-      ORDER BY MAX(user_name) NULLS LAST
+      JOIN clickup_tasks t ON t.task_id = clickup_time_entries.task_id
+      WHERE clickup_time_entries.user_id IS NOT NULL
+        AND (${taskScopeSql(scope, 't')} OR clickup_time_entries.user_id = ANY(${allowed}::text[]))
+      GROUP BY clickup_time_entries.user_id
+      ORDER BY MAX(clickup_time_entries.user_name) NULLS LAST
     `);
     return rows.map((r) => ({ id: r.user_id, name: r.user_name, email: r.user_email }));
   }
@@ -37,8 +62,19 @@ export class TimeEntriesReportService {
    * `assembleTimesheet` then builds the weekday skeleton, unions worked days, and
    * applies the missing-rate cost rule. cost_cents for NO_RATE_FOUND entries is
    * never summed as valid (see data-model rule).
+   *
+   * Access: the viewer must lead `userId`'s team, or be `userId` themself
+   * (`timesheetUserIds`) — otherwise 403, checked BEFORE the query runs. The
+   * timesheet itself is deliberately NOT client-filtered (decision 10): a row
+   * from a client the viewer doesn't lead still appears with its hours, just
+   * with its cost masked (`canSeeCost`).
    */
-  async timesheet(userId: string, fromParam?: string, toParam?: string) {
+  async timesheet(userId: string, fromParam: string | undefined, toParam: string | undefined, scope: AccessScope) {
+    const allowed = timesheetUserIds(scope);
+    if (allowed !== null && !allowed.includes(userId)) {
+      throw new ForbiddenException('Not allowed to view this timesheet');
+    }
+
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
     const TZ = Prisma.raw(`'Asia/Dhaka'`);
@@ -52,6 +88,7 @@ export class TimeEntriesReportService {
       valid_cost_cents: bigint;
       entry_count: number;
       missing_rate_count: number;
+      client_option_id: string | null;
     };
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT to_char((e.start_time AT TIME ZONE ${TZ})::date, 'YYYY-MM-DD') AS day,
@@ -61,7 +98,8 @@ export class TimeEntriesReportService {
              COALESCE(SUM(e.duration_hours), 0)::float                         AS hours,
              COALESCE(SUM(CASE WHEN e.status <> 'NO_RATE_FOUND' THEN e.cost_cents ELSE 0 END), 0)::bigint AS valid_cost_cents,
              COUNT(*)::int                                                     AS entry_count,
-             SUM(CASE WHEN e.status = 'NO_RATE_FOUND' THEN 1 ELSE 0 END)::int  AS missing_rate_count
+             SUM(CASE WHEN e.status = 'NO_RATE_FOUND' THEN 1 ELSE 0 END)::int  AS missing_rate_count,
+             MAX(t.scope_client_option_id)                                     AS client_option_id
       FROM clickup_time_entries e
       LEFT JOIN clickup_tasks t ON t.task_id = e.task_id
       WHERE e.user_id = ${userId}
@@ -77,9 +115,10 @@ export class TimeEntriesReportService {
       taskId: r.task_id,
       taskName: r.task_name,
       hours: Number(r.hours),
-      validCostCents: Number(r.valid_cost_cents),
+      validCostCents: canSeeCost(scope, r.client_option_id) ? Number(r.valid_cost_cents) : null,
       entryCount: Number(r.entry_count),
       missingRateCount: Number(r.missing_rate_count),
+      scopeClientOptionId: r.client_option_id,
     }));
 
     const sheet = assembleTimesheet(aggRows, dhakaDate(from), dhakaDate(to));
@@ -94,23 +133,76 @@ export class TimeEntriesReportService {
     };
   }
 
-  async timeEntriesByUser(fromParam?: string, toParam?: string) {
+  /**
+   * Total hours + cost per assignee.
+   *
+   * Unrestricted: unchanged (every row's real cost, sorted by cost desc).
+   * Scoped (Ruling R12): the scope filter narrows which entries are VISIBLE
+   * at all (member-or-lead); cost is then narrowed further to a second
+   * groupBy scoped to LEAD clients only, so a user's cost is the sum of just
+   * their led-visible entries. `costPartial` is true whenever that led count
+   * is less than the visible count (including 0 — see `totalCostAud: null`
+   * below). Sorted by hours, never by cost, so a partially-hidden total can't
+   * leak a ranking of hidden money (Ruling R12).
+   */
+  async timeEntriesByUser(scope: AccessScope, fromParam?: string, toParam?: string) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
+    const where = { startTime: { gte: from, lte: to }, ...timeEntryScopeWhere(scope) };
     const rows = await this.prisma.clickupTimeEntry.groupBy({
       by: ['userId', 'userName', 'userEmail'],
-      where: { startTime: { gte: from, lte: to } },
+      where,
+      _count: true,
       _sum: { durationHours: true, costCents: true },
     });
+
+    if (isUnrestricted(scope)) {
+      return rows
+        .map(r => ({
+          userId: r.userId,
+          userName: r.userName,
+          userEmail: r.userEmail,
+          totalHours: r._sum.durationHours?.toNumber() ?? 0,
+          totalCostAud: Number(r._sum.costCents ?? 0n) / 100,
+          costPartial: false,
+        }))
+        .sort((a, b) => b.totalCostAud - a.totalCostAud);
+    }
+
+    // `leadClientIds` is never null for a scoped viewer, but `?? []` keeps the
+    // type honest and matches the "leads nothing" fast path below.
+    const leadIds = leadClientIds(scope) ?? [];
+    const costRows = leadIds.length
+      ? await this.prisma.clickupTimeEntry.groupBy({
+          by: ['userId'],
+          where: { ...where, task: { scopeClientOptionId: { in: leadIds } } },
+          _count: true,
+          _sum: { costCents: true },
+        })
+      : [];
+    const costByUser = new Map(
+      costRows
+        .filter((r) => r.userId != null)
+        .map((r) => [r.userId as string, { costCents: Number(r._sum.costCents ?? 0n), count: r._count }]),
+    );
+
     return rows
-      .map(r => ({
-        userId: r.userId,
-        userName: r.userName,
-        userEmail: r.userEmail,
-        totalHours: r._sum.durationHours?.toNumber() ?? 0,
-        totalCostAud: Number(r._sum.costCents ?? 0n) / 100,
-      }))
-      .sort((a, b) => b.totalCostAud - a.totalCostAud);
+      .map(r => {
+        const led = r.userId != null ? costByUser.get(r.userId) : undefined;
+        const totalEntries = r._count;
+        const ledCount = led?.count ?? 0;
+        return {
+          userId: r.userId,
+          userName: r.userName,
+          userEmail: r.userEmail,
+          totalHours: r._sum.durationHours?.toNumber() ?? 0,
+          // Ruling R12: zero led-visible rows -> null (never a misleading $0);
+          // otherwise the partial (or full) sum of just the led rows.
+          totalCostAud: ledCount > 0 ? led!.costCents / 100 : null,
+          costPartial: ledCount !== totalEntries,
+        };
+      })
+      .sort((a, b) => b.totalHours - a.totalHours);
   }
 
   /**
@@ -119,9 +211,14 @@ export class TimeEntriesReportService {
    * prior window is `[from - (to - from), from)` — exclusive on the upper
    * bound so it doesn't overlap with the current window.
    *
-   * Soft-deleted tasks are excluded from both windows.
+   * Soft-deleted tasks are excluded from both windows. Access (Ruling R1):
+   * gated by the controller (`requireLeadView`), not here — this method just
+   * scopes the query. Task visibility narrows both windows' hours; cost is
+   * narrowed further to LEAD clients only (`leadScopeSql`), and nulled
+   * entirely for a viewer who leads no client in scope (Ruling R12) rather
+   * than a misleadingly precise $0.
    */
-  async overviewDeltas(fromParam?: string, toParam?: string) {
+  async overviewDeltas(scope: AccessScope, fromParam?: string, toParam?: string) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
     const spanMs = to.getTime() - from.getTime();
@@ -135,13 +232,15 @@ export class TimeEntriesReportService {
         : Prisma.sql`e.start_time <  ${winTo}`;
       return this.prisma.$queryRaw<Row[]>(Prisma.sql`
         SELECT COALESCE(SUM(e.duration_hours), 0)::float AS total_hours,
-               COALESCE(SUM(e.cost_cents), 0)::bigint   AS total_cost_cents
+               COALESCE(SUM(CASE WHEN ${leadScopeSql(scope, 't')} THEN e.cost_cents ELSE 0 END), 0)::bigint
+                 AS total_cost_cents
         FROM clickup_time_entries e
         JOIN clickup_tasks t ON e.task_id = t.task_id
         WHERE e.start_time IS NOT NULL
           AND e.start_time >= ${winFrom}
           AND ${upper}
           AND t.is_deleted = false
+          AND ${taskScopeSql(scope, 't')}
       `);
     };
 
@@ -153,9 +252,11 @@ export class TimeEntriesReportService {
       sumWindow(priorFrom, priorTo, 'lt'),
     ]);
 
+    const leadIds = leadClientIds(scope);
+    const leadsNothing = leadIds !== null && leadIds.length === 0;
     const mapRow = (r: Row) => ({
       totalHours: Number(r.total_hours ?? 0),
-      totalCostAud: Number(r.total_cost_cents ?? 0n) / 100,
+      totalCostAud: leadsNothing ? null : Number(r.total_cost_cents ?? 0n) / 100,
     });
 
     return {
@@ -164,50 +265,87 @@ export class TimeEntriesReportService {
     };
   }
 
-  async timeEntriesByClient(fromParam?: string, toParam?: string) {
+  /**
+   * Total hours + cost per client. Scoped viewers see every VISIBLE client
+   * (member-or-lead), with cost narrowed to LEAD clients only. A client
+   * display name maps 1:1 to a scope option id in practice, so `MAX(...)`
+   * picks the group's one option id and `canSeeCost`/`maskCost` decide
+   * all-or-nothing per group (unlike `timeEntriesByDepartment`, which can
+   * legitimately span several clients per row).
+   */
+  async timeEntriesByClient(scope: AccessScope, fromParam?: string, toParam?: string) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
-    type Row = { client: string; total_hours: number; total_cost_cents: number };
+    type Row = { client: string; total_hours: number; total_cost_cents: number; scope_client_option_id: string | null };
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT t.client,
         COALESCE(SUM(e.duration_hours), 0)::float AS total_hours,
-        COALESCE(SUM(e.cost_cents), 0)::float AS total_cost_cents
+        COALESCE(SUM(CASE WHEN ${leadScopeSql(scope, 't')} THEN e.cost_cents ELSE 0 END), 0)::float AS total_cost_cents,
+        MAX(t.scope_client_option_id) AS scope_client_option_id
       FROM clickup_time_entries e
       JOIN clickup_tasks t ON e.task_id = t.task_id
       WHERE e.start_time >= ${from} AND e.start_time <= ${to}
         AND t.is_deleted = false
         AND t.client IS NOT NULL AND t.client <> ''
+        AND ${taskScopeSql(scope, 't')}
       GROUP BY t.client
       ORDER BY total_cost_cents DESC
     `);
-    return rows.map(r => ({ client: r.client, totalHours: Number(r.total_hours), totalCostAud: Number(r.total_cost_cents) / 100 }));
+    return rows.map(r => maskCost(
+      {
+        client: r.client,
+        totalHours: Number(r.total_hours),
+        totalCostAud: Number(r.total_cost_cents) / 100,
+        costPartial: !canSeeCost(scope, r.scope_client_option_id),
+      },
+      scope,
+      r.scope_client_option_id,
+    ));
   }
 
-  async timeEntriesByDepartment(fromParam?: string, toParam?: string) {
+  /**
+   * Total hours + cost per department. Unlike `timeEntriesByClient`, a
+   * department can span several clients, so the group's LEAD-visibility isn't
+   * a single option id: `has_led_cost`/`cost_partial` are computed with
+   * `BOOL_OR` over every row folded into the group (Ruling R12 — sum only
+   * LEAD-visible cost; null only when the group has zero LEAD-visible rows;
+   * `costPartial` true whenever any row's cost was excluded).
+   */
+  async timeEntriesByDepartment(scope: AccessScope, fromParam?: string, toParam?: string) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
-    type Row = { department: string; total_hours: number; total_cost_cents: number };
+    type Row = {
+      department: string; total_hours: number; total_cost_cents: number; has_led_cost: boolean; cost_partial: boolean;
+    };
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT t.department,
         COALESCE(SUM(e.duration_hours), 0)::float AS total_hours,
-        COALESCE(SUM(e.cost_cents), 0)::float AS total_cost_cents
+        COALESCE(SUM(CASE WHEN ${leadScopeSql(scope, 't')} THEN e.cost_cents ELSE 0 END), 0)::float AS total_cost_cents,
+        BOOL_OR(${leadScopeSql(scope, 't')}) AS has_led_cost,
+        BOOL_OR(NOT ${leadScopeSql(scope, 't')}) AS cost_partial
       FROM clickup_time_entries e
       JOIN clickup_tasks t ON e.task_id = t.task_id
       WHERE e.start_time >= ${from} AND e.start_time <= ${to}
         AND t.department IS NOT NULL AND t.department <> ''
+        AND ${taskScopeSql(scope, 't')}
       GROUP BY t.department
       ORDER BY total_cost_cents DESC
     `);
-    return rows.map(r => ({ department: r.department, totalHours: Number(r.total_hours), totalCostAud: Number(r.total_cost_cents) / 100 }));
+    return rows.map(r => ({
+      department: r.department,
+      totalHours: Number(r.total_hours),
+      totalCostAud: r.has_led_cost ? Number(r.total_cost_cents) / 100 : null,
+      costPartial: !!r.cost_partial,
+    }));
   }
 
   /** Chargeable vs non-chargeable hours for the window. No cost split: a
    *  non-chargeable entry always costs zero, so one side would be a column of
    *  zeros and the other would equal total cost. */
-  async timeEntriesChargeableSummary(fromParam?: string, toParam?: string) {
+  async timeEntriesChargeableSummary(scope: AccessScope, fromParam?: string, toParam?: string) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
-    const window = { startTime: { gte: from, lte: to } };
+    const window = { startTime: { gte: from, lte: to }, ...timeEntryScopeWhere(scope) };
     // One partition, not two: the total comes from the bare window and the
     // non-chargeable side is the remainder. Two independently-queried halves
     // are only correct if they're exhaustive over the window, which nothing
@@ -632,10 +770,25 @@ export class TimeEntriesReportService {
    * Grouped from time entries rather than from the task's `assignees_names`,
    * because billing follows who logged the time — and `assignees_names` carries
    * no user ids to key a rule on.
+   *
+   * Access (Ruling R13/R14): a scoped viewer gets the task via a
+   * scope-filtered `findFirst` and a 404 for a missing OR out-of-scope task —
+   * checked, and thrown, BEFORE the rules/entries queries run, so neither is
+   * ever read for a task the viewer can't see. Unrestricted (Owner/Admin, or
+   * a flag-off MEMBER) reproduces today's exact behaviour: no existence check
+   * at all — a missing task just resolves `task` to `null` and the resolver
+   * falls back to its 'default' source, same as before scoping existed.
    */
-  async taskAssigneeChargeability(taskId: string) {
-    const [task, rules, groups] = await Promise.all([
-      this.prisma.clickupTask.findUnique({ where: { taskId }, select: { isChargeable: true } }),
+  async taskAssigneeChargeability(taskId: string, scope: AccessScope) {
+    const TASK_SELECT = { isChargeable: true, scopeClientOptionId: true } as const;
+    const task = isUnrestricted(scope)
+      ? await this.prisma.clickupTask.findUnique({ where: { taskId }, select: TASK_SELECT })
+      : await this.prisma.clickupTask.findFirst({ where: { taskId, ...taskScopeWhere(scope) }, select: TASK_SELECT });
+    if (!task && !isUnrestricted(scope)) {
+      throw new NotFoundException('Task not found');
+    }
+
+    const [rules, groups] = await Promise.all([
       this.prisma.taskAssigneeChargeability.findMany({ where: { taskId }, select: { userId: true, chargeable: true } }),
       // Grouped by `userId` alone — NOT `['userId', 'userName']` — so one
       // person whose display name changed across their history still yields
@@ -669,15 +822,21 @@ export class TimeEntriesReportService {
         // Phase 1 has no per-entry override writer, so `entryOverride` is not
         // consulted here. Phase 2 adds it and this call gains a third input.
         const { chargeable, source } = resolveChargeability({ rule, taskChargeable: task?.isChargeable });
-        return {
-          userId: g.userId,
-          userName: g._max.userName,
-          entryCount: g._count,
-          hours: g._sum.durationHours?.toNumber() ?? 0,
-          rule,
-          chargeable,
-          source,
-        };
+        // No cost field exists on this row today, so this is a no-op — kept
+        // for defence-in-depth/consistency with every other masked report row.
+        return maskCost(
+          {
+            userId: g.userId,
+            userName: g._max.userName,
+            entryCount: g._count,
+            hours: g._sum.durationHours?.toNumber() ?? 0,
+            rule,
+            chargeable,
+            source,
+          },
+          scope,
+          task?.scopeClientOptionId ?? null,
+        );
       })
       .sort((a, b) => (a.userName ?? '').localeCompare(b.userName ?? ''));
   }

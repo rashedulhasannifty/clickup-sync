@@ -1,7 +1,7 @@
 import { BadRequestException, Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { AccessScope } from '../access/access-scope';
-import { requireUnrestricted, Scope } from '../access/scope.decorator';
+import { requireLeadView, requireUnrestricted, Scope } from '../access/scope.decorator';
 import { BudgetsService } from '../budgets/budgets.service';
 import { SettingsService } from '../settings/settings.service';
 import { TasksReportService } from './tasks-report.service';
@@ -53,12 +53,13 @@ export class ReportsController {
   tasksAssignees(@Scope() scope: AccessScope) { return this.tasksReports.tasksAssignees(scope); }
 
   @Get('time-entries/assignees')
-  @ApiOperation({ summary: 'Distinct assignees that have time entries. Feeds the exclude-from-costing picker.' })
-  timeEntriesAssignees() { return this.timeEntriesReports.timeEntriesAssignees(); }
+  @ApiOperation({ summary: 'Distinct assignees that have time entries. Feeds the exclude-from-costing picker and the timesheet picker.' })
+  timeEntriesAssignees(@Scope() scope: AccessScope) { return this.timeEntriesReports.timeEntriesAssignees(scope); }
 
   @Get('timesheet')
-  @ApiOperation({ summary: 'Single-assignee timesheet: per-day, per-task hours + cost over [from, to]. userId is required; from/to default to the last 30 days.' })
+  @ApiOperation({ summary: 'Single-assignee timesheet: per-day, per-task hours + cost over [from, to]. userId is required; from/to default to the last 30 days. Access: the viewer must lead userId\'s team, or be userId themself. NOT client-filtered (decision 10) — rows from a client the viewer doesn\'t lead still appear, with cost masked.' })
   timesheet(
+    @Scope() scope: AccessScope,
     @Query('userId') userId?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -66,7 +67,7 @@ export class ReportsController {
     if (!userId) {
       throw new BadRequestException('userId is required');
     }
-    return this.timeEntriesReports.timesheet(userId, from, to);
+    return this.timeEntriesReports.timesheet(userId, from, to, scope);
   }
 
   @Get('clients')
@@ -139,8 +140,8 @@ export class ReportsController {
 
   @Get('tasks/:taskId/assignee-chargeability')
   @ApiOperation({ summary: "Everyone who logged time on one task, with hours, the (task, assignee) rule if any, the resolved chargeability, and which layer decided it ('assignee' | 'task' | 'default'). Backs the task drawer's per-assignee controls." })
-  taskAssigneeChargeability(@Param('taskId') taskId: string) {
-    return this.timeEntriesReports.taskAssigneeChargeability(taskId);
+  taskAssigneeChargeability(@Param('taskId') taskId: string, @Scope() scope: AccessScope) {
+    return this.timeEntriesReports.taskAssigneeChargeability(taskId, scope);
   }
 
   @Get('tasks/chargeable-preview')
@@ -183,26 +184,26 @@ export class ReportsController {
 
   @Get('time-entries/by-user')
   @ApiOperation({ summary: 'Total hours and cost per assignee' })
-  timeEntriesByUser(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.timeEntriesReports.timeEntriesByUser(from, to);
+  timeEntriesByUser(@Scope() scope: AccessScope, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.timeEntriesReports.timeEntriesByUser(scope, from, to);
   }
 
   @Get('time-entries/by-client')
   @ApiOperation({ summary: 'Total hours and cost per client' })
-  timeEntriesByClient(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.timeEntriesReports.timeEntriesByClient(from, to);
+  timeEntriesByClient(@Scope() scope: AccessScope, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.timeEntriesReports.timeEntriesByClient(scope, from, to);
   }
 
   @Get('time-entries/by-department')
   @ApiOperation({ summary: 'Total hours and cost per department' })
-  timeEntriesByDepartment(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.timeEntriesReports.timeEntriesByDepartment(from, to);
+  timeEntriesByDepartment(@Scope() scope: AccessScope, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.timeEntriesReports.timeEntriesByDepartment(scope, from, to);
   }
 
   @Get('time-entries/chargeable-summary')
   @ApiOperation({ summary: 'Chargeable vs non-chargeable hours' })
-  timeEntriesChargeableSummary(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.timeEntriesReports.timeEntriesChargeableSummary(from, to);
+  timeEntriesChargeableSummary(@Scope() scope: AccessScope, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.timeEntriesReports.timeEntriesChargeableSummary(scope, from, to);
   }
 
   @Get('time-entries/aggregates')
@@ -272,10 +273,14 @@ export class ReportsController {
     return this.budgets.clientBudgetStatus({ month });
   }
 
+  // requireLeadView (not requireLead, Ruling R1): a flag-off MEMBER's scope is
+  // 'unrestricted' (canEdit: false) and must keep reading these KPI deltas
+  // exactly as today; a scoped non-lead gets 403.
   @Get('overview-deltas')
   @ApiOperation({ summary: 'Current-period totals (hours, cost) and equal-length prior-period totals for the Overview KPI deltas.' })
-  overviewDeltas(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.timeEntriesReports.overviewDeltas(from, to);
+  overviewDeltas(@Scope() scope: AccessScope, @Query('from') from?: string, @Query('to') to?: string) {
+    requireLeadView(scope);
+    return this.timeEntriesReports.overviewDeltas(scope, from, to);
   }
 
   @Get('time-entries/by-task')

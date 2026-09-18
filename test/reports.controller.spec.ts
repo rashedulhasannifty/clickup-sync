@@ -78,21 +78,38 @@ describe('ReportsController', () => {
       } as any;
     }
 
-    it('passes from/to through to the service', async () => {
+    it('passes scope + from/to through to the service', async () => {
       const timeEntries = makeTimeEntriesWithDeltas();
       const ctrl = makeCtrl({ timeEntries });
-      await ctrl.overviewDeltas('2026-05-01', '2026-05-31');
-      expect(timeEntries.overviewDeltas).toHaveBeenCalledWith('2026-05-01', '2026-05-31');
+      await ctrl.overviewDeltas(OWNER_SCOPE, '2026-05-01', '2026-05-31');
+      expect(timeEntries.overviewDeltas).toHaveBeenCalledWith(OWNER_SCOPE, '2026-05-01', '2026-05-31');
     });
 
     it('returns the service result unchanged', async () => {
       const timeEntries = makeTimeEntriesWithDeltas();
       const ctrl = makeCtrl({ timeEntries });
-      const result = await ctrl.overviewDeltas();
+      const result = await ctrl.overviewDeltas(OWNER_SCOPE);
       expect(result).toEqual({
         current: { totalHours: 10, totalCostAud: 1000 },
         prior:   { totalHours: 8,  totalCostAud: 800 },
       });
+    });
+
+    // Ruling R1: requireLeadView, not requireLead — a scoped non-lead 403s,
+    // but a flag-off MEMBER (unrestricted, canEdit: false) reads it exactly
+    // as today.
+    it('scoped MEMBER (Ruling R1): throws ForbiddenException, service not called', () => {
+      const timeEntries = makeTimeEntriesWithDeltas();
+      const ctrl = makeCtrl({ timeEntries });
+      expect(() => ctrl.overviewDeltas(SCOPED_MEMBER_SCOPE)).toThrow(ForbiddenException);
+      expect(timeEntries.overviewDeltas).not.toHaveBeenCalled();
+    });
+
+    it('flag-off MEMBER (Ruling R1): reproduces today exactly — service is called', async () => {
+      const timeEntries = makeTimeEntriesWithDeltas();
+      const ctrl = makeCtrl({ timeEntries });
+      await ctrl.overviewDeltas(FLAG_OFF_MEMBER_SCOPE);
+      expect(timeEntries.overviewDeltas).toHaveBeenCalledTimes(1);
     });
   });
 

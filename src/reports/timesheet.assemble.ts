@@ -14,12 +14,19 @@ export interface TimesheetAggRow {
   taskId: string;
   taskName: string | null;
   hours: number;
-  /** Sum of cost_cents over entries that are NOT NO_RATE_FOUND. */
-  validCostCents: number;
+  /**
+   * Sum of cost_cents over entries that are NOT NO_RATE_FOUND, or `null` when
+   * the viewer may not see this row's cost (scope masking — the timesheet is
+   * NOT client-filtered, decision 10, so a row from an out-of-lead client
+   * still appears with its hours, just no cost).
+   */
+  validCostCents: number | null;
   /** Total entries in this (day, task) bucket. */
   entryCount: number;
   /** Count of NO_RATE_FOUND entries in this bucket. */
   missingRateCount: number;
+  /** The task's scope client option id, carried through for callers that need it. Not consulted by `assembleTimesheet` itself — masking already happened upstream. */
+  scopeClientOptionId: string | null;
 }
 
 export interface TimesheetTask {
@@ -47,6 +54,8 @@ export interface Timesheet {
   totalHours: number;
   totalCostAud: number | null;
   missingRateCount: number;
+  /** True when at least one row's cost was hidden from this viewer (scope masking). */
+  costPartial: boolean;
 }
 
 const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -112,7 +121,12 @@ export function assembleTimesheet(
 
   let totalHours = 0;
   let totalValidCostCents = 0;
-  let totalEntryCount = 0;
+  // Only rows whose cost is VISIBLE contribute to these two — a hidden row is
+  // excluded entirely, not counted as zero, so `cost()` correctly returns
+  // null when every visible row was itself all-missing-rate (or when there
+  // were no visible rows at all).
+  let totalVisibleEntryCount = 0;
+  let totalVisibleMissing = 0;
   let totalMissing = 0;
 
   const days: TimesheetDay[] = orderedDays.map((date) => {
@@ -123,19 +137,25 @@ export function assembleTimesheet(
 
     let subtotalHours = 0;
     let subtotalValidCostCents = 0;
-    let dayEntryCount = 0;
+    let visibleEntryCount = 0;
+    let visibleMissing = 0;
     let dayMissing = 0;
 
     const tasks: TimesheetTask[] = dayRows.map((r) => {
       subtotalHours += r.hours;
-      subtotalValidCostCents += r.validCostCents;
-      dayEntryCount += r.entryCount;
       dayMissing += r.missingRateCount;
+      const hidden = r.validCostCents === null;
+      const costAud = hidden ? null : cost(r.validCostCents as number, r.entryCount, r.missingRateCount);
+      if (!hidden) {
+        subtotalValidCostCents += r.validCostCents as number;
+        visibleEntryCount += r.entryCount;
+        visibleMissing += r.missingRateCount;
+      }
       return {
         taskId: r.taskId,
         taskName: r.taskName,
         hours: r.hours,
-        costAud: cost(r.validCostCents, r.entryCount, r.missingRateCount),
+        costAud,
         entryCount: r.entryCount,
         missingRateCount: r.missingRateCount,
       };
@@ -143,7 +163,8 @@ export function assembleTimesheet(
 
     totalHours += subtotalHours;
     totalValidCostCents += subtotalValidCostCents;
-    totalEntryCount += dayEntryCount;
+    totalVisibleEntryCount += visibleEntryCount;
+    totalVisibleMissing += visibleMissing;
     totalMissing += dayMissing;
 
     return {
@@ -152,7 +173,7 @@ export function assembleTimesheet(
       isWeekend,
       tasks,
       subtotalHours,
-      subtotalCostAud: cost(subtotalValidCostCents, dayEntryCount, dayMissing),
+      subtotalCostAud: cost(subtotalValidCostCents, visibleEntryCount, visibleMissing),
       missingRateCount: dayMissing,
     };
   });
@@ -160,7 +181,8 @@ export function assembleTimesheet(
   return {
     days,
     totalHours,
-    totalCostAud: cost(totalValidCostCents, totalEntryCount, totalMissing),
+    totalCostAud: cost(totalValidCostCents, totalVisibleEntryCount, totalVisibleMissing),
     missingRateCount: totalMissing,
+    costPartial: rows.some((r) => r.validCostCents === null),
   };
 }

@@ -1,3 +1,5 @@
+import { Prisma } from '@prisma/client';
+import { ForbiddenException } from '@nestjs/common';
 import { TimeEntriesReportService } from '../src/reports/time-entries-report.service';
 import { buildTimeEntryWhere } from '../src/reports/report-filter.util';
 import { resolveScope, type AccessScope } from '../src/access/access-scope';
@@ -7,6 +9,12 @@ import { resolveScope, type AccessScope } from '../src/access/access-scope';
 // needs one. The scope-specific describes below use their own NONE/
 // LEAD_A_MEMBER_B scopes.
 const UNRESTRICTED: AccessScope = { kind: 'unrestricted', canEdit: true };
+// A MEMBER of exactly zero teams: `visibleClientIds` resolves to `[]`, so a
+// scoped query must pin to an empty id list (FALSE) rather than "no filter".
+const NONE = resolveScope({
+  role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+  memberships: [], teamClients: [], teamMembers: [],
+});
 
 describe('TimeEntriesReportService', () => {
   function makePrisma(overrides: Partial<Record<string, any>> = {}) {
@@ -26,23 +34,100 @@ describe('TimeEntriesReportService', () => {
     it('converts durationHours.toNumber() and costCents BigInt to totalCostAud', async () => {
       const prisma = makePrisma();
       prisma.clickupTimeEntry.groupBy.mockResolvedValue([{
-        userId: 'u1', userName: 'Alice', userEmail: 'alice@x.com',
+        userId: 'u1', userName: 'Alice', userEmail: 'alice@x.com', _count: 1,
         _sum: { durationHours: { toNumber: () => 8 }, costCents: BigInt(120000) },
       }]);
-      const result = await new TimeEntriesReportService(prisma).timeEntriesByUser();
+      const result = await new TimeEntriesReportService(prisma).timeEntriesByUser(UNRESTRICTED);
       expect(result[0].totalHours).toBe(8);
       expect(result[0].totalCostAud).toBe(1200);
+      expect(result[0].costPartial).toBe(false);
     });
 
     it('handles null sums gracefully', async () => {
       const prisma = makePrisma();
       prisma.clickupTimeEntry.groupBy.mockResolvedValue([{
-        userId: 'u2', userName: null, userEmail: null,
+        userId: 'u2', userName: null, userEmail: null, _count: 0,
         _sum: { durationHours: null, costCents: null },
       }]);
-      const result = await new TimeEntriesReportService(prisma).timeEntriesByUser();
+      const result = await new TimeEntriesReportService(prisma).timeEntriesByUser(UNRESTRICTED);
       expect(result[0].totalHours).toBe(0);
       expect(result[0].totalCostAud).toBe(0);
+    });
+  });
+
+  describe('timeEntriesByUser (access scope)', () => {
+    // LEAD of team A (client 'acme'), plain MEMBER of team B (client 'bolt').
+    const LEAD_A_MEMBER_B = resolveScope({
+      role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+      memberships: [
+        { teamId: 'A', role: 'LEAD' },
+        { teamId: 'B', role: 'MEMBER' },
+      ],
+      teamClients: [
+        { teamId: 'A', optionId: 'acme' },
+        { teamId: 'B', optionId: 'bolt' },
+      ],
+      teamMembers: [],
+    });
+
+    it('applies the scope filter to the groupBy where', async () => {
+      const prisma = makePrisma();
+      await new TimeEntriesReportService(prisma).timeEntriesByUser(NONE);
+      const arg = prisma.clickupTimeEntry.groupBy.mock.calls[0][0];
+      expect(arg.where.task).toEqual({ scopeClientOptionId: { in: [] } });
+    });
+
+    it('gives a user with only led hours their full cost, costPartial false', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.groupBy
+        .mockResolvedValueOnce([{
+          userId: 'u1', userName: 'Alice', userEmail: null, _count: 2,
+          _sum: { durationHours: { toNumber: () => 4 }, costCents: BigInt(999999) },
+        }])
+        .mockResolvedValueOnce([{ userId: 'u1', _count: 2, _sum: { costCents: BigInt(20000) } }]);
+      const result = await new TimeEntriesReportService(prisma).timeEntriesByUser(LEAD_A_MEMBER_B);
+      expect(result[0].totalCostAud).toBe(200);
+      expect(result[0].costPartial).toBe(false);
+      const costCall = prisma.clickupTimeEntry.groupBy.mock.calls[1][0];
+      expect(costCall.where.task).toEqual({ scopeClientOptionId: { in: ['acme'] } });
+    });
+
+    it('gives a user with mixed led/non-led hours a partial cost and costPartial true', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.groupBy
+        .mockResolvedValueOnce([{
+          userId: 'u1', userName: 'Alice', userEmail: null, _count: 5,
+          _sum: { durationHours: { toNumber: () => 10 }, costCents: BigInt(999999) },
+        }])
+        .mockResolvedValueOnce([{ userId: 'u1', _count: 3, _sum: { costCents: BigInt(15000) } }]);
+      const result = await new TimeEntriesReportService(prisma).timeEntriesByUser(LEAD_A_MEMBER_B);
+      expect(result[0].totalCostAud).toBe(150);
+      expect(result[0].costPartial).toBe(true);
+    });
+
+    it('gives a user with zero led hours a null cost, costPartial true', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.groupBy
+        .mockResolvedValueOnce([{
+          userId: 'u2', userName: 'Bob', userEmail: null, _count: 4,
+          _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(999999) },
+        }])
+        .mockResolvedValueOnce([]);
+      const result = await new TimeEntriesReportService(prisma).timeEntriesByUser(LEAD_A_MEMBER_B);
+      expect(result[0].totalCostAud).toBeNull();
+      expect(result[0].costPartial).toBe(true);
+    });
+
+    it('a viewer who leads nothing skips the extra cost groupBy entirely', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.groupBy.mockResolvedValue([{
+        userId: 'u1', userName: 'Alice', userEmail: null, _count: 2,
+        _sum: { durationHours: { toNumber: () => 4 }, costCents: BigInt(999999) },
+      }]);
+      const result = await new TimeEntriesReportService(prisma).timeEntriesByUser(NONE);
+      expect(result[0].totalCostAud).toBeNull();
+      expect(result[0].costPartial).toBe(true);
+      expect(prisma.clickupTimeEntry.groupBy).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -56,13 +141,13 @@ describe('TimeEntriesReportService', () => {
       prisma.clickupTimeEntry.aggregate
         .mockResolvedValueOnce({ _count: 2, _sum: { durationHours: { toNumber: () => 15 }, costCents: BigInt(150000) } })
         .mockResolvedValueOnce({ _count: 1, _sum: { durationHours: { toNumber: () => 10 }, costCents: BigInt(150000) } });
-      const result = await new TimeEntriesReportService(prisma).timeEntriesChargeableSummary();
+      const result = await new TimeEntriesReportService(prisma).timeEntriesChargeableSummary(UNRESTRICTED);
       expect(result).toEqual({ chargeableHours: 10, nonChargeableHours: 5 });
     });
 
     it('returns zeros when no entries exist', async () => {
       const prisma = makePrisma();
-      const result = await new TimeEntriesReportService(prisma).timeEntriesChargeableSummary();
+      const result = await new TimeEntriesReportService(prisma).timeEntriesChargeableSummary(UNRESTRICTED);
       expect(result).toEqual({ chargeableHours: 0, nonChargeableHours: 0 });
     });
 
@@ -76,39 +161,107 @@ describe('TimeEntriesReportService', () => {
       const prisma = makePrisma();
       const from = '2026-01-01T00:00:00.000Z';
       const to = '2026-02-01T00:00:00.000Z';
-      await new TimeEntriesReportService(prisma).timeEntriesChargeableSummary(from, to);
+      await new TimeEntriesReportService(prisma).timeEntriesChargeableSummary(UNRESTRICTED, from, to);
       const window = { startTime: { gte: new Date(from), lte: new Date(to) } };
       const calls = prisma.clickupTimeEntry.aggregate.mock.calls;
       expect(calls).toHaveLength(2);
       expect(calls[0][0].where).toEqual(window);
       expect(calls[1][0].where).toEqual({ AND: [window, { isChargeable: true }] });
     });
+
+    it('applies the scope filter to the window', async () => {
+      const prisma = makePrisma();
+      await new TimeEntriesReportService(prisma).timeEntriesChargeableSummary(NONE);
+      const calls = prisma.clickupTimeEntry.aggregate.mock.calls;
+      expect(calls[0][0].where.task).toEqual({ scopeClientOptionId: { in: [] } });
+      expect(calls[1][0].where.AND[0].task).toEqual({ scopeClientOptionId: { in: [] } });
+    });
   });
 
   describe('timeEntriesByClient', () => {
     it('maps raw SQL result to client, totalHours, totalCostAud', async () => {
       const prisma = makePrisma();
-      prisma.$queryRaw.mockResolvedValue([{ client: 'Acme Corp', total_hours: 5.5, total_cost_cents: 82500 }]);
-      const result = await new TimeEntriesReportService(prisma).timeEntriesByClient();
-      expect(result[0]).toEqual({ client: 'Acme Corp', totalHours: 5.5, totalCostAud: 825 });
+      prisma.$queryRaw.mockResolvedValue([{ client: 'Acme Corp', total_hours: 5.5, total_cost_cents: 82500, scope_client_option_id: null }]);
+      const result = await new TimeEntriesReportService(prisma).timeEntriesByClient(UNRESTRICTED);
+      expect(result[0]).toEqual({ client: 'Acme Corp', totalHours: 5.5, totalCostAud: 825, costPartial: false });
     });
 
     it('excludes soft-deleted tasks from the SQL', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([]);
-      await new TimeEntriesReportService(prisma).timeEntriesByClient();
+      await new TimeEntriesReportService(prisma).timeEntriesByClient(UNRESTRICTED);
       const call = prisma.$queryRaw.mock.calls[0][0];
       const sqlText: string = call.sql ?? call.text ?? String(call);
       expect(sqlText).toMatch(/t\.is_deleted\s*=\s*false/);
+    });
+
+    // Step 5: an empty scope must pin the query to FALSE, never "no filter".
+    it('an empty scope applies FALSE to the SQL', async () => {
+      const prisma = makePrisma();
+      await new TimeEntriesReportService(prisma).timeEntriesByClient(NONE);
+      const call = prisma.$queryRaw.mock.calls[0][0] as Prisma.Sql;
+      expect(call.sql).toMatch(/FALSE/);
+    });
+
+    it('masks totalCostAud to null and flags costPartial for a client the viewer does not lead', async () => {
+      const prisma = makePrisma();
+      const LEAD_A = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'LEAD' }],
+        teamClients: [{ teamId: 'A', optionId: 'acme' }],
+        teamMembers: [],
+      });
+      prisma.$queryRaw.mockResolvedValue([
+        { client: 'Acme Corp', total_hours: 5, total_cost_cents: 10000, scope_client_option_id: 'acme' },
+        { client: 'Bolt Inc', total_hours: 3, total_cost_cents: 0, scope_client_option_id: 'bolt' },
+      ]);
+      const result = await new TimeEntriesReportService(prisma).timeEntriesByClient(LEAD_A);
+      const acme = result.find((r) => r.client === 'Acme Corp')!;
+      const bolt = result.find((r) => r.client === 'Bolt Inc')!;
+      expect(acme.totalCostAud).toBe(100);
+      expect(acme.costPartial).toBe(false);
+      expect(bolt.totalCostAud).toBeNull();
+      expect(bolt.costPartial).toBe(true);
+      // Hours are never masked.
+      expect(bolt.totalHours).toBe(3);
     });
   });
 
   describe('timeEntriesByDepartment', () => {
     it('maps raw SQL result to department, totalHours, totalCostAud', async () => {
       const prisma = makePrisma();
-      prisma.$queryRaw.mockResolvedValue([{ department: 'Engineering', total_hours: 20, total_cost_cents: 300000 }]);
-      const result = await new TimeEntriesReportService(prisma).timeEntriesByDepartment();
-      expect(result[0]).toEqual({ department: 'Engineering', totalHours: 20, totalCostAud: 3000 });
+      prisma.$queryRaw.mockResolvedValue([{ department: 'Engineering', total_hours: 20, total_cost_cents: 300000, has_led_cost: true, cost_partial: false }]);
+      const result = await new TimeEntriesReportService(prisma).timeEntriesByDepartment(UNRESTRICTED);
+      expect(result[0]).toEqual({ department: 'Engineering', totalHours: 20, totalCostAud: 3000, costPartial: false });
+    });
+
+    it('nulls the cost for a department with zero led-visible rows, costPartial true', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([{ department: 'Sales', total_hours: 10, total_cost_cents: 0, has_led_cost: false, cost_partial: true }]);
+      const scoped = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'LEAD' }],
+        teamClients: [{ teamId: 'A', optionId: 'acme' }],
+        teamMembers: [],
+      });
+      const result = await new TimeEntriesReportService(prisma).timeEntriesByDepartment(scoped);
+      expect(result[0].totalCostAud).toBeNull();
+      expect(result[0].costPartial).toBe(true);
+      expect(result[0].totalHours).toBe(10);
+    });
+
+    it('sums only led-visible cost for a department with mixed led/non-led rows', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([{ department: 'Eng', total_hours: 12, total_cost_cents: 5000, has_led_cost: true, cost_partial: true }]);
+      const scoped = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'LEAD' }],
+        teamClients: [{ teamId: 'A', optionId: 'acme' }],
+        teamMembers: [],
+      });
+      const result = await new TimeEntriesReportService(prisma).timeEntriesByDepartment(scoped);
+      expect(result[0].totalCostAud).toBe(50);
+      expect(result[0].costPartial).toBe(true);
     });
   });
 
@@ -119,6 +272,7 @@ describe('TimeEntriesReportService', () => {
         .mockResolvedValueOnce([{ total_hours: 124.5, total_cost_cents: BigInt(1843250) }])
         .mockResolvedValueOnce([{ total_hours: 105.0, total_cost_cents: BigInt(1560000) }]);
       const result = await new TimeEntriesReportService(prisma).overviewDeltas(
+        UNRESTRICTED,
         '2026-05-01T00:00:00.000Z',
         '2026-05-31T23:59:59.999Z',
       );
@@ -132,12 +286,16 @@ describe('TimeEntriesReportService', () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([{ total_hours: 0, total_cost_cents: BigInt(0) }]);
       await new TimeEntriesReportService(prisma).overviewDeltas(
+        UNRESTRICTED,
         '2026-05-15T00:00:00.000Z',
         '2026-05-20T00:00:00.000Z',
       );
       const priorCall = prisma.$queryRaw.mock.calls[1][0];
       const sqlText: string = priorCall.sql ?? priorCall.text ?? String(priorCall);
-      expect(sqlText).toMatch(/SUM\(e\.cost_cents\)/);
+      // Wrapped in `CASE WHEN <leadScopeSql> THEN e.cost_cents ELSE 0 END` now
+      // (scoped viewers only sum led-visible cost) — check the sum still
+      // targets cost_cents, not the exact pre-scoping literal text.
+      expect(sqlText).toMatch(/SUM\(CASE WHEN[\s\S]*e\.cost_cents/);
       const values: unknown[] = priorCall.values ?? [];
       const isoStrings = values
         .map(v => (v instanceof Date ? v.toISOString() : String(v)))
@@ -149,7 +307,7 @@ describe('TimeEntriesReportService', () => {
     it('excludes soft-deleted tasks in both windows', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([{ total_hours: 0, total_cost_cents: BigInt(0) }]);
-      await new TimeEntriesReportService(prisma).overviewDeltas();
+      await new TimeEntriesReportService(prisma).overviewDeltas(UNRESTRICTED);
       const call0: string = prisma.$queryRaw.mock.calls[0][0].sql ?? String(prisma.$queryRaw.mock.calls[0][0]);
       const call1: string = prisma.$queryRaw.mock.calls[1][0].sql ?? String(prisma.$queryRaw.mock.calls[1][0]);
       expect(call0).toMatch(/t\.is_deleted\s*=\s*false/);
@@ -159,9 +317,51 @@ describe('TimeEntriesReportService', () => {
     it('handles null sums (no rows in window)', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([{ total_hours: null, total_cost_cents: null }]);
-      const result = await new TimeEntriesReportService(prisma).overviewDeltas();
+      const result = await new TimeEntriesReportService(prisma).overviewDeltas(UNRESTRICTED);
       expect(result.current).toEqual({ totalHours: 0, totalCostAud: 0 });
       expect(result.prior).toEqual({ totalHours: 0, totalCostAud: 0 });
+    });
+  });
+
+  describe('overviewDeltas (access scope)', () => {
+    // Step 5: an empty scope must pin both window queries to FALSE.
+    it('an empty scope applies FALSE to both window queries', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([{ total_hours: 0, total_cost_cents: BigInt(0) }]);
+      await new TimeEntriesReportService(prisma).overviewDeltas(NONE);
+      const call0 = prisma.$queryRaw.mock.calls[0][0] as Prisma.Sql;
+      const call1 = prisma.$queryRaw.mock.calls[1][0] as Prisma.Sql;
+      expect(call0.sql).toMatch(/FALSE/);
+      expect(call1.sql).toMatch(/FALSE/);
+    });
+
+    it('nulls totalCostAud when the viewer leads no client in scope', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([{ total_hours: 5, total_cost_cents: BigInt(0) }]);
+      const memberOnly = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'MEMBER' }],
+        teamClients: [{ teamId: 'A', optionId: 'acme' }],
+        teamMembers: [],
+      });
+      const result = await new TimeEntriesReportService(prisma).overviewDeltas(memberOnly);
+      expect(result.current.totalCostAud).toBeNull();
+      expect(result.prior.totalCostAud).toBeNull();
+    });
+
+    it('narrows cost to led clients only, via a CASE WHEN over leadScopeSql', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([{ total_hours: 5, total_cost_cents: BigInt(5000) }]);
+      const lead = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'LEAD' }],
+        teamClients: [{ teamId: 'A', optionId: 'acme' }],
+        teamMembers: [],
+      });
+      const result = await new TimeEntriesReportService(prisma).overviewDeltas(lead);
+      expect(result.current.totalCostAud).toBe(50);
+      const call0 = prisma.$queryRaw.mock.calls[0][0] as Prisma.Sql;
+      expect(call0.sql).toMatch(/t\.scope_client_option_id = ANY/);
     });
   });
 
@@ -173,13 +373,78 @@ describe('TimeEntriesReportService', () => {
     it('timesheet buckets start_time with single Asia/Dhaka conversion', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([]);
-      await new TimeEntriesReportService(prisma).timesheet('u1');
+      await new TimeEntriesReportService(prisma).timesheet('u1', undefined, undefined, UNRESTRICTED);
       const allSql = prisma.$queryRaw.mock.calls.map((c: any[]) => {
         const call = c[0];
         return call.sql ?? call.text ?? String(call);
       }).join('\n---\n');
       expect(allSql).not.toMatch(/start_time\s+AT TIME ZONE 'UTC'/);
       expect(allSql).toMatch(/start_time\s+AT TIME ZONE 'Asia\/Dhaka'/);
+    });
+  });
+
+  describe('timesheet access', () => {
+    const lead = resolveScope({ role: 'MEMBER', scopingEnabled: true, selfClickupId: 'cu-lead',
+      memberships: [{ teamId: 'A', role: 'LEAD' }], teamClients: [{ teamId: 'A', optionId: 'acme' }],
+      teamMembers: [{ teamId: 'A', clickupUserId: 'cu-x' }] });
+    it('lead may open a member’s timesheet', async () => {
+      const prisma = { $queryRaw: jest.fn().mockResolvedValue([]) } as any;
+      await expect(new TimeEntriesReportService(prisma).timesheet('cu-x', undefined, undefined, lead)).resolves.toBeDefined();
+    });
+    it('lead may NOT open an outsider’s timesheet, even one who logged on the lead’s clients', async () => {
+      const prisma = { $queryRaw: jest.fn() } as any;
+      await expect(new TimeEntriesReportService(prisma).timesheet('cu-outsider', undefined, undefined, lead)).rejects.toThrow(ForbiddenException);
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    });
+    it('a lead may always open their own timesheet even with no led members', async () => {
+      const selfOnly = resolveScope({ role: 'MEMBER', scopingEnabled: true, selfClickupId: 'cu-self',
+        memberships: [{ teamId: 'A', role: 'LEAD' }], teamClients: [{ teamId: 'A', optionId: 'acme' }], teamMembers: [] });
+      const prisma = { $queryRaw: jest.fn().mockResolvedValue([]) } as any;
+      await expect(new TimeEntriesReportService(prisma).timesheet('cu-self', undefined, undefined, selfOnly)).resolves.toBeDefined();
+    });
+    it('an unrestricted viewer may open any timesheet', async () => {
+      const prisma = { $queryRaw: jest.fn().mockResolvedValue([]) } as any;
+      await expect(new TimeEntriesReportService(prisma).timesheet('anyone', undefined, undefined, UNRESTRICTED)).resolves.toBeDefined();
+    });
+    it('the timesheet is NOT client-filtered (decision 10) — other-team rows come back with null cost', async () => {
+      const prisma = { $queryRaw: jest.fn().mockResolvedValue([
+        { day: '2026-09-14', task_id: 't1', task_name: 'Landing', client_option_id: 'acme', user_name: 'X', hours: 5, valid_cost_cents: 25000n, entry_count: 1, missing_rate_count: 0 },
+        { day: '2026-09-14', task_id: 't2', task_name: 'Onboarding', client_option_id: 'zulu', user_name: 'X', hours: 3, valid_cost_cents: 15000n, entry_count: 1, missing_rate_count: 0 },
+      ]) } as any;
+      const sheet = await new TimeEntriesReportService(prisma).timesheet('cu-x', '2026-09-14', '2026-09-14', lead);
+      const sql = (prisma.$queryRaw.mock.calls[0][0] as Prisma.Sql).sql;
+      expect(sql).not.toContain('scope_client_option_id = ANY');
+      expect(JSON.stringify(sheet)).toContain('Onboarding');
+      expect(sheet.costPartial).toBe(true);
+    });
+  });
+
+  describe('timeEntriesAssignees', () => {
+    it('unrestricted: queries with no join, mapped id/name/email', async () => {
+      const prisma = { $queryRaw: jest.fn().mockResolvedValue([{ user_id: 'u1', user_name: 'Alice', user_email: 'a@x.com' }]) } as any;
+      const result = await new TimeEntriesReportService(prisma).timeEntriesAssignees(UNRESTRICTED);
+      expect(result).toEqual([{ id: 'u1', name: 'Alice', email: 'a@x.com' }]);
+      const sql = (prisma.$queryRaw.mock.calls[0][0] as Prisma.Sql).sql;
+      expect(sql).not.toMatch(/JOIN clickup_tasks/);
+    });
+
+    it('scoped: joins clickup_tasks and ORs in the timesheet-visible user ids', async () => {
+      const prisma = { $queryRaw: jest.fn().mockResolvedValue([]) } as any;
+      const scope = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: 'cu-self',
+        memberships: [{ teamId: 'A', role: 'LEAD' }],
+        teamClients: [{ teamId: 'A', optionId: 'acme' }],
+        teamMembers: [{ teamId: 'A', clickupUserId: 'cu-member' }],
+      });
+      await new TimeEntriesReportService(prisma).timeEntriesAssignees(scope);
+      const call = prisma.$queryRaw.mock.calls[0][0] as Prisma.Sql;
+      expect(call.sql).toMatch(/JOIN clickup_tasks/);
+      expect(call.sql).toMatch(/= ANY/);
+    });
+
+    it('does not error when the viewer leads nobody and has no self id', async () => {
+      const prisma = { $queryRaw: jest.fn().mockResolvedValue([]) } as any;
+      await expect(new TimeEntriesReportService(prisma).timeEntriesAssignees(NONE)).resolves.toEqual([]);
     });
   });
 
@@ -796,7 +1061,7 @@ describe('TimeEntriesReportService', () => {
         { userId: 'u2', _max: { userName: 'Grace' }, _count: 1, _sum: { durationHours: hrs(2) } },
       ]);
 
-      const rows = await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1');
+      const rows = await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1', UNRESTRICTED);
 
       expect(rows).toEqual([
         { userId: 'u1', userName: 'Ada', entryCount: 2, hours: 3, rule: null, chargeable: true, source: 'task' },
@@ -827,7 +1092,7 @@ describe('TimeEntriesReportService', () => {
         { userId: 'u1', _max: { userName: 'Ada Lovelace' }, _count: 3, _sum: { durationHours: { toNumber: () => 5.5 } } },
       ]);
 
-      const rows = await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1');
+      const rows = await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1', UNRESTRICTED);
 
       expect(rows).toEqual([
         { userId: 'u1', userName: 'Ada Lovelace', entryCount: 3, hours: 5.5, rule: null, chargeable: true, source: 'task' },
@@ -846,7 +1111,7 @@ describe('TimeEntriesReportService', () => {
       });
       prisma.clickupTimeEntry.groupBy.mockResolvedValue([]);
 
-      const rows = await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1');
+      const rows = await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1', UNRESTRICTED);
 
       // No name to show: the rule table keys on the ClickUp user id and there
       // is no entry to borrow a display name from. The drawer falls back to
@@ -865,7 +1130,7 @@ describe('TimeEntriesReportService', () => {
         { userId: 'u1', _max: { userName: 'Ada' }, _count: 2, _sum: { durationHours: { toNumber: () => 3 } } },
       ]);
 
-      const rows = await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1');
+      const rows = await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1', UNRESTRICTED);
 
       expect(rows).toEqual([
         { userId: 'u1', userName: 'Ada', entryCount: 2, hours: 3, rule: false, chargeable: false, source: 'assignee' },
@@ -881,7 +1146,59 @@ describe('TimeEntriesReportService', () => {
         { userId: null, _max: { userName: null }, _count: 1, _sum: { durationHours: { toNumber: () => 1 } } },
       ]);
 
-      expect(await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1')).toEqual([]);
+      expect(await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1', UNRESTRICTED)).toEqual([]);
+    });
+
+    it('unrestricted: a missing task does not throw, reproducing today’s behaviour', async () => {
+      const prisma = makePrisma({
+        clickupTask: { findUnique: jest.fn().mockResolvedValue(null) },
+        taskAssigneeChargeability: { findMany: jest.fn().mockResolvedValue([]) },
+      });
+      prisma.clickupTimeEntry.groupBy.mockResolvedValue([
+        { userId: 'u1', _max: { userName: 'Ada' }, _count: 1, _sum: { durationHours: { toNumber: () => 1 } } },
+      ]);
+      await expect(new TimeEntriesReportService(prisma).taskAssigneeChargeability('ghost', UNRESTRICTED)).resolves.toEqual([
+        { userId: 'u1', userName: 'Ada', entryCount: 1, hours: 1, rule: null, chargeable: true, source: 'default' },
+      ]);
+      expect(prisma.clickupTask.findUnique).toHaveBeenCalled();
+    });
+
+    it('scoped: a missing or out-of-scope task 404s, without reading rules/entries', async () => {
+      const prisma = makePrisma({
+        clickupTask: { findFirst: jest.fn().mockResolvedValue(null) },
+        taskAssigneeChargeability: { findMany: jest.fn() },
+      });
+      const lead = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'LEAD' }],
+        teamClients: [{ teamId: 'A', optionId: 'acme' }],
+        teamMembers: [],
+      });
+      await expect(new TimeEntriesReportService(prisma).taskAssigneeChargeability('ghost', lead)).rejects.toThrow('Task not found');
+      expect(prisma.taskAssigneeChargeability.findMany).not.toHaveBeenCalled();
+      expect(prisma.clickupTimeEntry.groupBy).not.toHaveBeenCalled();
+    });
+
+    it('scoped: an in-scope task masks any cost fields on the rows (defensive — no cost fields today)', async () => {
+      const prisma = makePrisma({
+        clickupTask: { findFirst: jest.fn().mockResolvedValue({ isChargeable: true, scopeClientOptionId: 'bolt' }) },
+        taskAssigneeChargeability: { findMany: jest.fn().mockResolvedValue([]) },
+      });
+      prisma.clickupTimeEntry.groupBy.mockResolvedValue([
+        { userId: 'u1', _max: { userName: 'Ada' }, _count: 1, _sum: { durationHours: { toNumber: () => 1 } } },
+      ]);
+      const lead = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'LEAD' }],
+        teamClients: [{ teamId: 'A', optionId: 'acme' }],
+        teamMembers: [],
+      });
+      const rows = await new TimeEntriesReportService(prisma).taskAssigneeChargeability('t1', lead);
+      const call = prisma.clickupTask.findFirst.mock.calls[0][0];
+      expect(call.where.scopeClientOptionId).toEqual({ in: ['acme'] });
+      expect(rows).toEqual([
+        { userId: 'u1', userName: 'Ada', entryCount: 1, hours: 1, rule: null, chargeable: true, source: 'task' },
+      ]);
     });
   });
 
