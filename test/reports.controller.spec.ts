@@ -1,6 +1,7 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { resolveScope } from '../src/access/access-scope';
 import { ReportsController } from '../src/reports/reports.controller';
 import { TasksReportService } from '../src/reports/tasks-report.service';
 import { TimeEntriesReportService } from '../src/reports/time-entries-report.service';
@@ -54,6 +55,19 @@ describe('ReportsController', () => {
     return { clientBudgetStatus: jest.fn().mockResolvedValue([]) } as any;
   }
 
+  // Scopes for the ops/anomaly/spike routes (Ruling R8): requireUnrestricted() must let
+  // an OWNER/ADMIN and a flag-off MEMBER through (flag-off parity) but 403 a scoped MEMBER.
+  const OWNER_SCOPE = resolveScope({
+    role: 'OWNER', scopingEnabled: true, selfClickupId: null, memberships: [], teamClients: [], teamMembers: [],
+  });
+  const FLAG_OFF_MEMBER_SCOPE = resolveScope({
+    role: 'MEMBER', scopingEnabled: false, selfClickupId: null, memberships: [], teamClients: [], teamMembers: [],
+  });
+  const SCOPED_MEMBER_SCOPE = resolveScope({
+    role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+    memberships: [{ teamId: 'A', role: 'MEMBER' }], teamClients: [], teamMembers: [],
+  });
+
   describe('overviewDeltas', () => {
     function makeTimeEntriesWithDeltas() {
       return {
@@ -91,10 +105,24 @@ describe('ReportsController', () => {
         }),
       } as any;
       const ctrl = makeCtrl({ anomaly });
-      const result = await ctrl.anomalies();
+      const result = await ctrl.anomalies(OWNER_SCOPE);
       expect(anomaly.anomalies).toHaveBeenCalledTimes(1);
       expect(result.dailySpikes).toHaveLength(1);
       expect(result.clientSpikes).toEqual([]);
+    });
+
+    it('scoped MEMBER (Ruling R8): throws ForbiddenException, service not called', () => {
+      const anomaly = { anomalies: jest.fn() } as any;
+      const ctrl = makeCtrl({ anomaly });
+      expect(() => ctrl.anomalies(SCOPED_MEMBER_SCOPE)).toThrow(ForbiddenException);
+      expect(anomaly.anomalies).not.toHaveBeenCalled();
+    });
+
+    it('flag-off MEMBER (Ruling R8): reproduces today exactly — service is called', async () => {
+      const anomaly = { anomalies: jest.fn().mockResolvedValue({ dailySpikes: [], clientSpikes: [] }) } as any;
+      const ctrl = makeCtrl({ anomaly });
+      await ctrl.anomalies(FLAG_OFF_MEMBER_SCOPE);
+      expect(anomaly.anomalies).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -133,7 +161,7 @@ describe('ReportsController', () => {
       const anomaly = { hourSpikes: jest.fn().mockResolvedValue({ cap: 10, watchlist: [], watchlistTotal: 0, byUser: { buckets: [], users: [] } }) } as any;
       const settings = makeSettings(10);
       const ctrl = makeCtrl({ anomaly, settings });
-      const result = await ctrl.hourSpikes('2026-06-01', '2026-06-10');
+      const result = await ctrl.hourSpikes(OWNER_SCOPE, '2026-06-01', '2026-06-10');
       expect(settings.getSpikeHoursCap).toHaveBeenCalledTimes(1);
       expect(anomaly.hourSpikes).toHaveBeenCalledWith(10, '2026-06-01', '2026-06-10', 20, false, true);
       expect(result.cap).toBe(10);
@@ -143,15 +171,29 @@ describe('ReportsController', () => {
       const anomaly = { hourSpikes: jest.fn().mockResolvedValue({ cap: 10, watchlist: [], watchlistTotal: 0, byUser: { buckets: [], users: [] } }) } as any;
       const settings = makeSettings(10);
       const ctrl = makeCtrl({ anomaly, settings });
-      await ctrl.hourSpikes('2026-06-01', '2026-06-10', '40', 'true');
+      await ctrl.hourSpikes(OWNER_SCOPE, '2026-06-01', '2026-06-10', '40', 'true');
       expect(anomaly.hourSpikes).toHaveBeenCalledWith(10, '2026-06-01', '2026-06-10', 40, true, true);
     });
 
     it('forwards medianEnabled=false from settings into the service', async () => {
       const anomaly = { hourSpikes: jest.fn().mockResolvedValue({ cap: 10, watchlist: [], watchlistTotal: 0, byUser: { buckets: [], users: [] } }) } as any;
       const ctrl = makeCtrl({ anomaly, settings: makeSettings(10, false) });
-      await ctrl.hourSpikes('2026-06-01', '2026-06-10');
+      await ctrl.hourSpikes(OWNER_SCOPE, '2026-06-01', '2026-06-10');
       expect(anomaly.hourSpikes).toHaveBeenCalledWith(10, '2026-06-01', '2026-06-10', 20, false, false);
+    });
+
+    it('scoped MEMBER (Ruling R8): throws ForbiddenException, service not called', () => {
+      const anomaly = { hourSpikes: jest.fn() } as any;
+      const ctrl = makeCtrl({ anomaly });
+      expect(() => ctrl.hourSpikes(SCOPED_MEMBER_SCOPE, '2026-06-01', '2026-06-10')).toThrow(ForbiddenException);
+      expect(anomaly.hourSpikes).not.toHaveBeenCalled();
+    });
+
+    it('flag-off MEMBER (Ruling R8): reproduces today exactly — service is called', async () => {
+      const anomaly = { hourSpikes: jest.fn().mockResolvedValue({ cap: 10, watchlist: [], watchlistTotal: 0, byUser: { buckets: [], users: [] } }) } as any;
+      const ctrl = makeCtrl({ anomaly, settings: makeSettings(10) });
+      await ctrl.hourSpikes(FLAG_OFF_MEMBER_SCOPE, '2026-06-01', '2026-06-10');
+      expect(anomaly.hourSpikes).toHaveBeenCalledTimes(1);
     });
   });
 

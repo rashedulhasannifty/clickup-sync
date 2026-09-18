@@ -1,7 +1,7 @@
 import { BadRequestException, Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
-import { Roles } from '../auth/decorators';
+import { AccessScope } from '../access/access-scope';
+import { requireUnrestricted, Scope } from '../access/scope.decorator';
 import { BudgetsService } from '../budgets/budgets.service';
 import { SettingsService } from '../settings/settings.service';
 import { TasksReportService } from './tasks-report.service';
@@ -145,22 +145,28 @@ export class ReportsController {
     return this.tasksReports.chargeablePreview(ids, chargeable === 'true');
   }
 
-  @Roles(Role.OWNER, Role.ADMIN)
+  // Ops/anomaly/spike routes are admin-grade data, but a plain @Roles(OWNER, ADMIN)
+  // would 403 a MEMBER even with team scoping OFF — and NotificationCenter (rendered
+  // for every role) calls this, anomalies and hour-spikes today. requireUnrestricted
+  // reproduces flag-off behaviour exactly (a flag-off MEMBER's scope is 'unrestricted')
+  // while still 403ing a scoped MEMBER once scoping is on. See Ruling R8.
   @Get('anomalies')
   @ApiOperation({ summary: 'Spend-spike anomalies for the Overview panel — daily totals and per-client weekly totals exceeding their median baselines.' })
-  anomalies() {
+  anomalies(@Scope() scope: AccessScope) {
+    requireUnrestricted(scope);
     return this.anomalyReports.anomalies();
   }
 
-  @Roles(Role.OWNER, Role.ADMIN)
   @Get('time-entries/hour-spikes')
   @ApiOperation({ summary: "Per-user daily-hour spikes: a team watchlist of days exceeding the absolute cap or 2x the user's median over the selected window (min 14 days), plus per-user daily-hours series for the chart. Supports limit + includeResolved." })
   hourSpikes(
+    @Scope() scope: AccessScope,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('limit') limit?: string,
     @Query('includeResolved') includeResolved?: string,
   ) {
+    requireUnrestricted(scope);
     return this.anomalyReports.hourSpikes(this.settings.getSpikeHoursCap(), from, to, Number(limit) || 20, includeResolved === 'true', this.settings.isSpikeMedianEnabled());
   }
 
@@ -364,52 +370,60 @@ export class ReportsController {
     return this.sprintsReports.sprintDetail(listId);
   }
 
-  @Roles(Role.OWNER, Role.ADMIN)
   @Get('ops/sync-health')
   @ApiOperation({ summary: 'Sync checkpoint freshness per space (Fresh / Stale / Unknown)' })
-  syncHealth() { return this.opsReports.syncHealth(); }
+  syncHealth(@Scope() scope: AccessScope) {
+    requireUnrestricted(scope);
+    return this.opsReports.syncHealth();
+  }
 
-  @Roles(Role.OWNER, Role.ADMIN)
   @Get('ops/webhook-events')
   @ApiOperation({ summary: 'Recent webhook events with optional filters (status, eventType, search)' })
   webhookEvents(
+    @Scope() scope: AccessScope,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
     @Query('status') status?: string,
     @Query('eventType') eventType?: string,
     @Query('search') search?: string,
   ) {
+    requireUnrestricted(scope);
     return this.opsReports.webhookEvents(Number(limit) || 50, Number(offset) || 0, status, eventType, search);
   }
 
-  @Roles(Role.OWNER, Role.ADMIN)
   @Get('ops/job-logs')
   @ApiOperation({ summary: 'Sync job logs with optional filters (queueName, status)' })
   jobLogs(
+    @Scope() scope: AccessScope,
     @Query('queueName') queueName?: string,
     @Query('status') status?: string,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
+    requireUnrestricted(scope);
     return this.opsReports.jobLogs(queueName, status, Number(limit) || 50, Number(offset) || 0);
   }
 
-  @Roles(Role.OWNER, Role.ADMIN)
   @Get('ops/dead-letters')
   @ApiOperation({ summary: 'Pending dead-letter jobs' })
-  deadLetters(@Query('limit') limit?: string, @Query('offset') offset?: string) {
+  deadLetters(@Scope() scope: AccessScope, @Query('limit') limit?: string, @Query('offset') offset?: string) {
+    requireUnrestricted(scope);
     return this.opsReports.deadLetters(Number(limit) || 50, Number(offset) || 0);
   }
 
-  @Roles(Role.OWNER, Role.ADMIN)
   @Get('ops/stats')
   @ApiOperation({ summary: 'Dashboard overview stats (failures, dead-letters, webhooks, missing rates)' })
-  stats() { return this.opsReports.stats([...this.settings.getExcludedAssigneeIds()]); }
+  stats(@Scope() scope: AccessScope) {
+    requireUnrestricted(scope);
+    return this.opsReports.stats([...this.settings.getExcludedAssigneeIds()]);
+  }
 
-  @Roles(Role.OWNER, Role.ADMIN)
   @Get('ops/missing-rates')
   @ApiOperation({ summary: 'Assignees with NO_RATE_FOUND time entries, grouped by user' })
-  missingRates() { return this.opsReports.missingRates([...this.settings.getExcludedAssigneeIds()]); }
+  missingRates(@Scope() scope: AccessScope) {
+    requireUnrestricted(scope);
+    return this.opsReports.missingRates([...this.settings.getExcludedAssigneeIds()]);
+  }
 
   @Get('spaces')
   @ApiOperation({ summary: 'Per-space task, hour, and cost aggregates' })
