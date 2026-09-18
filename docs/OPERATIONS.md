@@ -185,6 +185,23 @@ Only the backfill/cron/`POST /admin/lists/sync` paths are authoritative for the 
 
 Rates are managed in the dashboard (`/assignee-rates`) via `POST|PATCH|DELETE /admin/rates`. Changing a rate automatically triggers a scoped `recalculate-costs` job on the `maintenance` queue that recomputes costs for affected `clickup_time_entries`. There is no Google Sheets sync. For a manual full recalculation, call `POST /admin/rates/recalculate`.
 
+## Team-scoped access (PR 1: backend, flag off)
+
+`npm run prisma:deploy` applies migration `0023_team_scoped_access`. It is additive only (new tables, new nullable columns on `clickup_tasks`, a `CREATE INDEX` on `scope_client_option_id`) and needs no downtime.
+
+After deploying, backfill the new columns on the worker from each task's already-stored `raw` JSON:
+
+```bash
+node dist/scripts/backfill-client-option-ids.js --dry-run   # list what would change
+node dist/scripts/backfill-client-option-ids.js             # write
+```
+
+It is idempotent — safe to re-run. If it warns that the parent-to-subtask inheritance pass hit its cap, re-run it; a later pass finishes rows a prior run left unscoped.
+
+Then populate the Client option catalog, via `POST /admin/lists/sync` or by waiting for the daily 03:00 list-catalog cron. Do this before creating any teams: `team_clients.option_id` has a `RESTRICT` foreign key to `clickup_client_options`, so a client can't be assigned to a team until its option row exists.
+
+**Do not** set `preferences.access.teamScopingEnabled = true` (reachable via `PATCH /admin/settings`) until PR 2 (Teams UI, invite/membership flows) ships. With it on and no teams created yet, every MEMBER is denied everything.
+
 ## Production deployment
 
 For a full server setup (Docker Compose + Caddy with automatic HTTPS on Ubuntu), see `docs/DEPLOYMENT.md`.

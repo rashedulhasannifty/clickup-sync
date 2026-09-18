@@ -318,11 +318,29 @@ describe('WorkReportService.work (access scope)', () => {
     expect((res.totals as any).costPartial).toBe(true);
   });
 
-  it('a MEMBER-only scope with no rows at all gets costCents: null and costPartial: false', async () => {
+  // Ruling R17 (canonical R12 rule): an empty result (no rows at all) keeps
+  // today's $0, not null — "leads nothing in scope" alone must never
+  // collapse a genuinely-empty result to null.
+  it('a MEMBER-only scope with no rows at all gets costCents: 0 and costPartial: false', async () => {
     const prisma = makePrisma({ groups: [], candidates: [], pageTasks: [] });
     const res = await new WorkReportService(prisma).work({ ...base, scope: MEMBER_ONLY_A });
-    expect(res.totals.costCents).toBeNull();
+    expect(res.totals.costCents).toBe(0);
     expect((res.totals as any).costPartial).toBe(false);
+  });
+
+  // Ruling R17: standardises on the per-page rule instead of "leads nothing
+  // ANYWHERE in scope" — a lead of A viewing a page whose only bucketed row
+  // is on B (not led) must see null, exactly as if they led nothing at all,
+  // because THIS page has zero LEAD-visible cost.
+  it('a lead of A viewing a page with only a B (not-led) bucketed row gets costCents: null, costPartial true', async () => {
+    const prisma = makePrisma({
+      groups: [grp('t-bolt', { cost: 700n })],
+      candidates: [cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+      pageTasks: [cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+    });
+    const res = await new WorkReportService(prisma).work({ ...base, scope: LEAD_A_MEMBER_B });
+    expect(res.totals.costCents).toBeNull();
+    expect((res.totals as any).costPartial).toBe(true);
   });
 
   // Fix round 1, item 5: a non-lead row with NOTHING logged (no bucket) must

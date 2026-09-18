@@ -397,6 +397,7 @@ export class TasksReportService {
       hours_logged: number;
       cost_cents: number;
       cost_partial: boolean;
+      has_led_cost: boolean;
     };
     // Open count uses `status_type`, ClickUp's coarse-grained classification
     // (open / custom / done / closed), not the per-list `status` string. The
@@ -426,7 +427,13 @@ export class TasksReportService {
         -- clients hides cost. Without the e.task_id IS NOT NULL guard, a
         -- non-lead task with zero time entries still flips this true via the
         -- LEFT JOIN's single NULL-entry row, even though nothing was hidden.
-        BOOL_OR(e.task_id IS NOT NULL AND NOT ${leadScopeSql(scope, 't')}) AS cost_partial
+        BOOL_OR(e.task_id IS NOT NULL AND NOT ${leadScopeSql(scope, 't')}) AS cost_partial,
+        -- Same guard, inverted: whether the space has AT LEAST ONE entry the
+        -- viewer actually LEADS (Ruling R17). Standardises this endpoint on
+        -- the per-group rule used elsewhere instead of "leads nothing
+        -- anywhere in scope" — a lead of client A must still see A's cost on
+        -- a space that mixes A and B rows.
+        BOOL_OR(e.task_id IS NOT NULL AND ${leadScopeSql(scope, 't')}) AS has_led_cost
       FROM clickup_tasks t
       LEFT JOIN clickup_time_entries e ON e.task_id = t.task_id
       WHERE t.is_deleted = false
@@ -434,12 +441,15 @@ export class TasksReportService {
       GROUP BY t.space_id
       ORDER BY task_count DESC
     `);
-    // Ruling R12: a viewer who leads NO client in scope gets `null`, not a
-    // misleadingly precise 0 — 0 reads as "this space genuinely costs
-    // nothing", not "you can't see it". `leadIds === null` is unrestricted
-    // (incl. a flag-off MEMBER), unchanged from before.
-    const leadIds = leadClientIds(scope);
-    const leadsNothing = leadIds !== null && leadIds.length === 0;
+    // Ruling R17 (canonical R12 rule): a scoped viewer gets `null`, not a
+    // misleadingly precise 0, only when THIS space has in-scope rows but ZERO
+    // of them are LEAD-visible (`has_led_cost`) — not merely because the
+    // viewer leads nothing ANYWHERE in scope. A lead of client A still sees a
+    // real number on a space mixing A (led) and B (not led) rows.
+    // `leadClientIds(scope) === null` is unrestricted (incl. a flag-off
+    // MEMBER); `leadScopeSql` is then always TRUE, so `has_led_cost` is
+    // BOOL_OR(TRUE-ish) and this never masks an unrestricted viewer.
+    const scoped = leadClientIds(scope) !== null;
     return rows.map(r => ({
       spaceId: r.space_id,
       spaceName: r.space_name,
@@ -447,7 +457,7 @@ export class TasksReportService {
       openCount: Number(r.open_count),
       memberCount: Number(r.member_count),
       hoursLogged: Number(r.hours_logged),
-      costAud: leadsNothing ? null : Number(r.cost_cents) / 100,
+      costAud: scoped && !r.has_led_cost && r.cost_partial ? null : Number(r.cost_cents) / 100,
       // Only meaningful for a scoped viewer: `leadScopeSql` is always TRUE
       // when unrestricted, so `BOOL_OR(... AND NOT TRUE)` is always false there.
       costPartial: !!r.cost_partial,

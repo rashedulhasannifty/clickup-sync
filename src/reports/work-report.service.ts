@@ -9,7 +9,7 @@ import {
   type ChargeableSource, type EntryBucket, type ResolvedRow, type RowChargeable,
   type TaskChargeInputs, type WorkCandidate,
 } from './work.assemble';
-import { AccessScope, canSeeCost, isUnrestricted, leadClientIds } from '../access/access-scope';
+import { AccessScope, canSeeCost, isUnrestricted } from '../access/access-scope';
 import { maskCost } from '../access/cost-mask';
 
 /** Query params of `/reports/work` and `/reports/work/entries`. */
@@ -133,12 +133,15 @@ export class WorkReportService {
     // non-lead row with nothing logged contributes 0 either way, so counting
     // it here would flag costPartial on rows that never affected the total.
     const costPartial = rows.some((r) => r.bucket && !canSeeCost(scope, r.scopeClientOptionId));
-    // Ruling R12: a viewer who leads NO client in scope gets null, not a
-    // misleadingly precise $0 — 0 reads as "this genuinely costs nothing",
-    // not "you can't see it". Unrestricted and a partial lead (already summed
-    // over only the led rows above) are unaffected.
-    const leadIds = leadClientIds(scope);
-    const costCents: number | null = leadIds !== null && leadIds.length === 0 ? null : visibleCostCentsSum;
+    // Ruling R17 (canonical R12 rule): null, not a misleadingly precise $0,
+    // only when this page's rows have logged time (a bucket) but NONE of it
+    // is LEAD-visible — not merely because the viewer leads nothing anywhere
+    // in scope. A row set with no bucketed rows at all (empty result) keeps
+    // today's $0. Unrestricted is unaffected (`isUnrestricted` short-circuits).
+    const hasBucketRow = rows.some((r) => r.bucket);
+    const hasLedCost = rows.some((r) => r.bucket && canSeeCost(scope, r.scopeClientOptionId));
+    const costCents: number | null =
+      !isUnrestricted(scope) && !hasLedCost && hasBucketRow ? null : visibleCostCentsSum;
 
     return {
       items: page.map((r) => this.toItem(r, fullById.get(r.taskId), scope)),

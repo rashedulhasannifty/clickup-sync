@@ -741,7 +741,7 @@ describe('TasksReportService', () => {
     it('surfaces costPartial and null costAud for a scoped viewer who leads no client (MEMBER-only)', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([
-        { space_id: '3577824', space_name: 'Digital Marketing', task_count: BigInt(2), open_count: BigInt(1), hours_logged: 5, cost_cents: 0, cost_partial: true },
+        { space_id: '3577824', space_name: 'Digital Marketing', task_count: BigInt(2), open_count: BigInt(1), hours_logged: 5, cost_cents: 0, cost_partial: true, has_led_cost: false },
       ]);
       const NONE_LEAD = resolveScope({
         role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
@@ -752,13 +752,14 @@ describe('TasksReportService', () => {
       expect(result[0].costAud).toBeNull();
     });
 
-    // Fix round 1, item 1: a viewer who DOES lead at least one client (even
-    // if not every client in scope) gets a real number, not null — only
-    // "leads nothing" collapses to null.
-    it('gives a partial lead (leads some but not all in-scope clients) a real costAud number', async () => {
+    // Ruling R17 (canonical R12 rule, fix round 1 item 1 restated): a space
+    // that mixes lead-visible (A) and not-led (B) rows gets a real number —
+    // `has_led_cost: true` — not null, and `costPartial` reflects that some
+    // of the space's cost was still excluded from the sum.
+    it('gives a partial lead (leads some but not all in-scope clients) a real costAud number when some of this space is LED', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([
-        { space_id: '3577824', space_name: 'Digital Marketing', task_count: BigInt(3), open_count: BigInt(1), hours_logged: 8, cost_cents: 2500, cost_partial: true },
+        { space_id: '3577824', space_name: 'Digital Marketing', task_count: BigInt(3), open_count: BigInt(1), hours_logged: 8, cost_cents: 2500, cost_partial: true, has_led_cost: true },
       ]);
       const PARTIAL_LEAD = resolveScope({
         role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
@@ -774,6 +775,33 @@ describe('TasksReportService', () => {
       });
       const result = await new TasksReportService(prisma).spaces(PARTIAL_LEAD);
       expect(result[0].costAud).toBe(25);
+      expect(result[0].costPartial).toBe(true);
+    });
+
+    // Ruling R17: standardises on the per-space rule instead of "leads
+    // nothing ANYWHERE in scope" — a lead of A viewing a space whose ONLY
+    // entries are on B (not led) must see null, exactly as if they led
+    // nothing at all, because THIS space has zero LEAD-visible rows.
+    it('gives null costAud to a lead of A when a space has only B (not-led) rows', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([
+        { space_id: '3589129', space_name: 'R&D Apps', task_count: BigInt(2), open_count: BigInt(1), hours_logged: 5, cost_cents: 0, cost_partial: true, has_led_cost: false },
+      ]);
+      const LEAD_A_MEMBER_B = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [
+          { teamId: 'A', role: 'LEAD' },
+          { teamId: 'B', role: 'MEMBER' },
+        ],
+        teamClients: [
+          { teamId: 'A', optionId: 'acme' },
+          { teamId: 'B', optionId: 'bolt' },
+        ],
+        teamMembers: [],
+      });
+      const result = await new TasksReportService(prisma).spaces(LEAD_A_MEMBER_B);
+      expect(result[0].costAud).toBeNull();
+      expect(result[0].costPartial).toBe(true);
     });
 
     it('wraps the cost sum in a CASE WHEN and scopes the WHERE clause', async () => {

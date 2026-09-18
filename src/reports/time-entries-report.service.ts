@@ -499,23 +499,26 @@ export class TimeEntriesReportService {
     const noRateFoundCount = byStatus.find(s => s.status === 'NO_RATE_FOUND')?._count ?? 0;
     // True only when the cost aggregate excluded rows the totals above still
     // count (visible-but-not-led) — i.e. the viewer is scoped AND some entries
-    // in `where` fell outside the lead-scoped cost aggregate. Also covers the
-    // "leads nothing" case below: costAgg._count is always 0 there, so this is
-    // true whenever any visible row exists.
+    // in `where` fell outside the lead-scoped cost aggregate. This is also
+    // true whenever the viewer leads no client at all in this window, since
+    // costAgg._count is then always 0.
     const costPartial = leadIds !== null && totalAgg._count !== (costAgg?._count ?? 0);
 
-    // Ruling R12: every cost total is null — not a misleadingly precise $0 —
-    // for a viewer who leads NO client in scope; 0 reads as "this genuinely
-    // costs nothing", not "you can't see it". A partial lead sums/averages
-    // over the LEAD-scoped aggregate alone (LED cost over LED hours, never
-    // `totalHours`, which is member-or-lead and would understate the rate).
+    // Ruling R17 (canonical R12 rule): null, not a misleadingly precise $0,
+    // only when the viewer is scoped AND this window has visible rows
+    // (`totalEntries > 0`) but the LEAD-scoped aggregate matched none of them
+    // (`costAgg` count 0) — not merely because the viewer leads nothing
+    // ANYWHERE in scope. A lead of client A must still see A's cost total for
+    // a window that also has (masked) client-B rows. An empty window
+    // (`totalEntries === 0`) falls through to the LEAD-sum branch below,
+    // where `costAgg`'s sums are themselves 0, keeping today's $0.
     // Unrestricted (`leadIds === null`) is exactly the pre-existing behavior.
     let totalCostCents: number | null;
     let avgRateCents: number | null;
     if (leadIds === null) {
       totalCostCents = Number(totalAgg._sum.costCents ?? 0n);
       avgRateCents = totalHours > 0 ? Math.round(totalCostCents / totalHours) : 0;
-    } else if (leadIds.length === 0) {
+    } else if (totalEntries > 0 && (costAgg?._count ?? 0) === 0) {
       totalCostCents = null;
       avgRateCents = null;
     } else {

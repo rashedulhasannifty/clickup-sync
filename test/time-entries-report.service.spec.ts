@@ -1123,15 +1123,38 @@ describe('TimeEntriesReportService', () => {
       expect((calls[2][0].where as any).AND).toContainEqual({ task: { scopeClientOptionId: { in: [] } } });
     });
 
-    it('a MEMBER-only scope with no visible rows gets costPartial: false', async () => {
+    // Ruling R17 (canonical R12 rule): an empty window (no visible rows at
+    // all) keeps today's $0, not null — "leads nothing in scope" alone must
+    // never collapse a genuinely-empty result to null.
+    it('a MEMBER-only scope with no visible rows gets costCents: 0 and costPartial: false', async () => {
       const prisma = makePrisma();
       prisma.clickupTimeEntry.aggregate
         .mockResolvedValueOnce({ _count: 0, _sum: { durationHours: { toNumber: () => 0 }, costCents: BigInt(0) } })
         .mockResolvedValueOnce({ _sum: { durationHours: { toNumber: () => 0 } } })
         .mockResolvedValueOnce({ _count: 0, _sum: { costCents: BigInt(0), durationHours: { toNumber: () => 0 } } });
       const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates(MEMBER_ONLY_A);
-      expect(result.totalCostCents).toBeNull();
+      expect(result.totalCostCents).toBe(0);
+      expect(result.avgRateCents).toBe(0);
       expect(result.costPartial).toBe(false);
+    });
+
+    // Ruling R17: standardises on the per-window rule instead of "leads
+    // nothing ANYWHERE in scope" — a lead of client A viewing a window whose
+    // visible rows are entirely on client B (not led) must see null + true,
+    // exactly like leading no client at all, because THIS window has zero
+    // LEAD-visible rows.
+    it('a lead of A viewing a window with only B (not-led) rows gets totalCostCents/avgRateCents: null, costPartial true', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.aggregate
+        .mockResolvedValueOnce({ _count: 5, _sum: { durationHours: { toNumber: () => 15 }, costCents: BigInt(999999) } })
+        .mockResolvedValueOnce({ _sum: { durationHours: { toNumber: () => 10 } } })
+        // costAgg scoped to the LEAD clients (['acme']) matches none of this
+        // window's (all-'bolt') rows.
+        .mockResolvedValueOnce({ _count: 0, _sum: { costCents: BigInt(0), durationHours: { toNumber: () => 0 } } });
+      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates(LEAD_A_MEMBER_B);
+      expect(result.totalCostCents).toBeNull();
+      expect(result.avgRateCents).toBeNull();
+      expect(result.costPartial).toBe(true);
     });
   });
 

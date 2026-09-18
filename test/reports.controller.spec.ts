@@ -49,6 +49,8 @@ describe('ReportsController', () => {
     return {
       getSpikeHoursCap: jest.fn().mockReturnValue(cap),
       isSpikeMedianEnabled: jest.fn().mockReturnValue(medianEnabled),
+      // Read by `stats`/`missingRates` (ops routes) to exclude assignees.
+      getExcludedAssigneeIds: jest.fn().mockReturnValue([]),
     } as any;
   }
 
@@ -204,6 +206,35 @@ describe('ReportsController', () => {
       const ctrl = makeCtrl({ anomaly, settings: makeSettings(10) });
       await ctrl.hourSpikes(FLAG_OFF_MEMBER_SCOPE, '2026-06-01', '2026-06-10');
       expect(anomaly.hourSpikes).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // Whole-branch review item 2: every ops/anomaly/spike route (per the spec's
+  // "Ops, anomaly and hour-spike reports stay Owner/Admin only" default) must
+  // 403 a scoped MEMBER and behave exactly like today for a flag-off MEMBER
+  // (Ruling R8). One parametrised table covers all 8 routes so a new one
+  // added here without `requireUnrestricted()` fails the same way.
+  describe('ops-route access gate (all 8 admin-grade routes)', () => {
+    it.each([
+      ['anomalies', 'anomaly', 'anomalies', (ctrl: ReportsController, scope: any) => ctrl.anomalies(scope)],
+      ['hourSpikes', 'anomaly', 'hourSpikes', (ctrl: ReportsController, scope: any) => ctrl.hourSpikes(scope)],
+      ['syncHealth', 'ops', 'syncHealth', (ctrl: ReportsController, scope: any) => ctrl.syncHealth(scope)],
+      ['webhookEvents', 'ops', 'webhookEvents', (ctrl: ReportsController, scope: any) => ctrl.webhookEvents(scope)],
+      ['jobLogs', 'ops', 'jobLogs', (ctrl: ReportsController, scope: any) => ctrl.jobLogs(scope)],
+      ['deadLetters', 'ops', 'deadLetters', (ctrl: ReportsController, scope: any) => ctrl.deadLetters(scope)],
+      ['stats', 'ops', 'stats', (ctrl: ReportsController, scope: any) => ctrl.stats(scope)],
+      ['missingRates', 'ops', 'missingRates', (ctrl: ReportsController, scope: any) => ctrl.missingRates(scope)],
+    ] as const)('%s: scoped MEMBER throws ForbiddenException (service not called); flag-off MEMBER calls the service', async (_name, group, method, invoke) => {
+      const mockFn = jest.fn().mockResolvedValue({});
+      const collaborator = { [method]: mockFn } as any;
+
+      const scopedCtrl = makeCtrl({ [group]: collaborator } as any);
+      expect(() => invoke(scopedCtrl, SCOPED_MEMBER_SCOPE)).toThrow(ForbiddenException);
+      expect(mockFn).not.toHaveBeenCalled();
+
+      const flagOffCtrl = makeCtrl({ [group]: collaborator } as any);
+      await invoke(flagOffCtrl, FLAG_OFF_MEMBER_SCOPE);
+      expect(mockFn).toHaveBeenCalledTimes(1);
     });
   });
 
