@@ -45,6 +45,7 @@ model ClickupTask {
   executiveName   String?  @map("executive_name")
   department      String?
   client          String?
+  scopeClientOptionId String?  @map("scope_client_option_id")
   // ClickUp "Sub-Project" labels field — a task can carry several. Mirrored
   // from ClickUp on every sync (an empty list clears it).
   subProjects     String[] @default([]) @map("sub_projects")
