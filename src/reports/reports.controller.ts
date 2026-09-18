@@ -229,8 +229,9 @@ export class ReportsController {
   }
 
   @Get('time-entries/cost-trend')
-  @ApiOperation({ summary: 'Time-bucketed cost trend for the Overview chart. bucket=day|week|month; defaults vary by bucket if from/to are omitted.' })
+  @ApiOperation({ summary: 'Time-bucketed cost trend for the Overview chart. bucket=day|week|month; defaults vary by bucket if from/to are omitted. Lead-only: scoped to the viewer\'s LEAD clients.' })
   costTrend(
+    @Scope() scope: AccessScope,
     @Query('bucket') bucket?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -238,12 +239,13 @@ export class ReportsController {
     if (bucket !== 'day' && bucket !== 'week' && bucket !== 'month') {
       throw new BadRequestException(`Invalid bucket "${bucket ?? ''}" (expected day|week|month)`);
     }
-    return this.costTrendReports.costTrend(bucket, from, to);
+    return this.costTrendReports.costTrend(scope, bucket, from, to);
   }
 
   @Get('time-entries/cost-trend-by-assignee')
-  @ApiOperation({ summary: 'Time-bucketed labor cost split by assignee for the stacked Assignee cost trend chart. bucket=day|week|month; every assignee is returned as its own segment, ordered by total cost (highest first).' })
+  @ApiOperation({ summary: 'Time-bucketed labor cost split by assignee for the stacked Assignee cost trend chart. bucket=day|week|month; every assignee is returned as its own segment, ordered by total cost (highest first). Lead-only: scoped to the viewer\'s LEAD clients.' })
   costTrendByAssignee(
+    @Scope() scope: AccessScope,
     @Query('bucket') bucket?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -251,12 +253,13 @@ export class ReportsController {
     if (bucket !== 'day' && bucket !== 'week' && bucket !== 'month') {
       throw new BadRequestException(`Invalid bucket "${bucket ?? ''}" (expected day|week|month)`);
     }
-    return this.costTrendReports.costTrendByAssignee(bucket, from, to);
+    return this.costTrendReports.costTrendByAssignee(scope, bucket, from, to);
   }
 
   @Get('time-entries/cost-trend-by-client')
-  @ApiOperation({ summary: 'Time-bucketed labor cost split by client for the stacked bar view of the Client cost trend chart. bucket=day|week|month; every client is returned as its own segment, ordered by total cost (highest first). Tasks with no client are grouped under "No client".' })
+  @ApiOperation({ summary: 'Time-bucketed labor cost split by client for the stacked bar view of the Client cost trend chart. bucket=day|week|month; every client is returned as its own segment, ordered by total cost (highest first). Tasks with no client are grouped under "No client". Lead-only: scoped to the viewer\'s LEAD clients.' })
   costTrendByClient(
+    @Scope() scope: AccessScope,
     @Query('bucket') bucket?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -264,13 +267,13 @@ export class ReportsController {
     if (bucket !== 'day' && bucket !== 'week' && bucket !== 'month') {
       throw new BadRequestException(`Invalid bucket "${bucket ?? ''}" (expected day|week|month)`);
     }
-    return this.costTrendReports.costTrendByClient(bucket, from, to);
+    return this.costTrendReports.costTrendByClient(scope, bucket, from, to);
   }
 
   @Get('budgets/status')
-  @ApiOperation({ summary: 'Per-client monthly budget vs actual + month-end forecast. ?month=YYYY-MM (defaults to current Dhaka month).' })
-  budgetStatus(@Query('month') month?: string) {
-    return this.budgets.clientBudgetStatus({ month });
+  @ApiOperation({ summary: 'Per-client monthly budget vs actual + month-end forecast. ?month=YYYY-MM (defaults to current Dhaka month). Lead-only: scoped to the viewer\'s LEAD clients.' })
+  budgetStatus(@Scope() scope: AccessScope, @Query('month') month?: string) {
+    return this.budgets.clientBudgetStatus({ month, scope });
   }
 
   // The lead-view gate (Ruling R1: requireLeadView, not requireLead) lives in

@@ -1,9 +1,23 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { AccessScope } from '../access/access-scope';
+import { leadScopeSql } from '../access/scope-query';
+import { requireLeadView } from '../access/scope.decorator';
 import { defaultFromForBucket, parseDate } from './report-date.util';
 
-/** Time-bucketed cost-trend queries (overall + stacked by assignee/client). */
+/**
+ * Time-bucketed cost-trend queries (overall + stacked by assignee/client).
+ *
+ * Team scoping (Task 13): these are cost-only views (Ruling R1 -
+ * `requireLeadView` gate; per spec "Cost masking", `cost-trend*` is scoped to
+ * the viewer's LEAD clients, never a broader "in scope" set) — an unrestricted
+ * viewer (incl. a flag-off MEMBER) reads them unchanged, a scoped non-lead
+ * 403s, and a scoped lead's aggregates are filtered to LEAD clients only via
+ * `leadScopeSql` (not `taskScopeSql`), applied as a plain `AND` since every
+ * row here is cost, unlike the mixed task-count/cost rows in
+ * `sprints-report.service.ts` that need a `CASE WHEN` + partial-cost mask.
+ */
 @Injectable()
 export class CostTrendReportService {
   constructor(private readonly prisma: PrismaService) {}
@@ -20,10 +34,12 @@ export class CostTrendReportService {
    * so the chart shows a continuous timeline instead of gaps.
    */
   async costTrend(
+    scope: AccessScope,
     bucket: 'day' | 'week' | 'month',
     fromParam?: string,
     toParam?: string,
   ) {
+    requireLeadView(scope);
     if (bucket !== 'day' && bucket !== 'week' && bucket !== 'month') {
       throw new Error(`Invalid bucket "${bucket}" (expected day|week|month)`);
     }
@@ -80,6 +96,7 @@ export class CostTrendReportService {
           AND e.start_time >= ${from}
           AND e.start_time <= ${to}
           AND t.is_deleted = false
+          AND ${leadScopeSql(scope, 't')}
         GROUP BY 1
       )
       SELECT to_char(s.bucket_local, 'YYYY-MM-DD')             AS bucket,
@@ -114,12 +131,14 @@ export class CostTrendReportService {
    * ordered `segments`, and a per-bucket cost map in dollars.
    */
   private async costTrendBySegment(
+    scope: AccessScope,
     bucket: 'day' | 'week' | 'month',
     fromParam: string | undefined,
     toParam: string | undefined,
     topN: number | undefined,
     segmentExpr: Prisma.Sql,
   ) {
+    requireLeadView(scope);
     if (bucket !== 'day' && bucket !== 'week' && bucket !== 'month') {
       throw new Error(`Invalid bucket "${bucket}" (expected day|week|month)`);
     }
@@ -164,6 +183,7 @@ export class CostTrendReportService {
         AND e.start_time >= ${from}
         AND e.start_time <= ${to}
         AND t.is_deleted = false
+        AND ${leadScopeSql(scope, 't')}
       GROUP BY 1, 2
     `);
 
@@ -206,13 +226,14 @@ export class CostTrendReportService {
    * the entry's logger name (falling back to user id, then "Unknown").
    */
   async costTrendByAssignee(
+    scope: AccessScope,
     bucket: 'day' | 'week' | 'month',
     fromParam?: string,
     toParam?: string,
     topN?: number,
   ) {
     const { buckets, segments, points } = await this.costTrendBySegment(
-      bucket, fromParam, toParam, topN,
+      scope, bucket, fromParam, toParam, topN,
       Prisma.sql`COALESCE(NULLIF(e.user_name, ''), e.user_id, 'Unknown')`,
     );
     return { buckets, assignees: segments, points };
@@ -225,13 +246,14 @@ export class CostTrendReportService {
    * "No client".
    */
   async costTrendByClient(
+    scope: AccessScope,
     bucket: 'day' | 'week' | 'month',
     fromParam?: string,
     toParam?: string,
     topN?: number,
   ) {
     const { buckets, segments, points } = await this.costTrendBySegment(
-      bucket, fromParam, toParam, topN,
+      scope, bucket, fromParam, toParam, topN,
       Prisma.sql`COALESCE(NULLIF(t.client, ''), 'No client')`,
     );
     return { buckets, clients: segments, points };

@@ -134,32 +134,35 @@ describe('ReportsController', () => {
   });
 
   describe('costTrend', () => {
-    it('passes bucket + from + to through to the service for valid bucket', async () => {
+    // requireLeadView() lives in CostTrendReportService.costTrend itself — this
+    // controller handler is a thin passthrough with no gating of its own, same
+    // pattern as overviewDeltas above.
+    it('passes scope + bucket + from + to through to the service for valid bucket', async () => {
       const costTrend = { costTrend: jest.fn().mockResolvedValue([]) } as any;
       const ctrl = makeCtrl({ costTrend });
-      await ctrl.costTrend('day', '2026-05-01', '2026-05-21');
-      expect(costTrend.costTrend).toHaveBeenCalledWith('day', '2026-05-01', '2026-05-21');
+      await ctrl.costTrend(OWNER_SCOPE, 'day', '2026-05-01', '2026-05-21');
+      expect(costTrend.costTrend).toHaveBeenCalledWith(OWNER_SCOPE, 'day', '2026-05-01', '2026-05-21');
     });
 
     it('rejects bucket="hour" with BadRequestException', () => {
       const costTrend = { costTrend: jest.fn().mockResolvedValue([]) } as any;
       const ctrl = makeCtrl({ costTrend });
-      expect(() => ctrl.costTrend('hour' as any)).toThrow(BadRequestException);
+      expect(() => ctrl.costTrend(OWNER_SCOPE, 'hour' as any)).toThrow(BadRequestException);
       expect(costTrend.costTrend).not.toHaveBeenCalled();
     });
 
     it('rejects missing bucket', () => {
       const costTrend = { costTrend: jest.fn().mockResolvedValue([]) } as any;
       const ctrl = makeCtrl({ costTrend });
-      expect(() => ctrl.costTrend(undefined as any)).toThrow(BadRequestException);
+      expect(() => ctrl.costTrend(OWNER_SCOPE, undefined as any)).toThrow(BadRequestException);
       expect(costTrend.costTrend).not.toHaveBeenCalled();
     });
 
     it.each(['day', 'week', 'month'] as const)('accepts bucket=%s', async (b) => {
       const costTrend = { costTrend: jest.fn().mockResolvedValue([]) } as any;
       const ctrl = makeCtrl({ costTrend });
-      await ctrl.costTrend(b);
-      expect(costTrend.costTrend).toHaveBeenCalledWith(b, undefined, undefined);
+      await ctrl.costTrend(OWNER_SCOPE, b);
+      expect(costTrend.costTrend).toHaveBeenCalledWith(OWNER_SCOPE, b, undefined, undefined);
     });
   });
 
@@ -205,18 +208,20 @@ describe('ReportsController', () => {
   });
 
   describe('budgetStatus', () => {
-    it('delegates to budgets.clientBudgetStatus with the given month', async () => {
+    // requireLeadView() lives in BudgetsService.clientBudgetStatus itself — this
+    // controller handler is a thin passthrough with no gating of its own.
+    it('delegates to budgets.clientBudgetStatus with the given month + scope', async () => {
       const budgets = makeBudgets();
       const ctrl = makeCtrl({ budgets });
-      await ctrl.budgetStatus('2026-06');
-      expect(budgets.clientBudgetStatus).toHaveBeenCalledWith({ month: '2026-06' });
+      await ctrl.budgetStatus(OWNER_SCOPE, '2026-06');
+      expect(budgets.clientBudgetStatus).toHaveBeenCalledWith({ month: '2026-06', scope: OWNER_SCOPE });
     });
 
     it('passes undefined month when not supplied', async () => {
       const budgets = makeBudgets();
       const ctrl = makeCtrl({ budgets });
-      await ctrl.budgetStatus();
-      expect(budgets.clientBudgetStatus).toHaveBeenCalledWith({ month: undefined });
+      await ctrl.budgetStatus(OWNER_SCOPE);
+      expect(budgets.clientBudgetStatus).toHaveBeenCalledWith({ month: undefined, scope: OWNER_SCOPE });
     });
   });
 

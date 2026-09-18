@@ -31,18 +31,15 @@ type ControllerClass = new (...args: any[]) => object;
  * Owner/Admin-only. A new report route that does neither fails here — default deny
  * is enforced by CI, not by reviewers remembering.
  *
- * PENDING lists routes not yet migrated. It must only ever shrink; Task 13 empties it.
+ * PENDING lists routes not yet migrated. It must only ever shrink; Task 13 emptied
+ * the ReportsController entries (see the "no ReportsController route is still
+ * pending" test below).
  *
  * AdminTasksController routes are admin-only via a class-level @Roles today (correctly
  * classified below, not PENDING); Task 14 removes that class-level @Roles and adds
  * @Scope(), at which point its routes move through the normal (non-PENDING) path.
  */
-const PENDING = new Set<string>([
-  'ReportsController.costTrend',
-  'ReportsController.costTrendByAssignee',
-  'ReportsController.costTrendByClient',
-  'ReportsController.budgetStatus',
-]);
+const PENDING = new Set<string>([]);
 
 /**
  * EVERY controller in src/, not just reports: the spec promises 403s on /finance,
@@ -140,4 +137,8 @@ describe('report scope guardrail', () => {
       });
     }
   }
+
+  it('no ReportsController route is still pending', () => {
+    expect([...PENDING].filter((k) => k.startsWith('ReportsController.'))).toEqual([]);
+  });
 });
