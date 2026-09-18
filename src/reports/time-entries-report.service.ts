@@ -286,7 +286,11 @@ export class TimeEntriesReportService {
       this.prisma.clickupTimeEntry.aggregate({ where: chargeableWhere, _sum: { durationHours: true } }),
       this.prisma.clickupTimeEntry.groupBy({ by: ['status'], where, _count: true }),
       leadIds !== null
-        ? this.prisma.clickupTimeEntry.aggregate({ where: costWhere, _count: true, _sum: { costCents: true } })
+        // durationHours too (Ruling R12/#2): a partial lead's avg rate must
+        // divide LED cost by LED hours, not by every visible hour — dividing
+        // by `totalHours` (member-or-lead) understates the rate whenever the
+        // viewer sees more hours than they lead cost for.
+        ? this.prisma.clickupTimeEntry.aggregate({ where: costWhere, _count: true, _sum: { costCents: true, durationHours: true } })
         : Promise.resolve(null),
     ]);
 
@@ -298,19 +302,35 @@ export class TimeEntriesReportService {
     // aggregates can push the subset above the total. Clamp rather than print a
     // negative figure beside a positive one.
     const nonChargeableHours = Math.max(0, totalHours - chargeableHours);
-    // Every cost total comes from the LEAD-scoped aggregate when the viewer is
-    // scoped (`costAgg`), never from `totalAgg` — that would leak cost from a
-    // client the viewer only has member visibility on.
-    const totalCostCents = Number((costAgg ?? totalAgg)._sum.costCents ?? 0n);
-    // Weighted-by-hours average rate — matches what users expect from
-    // "avg $X/h": effective rate across all logged time in the period.
-    const avgRateCents = totalHours > 0 ? Math.round(totalCostCents / totalHours) : 0;
     const costCalculatedCount = byStatus.find(s => s.status === 'COST_CALCULATED')?._count ?? 0;
     const noRateFoundCount = byStatus.find(s => s.status === 'NO_RATE_FOUND')?._count ?? 0;
     // True only when the cost aggregate excluded rows the totals above still
     // count (visible-but-not-led) — i.e. the viewer is scoped AND some entries
-    // in `where` fell outside the lead-scoped cost aggregate.
+    // in `where` fell outside the lead-scoped cost aggregate. Also covers the
+    // "leads nothing" case below: costAgg._count is always 0 there, so this is
+    // true whenever any visible row exists.
     const costPartial = leadIds !== null && totalAgg._count !== (costAgg?._count ?? 0);
+
+    // Ruling R12: every cost total is null — not a misleadingly precise $0 —
+    // for a viewer who leads NO client in scope; 0 reads as "this genuinely
+    // costs nothing", not "you can't see it". A partial lead sums/averages
+    // over the LEAD-scoped aggregate alone (LED cost over LED hours, never
+    // `totalHours`, which is member-or-lead and would understate the rate).
+    // Unrestricted (`leadIds === null`) is exactly the pre-existing behavior.
+    let totalCostCents: number | null;
+    let avgRateCents: number | null;
+    if (leadIds === null) {
+      totalCostCents = Number(totalAgg._sum.costCents ?? 0n);
+      avgRateCents = totalHours > 0 ? Math.round(totalCostCents / totalHours) : 0;
+    } else if (leadIds.length === 0) {
+      totalCostCents = null;
+      avgRateCents = null;
+    } else {
+      const leadCostCents = Number(costAgg!._sum.costCents ?? 0n);
+      const leadHours = costAgg!._sum.durationHours?.toNumber() ?? 0;
+      totalCostCents = leadCostCents;
+      avgRateCents = leadHours > 0 ? Math.round(leadCostCents / leadHours) : 0;
+    }
 
     return {
       totalEntries,

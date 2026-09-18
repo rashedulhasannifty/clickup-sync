@@ -9,7 +9,7 @@ import {
   type ChargeableSource, type EntryBucket, type ResolvedRow, type RowChargeable,
   type TaskChargeInputs, type WorkCandidate,
 } from './work.assemble';
-import { AccessScope, canSeeCost, isUnrestricted } from '../access/access-scope';
+import { AccessScope, canSeeCost, isUnrestricted, leadClientIds } from '../access/access-scope';
 import { maskCost } from '../access/cost-mask';
 
 /** Query params of `/reports/work` and `/reports/work/entries`. */
@@ -125,18 +125,27 @@ export class WorkReportService {
     // narrow it to rows the viewer LEADS, and flag when anything was excluded
     // (`totals.cost` must never leak a member-visible-only client's cost).
     const rawTotals = sumTotals(rows);
-    const visibleCostCents = rows.reduce(
+    const visibleCostCentsSum = rows.reduce(
       (sum, r) => sum + (canSeeCost(scope, r.scopeClientOptionId) ? (r.bucket?.costCents ?? 0) : 0),
       0,
     );
-    const costPartial = rows.some((r) => !canSeeCost(scope, r.scopeClientOptionId));
+    // Only a row with a bucket (logged time) actually has cost to hide — a
+    // non-lead row with nothing logged contributes 0 either way, so counting
+    // it here would flag costPartial on rows that never affected the total.
+    const costPartial = rows.some((r) => r.bucket && !canSeeCost(scope, r.scopeClientOptionId));
+    // Ruling R12: a viewer who leads NO client in scope gets null, not a
+    // misleadingly precise $0 — 0 reads as "this genuinely costs nothing",
+    // not "you can't see it". Unrestricted and a partial lead (already summed
+    // over only the led rows above) are unaffected.
+    const leadIds = leadClientIds(scope);
+    const costCents: number | null = leadIds !== null && leadIds.length === 0 ? null : visibleCostCentsSum;
 
     return {
       items: page.map((r) => this.toItem(r, fullById.get(r.taskId), scope)),
       total: rows.length,
       limit,
       offset,
-      totals: { ...rawTotals, costCents: visibleCostCents, costPartial },
+      totals: { ...rawTotals, costCents, costPartial },
     };
   }
 
@@ -250,7 +259,10 @@ export class WorkReportService {
       rows = rows.filter((r) => r.pill!.chargeable === wanted);
     }
 
-    const sorted = sortRows(rows, parseWorkSort(p.sort), p.dir === 'asc' ? 'asc' : 'desc');
+    const sorted = sortRows(
+      rows, parseWorkSort(p.sort), p.dir === 'asc' ? 'asc' : 'desc',
+      (r) => canSeeCost(p.scope, r.scopeClientOptionId),
+    );
     return { rows: sorted, candidatesById, entryWhere };
   }
 
@@ -354,8 +366,12 @@ export class WorkReportService {
     scope: AccessScope,
   ) {
     const b = r.bucket;
-    // Drop the raw BigInt/Decimal columns: timeEstimate/timeSpent are re-added as hours below; cost/estimation are not used by /work.
-    const { timeEstimate, timeSpent, cost: _cost, estimation: _estimation, ...rest } = t ?? ({} as Partial<NonNullable<typeof t>>);
+    // Drop the raw BigInt/Decimal columns: timeEstimate/timeSpent are re-added as hours below; cost/estimation
+    // are not used by /work; scopeClientOptionId is read only to resolve access scope, never rendered (as `tasks()` does).
+    const {
+      timeEstimate, timeSpent, cost: _cost, estimation: _estimation, scopeClientOptionId: _scopeClientOptionId,
+      ...rest
+    } = t ?? ({} as Partial<NonNullable<typeof t>>);
     // `logged.costCents` is the only money figure this response carries — masked
     // per row here rather than via `maskCost` because it's nested, not top-level.
     const canSee = canSeeCost(scope, r.scopeClientOptionId);

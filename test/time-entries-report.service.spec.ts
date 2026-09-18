@@ -656,18 +656,31 @@ describe('TimeEntriesReportService', () => {
       ],
       teamMembers: [],
     });
+    // Plain MEMBER of team A (client 'acme') — sees 'acme' rows but LEADS
+    // nothing (Ruling R12 / fix round 1, item 3).
+    const MEMBER_ONLY_A = resolveScope({
+      role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+      memberships: [{ teamId: 'A', role: 'MEMBER' }],
+      teamClients: [{ teamId: 'A', optionId: 'acme' }],
+      teamMembers: [],
+    });
 
     it('narrows every cost total to led clients only, and flags costPartial when visible-but-not-led rows exist', async () => {
       const prisma = makePrisma();
       prisma.clickupTimeEntry.aggregate
-        // totalAgg: every VISIBLE (member-or-lead) entry — 5 of them. Its
-        // costCents must NEVER surface: that would leak 'bolt' cost.
+        // totalAgg: every VISIBLE (member-or-lead) entry — 5 of them, 15h. Its
+        // costCents/hours must NEVER surface: that would leak 'bolt' cost, or
+        // (fix round 1, item 2) understate the rate by dividing led cost by
+        // every visible hour instead of just the LED ones.
         .mockResolvedValueOnce({ _count: 5, _sum: { durationHours: { toNumber: () => 15 }, costCents: BigInt(999999) } })
         .mockResolvedValueOnce({ _sum: { durationHours: { toNumber: () => 10 } } })
-        // costAgg: only the 3 entries on a LED client.
-        .mockResolvedValueOnce({ _count: 3, _sum: { costCents: BigInt(50000) } });
+        // costAgg: only the 3 LED entries — 4h, not the 15h every visible
+        // entry totals. Dividing 50000 by 15h would give 3333; the correct
+        // rate divides by the 4 LED hours: 12500.
+        .mockResolvedValueOnce({ _count: 3, _sum: { costCents: BigInt(50000), durationHours: { toNumber: () => 4 } } });
       const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates(LEAD_A_MEMBER_B);
       expect(result.totalCostCents).toBe(50000);
+      expect(result.avgRateCents).toBe(12500);
       expect(result.costPartial).toBe(true);
       const calls = prisma.clickupTimeEntry.aggregate.mock.calls;
       expect(calls).toHaveLength(3);
@@ -683,6 +696,34 @@ describe('TimeEntriesReportService', () => {
       expect(result.totalCostCents).toBe(100000);
       expect(result.costPartial).toBe(false);
       expect(prisma.clickupTimeEntry.aggregate.mock.calls).toHaveLength(2);
+    });
+
+    // Ruling R12 (fix round 1, item 3): leading NO client in scope must read
+    // as "can't see it" (null), never as a misleadingly precise $0/avg.
+    it('a MEMBER-only scope (leads no client) gets totalCostCents/avgRateCents: null, with costPartial true when visible rows exist', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.aggregate
+        .mockResolvedValueOnce({ _count: 5, _sum: { durationHours: { toNumber: () => 15 }, costCents: BigInt(999999) } })
+        .mockResolvedValueOnce({ _sum: { durationHours: { toNumber: () => 10 } } })
+        // costAgg scoped to `scopeClientOptionId: { in: [] }` — matches nothing.
+        .mockResolvedValueOnce({ _count: 0, _sum: { costCents: BigInt(0), durationHours: { toNumber: () => 0 } } });
+      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates(MEMBER_ONLY_A);
+      expect(result.totalCostCents).toBeNull();
+      expect(result.avgRateCents).toBeNull();
+      expect(result.costPartial).toBe(true);
+      const calls = prisma.clickupTimeEntry.aggregate.mock.calls;
+      expect((calls[2][0].where as any).AND).toContainEqual({ task: { scopeClientOptionId: { in: [] } } });
+    });
+
+    it('a MEMBER-only scope with no visible rows gets costPartial: false', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTimeEntry.aggregate
+        .mockResolvedValueOnce({ _count: 0, _sum: { durationHours: { toNumber: () => 0 }, costCents: BigInt(0) } })
+        .mockResolvedValueOnce({ _sum: { durationHours: { toNumber: () => 0 } } })
+        .mockResolvedValueOnce({ _count: 0, _sum: { costCents: BigInt(0), durationHours: { toNumber: () => 0 } } });
+      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates(MEMBER_ONLY_A);
+      expect(result.totalCostCents).toBeNull();
+      expect(result.costPartial).toBe(false);
     });
   });
 

@@ -222,6 +222,14 @@ describe('WorkReportService.work (access scope)', () => {
     ],
     teamMembers: [],
   });
+  // Plain MEMBER of team A (client 'acme') — sees 'acme' rows but LEADS
+  // nothing. Distinct from `NONE`: rows ARE visible here, just not led.
+  const MEMBER_ONLY_A = resolveScope({
+    role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+    memberships: [{ teamId: 'A', role: 'MEMBER' }],
+    teamClients: [{ teamId: 'A', optionId: 'acme' }],
+    teamMembers: [],
+  });
 
   it('an empty scope pins the candidate query to an empty id list', async () => {
     const prisma = makePrisma({});
@@ -242,6 +250,10 @@ describe('WorkReportService.work (access scope)', () => {
     expect(byId['t-bolt'].logged.costCents).toBeNull();
     expect(res.totals.costCents).toBe(500);
     expect((res.totals as any).costPartial).toBe(true);
+    // Fix round 1, item 4: the internal scoping id must never leak into the
+    // response, same as `tasks()`.
+    expect(byId['t-acme']).not.toHaveProperty('scopeClientOptionId');
+    expect(byId['t-bolt']).not.toHaveProperty('scopeClientOptionId');
   });
 
   // Ruling R10 item 2: this must not rest on an indirect guarantee from
@@ -257,6 +269,80 @@ describe('WorkReportService.work (access scope)', () => {
     const res = await new WorkReportService(prisma).work({ ...base, scope: NONE });
     expect(res.items).toEqual([]);
     expect(res.items.map((r: any) => r.taskId)).not.toContain('__none__');
+  });
+
+  // Fix round 1, item 1: `sort=cost` must never let a hidden-cost row's real
+  // cost decide its rank — a MEMBER-only viewer on client B (higher cost than
+  // A, which they LEAD) could otherwise infer B's relative cost, and combined
+  // with B's visible hours, its rate. Hidden-cost rows sort after every
+  // visible-cost row regardless of `dir`.
+  it('sort=cost never lets a hidden-cost row outrank a visible one by its real cost', async () => {
+    const prisma = makePrisma({
+      // 'bolt' (hidden) costs MORE than 'acme' (visible/led) — under a naive
+      // cost-desc sort bolt would rank first, leaking that it out-costs acme.
+      groups: [grp('t-acme', { cost: 500n }), grp('t-bolt', { cost: 900n })],
+      candidates: [cand('t-acme', { scopeClientOptionId: 'acme' }), cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+      pageTasks: [cand('t-acme', { scopeClientOptionId: 'acme' }), cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+    });
+    const res = await new WorkReportService(prisma).work({
+      ...base, scope: LEAD_A_MEMBER_B, sort: 'cost', dir: 'desc',
+    });
+    // Visible-cost rows (acme) must precede every hidden-cost row (bolt),
+    // no matter bolt's real cost or the chosen direction.
+    expect(res.items.map((r: any) => r.taskId)).toEqual(['t-acme', 't-bolt']);
+  });
+
+  it('sort=cost also keeps hidden rows last under dir=asc (rank never follows direction)', async () => {
+    const prisma = makePrisma({
+      groups: [grp('t-acme', { cost: 500n }), grp('t-bolt', { cost: 100n })],
+      candidates: [cand('t-acme', { scopeClientOptionId: 'acme' }), cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+      pageTasks: [cand('t-acme', { scopeClientOptionId: 'acme' }), cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+    });
+    const res = await new WorkReportService(prisma).work({
+      ...base, scope: LEAD_A_MEMBER_B, sort: 'cost', dir: 'asc',
+    });
+    expect(res.items.map((r: any) => r.taskId)).toEqual(['t-acme', 't-bolt']);
+  });
+
+  // Ruling R12 (fix round 1, item 3): leading NO client in scope must read as
+  // "can't see it" (null), never as a misleadingly precise $0.
+  it('a MEMBER-only scope (leads no client) gets totals.costCents: null, with costPartial true when rows exist', async () => {
+    const prisma = makePrisma({
+      groups: [grp('t-acme', { cost: 500n })],
+      candidates: [cand('t-acme', { scopeClientOptionId: 'acme' })],
+      pageTasks: [cand('t-acme', { scopeClientOptionId: 'acme' })],
+    });
+    const res = await new WorkReportService(prisma).work({ ...base, scope: MEMBER_ONLY_A });
+    expect(res.items[0].logged!.costCents).toBeNull();
+    expect(res.totals.costCents).toBeNull();
+    expect((res.totals as any).costPartial).toBe(true);
+  });
+
+  it('a MEMBER-only scope with no rows at all gets costCents: null and costPartial: false', async () => {
+    const prisma = makePrisma({ groups: [], candidates: [], pageTasks: [] });
+    const res = await new WorkReportService(prisma).work({ ...base, scope: MEMBER_ONLY_A });
+    expect(res.totals.costCents).toBeNull();
+    expect((res.totals as any).costPartial).toBe(false);
+  });
+
+  // Fix round 1, item 5: a non-lead row with NOTHING logged (no bucket) must
+  // not flip costPartial — it never contributed to the total either way.
+  it('costPartial ignores non-lead rows with no logged time (no bucket)', async () => {
+    const prisma = makePrisma({
+      groups: [grp('t-acme', { cost: 500n })],
+      candidates: [
+        cand('t-acme', { scopeClientOptionId: 'acme' }),
+        // 'bolt' candidate with NO matching group -> no bucket, no cost to hide.
+        cand('t-bolt-no-time', { scopeClientOptionId: 'bolt' }),
+      ],
+      pageTasks: [
+        cand('t-acme', { scopeClientOptionId: 'acme' }),
+        cand('t-bolt-no-time', { scopeClientOptionId: 'bolt' }),
+      ],
+    });
+    const res = await new WorkReportService(prisma).work({ ...base, scope: LEAD_A_MEMBER_B });
+    expect((res.totals as any).costPartial).toBe(false);
+    expect(res.totals.costCents).toBe(500);
   });
 });
 
