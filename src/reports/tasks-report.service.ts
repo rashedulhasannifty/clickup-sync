@@ -4,7 +4,7 @@ import { PrismaService } from '../database/prisma.service';
 import { parseDate } from './report-date.util';
 import { buildTaskWhere, TASK_LIST_SELECT } from './task-filter.util';
 import { isPartiallyChargeable } from '../time-entries/chargeability';
-import { AccessScope, isUnrestricted } from '../access/access-scope';
+import { AccessScope, isUnrestricted, leadClientIds } from '../access/access-scope';
 import { maskCost } from '../access/cost-mask';
 import { leadScopeSql, taskScopeSql, taskScopeWhere } from '../access/scope-query';
 import { requireLeadView } from '../access/scope.decorator';
@@ -361,7 +361,13 @@ export class TasksReportService {
       where: { taskId, ...taskScopeWhere(scope) },
       select: { description: true, markdownDescription: true },
     });
-    if (!row) throw new NotFoundException('Task not found');
+    if (!row) {
+      // Ruling R14: unrestricted (Owner/Admin, or a flag-off MEMBER) keeps
+      // today's exact pre-scoping behaviour for a missing id — `null`, not a
+      // 404. Only a scoped viewer gets the no-existence-oracle 404.
+      if (!isUnrestricted(scope)) throw new NotFoundException('Task not found');
+      return null;
+    }
     return { description: row.description, markdownDescription: row.markdownDescription };
   }
 
@@ -416,7 +422,11 @@ export class TasksReportService {
         COUNT(DISTINCT e.user_id) FILTER (WHERE e.user_id IS NOT NULL)::bigint AS member_count,
         COALESCE(SUM(e.duration_hours), 0)::float AS hours_logged,
         COALESCE(SUM(CASE WHEN ${leadScopeSql(scope, 't')} THEN e.cost_cents ELSE 0 END), 0)::float AS cost_cents,
-        BOOL_OR(NOT ${leadScopeSql(scope, 't')}) AS cost_partial
+        -- Only an entry that actually exists AND is outside the viewer's LEAD
+        -- clients hides cost. Without the e.task_id IS NOT NULL guard, a
+        -- non-lead task with zero time entries still flips this true via the
+        -- LEFT JOIN's single NULL-entry row, even though nothing was hidden.
+        BOOL_OR(e.task_id IS NOT NULL AND NOT ${leadScopeSql(scope, 't')}) AS cost_partial
       FROM clickup_tasks t
       LEFT JOIN clickup_time_entries e ON e.task_id = t.task_id
       WHERE t.is_deleted = false
@@ -424,6 +434,12 @@ export class TasksReportService {
       GROUP BY t.space_id
       ORDER BY task_count DESC
     `);
+    // Ruling R12: a viewer who leads NO client in scope gets `null`, not a
+    // misleadingly precise 0 — 0 reads as "this space genuinely costs
+    // nothing", not "you can't see it". `leadIds === null` is unrestricted
+    // (incl. a flag-off MEMBER), unchanged from before.
+    const leadIds = leadClientIds(scope);
+    const leadsNothing = leadIds !== null && leadIds.length === 0;
     return rows.map(r => ({
       spaceId: r.space_id,
       spaceName: r.space_name,
@@ -431,9 +447,9 @@ export class TasksReportService {
       openCount: Number(r.open_count),
       memberCount: Number(r.member_count),
       hoursLogged: Number(r.hours_logged),
-      costAud: Number(r.cost_cents) / 100,
+      costAud: leadsNothing ? null : Number(r.cost_cents) / 100,
       // Only meaningful for a scoped viewer: `leadScopeSql` is always TRUE
-      // when unrestricted, so `BOOL_OR(NOT TRUE)` is always false there.
+      // when unrestricted, so `BOOL_OR(... AND NOT TRUE)` is always false there.
       costPartial: !!r.cost_partial,
     }));
   }

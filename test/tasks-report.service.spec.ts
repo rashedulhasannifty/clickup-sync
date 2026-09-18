@@ -82,6 +82,20 @@ describe('TasksReportService', () => {
       expect(result.byStatus[0]).toEqual({ status: 'in progress', count: 3 });
       expect(result.byStatusType[0]).toEqual({ statusType: 'open', count: 4 });
     });
+
+    // Fix round 1, item 4: the generic "FALSE on empty scope" it.each above
+    // only inspects the raw `bySpace` query (tasksSummary also issues one);
+    // pin the Prisma-side `byStatus`/`byStatusType`/`total` calls directly so
+    // an empty scope pins them to `scopeClientOptionId: { in: [] }` too.
+    it('pins byStatus, byStatusType and total to an empty scopeClientOptionId IN list for NONE', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasksSummary(NONE);
+      const groupByWheres = prisma.clickupTask.groupBy.mock.calls.map((c: any[]) => c[0].where);
+      const countWhere = prisma.clickupTask.count.mock.calls[0][0].where;
+      for (const where of [...groupByWheres, countWhere]) {
+        expect(where.scopeClientOptionId).toEqual({ in: [] });
+      }
+    });
   });
 
   describe('tasksBySpaceStatus', () => {
@@ -629,11 +643,25 @@ describe('TasksReportService', () => {
       });
     });
 
-    // Never 403: a 403 here would confirm the task exists but is out of
-    // scope, which is exactly the existence oracle scoping must not create.
-    it('throws NotFoundException when the task is out of scope or missing', async () => {
+    // Ruling R14: unrestricted (Owner/Admin, or a flag-off MEMBER) keeps
+    // today's exact pre-scoping behaviour for a missing id — `null`, not a
+    // 404 (base 1cec3e4 returned `null` for a missing row via `findUnique`).
+    it('returns null for a missing task when unrestricted (no behaviour change)', async () => {
       const prisma = makeDescPrisma(null);
-      await expect(new TasksReportService(prisma).taskDescription('ghost', UNRESTRICTED)).rejects.toThrow(NotFoundException);
+      const result = await new TasksReportService(prisma).taskDescription('ghost', UNRESTRICTED);
+      expect(result).toBeNull();
+    });
+
+    // Never 403 for a scoped viewer: a 403 here would confirm the task
+    // exists but is out of scope, which is exactly the existence oracle
+    // scoping must not create.
+    it('throws NotFoundException for a scoped viewer when the task is out of scope or missing', async () => {
+      const prisma = makeDescPrisma(null);
+      const LEAD = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'LEAD' }], teamClients: [{ teamId: 'A', optionId: 'acme' }], teamMembers: [],
+      });
+      await expect(new TasksReportService(prisma).taskDescription('ghost', LEAD)).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -706,9 +734,11 @@ describe('TasksReportService', () => {
     });
 
     // Ruling R12: a viewer who leads no client in scope sees costPartial: true
-    // wherever an in-scope-but-not-led row exists, and the sum itself is
-    // already narrowed to LEAD-only cost by the CASE WHEN in the SQL.
-    it('surfaces costPartial for a scoped viewer with unled rows', async () => {
+    // wherever an in-scope-but-not-led row exists, and `costAud` itself is
+    // `null` (not a misleadingly precise 0) — the sum is already narrowed to
+    // LEAD-only cost by the CASE WHEN in the SQL, but a lead-of-nothing
+    // viewer must never see a number at all.
+    it('surfaces costPartial and null costAud for a scoped viewer who leads no client (MEMBER-only)', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([
         { space_id: '3577824', space_name: 'Digital Marketing', task_count: BigInt(2), open_count: BigInt(1), hours_logged: 5, cost_cents: 0, cost_partial: true },
@@ -719,6 +749,31 @@ describe('TasksReportService', () => {
       });
       const result = await new TasksReportService(prisma).spaces(NONE_LEAD);
       expect(result[0].costPartial).toBe(true);
+      expect(result[0].costAud).toBeNull();
+    });
+
+    // Fix round 1, item 1: a viewer who DOES lead at least one client (even
+    // if not every client in scope) gets a real number, not null — only
+    // "leads nothing" collapses to null.
+    it('gives a partial lead (leads some but not all in-scope clients) a real costAud number', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([
+        { space_id: '3577824', space_name: 'Digital Marketing', task_count: BigInt(3), open_count: BigInt(1), hours_logged: 8, cost_cents: 2500, cost_partial: true },
+      ]);
+      const PARTIAL_LEAD = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [
+          { teamId: 'A', role: 'LEAD' },
+          { teamId: 'B', role: 'MEMBER' },
+        ],
+        teamClients: [
+          { teamId: 'A', optionId: 'acme' },
+          { teamId: 'B', optionId: 'bolt' },
+        ],
+        teamMembers: [],
+      });
+      const result = await new TasksReportService(prisma).spaces(PARTIAL_LEAD);
+      expect(result[0].costAud).toBe(25);
     });
 
     it('wraps the cost sum in a CASE WHEN and scopes the WHERE clause', async () => {
@@ -729,6 +784,18 @@ describe('TasksReportService', () => {
       expect(sqlText).toMatch(/CASE WHEN/i);
       expect(sqlText).toMatch(/BOOL_OR/i);
       expect(sqlText).toContain('FALSE');
+    });
+
+    // Fix round 1, item 2: without the `e.task_id IS NOT NULL` guard, a
+    // non-lead task with ZERO time entries still flips `cost_partial` true
+    // via the LEFT JOIN's single all-NULL entry row, even though no cost was
+    // actually hidden. Pin the guard clause is present in the generated SQL.
+    it('guards cost_partial so a task with no time entries is not counted as hidden cost', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).spaces(NONE);
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/BOOL_OR\(\s*e\.task_id\s+IS\s+NOT\s+NULL\s+AND\s+NOT/i);
     });
   });
 
