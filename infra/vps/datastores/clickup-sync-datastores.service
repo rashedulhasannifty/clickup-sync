@@ -1,0 +1,16 @@
+[Unit]
+Description=clickup-sync datastores (Postgres, Redis)
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/clickup-sync
+ExecStartPre=/opt/clickup-sync/datastores-env.sh
+ExecStart=/usr/bin/docker compose --env-file /opt/clickup-sync/datastores.env -f /opt/clickup-sync/docker-compose.datastores.yml up -d --wait --remove-orphans
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
