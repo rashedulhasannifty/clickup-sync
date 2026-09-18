@@ -42,15 +42,15 @@ export class ReportsController {
 
   @Get('tasks/summary')
   @ApiOperation({ summary: 'Task count summary by space and status' })
-  tasksSummary() { return this.tasksReports.tasksSummary(); }
+  tasksSummary(@Scope() scope: AccessScope) { return this.tasksReports.tasksSummary(scope); }
 
   @Get('tasks/by-space-status')
   @ApiOperation({ summary: 'Task counts grouped by space+status for stacked bar chart' })
-  tasksBySpaceStatus() { return this.tasksReports.tasksBySpaceStatus(); }
+  tasksBySpaceStatus(@Scope() scope: AccessScope) { return this.tasksReports.tasksBySpaceStatus(scope); }
 
   @Get('tasks/assignees')
   @ApiOperation({ summary: 'Distinct task assignees for the Tasks page filter dropdown. Drawn from clickup_tasks.assignees_names so assignees with zero time entries (e.g. expense-only tasks) still appear.' })
-  tasksAssignees() { return this.tasksReports.tasksAssignees(); }
+  tasksAssignees(@Scope() scope: AccessScope) { return this.tasksReports.tasksAssignees(scope); }
 
   @Get('time-entries/assignees')
   @ApiOperation({ summary: 'Distinct assignees that have time entries. Feeds the exclude-from-costing picker.' })
@@ -72,32 +72,38 @@ export class ReportsController {
   @Get('clients')
   @ApiOperation({ summary: 'Distinct task clients for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks.client (non-empty, non-deleted), with per-client task counts. `spaceId`, `from`/`to` (on updated_date) and `archived` scope the counts the same way `/reports/tasks` does, so the number in the dropdown label matches the number of rows the table will show. Omit them all for the workspace-wide list (what Budgets wants).' })
   tasksClients(
+    @Scope() scope: AccessScope,
     @Query('spaceId') spaceId?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('archived') archived?: string,
   ) {
-    return this.tasksReports.tasksClients({ spaceId, from, to, archived });
+    return this.tasksReports.tasksClients({ spaceId, from, to, archived }, scope);
   }
 
   @Get('sub-projects')
   @ApiOperation({ summary: 'Distinct task sub-projects (ClickUp "Sub-Project" labels field) for the Tasks and Time Entries page filter dropdowns, with per-option task counts. Scoped by `spaceId`, `from`/`to` (on updated_date) and `archived` exactly like `/reports/clients`. A task can carry several sub-projects, so the counts can sum to more than the task total.' })
   tasksSubProjects(
+    @Scope() scope: AccessScope,
     @Query('spaceId') spaceId?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('archived') archived?: string,
   ) {
-    return this.tasksReports.tasksSubProjects({ spaceId, from, to, archived });
+    return this.tasksReports.tasksSubProjects({ spaceId, from, to, archived }, scope);
   }
 
   @Get('lists')
   @ApiOperation({ summary: 'Distinct ClickUp lists for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks (list_id/list_name, non-empty, non-deleted) with per-list task counts. Pass spaceId to scope to one space.' })
-  tasksLists(@Query('spaceId') spaceId?: string) { return this.tasksReports.tasksLists(spaceId); }
+  tasksLists(@Scope() scope: AccessScope, @Query('spaceId') spaceId?: string) {
+    return this.tasksReports.tasksLists(spaceId, scope);
+  }
 
   @Get('folders')
   @ApiOperation({ summary: 'Distinct ClickUp folders for the Tasks and Time Entries page filter dropdowns. Drawn from clickup_tasks (folder_id/folder_name, non-empty, non-deleted) with per-folder task counts. Pass spaceId to scope to one space.' })
-  tasksFolders(@Query('spaceId') spaceId?: string) { return this.tasksReports.tasksFolders(spaceId); }
+  tasksFolders(@Scope() scope: AccessScope, @Query('spaceId') spaceId?: string) {
+    return this.tasksReports.tasksFolders(spaceId, scope);
+  }
 
   @Get('tasks')
   @ApiOperation({ summary: 'Paginated task list with filters. `status`, `priority`, `assigneeId`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `archived`: exclude (default, hide archived) | include | only (archived tasks). `sprintStatus=active|completed|all` (default `all`) scopes to tasks whose list (sprint) is/isn\'t archived. `chargeable=true|false|partial` filters on the task flag together with its (task, assignee) rules: `partial` means a rule disagrees with the flag, `true`/`false` mean the flag with no such rule. The three are mutually exclusive. Soft-deleted rows are always excluded.' })
@@ -127,8 +133,8 @@ export class ReportsController {
 
   @Get('tasks/:taskId/description')
   @ApiOperation({ summary: 'Rich (markdown) + plain description for a single task. Fetched on demand by the task drawer; kept off the paged list/export payload on purpose.' })
-  taskDescription(@Param('taskId') taskId: string) {
-    return this.tasksReports.taskDescription(taskId);
+  taskDescription(@Param('taskId') taskId: string, @Scope() scope: AccessScope) {
+    return this.tasksReports.taskDescription(taskId, scope);
   }
 
   @Get('tasks/:taskId/assignee-chargeability')
@@ -139,11 +145,15 @@ export class ReportsController {
 
   @Get('tasks/chargeable-preview')
   @ApiOperation({ summary: 'Counts behind the chargeability confirmation dialog: tasks given, tasks that would actually change, and the time entries + hours affected. `taskIds` is a comma-separated list, max 500.' })
-  chargeablePreview(@Query('taskIds') taskIds = '', @Query('chargeable') chargeable?: string) {
+  chargeablePreview(
+    @Scope() scope: AccessScope,
+    @Query('taskIds') taskIds = '',
+    @Query('chargeable') chargeable?: string,
+  ) {
     const ids = csvList(taskIds) ?? [];
     if (ids.length === 0) throw new BadRequestException('taskIds is required');
     if (ids.length > MAX_CHARGEABLE_TASK_IDS) throw new BadRequestException(`At most ${MAX_CHARGEABLE_TASK_IDS} tasks per request`);
-    return this.tasksReports.chargeablePreview(ids, chargeable === 'true');
+    return this.tasksReports.chargeablePreview(ids, chargeable === 'true', scope);
   }
 
   // Ops/anomaly/spike routes are admin-grade data, but a plain @Roles(OWNER, ADMIN)
@@ -326,8 +336,8 @@ export class ReportsController {
 
   @Get('sprint-points')
   @ApiOperation({ summary: 'Sprint points by space and status' })
-  sprintPoints(@Query('spaceId') spaceId?: string) {
-    return this.tasksReports.sprintPoints(spaceId);
+  sprintPoints(@Scope() scope: AccessScope, @Query('spaceId') spaceId?: string) {
+    return this.tasksReports.sprintPoints(spaceId, scope);
   }
 
   @Get('sprints')
@@ -432,7 +442,7 @@ export class ReportsController {
 
   @Get('spaces')
   @ApiOperation({ summary: 'Per-space task, hour, and cost aggregates' })
-  spaces() { return this.tasksReports.spaces(); }
+  spaces(@Scope() scope: AccessScope) { return this.tasksReports.spaces(scope); }
 
   @Get('cycle-time')
   @ApiOperation({ summary: 'Cycle-time aggregates (first open → last done) bucketed by week, client, or department.' })

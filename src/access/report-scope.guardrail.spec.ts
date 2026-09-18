@@ -38,18 +38,9 @@ type ControllerClass = new (...args: any[]) => object;
  * @Scope(), at which point its routes move through the normal (non-PENDING) path.
  */
 const PENDING = new Set<string>([
-  'ReportsController.tasksSummary',
-  'ReportsController.tasksBySpaceStatus',
-  'ReportsController.tasksAssignees',
   'ReportsController.timeEntriesAssignees',
   'ReportsController.timesheet',
-  'ReportsController.tasksClients',
-  'ReportsController.tasksSubProjects',
-  'ReportsController.tasksLists',
-  'ReportsController.tasksFolders',
-  'ReportsController.taskDescription',
   'ReportsController.taskAssigneeChargeability',
-  'ReportsController.chargeablePreview',
   'ReportsController.timeEntriesByUser',
   'ReportsController.timeEntriesByClient',
   'ReportsController.timeEntriesByDepartment',
@@ -59,12 +50,10 @@ const PENDING = new Set<string>([
   'ReportsController.costTrendByClient',
   'ReportsController.budgetStatus',
   'ReportsController.overviewDeltas',
-  'ReportsController.sprintPoints',
   'ReportsController.sprints',
   'ReportsController.sprintFolders',
   'ReportsController.velocity',
   'ReportsController.sprintDetail',
-  'ReportsController.spaces',
   'ReportsController.cycleTime',
   'ReportsController.timeInStatus',
 ]);
