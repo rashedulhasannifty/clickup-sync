@@ -345,8 +345,9 @@ export class ReportsController {
   }
 
   @Get('sprints')
-  @ApiOperation({ summary: 'Paginated sprint (clickup_lists row) list with task/hours/cost roll-ups. `status=active|completed|all` (default `active`) filters by the list\'s archived flag. Optional spaceId/folderId scope, and a name search.' })
+  @ApiOperation({ summary: 'Paginated sprint (clickup_lists row) list with task/hours/cost roll-ups. `status=active|completed|all` (default `active`) filters by the list\'s archived flag. Optional spaceId/folderId scope, and a name search. Lead-only view: 403s a scoped viewer who leads no team.' })
   sprints(
+    @Scope() scope: AccessScope,
     @Query('spaceId') spaceId?: string,
     @Query('folderId') folderId?: string,
     @Query('status') status?: string,
@@ -361,7 +362,7 @@ export class ReportsController {
       search,
       limit: Number(limit) || 50,
       offset: Number(offset) || 0,
-    });
+    }, scope);
   }
 
   // Static sub-paths of `sprints/*` MUST be declared before the `:listId`
@@ -369,24 +370,24 @@ export class ReportsController {
   // order, so a `GET /sprints/folders` request would otherwise be captured
   // by `sprints/:listId` with `listId = 'folders'`.
   @Get('sprints/folders')
-  @ApiOperation({ summary: 'Sprint (list) folders grouped with active/completed sprint counts, for the sprint folder-picker. Optional spaceId scope.' })
-  sprintFolders(@Query('spaceId') spaceId?: string) {
-    return this.sprintsReports.sprintFolders(spaceId);
+  @ApiOperation({ summary: 'Sprint (list) folders grouped with active/completed sprint counts, for the sprint folder-picker. Optional spaceId scope. Lead-only view: 403s a scoped viewer who leads no team.' })
+  sprintFolders(@Scope() scope: AccessScope, @Query('spaceId') spaceId?: string) {
+    return this.sprintsReports.sprintFolders(spaceId, scope);
   }
 
   @Get('sprints/velocity')
-  @ApiOperation({ summary: 'Recent-sprint throughput (tasks done + hours logged) for a folder, most recent sprint first. folderId is required.' })
-  velocity(@Query('folderId') folderId?: string, @Query('limit') limit?: string) {
+  @ApiOperation({ summary: 'Recent-sprint throughput (tasks done + hours logged) for a folder, most recent sprint first. folderId is required. Lead-only view: 403s a scoped viewer who leads no team.' })
+  velocity(@Scope() scope: AccessScope, @Query('folderId') folderId?: string, @Query('limit') limit?: string) {
     if (!folderId) {
       throw new BadRequestException('folderId is required');
     }
-    return this.sprintsReports.velocity(folderId, Number(limit) || 12);
+    return this.sprintsReports.velocity(folderId, Number(limit) || 12, scope);
   }
 
   @Get('sprints/:listId')
-  @ApiOperation({ summary: 'Single sprint (list) detail: status breakdown, per-assignee hours/cost, and mean cycle time for its tasks.' })
-  sprintDetail(@Param('listId') listId: string) {
-    return this.sprintsReports.sprintDetail(listId);
+  @ApiOperation({ summary: 'Single sprint (list) detail: status breakdown, per-assignee hours/cost, and mean cycle time for its tasks. Lead-only view: 403s a scoped viewer who leads no team.' })
+  sprintDetail(@Param('listId') listId: string, @Scope() scope: AccessScope) {
+    return this.sprintsReports.sprintDetail(listId, scope);
   }
 
   @Get('ops/sync-health')
@@ -449,8 +450,9 @@ export class ReportsController {
   spaces(@Scope() scope: AccessScope) { return this.tasksReports.spaces(scope); }
 
   @Get('cycle-time')
-  @ApiOperation({ summary: 'Cycle-time aggregates (first open → last done) bucketed by week, client, or department.' })
+  @ApiOperation({ summary: 'Cycle-time aggregates (first open → last done) bucketed by week, client, or department. Scoped to in-scope tasks; not lead-gated.' })
   cycleTime(
+    @Scope() scope: AccessScope,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('groupBy') groupBy?: string,
@@ -458,15 +460,15 @@ export class ReportsController {
     const groupByVal = groupBy === 'client' || groupBy === 'department' ? groupBy : 'week';
     const fromDate = from ? new Date(from) : new Date(Date.now() - 90 * 86400000);
     const toDate = to ? new Date(to) : new Date();
-    return this.cycleTimeReports.cycleTime({ from: fromDate, to: toDate, groupBy: groupByVal });
+    return this.cycleTimeReports.cycleTime({ from: fromDate, to: toDate, groupBy: groupByVal }, scope);
   }
 
   @Get('time-in-status')
-  @ApiOperation({ summary: 'Total hours each task spent in each status, over the window.' })
-  timeInStatus(@Query('from') from?: string, @Query('to') to?: string) {
+  @ApiOperation({ summary: 'Total hours each task spent in each status, over the window. Scoped to in-scope tasks; not lead-gated.' })
+  timeInStatus(@Scope() scope: AccessScope, @Query('from') from?: string, @Query('to') to?: string) {
     const fromDate = from ? new Date(from) : new Date(Date.now() - 90 * 86400000);
     const toDate = to ? new Date(to) : new Date();
-    return this.cycleTimeReports.timeInStatus({ from: fromDate, to: toDate });
+    return this.cycleTimeReports.timeInStatus({ from: fromDate, to: toDate }, scope);
   }
 
   /** Both /work routes take the same params; one mapper keeps them identical. */

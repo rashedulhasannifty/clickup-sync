@@ -1,8 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { AccessScope } from '../access/access-scope';
+import { taskIdInScopeSql } from '../access/scope-query';
 
-/** Status-history report queries: cycle time (open→done) and time-in-status. */
+/**
+ * Status-history report queries: cycle time (open→done) and time-in-status.
+ *
+ * Team scoping (Task 12): not lead-gated — any scoped viewer sees these
+ * bucketed over their in-scope tasks only, via `taskIdInScopeSql` on every
+ * query that reads `clickup_task_events` (including the `meta` queries).
+ */
 @Injectable()
 export class CycleTimeReportService {
   constructor(private readonly prisma: PrismaService) {}
@@ -13,7 +21,7 @@ export class CycleTimeReportService {
    * (done → in-progress → done) use first-open to last-done, i.e. end-to-end
    * calendar time. Window filters by the task's *last done* occurredAt.
    */
-  async cycleTime(args: { from: Date; to: Date; groupBy: 'week' | 'client' | 'department' }) {
+  async cycleTime(args: { from: Date; to: Date; groupBy: 'week' | 'client' | 'department' }, scope: AccessScope) {
     const { from, to, groupBy } = args;
     const bucketExpr =
       groupBy === 'week'
@@ -38,6 +46,7 @@ export class CycleTimeReportService {
             MAX(e.occurred_at) FILTER (WHERE (e.after->>'type') = 'done') AS last_done
           FROM clickup_task_events e
           WHERE e.event_type = 'taskStatusUpdated'
+            AND ${taskIdInScopeSql(scope, 'e.task_id')}
           GROUP BY e.task_id
         )
         SELECT
@@ -60,9 +69,10 @@ export class CycleTimeReportService {
         ORDER BY 1 ASC
       `),
       this.prisma.$queryRaw<MetaRow[]>(Prisma.sql`
-        SELECT MIN(occurred_at) AS min_occurred_at
-        FROM clickup_task_events
-        WHERE event_type = 'taskStatusUpdated'
+        SELECT MIN(e.occurred_at) AS min_occurred_at
+        FROM clickup_task_events e
+        WHERE e.event_type = 'taskStatusUpdated'
+          AND ${taskIdInScopeSql(scope, 'e.task_id')}
       `),
     ]);
 
@@ -86,7 +96,7 @@ export class CycleTimeReportService {
    * active status (last event without a successor) attributes hours up to `to`.
    * Bar by status with its captured `color`.
    */
-  async timeInStatus(args: { from: Date; to: Date }) {
+  async timeInStatus(args: { from: Date; to: Date }, scope: AccessScope) {
     const { from, to } = args;
     type Row = { status: string; color: string | null; total_hours: number; task_count: bigint };
     type MetaRow = { min_occurred_at: Date | null };
@@ -102,6 +112,7 @@ export class CycleTimeReportService {
           FROM clickup_task_events e
           WHERE e.event_type = 'taskStatusUpdated'
             AND e.occurred_at <= ${to}
+            AND ${taskIdInScopeSql(scope, 'e.task_id')}
         ),
         intervals AS (
           SELECT
@@ -125,9 +136,10 @@ export class CycleTimeReportService {
         ORDER BY total_hours DESC
       `),
       this.prisma.$queryRaw<MetaRow[]>(Prisma.sql`
-        SELECT MIN(occurred_at) AS min_occurred_at
-        FROM clickup_task_events
-        WHERE event_type = 'taskStatusUpdated'
+        SELECT MIN(e.occurred_at) AS min_occurred_at
+        FROM clickup_task_events e
+        WHERE e.event_type = 'taskStatusUpdated'
+          AND ${taskIdInScopeSql(scope, 'e.task_id')}
       `),
     ]);
 

@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { resolveScope } from '../src/access/access-scope';
+import { SCOPE_PARAM } from '../src/access/scope.decorator';
 import { ReportsController } from '../src/reports/reports.controller';
 import { TasksReportService } from '../src/reports/tasks-report.service';
 import { TimeEntriesReportService } from '../src/reports/time-entries-report.service';
@@ -220,73 +221,73 @@ describe('ReportsController', () => {
   });
 
   describe('sprints', () => {
-    it('GET /reports/sprints delegates status + paging to the service', async () => {
+    it('GET /reports/sprints delegates status + paging + scope to the service', async () => {
       const sprints = { sprints: jest.fn().mockResolvedValue({ items: [], total: 0 }), sprintFolders: jest.fn(), velocity: jest.fn(), sprintDetail: jest.fn() } as any;
       const ctrl = makeCtrl({ sprints });
-      await ctrl.sprints('s1', 'f1', 'completed', 'foo', '25', '0');
-      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ spaceId: 's1', folderId: 'f1', status: 'completed', search: 'foo', limit: 25, offset: 0 }));
+      await ctrl.sprints(OWNER_SCOPE, 's1', 'f1', 'completed', 'foo', '25', '0');
+      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ spaceId: 's1', folderId: 'f1', status: 'completed', search: 'foo', limit: 25, offset: 0 }), OWNER_SCOPE);
     });
 
     it('defaults status to "active" (not "all") when omitted — the sprints list default differs from tasks/time-entries', async () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      await ctrl.sprints();
-      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ status: 'active' }));
+      await ctrl.sprints(OWNER_SCOPE);
+      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ status: 'active' }), OWNER_SCOPE);
     });
 
     it('ignores an unrecognized status value and falls back to "active"', async () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      await ctrl.sprints(undefined, undefined, 'bogus');
-      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ status: 'active' }));
+      await ctrl.sprints(OWNER_SCOPE, undefined, undefined, 'bogus');
+      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ status: 'active' }), OWNER_SCOPE);
     });
 
     it('defaults limit/offset when the query params are missing', async () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      await ctrl.sprints();
-      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ limit: 50, offset: 0 }));
+      await ctrl.sprints(OWNER_SCOPE);
+      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ limit: 50, offset: 0 }), OWNER_SCOPE);
     });
   });
 
   describe('sprintFolders', () => {
-    it('delegates spaceId to sprintsReports.sprintFolders', async () => {
+    it('delegates spaceId + scope to sprintsReports.sprintFolders', async () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      await ctrl.sprintFolders('3577824');
-      expect(sprints.sprintFolders).toHaveBeenCalledWith('3577824');
+      await ctrl.sprintFolders(OWNER_SCOPE, '3577824');
+      expect(sprints.sprintFolders).toHaveBeenCalledWith('3577824', OWNER_SCOPE);
     });
   });
 
   describe('velocity', () => {
-    it('delegates folderId + limit to sprintsReports.velocity', async () => {
+    it('delegates folderId + limit + scope to sprintsReports.velocity', async () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      await ctrl.velocity('F1', '5');
-      expect(sprints.velocity).toHaveBeenCalledWith('F1', 5);
+      await ctrl.velocity(OWNER_SCOPE, 'F1', '5');
+      expect(sprints.velocity).toHaveBeenCalledWith('F1', 5, OWNER_SCOPE);
     });
 
     it('defaults limit to 12 when omitted', async () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      await ctrl.velocity('F1');
-      expect(sprints.velocity).toHaveBeenCalledWith('F1', 12);
+      await ctrl.velocity(OWNER_SCOPE, 'F1');
+      expect(sprints.velocity).toHaveBeenCalledWith('F1', 12, OWNER_SCOPE);
     });
 
     it('rejects a missing folderId with BadRequestException', () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      expect(() => ctrl.velocity()).toThrow(BadRequestException);
+      expect(() => ctrl.velocity(OWNER_SCOPE)).toThrow(BadRequestException);
       expect(sprints.velocity).not.toHaveBeenCalled();
     });
   });
 
   describe('sprintDetail', () => {
-    it('delegates listId to sprintsReports.sprintDetail', async () => {
+    it('delegates listId + scope to sprintsReports.sprintDetail', async () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      await ctrl.sprintDetail('L1');
-      expect(sprints.sprintDetail).toHaveBeenCalledWith('L1');
+      await ctrl.sprintDetail('L1', OWNER_SCOPE);
+      expect(sprints.sprintDetail).toHaveBeenCalledWith('L1', OWNER_SCOPE);
     });
   });
 
@@ -334,6 +335,14 @@ describe('ReportsController', () => {
         ],
       }).compile();
       const app = moduleRef.createNestApplication();
+      // No AccessScopeGuard is registered in this bare controller-only test
+      // module (this suite is only about route-ordering), so `@Scope()`
+      // would otherwise 403 on the missing request property. Stand in for
+      // the guard with a trivial middleware.
+      app.use((req: any, _res: any, next: () => void) => {
+        req[SCOPE_PARAM] = OWNER_SCOPE;
+        next();
+      });
       await app.init();
       return app;
     }
@@ -360,7 +369,7 @@ describe('ReportsController', () => {
       const sprints = makeSprints();
       const app = await bootApp(sprints);
       await request(app.getHttpServer()).get('/reports/sprints/SOME_LIST_ID').expect(200);
-      expect(sprints.sprintDetail).toHaveBeenCalledWith('SOME_LIST_ID');
+      expect(sprints.sprintDetail).toHaveBeenCalledWith('SOME_LIST_ID', OWNER_SCOPE);
       await app.close();
     });
   });

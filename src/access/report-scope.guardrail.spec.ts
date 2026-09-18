@@ -42,12 +42,6 @@ const PENDING = new Set<string>([
   'ReportsController.costTrendByAssignee',
   'ReportsController.costTrendByClient',
   'ReportsController.budgetStatus',
-  'ReportsController.sprints',
-  'ReportsController.sprintFolders',
-  'ReportsController.velocity',
-  'ReportsController.sprintDetail',
-  'ReportsController.cycleTime',
-  'ReportsController.timeInStatus',
 ]);
 
 /**
