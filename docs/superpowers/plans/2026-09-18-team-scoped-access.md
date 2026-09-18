@@ -21,6 +21,7 @@
 - A client (ClickUp option id) belongs to at most one team (`team_clients.option_id` is the PK).
 - Scope is resolved **per request** and never cached across requests.
 - Access filters read **only** `clickup_tasks.scope_client_option_id`, never the `client` name.
+- **Decided (2026-09-18):** members must NOT see the task `cost` and `estimation` ClickUp custom fields (quoted amounts). They are masked like computed labour cost; leads see them on their LEAD clients.
 - Cost fields (`costCents`, `hourlyRateCents`, `rateId`, task `cost`, task `estimation`, cost aggregates; not `currency`) are set to `null` on rows whose client the viewer does not LEAD. Aggregates sum only visible cost and return `costPartial: true` when rows were excluded.
 - Chargeability writes by a lead are all-or-nothing: one out-of-scope id means a 403 for the whole request.
 - `scope_client_option_id` is **derived**, written by sync. It is not a local annotation. `isChargeable` / `chargeableOverride` stay sync-untouchable (existing guardrails).
@@ -403,8 +404,10 @@ describe('maskCost', () => {
     expect(maskCost(row, lead, 'bolt')).toEqual({ ...row, costCents: null, hourlyRateCents: null, rateId: null });
   });
 
-  it('only touches fields present on the row', () => {
-    expect(maskCost({ taskId: 't', cost: 10 }, lead, 'bolt')).toEqual({ taskId: 't', cost: null });
+  it('masks the task cost + estimation custom fields for members, keeps them for leads', () => {
+    const task = { taskId: 't', cost: 10, estimation: 8, sprintPoints: 3 };
+    expect(maskCost(task, lead, 'bolt')).toEqual({ taskId: 't', cost: null, estimation: null, sprintPoints: 3 });
+    expect(maskCost(task, lead, 'acme')).toEqual(task);
   });
 });
 ```

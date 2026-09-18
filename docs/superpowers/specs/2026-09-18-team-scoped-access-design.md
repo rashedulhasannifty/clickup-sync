@@ -274,8 +274,10 @@ app-layer scoping safe.
 Hours-only has to be enforced by the server. Hiding cost in the UI is not
 enough, because the raw API response would still contain it.
 
-- Cost-bearing fields: time entry `costCents`, `hourlyRateCents`, `rateId`,
-  `currency`; task `cost`, `estimation`; any aggregated cost total.
+- Cost-bearing fields: time entry `costCents`, `hourlyRateCents`, `rateId`;
+  task `cost`, `estimation` (ClickUp custom fields holding quoted amounts:
+  **confirmed hidden from members**, visible to leads on their clients); any
+  aggregated cost total. `currency` is a label, not an amount, and is not masked.
 - **List and detail endpoints** mask per row. If `!canSeeCost(scope,
   row.scopeClientOptionId)`, those fields are set to `null`, not deleted. A null
   cost is also what a lead sees for another team's rows on a member's timesheet.
