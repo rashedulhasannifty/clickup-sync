@@ -1,12 +1,21 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
-import { Prisma, TeamRole } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { TeamRole } from '@prisma/client';
 import { AccessScope, isUnrestricted } from '../access/access-scope';
 import { AuthPrincipal } from '../auth/auth.types';
 import { UserRepository } from '../auth/user.repository';
 import { TeamsRepository } from './teams.repository';
 
-function isUniqueViolation(err: unknown): boolean {
-  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+/** Duck-typed Prisma error code check — works for real PrismaClientKnownRequestErrors
+ *  and for plain `{code}` objects in tests, matching the style already used in
+ *  src/webhooks/webhook-events.repository.ts. */
+function prismaErrorCode(err: unknown): string | undefined {
+  return typeof err === 'object' && err !== null && 'code' in err ? (err as { code?: string }).code : undefined;
 }
 
 @Injectable()
@@ -15,6 +24,23 @@ export class TeamsService {
     private readonly repo: TeamsRepository,
     private readonly users: UserRepository,
   ) {}
+
+  /** Org-scoped existence check: a team id from another org must 404, never 403 —
+   *  a 403 would confirm the id exists somewhere. Matches src/auth/users.service.ts. */
+  private async assertTeam(orgId: string, teamId: string): Promise<void> {
+    const found = await this.repo.findInOrg(teamId, orgId);
+    if (!found) throw new NotFoundException('Team not found');
+  }
+
+  /** Shared by the admin and lead add-member paths: the target must be an existing,
+   *  ACTIVE, same-org user. Previously only the lead path checked this. */
+  private async assertMemberCandidate(actor: AuthPrincipal, userId: string) {
+    const user = await this.users.findById(userId);
+    if (!user || user.orgId !== actor.orgId || user.status !== 'ACTIVE') {
+      throw new BadRequestException('User not found or inactive');
+    }
+    return user;
+  }
 
   async list(orgId: string) {
     const teams = await this.repo.listFull(orgId);
@@ -54,35 +80,40 @@ export class TeamsService {
     try {
       team = await this.repo.create(actor.orgId, name);
     } catch (err) {
-      if (isUniqueViolation(err)) throw new ConflictException('A team with that name already exists');
+      if (prismaErrorCode(err) === 'P2002') throw new ConflictException('A team with that name already exists');
       throw err;
     }
     try {
       await this.setClients(actor, team.id, optionIds, false);
     } catch (err) {
-      // A conflicting client set must never leave a half-made team behind.
-      await this.repo.delete(team.id);
+      // A conflicting client set must never leave a half-made team behind. Swallow a
+      // failed rollback delete so the original conflict (not a secondary delete error)
+      // is what the caller sees.
+      await this.repo.delete(team.id).catch(() => {});
       throw err;
     }
     return team;
   }
 
-  async rename(id: string, name: string) {
+  async rename(orgId: string, id: string, name: string) {
+    await this.assertTeam(orgId, id);
     try {
       return await this.repo.rename(id, name);
     } catch (err) {
-      if (isUniqueViolation(err)) throw new ConflictException('A team with that name already exists');
+      if (prismaErrorCode(err) === 'P2002') throw new ConflictException('A team with that name already exists');
       throw err;
     }
   }
 
-  async deleteTeam(id: string) {
+  async deleteTeam(orgId: string, id: string) {
+    await this.assertTeam(orgId, id);
     const releasedClients = await this.repo.countClients(id);
     await this.repo.delete(id);
     return { releasedClients };
   }
 
   async setClients(actor: AuthPrincipal, teamId: string, optionIds: string[], move: boolean) {
+    await this.assertTeam(actor.orgId, teamId);
     const owners = (await this.repo.ownersOf(optionIds)).filter((o) => o.teamId !== teamId);
     if (owners.length && !move) {
       throw new ConflictException({
@@ -90,34 +121,48 @@ export class TeamsService {
         conflicts: owners.map((o) => ({ optionId: o.optionId, teamId: o.team.id, teamName: o.team.name })),
       });
     }
-    await this.repo.replaceClients(teamId, optionIds, actor.userId);
+    try {
+      await this.repo.replaceClients(teamId, optionIds, actor.userId, move);
+    } catch (err) {
+      const code = prismaErrorCode(err);
+      if (code === 'P2003') throw new BadRequestException('One or more client option ids do not exist');
+      if (code === 'P2002') throw new ConflictException('Some clients belong to another team');
+      throw err;
+    }
     return {
       clients: optionIds.length,
       moved: owners.map((o) => ({ optionId: o.optionId, fromTeamId: o.team.id })),
     };
   }
 
-  addMember(teamId: string, userId: string, role: TeamRole, addedBy: string) {
-    return this.repo.addMember(teamId, userId, role, addedBy);
+  async addMember(actor: AuthPrincipal, teamId: string, userId: string, role: TeamRole) {
+    await this.assertTeam(actor.orgId, teamId);
+    await this.assertMemberCandidate(actor, userId);
+    return this.repo.addMember(teamId, userId, role, actor.userId);
   }
 
-  setMemberRole(teamId: string, userId: string, role: TeamRole) {
+  async setMemberRole(orgId: string, teamId: string, userId: string, role: TeamRole) {
+    await this.assertTeam(orgId, teamId);
     return this.repo.setMemberRole(teamId, userId, role);
   }
 
-  removeMember(teamId: string, userId: string) {
+  async removeMember(orgId: string, teamId: string, userId: string) {
+    await this.assertTeam(orgId, teamId);
     return this.repo.removeMember(teamId, userId);
   }
 
   async leadAddMember(scope: AccessScope, actor: AuthPrincipal, teamId: string, userId: string) {
-    const allowed =
-      (isUnrestricted(scope) && scope.canEdit) || (scope.kind === 'scoped' && scope.ledTeamIds.includes(teamId));
-    if (!allowed) throw new ForbiddenException('Team lead access required');
-
-    const user = await this.users.findById(userId);
-    if (!user || user.orgId !== actor.orgId || user.status !== 'ACTIVE') {
-      throw new BadRequestException('User not found or inactive');
+    if (isUnrestricted(scope) && scope.canEdit) {
+      // Owner/Admin using this endpoint: still an org-scoped id, so 404 (not a bare
+      // Forbidden) on a team from another org.
+      await this.assertTeam(actor.orgId, teamId);
+    } else if (!(scope.kind === 'scoped' && scope.ledTeamIds.includes(teamId))) {
+      // A scoped lead's `ledTeamIds` come only from their own TeamMember rows, which
+      // are inherently within their own org — no separate org check needed there.
+      throw new ForbiddenException('Team lead access required');
     }
+
+    await this.assertMemberCandidate(actor, userId);
     return this.repo.addMember(teamId, userId, 'MEMBER', actor.userId);
   }
 

@@ -81,8 +81,8 @@ const NON_DATA: Record<string, string> = {
   'ClickupMembersController.list':
     'workspace directory (names, emails, avatars) — every ClickUp member already sees it in ClickUp; ' +
     'the avatar component and the invite picker depend on it being open to all signed-in users',
-  'MyTeamsController.mine': 'returns only the caller’s own memberships',
-  'MyTeamsController.addMember': 'authorised in TeamsService.leadAddMember (lead of that team)',
+  // MyTeamsController.mine / .addMember both take @Scope() and pass via takesScope() —
+  // no NON_DATA entry here, so this stays green only as long as that's still true.
 };
 
 function isPublic(ctrl: ControllerClass, method: string): boolean {

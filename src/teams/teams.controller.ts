@@ -46,13 +46,13 @@ export class TeamsController {
   }
 
   @Patch(':id')
-  rename(@Param('id') id: string, @Body() dto: UpdateTeamDto) {
-    return this.teams.rename(id, dto.name);
+  rename(@CurrentUser() user: AuthPrincipal, @Param('id') id: string, @Body() dto: UpdateTeamDto) {
+    return this.teams.rename(user.orgId, id, dto.name);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.teams.deleteTeam(id);
+  remove(@CurrentUser() user: AuthPrincipal, @Param('id') id: string) {
+    return this.teams.deleteTeam(user.orgId, id);
   }
 
   @Put(':id/clients')
@@ -62,16 +62,21 @@ export class TeamsController {
 
   @Post(':id/members')
   addMember(@CurrentUser() user: AuthPrincipal, @Param('id') id: string, @Body() dto: AddTeamMemberDto) {
-    return this.teams.addMember(id, dto.userId, dto.role ?? 'MEMBER', user.userId);
+    return this.teams.addMember(user, id, dto.userId, dto.role ?? 'MEMBER');
   }
 
   @Patch(':id/members/:userId')
-  setMemberRole(@Param('id') id: string, @Param('userId') userId: string, @Body() dto: SetMemberRoleDto) {
-    return this.teams.setMemberRole(id, userId, dto.role);
+  setMemberRole(
+    @CurrentUser() user: AuthPrincipal,
+    @Param('id') id: string,
+    @Param('userId') userId: string,
+    @Body() dto: SetMemberRoleDto,
+  ) {
+    return this.teams.setMemberRole(user.orgId, id, userId, dto.role);
   }
 
   @Delete(':id/members/:userId')
-  removeMember(@Param('id') id: string, @Param('userId') userId: string) {
-    return this.teams.removeMember(id, userId);
+  removeMember(@CurrentUser() user: AuthPrincipal, @Param('id') id: string, @Param('userId') userId: string) {
+    return this.teams.removeMember(user.orgId, id, userId);
   }
 }

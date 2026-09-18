@@ -20,6 +20,11 @@ export class TeamsRepository {
     });
   }
 
+  /** Org-scoped existence check — used to 404 (not 403) a team id from another org. */
+  findInOrg(id: string, orgId: string) {
+    return this.prisma.team.findFirst({ where: { id, orgId }, select: { id: true } });
+  }
+
   create(orgId: string, name: string) {
     return this.prisma.team.create({ data: { orgId, name } });
   }
@@ -44,20 +49,36 @@ export class TeamsRepository {
     });
   }
 
-  /** Replace a team's client set atomically; moved options are deleted from their old team first. */
-  replaceClients(teamId: string, optionIds: string[], addedBy: string) {
+  /**
+   * Replace a team's client set atomically. The "steal" clause (deleting another
+   * team's claim on an option so this team can take it) only runs when `move` is
+   * true — otherwise a concurrent move elsewhere must never be silently undone by
+   * this call. `createMany` deliberately omits `skipDuplicates`: it's built only
+   * from options not already on this team, so any concurrent claim on the same
+   * option (optionId is TeamClient's PK) surfaces as P2002 instead of a silent
+   * no-op, and the caller turns that into a 409.
+   */
+  async replaceClients(teamId: string, optionIds: string[], addedBy: string, move: boolean) {
+    const existing = await this.prisma.teamClient.findMany({
+      where: { teamId, optionId: { in: optionIds } },
+      select: { optionId: true },
+    });
+    const alreadyOnTeam = new Set(existing.map((e) => e.optionId));
+    const toInsert = optionIds.filter((id) => !alreadyOnTeam.has(id));
+
     return this.prisma.$transaction([
       this.prisma.teamClient.deleteMany({
-        where: {
-          OR: [
-            { teamId, optionId: { notIn: optionIds } },
-            { optionId: { in: optionIds }, teamId: { not: teamId } },
-          ],
-        },
+        where: move
+          ? {
+              OR: [
+                { teamId, optionId: { notIn: optionIds } },
+                { optionId: { in: optionIds }, teamId: { not: teamId } },
+              ],
+            }
+          : { teamId, optionId: { notIn: optionIds } },
       }),
       this.prisma.teamClient.createMany({
-        data: optionIds.map((optionId) => ({ optionId, teamId, addedBy })),
-        skipDuplicates: true,
+        data: toInsert.map((optionId) => ({ optionId, teamId, addedBy })),
       }),
     ]);
   }
@@ -116,7 +137,8 @@ export class TeamsRepository {
         where: { orgId, status: 'ACTIVE', clickupUserId: null },
         select: { id: true, name: true, email: true },
       }),
-      this.prisma.clickupClientOption.findMany({ include: { team: true } }),
+      // archived:false here too — an archived duplicate name must not report a live name as ambiguous.
+      this.prisma.clickupClientOption.findMany({ where: { archived: false }, include: { team: true } }),
     ]);
   }
 }
