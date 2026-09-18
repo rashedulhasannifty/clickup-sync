@@ -12,6 +12,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { UpstreamExceptionFilter } from './common/upstream-exception.filter';
 import { getRole } from './config/role';
 import { helmetOptions } from './config/helmet.config';
 
@@ -57,6 +58,10 @@ async function bootstrap() {
   // is a behavior change across every write endpoint the SPA hits and isn't
   // needed for the security property.
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  // Without this, an AxiosError escaping a ClickUp call is not an HttpException,
+  // so every upstream failure reached the browser as a bare 500 with the real
+  // reason left behind in the server log. See the filter's own comment.
+  app.useGlobalFilters(new UpstreamExceptionFilter());
 
   // Swagger exposes the full API surface (every admin/reports route + the
   // x-admin-key scheme) unauthenticated. Keep it off in production unless an
