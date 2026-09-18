@@ -34,16 +34,22 @@ export class TaskAssigneeChargeabilityRepository {
    * before its assignee logs anything — the prospective case this screen
    * exists to support — has no entry to borrow from and comes back null. The
    * page resolves those against the workspace-members list instead.
+   *
+   * `clientOptionIds`: null/undefined is unfiltered (unrestricted viewers); a
+   * scoped lead passes their LEAD client ids, restricting rules to tasks on
+   * those clients so the aggregate view never leaks other teams' rules.
    */
-  async list(opts: { limit: number; offset: number }) {
+  async list(opts: { limit: number; offset: number; clientOptionIds?: string[] | null }) {
+    const where = opts.clientOptionIds ? { task: { scopeClientOptionId: { in: opts.clientOptionIds } } } : {};
     const [rules, total] = await Promise.all([
       this.prisma.taskAssigneeChargeability.findMany({
+        where,
         orderBy: { updatedAt: 'desc' },
         take: opts.limit,
         skip: opts.offset,
         select: { taskId: true, userId: true, chargeable: true, note: true, setBy: true, updatedAt: true },
       }),
-      this.prisma.taskAssigneeChargeability.count(),
+      this.prisma.taskAssigneeChargeability.count({ where }),
     ]);
     if (rules.length === 0) return { items: [], total };
 

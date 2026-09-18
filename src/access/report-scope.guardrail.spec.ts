@@ -31,13 +31,11 @@ type ControllerClass = new (...args: any[]) => object;
  * Owner/Admin-only. A new report route that does neither fails here — default deny
  * is enforced by CI, not by reviewers remembering.
  *
- * PENDING lists routes not yet migrated. It must only ever shrink; Task 13 emptied
- * the ReportsController entries (see the "no ReportsController route is still
- * pending" test below).
- *
- * AdminTasksController routes are admin-only via a class-level @Roles today (correctly
- * classified below, not PENDING); Task 14 removes that class-level @Roles and adds
- * @Scope(), at which point its routes move through the normal (non-PENDING) path.
+ * PENDING lists routes not yet migrated. It must only ever shrink; Task 13
+ * emptied the ReportsController entries and Task 14 emptied the
+ * AdminTasksController ones (removing its class-level @Roles in favour of
+ * per-route @Scope()), so PENDING must now be empty (see the "PENDING is
+ * empty" test below).
  */
 const PENDING = new Set<string>([]);
 
@@ -128,17 +126,12 @@ describe('report scope guardrail', () => {
       const key = `${ctrl.name}.${m}`;
       it(`${key} is scoped, admin-only, public, or a reasoned non-data route`, () => {
         const ok = takesScope(ctrl, m) || adminOnly(ctrl, m) || isPublic(ctrl, m) || key in NON_DATA;
-        if (PENDING.has(key)) {
-          // Fails once migrated so the entry gets deleted from PENDING.
-          expect(ok).toBe(false);
-        } else {
-          expect(ok).toBe(true);
-        }
+        expect(ok).toBe(true);
       });
     }
   }
 
-  it('no ReportsController route is still pending', () => {
-    expect([...PENDING].filter((k) => k.startsWith('ReportsController.'))).toEqual([]);
+  it('PENDING is empty', () => {
+    expect(PENDING.size).toBe(0);
   });
 });
