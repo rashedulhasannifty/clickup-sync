@@ -1,0 +1,20 @@
+
+# clickup-sync (log.niftyitsolution.com). Migrated from the AWS host on 2026-09-18.
+# One Nest process serves the SPA at / and the API + ClickUp webhooks under /api/*
+# (setGlobalPrefix('api') + ServeStatic), so there is no path split. PM2 app
+# clickup-sync-web on 127.0.0.1:3200; see /srv/clickup-sync/shared/ecosystem.config.cjs.
+# After editing:
+#   sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+#   sudo systemctl reload caddy
+
+log.niftyitsolution.com {
+	encode zstd gzip
+
+	request_body {
+		max_size 10MB
+	}
+
+	reverse_proxy 127.0.0.1:3200 {
+		header_up X-Real-IP {http.request.remote.host}
+	}
+}

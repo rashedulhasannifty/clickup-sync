@@ -1,311 +1,185 @@
-# Deployment — Ubuntu server with Docker Compose + Caddy
+# Deployment — BDIX VPS (PM2 + host Caddy)
 
-This guide deploys the whole stack on a single Ubuntu server using Docker Compose:
+Production (`https://log.niftyitsolution.com`) runs on the shared BDIX VPS, next to Toastie,
+TimeTrack and ChineseShop, using the same pattern as TimeTrack:
 
 ```
-                 Internet
-                    │  443 (HTTPS)
-            ┌───────▼────────┐
-            │     Caddy      │  automatic Let's Encrypt TLS
-            └───────┬────────┘
-                    │  api:3000 (internal network only)
-            ┌───────▼────────┐
-            │   api (NestJS) │  dashboard at "/", API + webhooks at "/api"
-            └───┬────────┬───┘
-       postgres │        │ redis        (internal network only — not exposed to host)
-        ┌───────▼──┐  ┌──▼───────┐
-        │ postgres │  │  redis   │
-        └──────────┘  └──────────┘
+            Internet ── Cloudflare (proxied) ── 443
+                                                 │
+                              ┌──────────────────▼──────────────────┐
+                              │ host Caddy (systemd, shared by all  │
+                              │ apps on the box, owns 80/443, TLS)  │
+                              └──────────────────┬──────────────────┘
+                                                 │ 127.0.0.1:3200
+     PM2 (user deploy) ┌─────────────────────────▼─┐   ┌──────────────────────────┐
+                       │ clickup-sync-web          │   │ clickup-sync-worker      │
+                       │ ROLE=web: SPA at /,       │   │ ROLE=worker: BullMQ      │
+                       │ API + webhooks at /api    │   │ processors + cron        │
+                       └─────────────┬─────────────┘   └────────────┬─────────────┘
+                                     │  loopback only                │
+     Docker (root, systemd)   ┌──────▼──────────────┐   ┌────────────▼────────────┐
+     clickup-sync-datastores  │ Postgres 127.0.0.1: │   │ Redis 127.0.0.1:6380    │
+                              │ 5433                │   │ (noeviction, AOF)       │
+                              └─────────────────────┘   └─────────────────────────┘
 ```
 
-Everything runs from `docker-compose.prod.yml`. Postgres and Redis are **not** published to the host (only Caddy publishes 80/443), so they can't be reached from outside the server.
+Only the stateful services run in Docker. The `deploy` user has no Docker access on purpose (the
+docker group is root-equivalent); it can only `sudo systemctl start clickup-sync-datastores`.
 
-> **Note on verification:** the Docker image build in this guide was authored but **not** run on the development machine (no Docker daemon there). Run `docker compose -f docker-compose.prod.yml build` on the server and watch it complete before relying on it — the npm-workspaces web build is the step most worth eyeballing.
+| Thing | Where |
+|---|---|
+| Releases | `/srv/clickup-sync/releases/<sha>`, `current` → live one (last 3 kept) |
+| Runtime env | `/srv/clickup-sync/shared/.env` (rendered by CI from GitHub secrets) |
+| PM2 config | `/srv/clickup-sync/shared/ecosystem.config.cjs` (from `infra/vps/pm2/`) |
+| Datastores | `/opt/clickup-sync/` (from `infra/vps/datastores/`), unit `clickup-sync-datastores.service` |
+| Caddy | `log.niftyitsolution.com` block in `/etc/caddy/Caddyfile` (from `infra/vps/caddy/`) |
+
+Everything under `infra/vps/` is the versioned copy of what lives on the box.
 
 ---
 
-## 0. What you need before starting
-
-- An Ubuntu server (22.04 / 24.04) with a public IP and root/sudo access.
-- A **domain name** (e.g. `clickup-sync.example.com`) — required, because ClickUp webhooks only work over valid HTTPS.
-- A ClickUp **Workspace Owner/Admin service-account API token** (`pk_…`). A normal member token cannot write time entries on behalf of other assignees.
-- Your ClickUp **Team ID** (default in this repo: `3450636`).
-
----
-
-## 1. Prepare the server (one time)
-
-SSH in, then install Docker and configure the firewall.
-
-```bash
-# Docker Engine + compose plugin
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER     # then log out and back in so the group applies
-
-# Firewall: allow SSH + HTTP/HTTPS only
-sudo ufw allow OpenSSH
-sudo ufw allow 80
-sudo ufw allow 443
-sudo ufw enable
-```
-
-> ⚠️ Docker publishes container ports via iptables rules that **bypass ufw**. This stack only publishes 80/443 (Caddy); Postgres and Redis are internal-only, so they stay private. Do not add `ports:` mappings for postgres/redis in production.
-
-### DNS
-
-Create an **A record** for your domain pointing at the server's public IP:
-
-```
-clickup-sync.example.com.   A   <server-public-ip>
-```
-
-Confirm it resolves before continuing (Caddy can't issue a certificate until it does):
-
-```bash
-dig +short clickup-sync.example.com
-```
-
----
-
-## 2. Get the code and configure `.env`
-
-```bash
-git clone <your-repo-url> clickup-sync
-cd clickup-sync
-cp .env.example .env
-```
-
-Generate secrets:
-
-```bash
-openssl rand -hex 32    # use for ADMIN_API_KEY  (must be >= 32 chars)
-openssl rand -hex 24    # use for POSTGRES_PASSWORD
-```
-
-Edit `.env`. Minimum production set:
-
-```env
-NODE_ENV=production
-PORT=3000
-
-# Internal service names + internal port 5432 (NOT localhost:5433).
-# The password here MUST equal POSTGRES_PASSWORD below.
-DATABASE_URL=postgresql://clickup:<POSTGRES_PASSWORD>@postgres:5432/clickup_sync?schema=public
-REDIS_URL=redis://redis:6379
-
-# ClickUp connection — optional at boot; configurable from the dashboard later.
-CLICKUP_API_TOKEN=
-CLICKUP_TEAM_ID=3450636
-CLICKUP_WEBHOOK_ENDPOINT=https://clickup-sync.example.com/api/webhooks/clickup
-CLICKUP_WEBHOOK_SECRET=            # usually set from the dashboard (Register webhook)
-CLICKUP_WEBHOOK_EVENTS=taskCreated,taskUpdated,taskDeleted,taskTimeTrackedUpdated,taskStatusUpdated
-CLICKUP_AGENCY_USER_ID=3584055
-
-ADMIN_API_KEY=<openssl rand -hex 32 output>
-# Encrypts settings secrets at rest. REQUIRED in production.
-APP_ENCRYPTION_KEY=<openssl rand -hex 32 output>
-
-# Production deploy vars (used by docker-compose.prod.yml / Caddy)
-DOMAIN=clickup-sync.example.com
-POSTGRES_PASSWORD=<openssl rand -hex 24 output>
-```
-
-> **Two places, one password:** `POSTGRES_PASSWORD` initialises the Postgres container, and the same value must appear inside `DATABASE_URL`. If they differ, the API can't connect.
-
-> ⚠️ **Boot gate:** when `NODE_ENV=production`, the app **refuses to start** unless `APP_ENCRYPTION_KEY` (≥ 32 chars) **and** `ADMIN_API_KEY` (≥ 32 chars) are set (enforced in `src/config/env.validation.ts`). The ClickUp token/team/webhook are **not** required at boot — set them from the dashboard (Settings → Connection) after first launch, or seed `.env` as in Step 3.
-
----
-
-## 3. Configure ClickUp & register the webhook
-
-The ClickUp token, team ID, webhook URL, and signing secret live in the database and are managed from the dashboard. Pick one option.
-
-### Option A (recommended) — from the dashboard, after the stack is up
-
-1. Open `https://<domain>/`, enter your `ADMIN_API_KEY`.
-2. **Settings → Connection**: enter the API token, Team ID, and webhook Endpoint URL → **Save changes** → **Test connection**.
-3. Click **Register webhook** — it creates the webhook in ClickUp and stores the signing secret **encrypted** in the DB. No `.env` edit, no restart.
-
-(This requires `APP_ENCRYPTION_KEY` on the server, already required in production. You can do this after Step 4.)
-
-### Option B — register directly against ClickUp's API (seed via env / scripted)
-
-Use this to seed the secret into `.env` instead (e.g. fully scripted deploys). No app needed — run from anywhere, substituting your token, team ID, and domain:
-
-```bash
-curl -s -X POST "https://api.clickup.com/api/v2/team/3450636/webhook" \
-  -H "Authorization: pk_your_service_account_token" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "endpoint": "https://clickup-sync.example.com/api/webhooks/clickup",
-    "events": ["taskCreated","taskUpdated","taskDeleted","taskTimeTrackedUpdated","taskStatusUpdated"]
-  }'
-```
-
-The response contains the secret:
-
-```json
-{ "id": "...", "webhook": { "id": "...", "secret": "abc123...", "endpoint": "...", "events": [...] } }
-```
-
-Copy `webhook.secret` into `.env`:
-
-```env
-CLICKUP_WEBHOOK_SECRET=abc123...
-```
-
-Then either set `CLICKUP_WEBHOOK_SECRET=abc123…` in `.env` before starting, or just proceed and use Option A from the dashboard once the app is up. (ClickUp retries deliveries until the endpoint is live, so registering before the app is up is fine.)
-
-> Incoming webhooks are rejected by signature verification until a secret exists (DB or env) — register promptly. There is no production traffic during this window on a fresh deploy.
-
----
-
-## 4. Build and start the stack
-
-```bash
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
-This builds the image (backend **and** dashboard), starts Postgres/Redis, waits for them to be healthy, runs `prisma migrate deploy` (creates the schema), starts the API, and brings up Caddy (which provisions TLS for your domain on first request).
-
-Watch it come up:
-
-```bash
-docker compose -f docker-compose.prod.yml logs -f api caddy
-```
-
-Caddy's first TLS issuance takes a few seconds; if it loops, see Troubleshooting.
-
----
-
-## 5. Verify
-
-```bash
-# Health (DB ping) — should return {"status":"ok",...}
-curl https://clickup-sync.example.com/api/health
-
-# Dashboard — should return the HTML shell
-curl -I https://clickup-sync.example.com/
-```
-
-Then in a browser:
-
-- Open `https://clickup-sync.example.com/` → the dashboard loads.
-- Open `https://clickup-sync.example.com/docs` → Swagger UI.
-- In the dashboard, paste your `ADMIN_API_KEY` when prompted (stored in the browser as `adminApiKey`) to use admin features.
-
-Confirm webhook delivery: edit any task in ClickUp, then check it was ingested:
-
-```bash
-docker compose -f docker-compose.prod.yml logs --since 5m api | grep -i webhook
-```
-
----
-
-## 6. First data load (backfill)
-
-Webhooks only capture changes from now on. To pull in existing tasks, trigger a backfill per space via the admin API (or the dashboard). Spaces and lookback windows are defined in `src/config/clickup-spaces.config.ts`:
-
-```bash
-curl -s -X POST "https://clickup-sync.example.com/api/admin/backfill" \
-  -H "x-admin-key: <ADMIN_API_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{ "spaceId": "3577824", "lookbackDays": 90 }'
-```
-
-`lookbackDays` is optional — it defaults to the space's configured window. Only allowlisted spaces are accepted unless you pass `"allowUnknownSpaces": true`.
-
----
-
-## Continuous deployment (GitHub Actions)
-
-`.github/workflows/deploy.yml` deploys automatically on every push to `main`:
-
-1. **quality** — `npm ci`, `prisma generate`, `test`, `build`, `build:web`. A failure here stops the deploy. (`npm run lint` is currently excluded — the backend has no root ESLint flat config, so it exits non-zero; add one and uncomment the step in `deploy.yml` to gate on it.)
-2. **build-and-push** — builds the Docker image and pushes it to GHCR as `ghcr.io/rashedulhasansojib/clickup-sync:latest` and `:<commit-sha>`.
-3. **deploy** — copies `docker-compose.prod.yml` + `Caddyfile` to the server, then SSHes in, pulls the new image (pinned to the commit SHA), and restarts via `docker compose up -d`.
-
-The server is **not** rebuilt — it only pulls the prebuilt image, so deploys are fast and your server stays light. Migrations still run at container start (`prisma migrate deploy`, idempotent).
-
-### One-time setup for CD
-
-**On the server** (in addition to Steps 1–3 above):
-
-- Docker installed, and the deploy user is in the `docker` group (`sudo usermod -aG docker <user>`).
-- A deploy directory exists (this is `DEPLOY_PATH`) containing your production **`.env`** (with `ADMIN_API_KEY` + `APP_ENCRYPTION_KEY`; ClickUp settings can be configured from the dashboard after deploy). The workflow keeps `docker-compose.prod.yml` and `Caddyfile` there in sync for you — you only maintain `.env`.
-- An SSH keypair for the deploy user: add the **public** key to `~/.ssh/authorized_keys` on the server; the **private** key goes into the `SSH_KEY` repo secret below.
-
-**In GitHub** → repo **Settings → Secrets and variables → Actions → New repository secret**:
+## Continuous deployment
+
+Every push to `main` runs `.github/workflows/deploy.yml`:
+
+1. **quality** — `npm ci`, `prisma generate`, lint, unit tests, backend + dashboard build.
+2. **e2e** — e2e suite against real Postgres + Redis.
+3. **deploy** (only if both pass):
+   - renders `shared/.env.incoming` from GitHub secrets and pipes it over SSH;
+   - uploads `git archive` of the commit (~2 MB) and `infra/vps/remote-deploy.sh`;
+   - runs `remote-deploy.sh <sha>` on the box as `deploy`.
+
+`remote-deploy.sh` either leaves the new release serving, or the previous one:
+
+1. **Preflight** — refuses to redeploy the live SHA; compares the incoming env with the live one,
+   prints which keys change, and **refuses if `APP_ENCRYPTION_KEY` would change** (stored ClickUp
+   and Xero secrets would become undecryptable). Override with `ALLOW_ENCRYPTION_KEY_CHANGE=1`.
+2. **Build on the box** — `npm ci`, `prisma generate`, `build`, `build:web` in the new release dir,
+   then asserts the release shape (incl. the Prisma schema engine).
+   Built here rather than in CI because npm workspaces can't prune to a production tree and
+   migrations need the dev-only prisma CLI; building on the box also matches its Node exactly.
+3. Swaps in the new `.env` (previous kept as `.env.prev`), refreshes the PM2 helper files.
+4. Starts the datastores unit (no-op if running) and runs `prisma migrate deploy`.
+5. Atomically flips `current`, `pm2 startOrReload --only clickup-sync-web,clickup-sync-worker`
+   (never touches the other apps' processes).
+6. **Smoke test** — `/api/health` reports ok, `/` returns 200, and both PM2 apps are online *from
+   the new release dir*.
+7. Pass → prune old releases. Fail → restore `.env.prev`, flip back, reload the previous release.
+
+Failures before the flip (build, datastores, migrations) never touch what's live. Migrations are
+forward-only: a rollback restores code, not schema, so keep migrations backward-compatible
+(expand now, contract in a later deploy).
+
+A deploy takes ~5 minutes; the web process reloads with zero downtime (cluster mode), the worker
+restarts (finishing its active job, 30s grace).
+
+**Manual deploy / re-deploy / rollback:** Actions → Deploy → *Run workflow*, choosing the branch
+or ref. Rolling back = running it at the previous good commit (a SHA that is already live is
+refused).
+
+### GitHub secrets
 
 | Secret | Value |
 |---|---|
-| `SSH_HOST` | Server IP or hostname |
-| `SSH_USER` | Deploy user (must be in the `docker` group) |
-| `SSH_KEY` | Private SSH key (PEM) for that user |
-| `SSH_PORT` | SSH port (e.g. `22`) |
-| `DEPLOY_PATH` | Absolute path to the deploy dir, e.g. `/home/deploy/clickup-sync` |
+| `SSH_HOST` | `144.79.124.51` |
+| `SSH_PORT` | `22` |
+| `SSH_USER` | `deploy` |
+| `SSH_KEY` | private key whose public half is in `/home/deploy/.ssh/authorized_keys` |
+| `DEPLOY_PATH` | `/srv/clickup-sync` |
+| `DATABASE_URL` | credentials + database name; host/port are rewritten to `127.0.0.1:5433` by the workflow, which also derives `POSTGRES_USER`/`POSTGRES_DB` from it |
+| `POSTGRES_PASSWORD` | must equal the password inside `DATABASE_URL` |
+| `APP_ENCRYPTION_KEY`, `ADMIN_API_KEY` | required in production (boot gate) |
+| `APP_BASE_URL`, `ALLOWED_ORIGINS` | `https://log.niftyitsolution.com` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | invitation email |
+| `WEBHOOK_AUTOHEAL_ENABLED` | optional; omitted from `.env` when unset |
+| `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` | optional, both or neither |
 
-`GITHUB_TOKEN` is provided automatically — it's used to push to GHCR and is forwarded (job-scoped, ephemeral) into the SSH session to pull the image. No long-lived registry credential lives on the server. The GHCR package stays private and accessible via the repo's token.
+`REDIS_URL` is fixed (`redis://127.0.0.1:6380`) and not a secret. `DOMAIN` and `REDIS_URL`
+secrets are unused leftovers from the old AWS host.
 
-> First-ever deploy: make sure the server has Docker, the deploy user, `DEPLOY_PATH`, and `.env` ready. The workflow handles everything else (compose/Caddyfile copy, image pull, start). The ClickUp webhook secret must already be in `.env` — and on a fresh box you must use **Step 3 Option A (curl registration)**, not Option B: Option B needs a running app, but under CD the app first boots *via* the pipeline and won't start without the secret.
+To change a runtime setting: update the GitHub secret, then re-run the Deploy workflow. Editing
+`shared/.env` by hand works until the next deploy overwrites it.
 
-### Rollback
+---
 
-Images are tagged per commit. To roll back, pin a previous SHA on the server:
+## One-time box setup (already done — for rebuilding the box)
+
+As root on an Ubuntu host that already has Docker, Node 24, PM2 (`pm2-deploy` service), Caddy and
+a `deploy` user:
 
 ```bash
-cd <DEPLOY_PATH>
-IMAGE_TAG=<previous-commit-sha> docker compose -f docker-compose.prod.yml up -d
+# Datastores
+mkdir -p /opt/clickup-sync
+cp infra/vps/datastores/docker-compose.datastores.yml infra/vps/datastores/datastores-env.sh /opt/clickup-sync/
+chmod 700 /opt/clickup-sync/datastores-env.sh
+cp infra/vps/datastores/clickup-sync-datastores.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable clickup-sync-datastores   # starts after the first deploy writes .env
+
+# App dirs
+install -d -o deploy -g deploy /srv/clickup-sync /srv/clickup-sync/releases /srv/clickup-sync/tmp
+install -d -m 700 -o deploy -g deploy /srv/clickup-sync/shared
+cp infra/vps/pm2/*.cjs /srv/clickup-sync/shared/ && chown deploy:deploy /srv/clickup-sync/shared/*
+
+# Let deploy start the datastores (and nothing else)
+echo 'deploy ALL=(root) NOPASSWD: /usr/bin/systemctl start clickup-sync-datastores.service' > /etc/sudoers.d/clickup-sync
+chmod 440 /etc/sudoers.d/clickup-sync && visudo -c
+
+# Caddy (back up first)
+cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak-$(date +%Y%m%d-%H%M%S)
+cat infra/vps/caddy/clickup-sync.caddy >> /etc/caddy/Caddyfile
+caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && systemctl reload caddy
 ```
+
+Then add the CI public key to `/home/deploy/.ssh/authorized_keys` and run the Deploy workflow.
+
+**TLS behind Cloudflare:** the first certificate can't be issued while the record is proxied
+(Cloudflare upgrades the HTTP challenge to HTTPS, and the origin has no cert yet → 525). Issue it
+with the record on *DNS only*, then switch back to *Proxied*; renewals work while proxied because
+Caddy answers the challenge over HTTPS once it has a certificate.
+
+**ClickUp / Xero:** the ClickUp token, team, webhook URL and signing secret are stored encrypted in
+the DB and managed from the dashboard (Settings → Connection → Register webhook). The Xero redirect
+URI is `${APP_BASE_URL}/api/xero/callback`.
+
+---
 
 ## Day-2 operations
 
-### Manual update / redeploy (without CI)
+As `deploy` on the box (`su - deploy` from root):
 
 ```bash
-cd <DEPLOY_PATH>
-IMAGE_TAG=latest docker compose -f docker-compose.prod.yml pull api
-IMAGE_TAG=latest docker compose -f docker-compose.prod.yml up -d
+pm2 ls                                   # status (clickup-sync-web / clickup-sync-worker)
+pm2 logs clickup-sync-web --lines 100
+pm2 logs clickup-sync-worker --lines 100
+pm2 reload clickup-sync-web              # zero-downtime restart
+pm2 restart clickup-sync-worker
+curl -s http://127.0.0.1:3200/api/health
+
+# One-off script with the production env (e.g. the sub-projects backfill)
+cd /srv/clickup-sync/current
+node /srv/clickup-sync/shared/with-env.cjs /srv/clickup-sync/shared/.env \
+  node dist/scripts/backfill-sub-projects.js --dry-run
 ```
 
-Or, to build on the server from source instead of pulling:
+As root:
 
 ```bash
-git pull
-docker compose -f docker-compose.prod.yml up -d --build
-```
-
-Migrations run automatically on API start; `prisma migrate deploy` is idempotent.
-
-### Logs
-
-```bash
-docker compose -f docker-compose.prod.yml logs -f api
-docker compose -f docker-compose.prod.yml ps        # status + health
-```
-
-### Restart / stop
-
-```bash
-docker compose -f docker-compose.prod.yml restart api
-docker compose -f docker-compose.prod.yml down       # stop (keeps named volumes/data)
+systemctl status clickup-sync-datastores
+docker compose --env-file /opt/clickup-sync/datastores.env \
+  -f /opt/clickup-sync/docker-compose.datastores.yml ps
+docker exec -it clickup-sync-postgres-1 psql -U clickup -d clickup_sync
 ```
 
 ### Database backups
 
-Data lives in the `postgres_data` volume. Dump regularly (cron it):
-
 ```bash
-docker compose -f docker-compose.prod.yml exec -T postgres \
-  pg_dump -U clickup clickup_sync | gzip > backup-$(date +%F).sql.gz
+docker exec clickup-sync-postgres-1 pg_dump -U clickup -d clickup_sync -Fc \
+  > /root/clickup-sync-$(date +%F).dump
+# restore into an empty database:
+docker exec -i clickup-sync-postgres-1 pg_restore -U clickup -d clickup_sync --no-owner < file.dump
 ```
 
-Restore:
-
-```bash
-gunzip -c backup-YYYY-MM-DD.sql.gz | \
-  docker compose -f docker-compose.prod.yml exec -T postgres psql -U clickup clickup_sync
-```
+No scheduled backup exists yet — TimeTrack's `timetrack-backup.timer` is the model to copy.
 
 ---
 
@@ -313,24 +187,19 @@ gunzip -c backup-YYYY-MM-DD.sql.gz | \
 
 | Symptom | Likely cause / fix |
 |---|---|
-| API container restarts / exits immediately | Boot-gate failure. Check `logs api` for `Invalid environment` — usually missing `APP_ENCRYPTION_KEY` or `ADMIN_API_KEY` < 32 chars (both required in prod). |
-| `password authentication failed` for `clickup` | `POSTGRES_PASSWORD` and the password inside `DATABASE_URL` don't match. They must be identical. |
-| Changed `POSTGRES_PASSWORD` but auth still fails | The Postgres volume was already initialised with the old password. For a fresh box: `docker compose -f docker-compose.prod.yml down -v` (⚠️ deletes data), or `ALTER USER` inside the DB. |
-| Caddy keeps retrying / no certificate | DNS A record not pointing at the server yet, or ports 80/443 blocked. Verify `dig +short DOMAIN` and `ufw status`. |
-| `502 Bad Gateway` from Caddy | API not healthy yet (still migrating/booting) or crashed. Check `logs api`. |
-| Webhooks rejected (signature) | `CLICKUP_WEBHOOK_SECRET` doesn't match the secret ClickUp issued. Re-register (Step 3) and update `.env`, then `up -d api`. |
-| Dashboard 404 / blank at `/` | Image built without the web frontend. Rebuild with `--build`; confirm the Dockerfile `build` stage ran `npm run build:web` and the runner copied `apps/web/dist`. |
+| Deploy fails at "Preflight" with `APP_ENCRYPTION_KEY would change` | The GitHub secret differs from the live key. Fix the secret; only override if you really are rotating the key (stored secrets must then be re-entered). |
+| Deploy fails during build | Look at the job log; nothing live was touched. The half-built release dir is replaced on the next deploy. |
+| Deploy rolled back after smoke test | The job log prints the last 30 PM2 log lines of each app. Usually a boot-gate env problem (`Invalid environment`). |
+| 525 from Cloudflare | Caddy has no certificate for the host — see *TLS behind Cloudflare* above; `journalctl -u caddy`. |
+| 502 from Cloudflare/Caddy | `clickup-sync-web` is down: `pm2 ls`, `pm2 logs clickup-sync-web`. |
+| `password authentication failed` | `POSTGRES_PASSWORD` and the password in `DATABASE_URL` differ, or the volume was initialised with an older password (`ALTER USER` inside the DB). |
+| SSH to the box suddenly refused | fail2ban banned your IP after failed password attempts. Use key auth with `BatchMode=yes`; bans lift after ~10 min. |
 
----
+## Security checklist
 
-## Security checklist (before going live)
-
-- [ ] `ADMIN_API_KEY` is a strong random value (≥ 32 chars) and kept secret.
-- [ ] `CLICKUP_API_TOKEN` is a dedicated service-account token, never committed.
-- [ ] `.env` is not in git (it's git-ignored) and not baked into the image (`.dockerignore` excludes it).
-- [ ] Postgres/Redis are internal-only (no `ports:` in `docker-compose.prod.yml`).
-- [ ] HTTPS is working (Caddy) before the ClickUp webhook is pointed at the domain.
-- [ ] Webhook signature verification is active (secret set via dashboard Register webhook, or env).
-- [ ] `APP_ENCRYPTION_KEY` is set (required in prod) and backed up — losing it makes stored secrets unrecoverable.
-- [ ] Regular database backups are scheduled.
-- [ ] (Recommended) Use a non-default ClickUp space allowlist review and least-privilege DB user for Grafana if you connect one.
+- [ ] `ADMIN_API_KEY` ≥ 32 chars and `APP_ENCRYPTION_KEY` set; the encryption key is backed up.
+- [ ] Postgres/Redis published on 127.0.0.1 only (Docker-published ports bypass UFW).
+- [ ] UFW allows only 22/80/443; port 3200 is not exposed.
+- [ ] CI deploys as `deploy` (no Docker, one sudo rule), never root.
+- [ ] Webhook signature verification active (secret stored via dashboard Register webhook).
+- [ ] Regular database backups scheduled.

@@ -8,8 +8,9 @@
  *   npm run backfill:sub-projects             # local (tsx), write
  *   npm run backfill:sub-projects -- --dry-run
  *
- * Production (the image ships dist/ only — this compiles into it):
- *   docker compose -f docker-compose.prod.yml exec app-worker node dist/scripts/backfill-sub-projects.js --dry-run
+ * Production (VPS, as deploy, in /srv/clickup-sync/current — see docs/DEPLOYMENT.md):
+ *   node /srv/clickup-sync/shared/with-env.cjs /srv/clickup-sync/shared/.env \
+ *     node dist/scripts/backfill-sub-projects.js --dry-run
  *
  * Tasks whose `raw` predates the field being set simply stay empty; the next
  * webhook or scheduled sync for that task fills them in.

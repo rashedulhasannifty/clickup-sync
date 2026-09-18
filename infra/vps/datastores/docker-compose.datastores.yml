@@ -1,0 +1,48 @@
+# clickup-sync — production datastores on the shared BDIX VPS.
+#
+# Only the STATEFUL services run in Docker; web + worker run under PM2 as the deploy user
+# (/srv/clickup-sync/shared/ecosystem.config.cjs) and reach these over loopback. Ports are
+# published on 127.0.0.1 only: Docker-published ports bypass UFW. 5432/6379 belong to
+# timetrack, hence 5433/6380.
+#
+# Root-owned, driven by clickup-sync-datastores.service. Manual use, as root:
+#   docker compose --env-file /opt/clickup-sync/datastores.env \
+#     -f /opt/clickup-sync/docker-compose.datastores.yml ps
+
+# Own project name -> own volume namespace (clickup-sync_*), isolated from timetrack.
+name: clickup-sync
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports: ['127.0.0.1:5433:5432']
+    # PG18 wants a single mount at /var/lib/postgresql (versioned subdir inside).
+    volumes: ['pgdata:/var/lib/postgresql']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    # noeviction: BullMQ must never have job keys evicted (corrupts queues).
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory', '256mb', '--maxmemory-policy', 'noeviction']
+    ports: ['127.0.0.1:6380:6379']
+    volumes: ['redisdata:/data']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  redisdata:

@@ -1,6 +1,13 @@
 name: Deploy
 
-# Push to main → quality + e2e gates → build & push image to GHCR → blue-green deploy.
+# Push to main → quality + e2e gates → deploy to the BDIX VPS (infra/vps/remote-deploy.sh):
+# build on the box, migrate, atomic symlink flip, PM2 reload, smoke test, roll back on failure.
+#
+# Topology: web + worker run under PM2 as the `deploy` user next to the other apps on the box;
+# Postgres + Redis run in Docker under a root-owned systemd unit; the host Caddy is the only
+# public entrypoint. One-time box setup (datastores unit, sudoers rule, Caddy block) is in
+# docs/DEPLOYMENT.md and is NOT done here.
+
 on:
   push:
     branches: [main]
@@ -10,9 +17,6 @@ on:
 concurrency:
   group: deploy-production
   cancel-in-progress: false
-
-env:
-  IMAGE: ghcr.io/rashedulhasannifty/clickup-sync
 
 jobs:
   # ── 1. Quality gate (infra-free unit specs) ─────────────────────────────────
@@ -75,82 +79,48 @@ jobs:
       - run: npm run prisma:deploy
       - run: npm run test:e2e
 
-  # ── 2. Build the image and push to GHCR (the artifact) ──────────────────────
-  build-and-push:
+  # ── 2. Deploy to the VPS ────────────────────────────────────────────────────
+  deploy:
     needs: [quality, e2e]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # ── 3. Blue-green deploy ────────────────────────────────────────────────────
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
     steps:
       - uses: actions/checkout@v4
 
-      # Sync deploy files to the host. The server keeps its own .env (rendered
-      # in the next step) and its own active.conf state once deployed — but we
-      # ship active.conf too so the very first deploy has a seed file.
-      - name: Copy deploy files to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          source: "docker-compose.prod.yml,Caddyfile,scripts/deploy.sh"
-          target: ${{ secrets.DEPLOY_PATH }}
-
-      # Seed active.conf ONLY if the host doesn't already have one (don't clobber
-      # the live color on subsequent deploys).
-      - name: Seed active.conf on first deploy
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          script: |
-            set -euo pipefail
-            cd "${{ secrets.DEPLOY_PATH }}"
-            if [ ! -f active.conf ]; then
-              echo "reverse_proxy app-web-blue:3000" > active.conf
-              echo "seeded active.conf -> blue"
-            fi
-            chmod +x scripts/deploy.sh
-
-      # Render .env on the host from GitHub secrets (atomic: write tmp, then mv).
-      # Values arrive via the envs: list so they are masked in logs and never
-      # appear as literal text in this YAML.
-      - name: Render .env from secrets
-        uses: appleboy/ssh-action@v1
+      - name: Configure SSH
         env:
-          DOMAIN: ${{ secrets.DOMAIN }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${SSH_PORT:-22}" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          cat >> ~/.ssh/config <<CFG
+          Host deploy-target
+            HostName $SSH_HOST
+            Port ${SSH_PORT:-22}
+            User $SSH_USER
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            ServerAliveInterval 30
+          CFG
+
+      # Rendered here and piped over stdin — never argv (readable via `ps` on the box). Written to
+      # shared/.env.incoming; remote-deploy.sh swaps it in only after the build succeeds, refuses
+      # an APP_ENCRYPTION_KEY change, and restores the previous file if the deploy fails.
+      - name: Write shared/.env.incoming on the VPS
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          REDIS_URL: ${{ secrets.REDIS_URL }}
           APP_ENCRYPTION_KEY: ${{ secrets.APP_ENCRYPTION_KEY }}
           ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
           ALLOWED_ORIGINS: ${{ secrets.ALLOWED_ORIGINS }}
@@ -163,65 +133,81 @@ jobs:
           WEBHOOK_AUTOHEAL_ENABLED: ${{ secrets.WEBHOOK_AUTOHEAL_ENABLED }}
           XERO_CLIENT_ID: ${{ secrets.XERO_CLIENT_ID }}
           XERO_CLIENT_SECRET: ${{ secrets.XERO_CLIENT_SECRET }}
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          envs: DOMAIN,DATABASE_URL,POSTGRES_PASSWORD,REDIS_URL,APP_ENCRYPTION_KEY,ADMIN_API_KEY,ALLOWED_ORIGINS,APP_BASE_URL,SMTP_HOST,SMTP_PORT,SMTP_USER,SMTP_PASS,MAIL_FROM,WEBHOOK_AUTOHEAL_ENABLED,XERO_CLIENT_ID,XERO_CLIENT_SECRET
-          script: |
-            set -euo pipefail
-            cd "${{ secrets.DEPLOY_PATH }}"
-            umask 077
-            cat > .env.tmp <<EOF
-            NODE_ENV=production
-            DOMAIN=${DOMAIN}
-            DATABASE_URL=${DATABASE_URL}
-            POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-            REDIS_URL=${REDIS_URL}
-            APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY}
-            ADMIN_API_KEY=${ADMIN_API_KEY}
-            ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
-            APP_BASE_URL=${APP_BASE_URL}
-            SMTP_HOST=${SMTP_HOST}
-            SMTP_PORT=${SMTP_PORT}
-            SMTP_USER=${SMTP_USER}
-            SMTP_PASS=${SMTP_PASS}
-            MAIL_FROM=${MAIL_FROM}
-            EOF
-            # Optional vars are appended only when set. WEBHOOK_AUTOHEAL_ENABLED is
-            # a strict z.enum(['true','false']) in env.validation.ts — writing it
-            # empty fails validation and crashes both web and worker on boot, so an
-            # unset secret must leave the key absent and let the schema default apply.
-            if [ -n "${WEBHOOK_AUTOHEAL_ENABLED:-}" ]; then
-              echo "WEBHOOK_AUTOHEAL_ENABLED=${WEBHOOK_AUTOHEAL_ENABLED}" >> .env.tmp
-            fi
-            # Xero is optional and both-or-neither: env.validation.ts rejects one without the
-            # other, which would crash web and worker on boot. Write the pair only when both
-            # secrets are set; with neither, the Finance feature simply stays hidden.
-            if [ -n "${XERO_CLIENT_ID:-}" ] && [ -n "${XERO_CLIENT_SECRET:-}" ]; then
-              echo "XERO_CLIENT_ID=${XERO_CLIENT_ID}" >> .env.tmp
-              echo "XERO_CLIENT_SECRET=${XERO_CLIENT_SECRET}" >> .env.tmp
-            fi
-            mv .env.tmp .env
+        run: |
+          set -euo pipefail
 
-      - name: Blue-green deploy
-        uses: appleboy/ssh-action@v1
-        env:
-          IMAGE_TAG: ${{ github.sha }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GHCR_USER: ${{ github.actor }}
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          envs: IMAGE_TAG,GHCR_TOKEN,GHCR_USER
-          script: |
+          {
+            echo "NODE_ENV=production"
+            # The DATABASE_URL secret names the old container-network host (`postgres:5432`).
+            # The apps now reach Postgres over loopback on 5433 (infra/vps/datastores), so
+            # re-point host/port and keep credentials, database and query exactly as given.
+            # POSTGRES_USER/POSTGRES_DB come from the same URL: datastores-env.sh requires them,
+            # and deriving them means they can never disagree with DATABASE_URL.
+            node -e '
+              const u = new URL(process.env.DATABASE_URL);
+              u.hostname = "127.0.0.1"; u.port = "5433";
+              console.log("DATABASE_URL=" + u.toString());
+              console.log("POSTGRES_USER=" + decodeURIComponent(u.username));
+              console.log("POSTGRES_DB=" + u.pathname.replace(/^\//, ""));
+            '
+            echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
+            # Fixed by infra/vps/datastores (loopback-published), not a secret.
+            echo "REDIS_URL=redis://127.0.0.1:6380"
+            echo "APP_ENCRYPTION_KEY=$APP_ENCRYPTION_KEY"
+            echo "ADMIN_API_KEY=$ADMIN_API_KEY"
+            echo "ALLOWED_ORIGINS=$ALLOWED_ORIGINS"
+            echo "APP_BASE_URL=$APP_BASE_URL"
+            echo "SMTP_HOST=$SMTP_HOST"
+            echo "SMTP_PORT=$SMTP_PORT"
+            echo "SMTP_USER=$SMTP_USER"
+            echo "SMTP_PASS=$SMTP_PASS"
+            # Raw: env-file.cjs takes everything after the first `=` literally.
+            echo "MAIL_FROM=$MAIL_FROM"
+            # WEBHOOK_AUTOHEAL_ENABLED is a strict z.enum(['true','false']): written empty it fails
+            # validation and crashes web + worker, so an unset secret must leave the key absent.
+            if [ -n "${WEBHOOK_AUTOHEAL_ENABLED:-}" ]; then
+              echo "WEBHOOK_AUTOHEAL_ENABLED=$WEBHOOK_AUTOHEAL_ENABLED"
+            fi
+            # Xero is both-or-neither (env.validation.ts rejects one without the other).
+            if [ -n "${XERO_CLIENT_ID:-}" ] && [ -n "${XERO_CLIENT_SECRET:-}" ]; then
+              echo "XERO_CLIENT_ID=$XERO_CLIENT_ID"
+              echo "XERO_CLIENT_SECRET=$XERO_CLIENT_SECRET"
+            fi
+          } | ssh deploy-target "
             set -euo pipefail
-            cd "${{ secrets.DEPLOY_PATH }}"
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
-            export DEPLOY_PATH="${{ secrets.DEPLOY_PATH }}"
-            export IMAGE_TAG="$IMAGE_TAG"
-            bash scripts/deploy.sh
-            docker logout ghcr.io
+            umask 077
+            mkdir -p '$DEPLOY_PATH/shared' '$DEPLOY_PATH/releases' '$DEPLOY_PATH/tmp'
+            cat > '$DEPLOY_PATH/shared/.env.incoming.tmp'
+            mv '$DEPLOY_PATH/shared/.env.incoming.tmp' '$DEPLOY_PATH/shared/.env.incoming'
+          "
+
+      - name: Upload source + deploy script
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz HEAD | ssh deploy-target "cat > '$DEPLOY_PATH/tmp/$GITHUB_SHA.src.tar.gz'"
+          scp infra/vps/remote-deploy.sh "deploy-target:$DEPLOY_PATH/tmp/remote-deploy.sh"
+
+      # The script owns the build, datastores, migrations, the atomic swap, PM2 reload, smoke test
+      # and rollback. A non-zero exit means the previous release is still serving.
+      - name: Build, deploy, verify, roll back on failure
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -euo pipefail
+          ssh deploy-target "
+            set -euo pipefail
+            chmod +x '$DEPLOY_PATH/tmp/remote-deploy.sh'
+            APP_ROOT='$DEPLOY_PATH' '$DEPLOY_PATH/tmp/remote-deploy.sh' '$GITHUB_SHA'
+          "
+
+      - name: Report
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "### Deployed \`$GITHUB_SHA\` to https://log.niftyitsolution.com" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Deploy failed — the previous release should still be serving" >> "$GITHUB_STEP_SUMMARY"
+            echo "On the VPS as deploy: \`pm2 logs clickup-sync-web\`, \`pm2 logs clickup-sync-worker\`." >> "$GITHUB_STEP_SUMMARY"
+          fi
