@@ -360,12 +360,12 @@ describe('ReportsController', () => {
   });
 
   describe('tasks (sprintStatus + chargeable passthrough)', () => {
-    // Positions in the service's argument list. These were `args.length - 1`
-    // until a later param was appended and silently moved sprintStatus off the
-    // end — naming the index makes adding another param a compile-time-obvious
-    // edit rather than three mystery failures.
-    const SPRINT_STATUS_ARG = 15;
-    const CHARGEABLE_ARG = 16;
+    // Positions in the service's argument list. `scope` is now index 0
+    // (Ruling R10: required params can't follow optional ones, so it moved to
+    // the front) — naming the index makes adding another param a
+    // compile-time-obvious edit rather than three mystery failures.
+    const SPRINT_STATUS_ARG = 16;
+    const CHARGEABLE_ARG = 17;
 
     function callTasks(ctrl: ReportsController, sprintStatus?: string, chargeable?: string) {
       return ctrl.tasks(
@@ -448,8 +448,9 @@ describe('ReportsController', () => {
   describe('timeEntriesList (sprintStatus passthrough)', () => {
     // Pinned by position rather than "the last argument": `taskId` now trails
     // sprintStatus in the service signature, and any future trailing param
-    // would silently make these assertions inspect the wrong slot.
-    const SPRINT_STATUS_ARG = 14;
+    // would silently make these assertions inspect the wrong slot. `scope` is
+    // index 0 (Ruling R10: required params can't follow optional ones).
+    const SPRINT_STATUS_ARG = 15;
 
     it('normalizes and threads sprintStatus="active" through to the service', async () => {
       const timeEntries = { timeEntriesList: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;

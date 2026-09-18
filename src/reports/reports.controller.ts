@@ -122,7 +122,7 @@ export class ReportsController {
     @Query('chargeable') chargeable?: string,
     @Query('subProject') subProject?: string,
   ) {
-    return this.tasksReports.tasks(spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId, normalizeSprintStatus(sprintStatus, 'all'), chargeable, subProject, scope);
+    return this.tasksReports.tasks(scope, spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId, normalizeSprintStatus(sprintStatus, 'all'), chargeable, subProject);
   }
 
   @Get('tasks/:taskId/description')
@@ -214,7 +214,7 @@ export class ReportsController {
     @Query('sprintStatus') sprintStatus?: string,
     @Query('subProject') subProject?: string,
   ) {
-    return this.timeEntriesReports.timeEntriesAggregates(userId, from, to, status, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), subProject, scope);
+    return this.timeEntriesReports.timeEntriesAggregates(scope, userId, from, to, status, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), subProject);
   }
 
   @Get('time-entries/cost-trend')
@@ -320,7 +320,7 @@ export class ReportsController {
     @Query('subProject') subProject?: string,
   ) {
     return this.timeEntriesReports.timeEntriesList(
-      userId, from, to, status, Number(limit) || 50, Number(offset) || 0, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), taskId, subProject, scope,
+      scope, userId, from, to, status, Number(limit) || 50, Number(offset) || 0, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), taskId, subProject,
     );
   }
 

@@ -8,13 +8,6 @@ import { isPartiallyChargeable, resolveChargeability } from '../time-entries/cha
 import { AccessScope, leadClientIds } from '../access/access-scope';
 import { maskCost } from '../access/cost-mask';
 
-/**
- * Only reached by callers that haven't threaded a real scope through yet
- * (e.g. older unit tests). Every HTTP path supplies a real, resolved scope
- * via the controller's `@Scope()`.
- */
-const UNRESTRICTED_SCOPE: AccessScope = { kind: 'unrestricted', canEdit: true };
-
 /** Time-entry report queries (timesheets, per-user/client/department rollups, list + aggregates). */
 @Injectable()
 export class TimeEntriesReportService {
@@ -243,6 +236,10 @@ export class TimeEntriesReportService {
    * both share `buildTimeEntryWhere` rather than each keeping a local copy.
    */
   async timeEntriesAggregates(
+    // Required, no default, and FIRST (Ruling R10): TS disallows a required
+    // param after optional ones, and a default here would be fail-open. Every
+    // HTTP path supplies a real one via the controller's @Scope().
+    scope: AccessScope,
     userId?: string,
     fromParam?: string,
     toParam?: string,
@@ -257,7 +254,6 @@ export class TimeEntriesReportService {
     archived?: string,
     sprintStatus?: string,
     subProject?: string,
-    scope: AccessScope = UNRESTRICTED_SCOPE,
   ) {
     const from = parseDate(fromParam, defaultFrom());
     const to = parseDate(toParam, new Date());
@@ -330,6 +326,10 @@ export class TimeEntriesReportService {
   }
 
   async timeEntriesList(
+    // Required, no default, and FIRST (Ruling R10): TS disallows a required
+    // param after optional ones, and a default here would be fail-open. Every
+    // HTTP path supplies a real one via the controller's @Scope().
+    scope: AccessScope,
     userId?: string,
     fromParam?: string,
     toParam?: string,
@@ -347,7 +347,6 @@ export class TimeEntriesReportService {
     sprintStatus?: string,
     taskId?: string,
     subProject?: string,
-    scope: AccessScope = UNRESTRICTED_SCOPE,
   ) {
     // Same rationale as `tasks()`: cap allows CSV export to fetch the entire
     // filtered set; normal pagination tops out at 100 rows/page.
@@ -460,9 +459,10 @@ export class TimeEntriesReportService {
     sprintStatus?: string;
     limit?: number;
     offset?: number;
-    /** Optional so pre-existing direct callers (e.g. older tests) keep working;
-     *  every HTTP path supplies a real one via the controller's `@Scope()`. */
-    scope?: AccessScope;
+    // Required, no default (Ruling R10): a default here would be fail-open —
+    // a future caller that forgets it would silently see every client's cost.
+    // Every HTTP path supplies a real one via the controller's `@Scope()`.
+    scope: AccessScope;
   }) {
     // Same rationale as `timeEntriesList`: the cap lets the Excel export pull the
     // whole filtered set in one call; the pager tops out at 100 rows.
@@ -470,7 +470,7 @@ export class TimeEntriesReportService {
     const offset = params.offset ?? 0;
     const from = parseDate(params.from, defaultFrom());
     const to = parseDate(params.to, new Date());
-    const scope = params.scope ?? UNRESTRICTED_SCOPE;
+    const scope = params.scope;
     const where = await buildTimeEntryWhere(this.prisma, { ...params, from, to }, scope);
 
     const groups = await this.prisma.clickupTimeEntry.groupBy({

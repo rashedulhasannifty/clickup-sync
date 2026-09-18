@@ -9,7 +9,7 @@ import {
   type ChargeableSource, type EntryBucket, type ResolvedRow, type RowChargeable,
   type TaskChargeInputs, type WorkCandidate,
 } from './work.assemble';
-import { AccessScope, canSeeCost } from '../access/access-scope';
+import { AccessScope, canSeeCost, isUnrestricted } from '../access/access-scope';
 import { maskCost } from '../access/cost-mask';
 
 /** Query params of `/reports/work` and `/reports/work/entries`. */
@@ -42,16 +42,12 @@ export interface WorkParams {
   dir?: string;
   limit?: number;
   offset?: number;
-  /** Optional so pre-existing direct callers (e.g. older tests) keep working;
-   *  every HTTP path supplies a real one via the controller's `@Scope()`. */
-  scope?: AccessScope;
+  // Required, no default (Ruling R10): a default here would be fail-open — a
+  // future caller (an export, a cron, a new controller) that forgets it would
+  // silently see every client and all cost. Every HTTP path supplies a real
+  // one via the controller's `@Scope()`.
+  scope: AccessScope;
 }
-
-/**
- * Only reached when `WorkParams.scope` is omitted (older direct callers).
- * Every HTTP path supplies a real, resolved scope via the controller.
- */
-const UNRESTRICTED_SCOPE: AccessScope = { kind: 'unrestricted', canEdit: true };
 
 type PillRow = ResolvedRow & { pill?: { chargeable: RowChargeable; source: ChargeableSource } };
 /** A candidate task carrying the client-scope id needed to mask its cost. */
@@ -109,7 +105,7 @@ export class WorkReportService {
     // would reach `rows.slice` untouched and slice from the wrong end.
     const limit = Math.min(Math.max(p.limit ?? 50, 1), 5000);
     const offset = Math.max(p.offset ?? 0, 0);
-    const scope = p.scope ?? UNRESTRICTED_SCOPE;
+    const scope = p.scope;
     const { rows, candidatesById } = await this.resolveRows(p);
     const page = rows.slice(offset, offset + limit);
 
@@ -146,7 +142,7 @@ export class WorkReportService {
 
   /** Every counted entry behind the rows `work(p)` would list (export). */
   async workEntries(p: WorkParams) {
-    const scope = p.scope ?? UNRESTRICTED_SCOPE;
+    const scope = p.scope;
     const { rows, entryWhere } = await this.resolveRows(p);
     const taskIds = rows.map((r) => r.taskId).filter((id) => id !== NO_TASK_ID);
     const or: Prisma.ClickupTimeEntryWhereInput[] = [];
@@ -273,7 +269,7 @@ export class WorkReportService {
       folderId: p.folderId,
       archived: p.archived,
       sprintStatus: p.sprintStatus,
-    }, p.scope ?? UNRESTRICTED_SCOPE);
+    }, p.scope);
     // buildTimeEntryWhere's own space clause adds `isDeleted: false`, which
     // would drop deleted tasks' time only when a space is picked.
     return p.spaceId ? { AND: [where, { task: { spaceId: p.spaceId } }] } : where;
@@ -289,7 +285,7 @@ export class WorkReportService {
       spaceId: p.spaceId, status: p.status, priority: p.priority, type: p.type,
       assigneeNames: p.assignedTo, client: p.client, subProject: p.subProject,
       listId: p.listId, folderId: p.folderId, archived: p.archived, sprintStatus: p.sprintStatus,
-    }, p.scope ?? UNRESTRICTED_SCOPE, { dateWindow: false, excludeDeleted: false });
+    }, p.scope, { dateWindow: false, excludeDeleted: false });
 
     const bucketIds = [...buckets.keys()].filter((id) => id !== NO_TASK_ID);
     const inclusion: Prisma.ClickupTaskWhereInput = WorkReportService.entryFiltersActive(p)
@@ -310,10 +306,14 @@ export class WorkReportService {
     });
     const out: CandidateWithScope[] = found;
     // Entries with no task: one synthetic row, only when no task-only filter
-    // could have excluded it (a task-less entry has no status/priority/name).
-    // No client to scope it by — `null` reads as visible-cost only when the
-    // viewer is unrestricted (see `canSeeCost`), same as before scoping existed.
-    if (buckets.has(NO_TASK_ID) && !WorkReportService.taskOnlyFiltersActive(p)) {
+    // could have excluded it (a task-less entry has no status/priority/name)
+    // AND the viewer is unrestricted. A task-less entry has no client to scope
+    // it by, so a scoped viewer can never be shown it — `buildTimeEntryWhere`'s
+    // task-relation filter already drops task-less entries from `buckets` for
+    // a scoped viewer against a real database, but that's an indirect
+    // guarantee a mocked `groupBy` in a test won't reproduce. Gate on
+    // `isUnrestricted` explicitly so the exclusion doesn't rest on it.
+    if (buckets.has(NO_TASK_ID) && !WorkReportService.taskOnlyFiltersActive(p) && isUnrestricted(p.scope)) {
       out.push({
         taskId: NO_TASK_ID, taskName: null, updatedDate: null, isDeleted: false, isChargeable: true,
         scopeClientOptionId: null,

@@ -1,5 +1,12 @@
 import { WorkReportService } from '../src/reports/work-report.service';
-import { resolveScope } from '../src/access/access-scope';
+import { resolveScope, type AccessScope } from '../src/access/access-scope';
+
+// Shared fixture: `scope` is a required field on `WorkParams` (Ruling R10),
+// spread into `base` below so every pre-existing call in this file that
+// doesn't care about scope behavior gets one for free. The scope-specific
+// tests override it via `{ ...base, scope: NONE }` / `{ ...base, scope:
+// LEAD_A_MEMBER_B }`.
+const UNRESTRICTED: AccessScope = { kind: 'unrestricted', canEdit: true };
 
 const dec = (n: number) => ({ toNumber: () => n });
 
@@ -45,7 +52,7 @@ function makePrisma(opts: {
   } as any;
 }
 
-const base = { from: '2026-09-01T00:00:00Z', to: '2026-09-14T23:59:59Z' };
+const base = { from: '2026-09-01T00:00:00Z', to: '2026-09-14T23:59:59Z', scope: UNRESTRICTED };
 
 describe('WorkReportService.work', () => {
   it('lists updated-only, logged-only and both; totals cover every row', async () => {
@@ -236,6 +243,21 @@ describe('WorkReportService.work (access scope)', () => {
     expect(res.totals.costCents).toBe(500);
     expect((res.totals as any).costPartial).toBe(true);
   });
+
+  // Ruling R10 item 2: this must not rest on an indirect guarantee from
+  // buildTimeEntryWhere (which only excludes task-less entries against a real
+  // database). The mocked `groupBy` below returns a task-less entry group
+  // regardless of the `where` clause built from `scope` — exactly what a real
+  // Prisma call would never do for a scoped viewer, but what a unit test's
+  // mock happily will. `candidates()` must exclude the synthetic `__none__`
+  // row itself whenever the scope isn't unrestricted, not rely on `buckets`
+  // already being clean.
+  it('never shows the synthetic __none__ row for a scoped viewer, even if the entry query would otherwise return task-less entries', async () => {
+    const prisma = makePrisma({ groups: [grp(null)], candidates: [], pageTasks: [] });
+    const res = await new WorkReportService(prisma).work({ ...base, scope: NONE });
+    expect(res.items).toEqual([]);
+    expect(res.items.map((r: any) => r.taskId)).not.toContain('__none__');
+  });
 });
 
 describe('WorkReportService.workEntries', () => {
@@ -335,5 +357,22 @@ describe('WorkReportService.workEntries', () => {
     expect(bolt.costCents).toBeNull();
     // Non-cost fields survive the mask.
     expect(bolt.durationHours).toBe(1);
+  });
+
+  // Ruling R10 item 2, entries side: `workEntries` must never list `__none__`
+  // entries for a scoped viewer either. Since `candidates()` now excludes the
+  // synthetic row explicitly (see the `work()` regression above), `rows`
+  // never contains `__none__`, so the `{ taskId: null }` OR-branch is never
+  // added — even though the mocked `groupBy` below would otherwise make it
+  // look like there's task-less time to list.
+  it('excludes __none__ entries for a scoped viewer even if the entry query would otherwise return task-less entries', async () => {
+    const NONE = resolveScope({
+      role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+      memberships: [], teamClients: [], teamMembers: [],
+    });
+    const prisma = makePrisma({ groups: [grp(null)], candidates: [] });
+    const res = await new WorkReportService(prisma).workEntries({ ...base, scope: NONE });
+    expect(res).toEqual({ items: [], truncated: false });
+    expect(prisma.clickupTimeEntry.findMany).not.toHaveBeenCalled();
   });
 });

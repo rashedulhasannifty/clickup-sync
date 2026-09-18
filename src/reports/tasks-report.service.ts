@@ -7,13 +7,6 @@ import { isPartiallyChargeable } from '../time-entries/chargeability';
 import { AccessScope } from '../access/access-scope';
 import { maskCost } from '../access/cost-mask';
 
-/**
- * Only reached by callers that haven't threaded a real scope through yet
- * (e.g. older unit tests calling `tasks()` directly). Every HTTP path
- * supplies a real, resolved scope via the controller's `@Scope()`.
- */
-const UNRESTRICTED_SCOPE: AccessScope = { kind: 'unrestricted', canEdit: true };
-
 /** Task-centric report queries (counts, filters, per-space aggregates). */
 @Injectable()
 export class TasksReportService {
@@ -217,6 +210,11 @@ export class TasksReportService {
   }
 
   async tasks(
+    // Required, no default, and FIRST (Ruling R10): TS disallows a required
+    // param after optional ones, and a default here would be fail-open — a
+    // future caller that forgets it would silently see every client's cost.
+    // Every HTTP path supplies a real one via the controller's `@Scope()`.
+    scope: AccessScope,
     spaceId?: string,
     status?: string,
     search?: string,
@@ -235,7 +233,6 @@ export class TasksReportService {
     sprintStatus?: string,
     chargeable?: string,
     subProject?: string,
-    scope: AccessScope = UNRESTRICTED_SCOPE,
   ) {
     // Cap kept generous so the dashboard's "Export CSV" can pull a complete
     // filtered set in one shot. The page UI never offers > 100 rows/page, so

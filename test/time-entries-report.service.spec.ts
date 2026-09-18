@@ -1,6 +1,12 @@
 import { TimeEntriesReportService } from '../src/reports/time-entries-report.service';
 import { buildTimeEntryWhere } from '../src/reports/report-filter.util';
-import { resolveScope } from '../src/access/access-scope';
+import { resolveScope, type AccessScope } from '../src/access/access-scope';
+
+// Shared fixture for the calls in this file that don't care about scope
+// behavior — `scope` is a required first arg (Ruling R10), so every call
+// needs one. The scope-specific describes below use their own NONE/
+// LEAD_A_MEMBER_B scopes.
+const UNRESTRICTED: AccessScope = { kind: 'unrestricted', canEdit: true };
 
 describe('TimeEntriesReportService', () => {
   function makePrisma(overrides: Partial<Record<string, any>> = {}) {
@@ -180,7 +186,7 @@ describe('TimeEntriesReportService', () => {
   describe('timeEntriesList (client filter + column)', () => {
     it('wraps a single client in an IN clause inside where.AND (the deep-link path)', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList(
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED,
         undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, 'Acme Corp',
       );
@@ -191,7 +197,7 @@ describe('TimeEntriesReportService', () => {
 
     it('splits a comma-separated client list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList(
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED,
         undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, 'Acme Corp,Globex',
       );
@@ -211,7 +217,7 @@ describe('TimeEntriesReportService', () => {
         task: { taskName: 'Build thing', client: 'Acme Corp' },
       }]);
       prisma.clickupTimeEntry.count.mockResolvedValue(1);
-      const result = await new TimeEntriesReportService(prisma).timeEntriesList();
+      const result = await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED);
       const selectArg = prisma.clickupTimeEntry.findMany.mock.calls[0][0].select;
       expect(selectArg.task.select.client).toBe(true);
       expect(result.items[0].client).toBe('Acme Corp');
@@ -228,7 +234,7 @@ describe('TimeEntriesReportService', () => {
         task: { taskName: 'Build thing', client: 'Acme Corp', subProjects: ['Mobile App', 'Website'] },
       }]);
       prisma.clickupTimeEntry.count.mockResolvedValue(1);
-      const result = await new TimeEntriesReportService(prisma).timeEntriesList(
+      const result = await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED,
         undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         'Mobile App',
@@ -241,7 +247,7 @@ describe('TimeEntriesReportService', () => {
 
     it('passes subProject through to the aggregates where-clause', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, 'Website',
       );
@@ -260,7 +266,7 @@ describe('TimeEntriesReportService', () => {
         task: null,
       }]);
       prisma.clickupTimeEntry.count.mockResolvedValue(1);
-      const result = await new TimeEntriesReportService(prisma).timeEntriesList();
+      const result = await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED);
       expect(result.items[0].client).toBeNull();
     });
   });
@@ -279,7 +285,7 @@ describe('TimeEntriesReportService', () => {
         // row must reflect its own column, not the task's.
         task: { taskName: 'T', client: null, listName: null, isChargeable: true },
       }]);
-      const { items } = await new TimeEntriesReportService(prisma).timeEntriesList();
+      const { items } = await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED);
       expect(items[0].chargeable).toBe(false);
     });
 
@@ -292,7 +298,7 @@ describe('TimeEntriesReportService', () => {
         description: null, syncedAt: new Date(), rateId: null, currency: 'USD',
         isChargeable: true, task: null,
       }]);
-      const { items } = await new TimeEntriesReportService(prisma).timeEntriesList();
+      const { items } = await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED);
       expect(items[0].chargeable).toBe(true);
     });
   });
@@ -300,7 +306,7 @@ describe('TimeEntriesReportService', () => {
   describe('timeEntriesList (list filter + column)', () => {
     it('wraps a single listId in an IN clause inside where.AND', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList(
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED,
         undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, 'L1',
       );
@@ -311,7 +317,7 @@ describe('TimeEntriesReportService', () => {
 
     it('splits a comma-separated listId list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList(
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED,
         undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, 'L1,L2',
       );
@@ -331,7 +337,7 @@ describe('TimeEntriesReportService', () => {
         task: { taskName: 'Build thing', client: 'Acme Corp', listName: 'Backlog' },
       }]);
       prisma.clickupTimeEntry.count.mockResolvedValue(1);
-      const result = await new TimeEntriesReportService(prisma).timeEntriesList();
+      const result = await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED);
       const selectArg = prisma.clickupTimeEntry.findMany.mock.calls[0][0].select;
       expect(selectArg.task.select.listName).toBe(true);
       expect(result.items[0].listName).toBe('Backlog');
@@ -348,7 +354,7 @@ describe('TimeEntriesReportService', () => {
         task: null,
       }]);
       prisma.clickupTimeEntry.count.mockResolvedValue(1);
-      const result = await new TimeEntriesReportService(prisma).timeEntriesList();
+      const result = await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED);
       expect(result.items[0].listName).toBeNull();
     });
   });
@@ -356,7 +362,7 @@ describe('TimeEntriesReportService', () => {
   describe('timeEntriesList (folder filter)', () => {
     it('wraps a single folderId in an IN clause inside where.AND', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList(
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED,
         undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined, 'F1',
       );
@@ -367,7 +373,7 @@ describe('TimeEntriesReportService', () => {
 
     it('splits a comma-separated folderId list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList(
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED,
         undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined, 'F1,F2',
       );
@@ -380,7 +386,7 @@ describe('TimeEntriesReportService', () => {
   describe('timeEntriesList (archived filter)', () => {
     it("pushes a NOT-archived-task clause when archived='exclude' (keeps task-less entries)", async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList(
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED,
         undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'exclude',
       );
@@ -391,7 +397,7 @@ describe('TimeEntriesReportService', () => {
 
     it("pushes an archived-task clause when archived='only'", async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList(
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED,
         undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'only',
       );
@@ -402,7 +408,7 @@ describe('TimeEntriesReportService', () => {
 
     it("adds no archived clause when archived='include' or undefined", async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList(
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED,
         undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'include',
       );
@@ -415,7 +421,7 @@ describe('TimeEntriesReportService', () => {
 
   describe('timeEntriesList (sprintStatus filter)', () => {
     function callList(prisma: any, sprintStatus?: string, listId?: string) {
-      return new TimeEntriesReportService(prisma).timeEntriesList(
+      return new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED,
         undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, listId, undefined, undefined,
         sprintStatus,
@@ -489,7 +495,7 @@ describe('TimeEntriesReportService', () => {
     it('adds a task.listId-IN clause when sprintStatus="completed"', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([{ list_id: 'L9' }]);
-      await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, 'completed',
       );
@@ -500,7 +506,7 @@ describe('TimeEntriesReportService', () => {
 
     it('emits no extra clause when sprintStatus="all"', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, 'all',
       );
@@ -513,21 +519,21 @@ describe('TimeEntriesReportService', () => {
   describe('timeEntriesList (userId filter)', () => {
     it('wraps a single userId in an IN clause (the deep-link path)', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList('u1');
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED, 'u1');
       const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
       expect(arg.where.userId).toEqual({ in: ['u1'] });
     });
 
     it('splits a comma-separated userId list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList('u1,u2');
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED, 'u1,u2');
       const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
       expect(arg.where.userId).toEqual({ in: ['u1', 'u2'] });
     });
 
     it('omits the userId clause when userId is undefined', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList();
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED);
       const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
       expect(arg.where.userId).toBeUndefined();
     });
@@ -536,7 +542,7 @@ describe('TimeEntriesReportService', () => {
   describe('timeEntriesList (status filter)', () => {
     it('wraps a single status in an IN clause (the deep-link path)', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList(
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED,
         undefined, undefined, undefined, 'NO_RATE_FOUND',
       );
       const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
@@ -545,7 +551,7 @@ describe('TimeEntriesReportService', () => {
 
     it('splits a comma-separated status list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList(
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED,
         undefined, undefined, undefined, 'COST_CALCULATED,COST_EXCLUDED',
       );
       const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
@@ -554,7 +560,7 @@ describe('TimeEntriesReportService', () => {
 
     it('missingOnly still forces the scalar NO_RATE_FOUND and overrides a multi-value status', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList(
+      await new TimeEntriesReportService(prisma).timeEntriesList(UNRESTRICTED,
         undefined, undefined, undefined, 'COST_CALCULATED,COST_EXCLUDED', 50, 0,
         undefined, undefined, undefined, 'true',
       );
@@ -566,7 +572,7 @@ describe('TimeEntriesReportService', () => {
   describe('timeEntriesAggregates (client filter)', () => {
     it('wraps a single client in an IN clause via the task relation', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'Acme Corp',
       );
       const arg = prisma.clickupTimeEntry.groupBy.mock.calls[0][0];
@@ -576,7 +582,7 @@ describe('TimeEntriesReportService', () => {
 
     it('splits a comma-separated client list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'Acme Corp,Globex',
       );
       const arg = prisma.clickupTimeEntry.groupBy.mock.calls[0][0];
@@ -588,7 +594,7 @@ describe('TimeEntriesReportService', () => {
   describe('timeEntriesAggregates (list filter)', () => {
     it('splits a comma-separated listId list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'L1,L2',
       );
       const arg = prisma.clickupTimeEntry.groupBy.mock.calls[0][0];
@@ -600,7 +606,7 @@ describe('TimeEntriesReportService', () => {
   describe('timeEntriesAggregates (folder filter)', () => {
     it('splits a comma-separated folderId list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'F1,F2',
       );
       const arg = prisma.clickupTimeEntry.groupBy.mock.calls[0][0];
@@ -612,14 +618,14 @@ describe('TimeEntriesReportService', () => {
   describe('timeEntriesAggregates (userId + status filters)', () => {
     it('splits a comma-separated userId list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesAggregates('u1,u2');
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(UNRESTRICTED, 'u1,u2');
       const arg = prisma.clickupTimeEntry.groupBy.mock.calls[0][0];
       expect(arg.where.userId).toEqual({ in: ['u1', 'u2'] });
     });
 
     it('splits a comma-separated status list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(UNRESTRICTED,
         undefined, undefined, undefined, 'COST_CALCULATED,COST_EXCLUDED',
       );
       const arg = prisma.clickupTimeEntry.groupBy.mock.calls[0][0];
@@ -628,7 +634,7 @@ describe('TimeEntriesReportService', () => {
 
     it('missingOnly still forces the scalar NO_RATE_FOUND', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(UNRESTRICTED,
         undefined, undefined, undefined, 'COST_CALCULATED', undefined, undefined, undefined, 'true',
       );
       const arg = prisma.clickupTimeEntry.groupBy.mock.calls[0][0];
@@ -660,10 +666,7 @@ describe('TimeEntriesReportService', () => {
         .mockResolvedValueOnce({ _sum: { durationHours: { toNumber: () => 10 } } })
         // costAgg: only the 3 entries on a LED client.
         .mockResolvedValueOnce({ _count: 3, _sum: { costCents: BigInt(50000) } });
-      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates(
-        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-        undefined, undefined, undefined, undefined, undefined, undefined, LEAD_A_MEMBER_B,
-      );
+      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates(LEAD_A_MEMBER_B);
       expect(result.totalCostCents).toBe(50000);
       expect(result.costPartial).toBe(true);
       const calls = prisma.clickupTimeEntry.aggregate.mock.calls;
@@ -676,7 +679,7 @@ describe('TimeEntriesReportService', () => {
       prisma.clickupTimeEntry.aggregate
         .mockResolvedValueOnce({ _count: 5, _sum: { durationHours: { toNumber: () => 15 }, costCents: BigInt(100000) } })
         .mockResolvedValueOnce({ _sum: { durationHours: { toNumber: () => 10 } } });
-      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates();
+      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates(UNRESTRICTED);
       expect(result.totalCostCents).toBe(100000);
       expect(result.costPartial).toBe(false);
       expect(prisma.clickupTimeEntry.aggregate.mock.calls).toHaveLength(2);
@@ -699,7 +702,7 @@ describe('TimeEntriesReportService', () => {
       const prisma = makePrisma();
       const from = '2026-01-01T00:00:00.000Z';
       const to = '2026-02-01T00:00:00.000Z';
-      await new TimeEntriesReportService(prisma).timeEntriesAggregates(
+      await new TimeEntriesReportService(prisma).timeEntriesAggregates(UNRESTRICTED,
         undefined, from, to, undefined, undefined, undefined, undefined, undefined, 'Acme Corp',
       );
       const expectedWhere = await buildTimeEntryWhere(prisma, {
@@ -716,7 +719,7 @@ describe('TimeEntriesReportService', () => {
       prisma.clickupTimeEntry.aggregate
         .mockResolvedValueOnce({ _count: 5, _sum: { durationHours: { toNumber: () => 15 }, costCents: BigInt(100000) } })
         .mockResolvedValueOnce({ _count: 3, _sum: { durationHours: { toNumber: () => 10 }, costCents: BigInt(100000) } });
-      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates();
+      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates(UNRESTRICTED);
       expect(result.totalEntries).toBe(5);
       expect(result.totalHours).toBe(15);
       expect(result.chargeableHours).toBe(10);
@@ -735,7 +738,7 @@ describe('TimeEntriesReportService', () => {
       prisma.clickupTimeEntry.aggregate
         .mockResolvedValueOnce({ _count: 1, _sum: { durationHours: { toNumber: () => 4 }, costCents: BigInt(0) } })
         .mockResolvedValueOnce({ _count: 1, _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(0) } });
-      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates();
+      const result = await new TimeEntriesReportService(prisma).timeEntriesAggregates(UNRESTRICTED);
       expect(result.nonChargeableHours).toBe(0);
     });
   });
@@ -877,11 +880,7 @@ describe('TimeEntriesReportService', () => {
 
     it('an empty scope pins the query to an empty id list', async () => {
       const prisma = makePrisma();
-      await new TimeEntriesReportService(prisma).timeEntriesList(
-        undefined, undefined, undefined, undefined, 50, 0,
-        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-        undefined, undefined, undefined, NONE,
-      );
+      await new TimeEntriesReportService(prisma).timeEntriesList(NONE);
       const arg = prisma.clickupTimeEntry.findMany.mock.calls[0][0];
       const and = (arg.where.AND ?? []) as any[];
       expect(and).toContainEqual({ task: { scopeClientOptionId: { in: [] } } });
@@ -890,11 +889,7 @@ describe('TimeEntriesReportService', () => {
     it('masks cost fields on rows outside the clients the viewer LEADS, keeps them on led rows', async () => {
       const prisma = makePrisma();
       prisma.clickupTimeEntry.findMany.mockResolvedValue([entryRow('e-acme', 'acme'), entryRow('e-bolt', 'bolt')]);
-      const result = await new TimeEntriesReportService(prisma).timeEntriesList(
-        undefined, undefined, undefined, undefined, 50, 0,
-        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-        undefined, undefined, undefined, LEAD_A_MEMBER_B,
-      );
+      const result = await new TimeEntriesReportService(prisma).timeEntriesList(LEAD_A_MEMBER_B);
       const acme = result.items.find((i) => i.timeEntryId === 'e-acme')!;
       const bolt = result.items.find((i) => i.timeEntryId === 'e-bolt')!;
       expect(acme.hourlyRateCents).toBe(15000);
@@ -938,7 +933,7 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
       [group({ taskId: 't1' }), group({ taskId: null })],
       [{ taskId: 't1', taskName: 'Build', client: null, listName: null, subProjects: ['Website'] }],
     );
-    const { items } = await svc(prisma).timeEntriesByTask({ subProject: 'Website' });
+    const { items } = await svc(prisma).timeEntriesByTask({scope: UNRESTRICTED,  subProject: 'Website' });
     expect(prisma.clickupTimeEntry.groupBy.mock.calls[0][0].where.AND)
       .toContainEqual({ task: { subProjects: { hasSome: ['Website'] } } });
     expect(prisma.clickupTask.findMany.mock.calls[0][0].select.subProjects).toBe(true);
@@ -951,7 +946,7 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
       group({ _count: 2, _sum: { durationHours: { toNumber: () => 2.5 }, costCents: BigInt(5000) } }),
       group({ userId: 'u2', userName: 'Bob', _count: 1, _sum: { durationHours: { toNumber: () => 1.25 }, costCents: BigInt(2500) } }),
     ]);
-    const { items } = await svc(prisma).timeEntriesByTask({});
+    const { items } = await svc(prisma).timeEntriesByTask({scope: UNRESTRICTED, });
     expect(items).toHaveLength(1);
     expect(items[0].totalHours).toBe(3.75);
     expect(items[0].entryCount).toBe(3);
@@ -963,7 +958,7 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
       group({ taskId: 't1', _count: 4 }),
       group({ taskId: 't2', _count: 6 }),
     ]);
-    const { total } = await svc(prisma).timeEntriesByTask({});
+    const { total } = await svc(prisma).timeEntriesByTask({scope: UNRESTRICTED, });
     expect(total).toBe(2);
   });
 
@@ -971,7 +966,7 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
     const prisma = makePrisma([
       group({ taskId: null, _count: 2, _sum: { durationHours: { toNumber: () => 4 }, costCents: BigInt(0) } }),
     ]);
-    const { items, total } = await svc(prisma).timeEntriesByTask({});
+    const { items, total } = await svc(prisma).timeEntriesByTask({scope: UNRESTRICTED, });
     expect(total).toBe(1);
     expect(items[0].taskId).toBe('__none__');
     expect(items[0].taskName).toBeNull();
@@ -983,7 +978,7 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
       group({ status: 'COST_CALCULATED', _count: 1, _sum: { durationHours: { toNumber: () => 1 }, costCents: BigInt(9000) } }),
       group({ status: 'NO_RATE_FOUND', _count: 3, _sum: { durationHours: { toNumber: () => 5 }, costCents: BigInt(123456) } }),
     ]);
-    const { items } = await svc(prisma).timeEntriesByTask({});
+    const { items } = await svc(prisma).timeEntriesByTask({scope: UNRESTRICTED, });
     expect(items[0].costAud).toBe(90);
     expect(items[0].missingRateCount).toBe(3);
     expect(items[0].totalHours).toBe(6);
@@ -993,7 +988,7 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
     const prisma = makePrisma([
       group({ status: 'COST_EXCLUDED', _count: 4, _sum: { durationHours: { toNumber: () => 7 }, costCents: BigInt(0) } }),
     ]);
-    const { items } = await svc(prisma).timeEntriesByTask({});
+    const { items } = await svc(prisma).timeEntriesByTask({scope: UNRESTRICTED, });
     expect(items[0].excludedCount).toBe(4);
     expect(items[0].missingRateCount).toBe(0);
     expect(items[0].entryCount).toBe(4);
@@ -1009,7 +1004,7 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
       ],
       [{ taskId: 't1', taskName: 'T', client: null, listName: null }],
     );
-    const { items } = await svc(prisma).timeEntriesByTask({});
+    const { items } = await svc(prisma).timeEntriesByTask({scope: UNRESTRICTED, });
     expect(items[0].chargeable).toBe(true);
     expect(items[0].partiallyChargeable).toBe(false);
     expect(items[0].totalHours).toBe(8);
@@ -1021,7 +1016,7 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
       [group({ taskId: 't1', isChargeable: false, _sum: { durationHours: { toNumber: () => 6 }, costCents: BigInt(0) } })],
       [{ taskId: 't1', taskName: 'T', client: null, listName: null }],
     );
-    const { items } = await svc(prisma).timeEntriesByTask({});
+    const { items } = await svc(prisma).timeEntriesByTask({scope: UNRESTRICTED, });
     expect(items[0].chargeable).toBe(false);
     expect(items[0].partiallyChargeable).toBe(false);
     expect(items[0].totalHours).toBe(6);
@@ -1044,7 +1039,7 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
       ],
       [{ taskId: 't1', taskName: 'T', client: null, listName: null }],
     );
-    const { items } = await svc(prisma).timeEntriesByTask({});
+    const { items } = await svc(prisma).timeEntriesByTask({scope: UNRESTRICTED, });
     expect(items[0]).toMatchObject({
       totalHours: 4, chargeableHours: 2, chargeable: false, partiallyChargeable: true,
     });
@@ -1057,7 +1052,7 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
       [group({ isChargeable: false, _sum: { durationHours: { toNumber: () => 0 }, costCents: BigInt(0) } })],
       [{ taskId: 't1', taskName: 'T', client: null, listName: null }],
     );
-    const { items } = await svc(prisma).timeEntriesByTask({});
+    const { items } = await svc(prisma).timeEntriesByTask({scope: UNRESTRICTED, });
     expect(items[0]).toMatchObject({
       totalHours: 0, chargeableHours: 0, chargeable: false, partiallyChargeable: false,
     });
@@ -1069,7 +1064,7 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
       group({ userId: 'u1', userName: 'Alice' }),
       group({ userId: 'u2', userName: 'Bob' }),
     ]);
-    const { items } = await svc(prisma).timeEntriesByTask({});
+    const { items } = await svc(prisma).timeEntriesByTask({scope: UNRESTRICTED, });
     expect(items[0].assignees).toEqual([
       { userId: 'u1', userName: 'Alice' },
       { userId: 'u2', userName: 'Bob' },
@@ -1081,7 +1076,7 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
       group({ _max: { startTime: new Date('2026-01-10T09:00:00.000Z') } }),
       group({ userId: 'u2', _max: { startTime: new Date('2026-02-02T09:00:00.000Z') } }),
     ]);
-    const { items } = await svc(prisma).timeEntriesByTask({});
+    const { items } = await svc(prisma).timeEntriesByTask({scope: UNRESTRICTED, });
     expect(items[0].lastActivity).toEqual(new Date('2026-02-02T09:00:00.000Z'));
   });
 
@@ -1091,7 +1086,7 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
       group({ taskId: 'big', _sum: { durationHours: { toNumber: () => 9 }, costCents: BigInt(0) } }),
       group({ taskId: 'mid', _sum: { durationHours: { toNumber: () => 5 }, costCents: BigInt(0) } }),
     ]);
-    const { items, total } = await svc(prisma).timeEntriesByTask({ limit: 1, offset: 1 });
+    const { items, total } = await svc(prisma).timeEntriesByTask({scope: UNRESTRICTED,  limit: 1, offset: 1 });
     expect(total).toBe(3);
     expect(items.map((i: any) => i.taskId)).toEqual(['mid']);
   });
@@ -1104,7 +1099,7 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
       ],
       [{ taskId: 'big', taskName: 'Fix webhook dedupe', client: 'Acme', listName: 'Sprint 12' }],
     );
-    const { items } = await svc(prisma).timeEntriesByTask({ limit: 1 });
+    const { items } = await svc(prisma).timeEntriesByTask({scope: UNRESTRICTED,  limit: 1 });
     expect(prisma.clickupTask.findMany.mock.calls[0][0].where).toEqual({ taskId: { in: ['big'] } });
     expect(items[0]).toMatchObject({ taskName: 'Fix webhook dedupe', client: 'Acme', listName: 'Sprint 12' });
   });
@@ -1119,8 +1114,8 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
       from: '2026-01-01T00:00:00.000Z', to: '2026-02-01T00:00:00.000Z',
       userId: 'u1,u2', client: 'Acme', chargeable: 'true', archived: 'exclude', search: 'webhook',
     };
-    await svc(prisma).timeEntriesByTask(filters);
-    await svc(listPrisma).timeEntriesList(
+    await svc(prisma).timeEntriesByTask({ ...filters, scope: UNRESTRICTED });
+    await svc(listPrisma).timeEntriesList(UNRESTRICTED,
       filters.userId, filters.from, filters.to, undefined, 50, 0, filters.chargeable,
       filters.search, undefined, undefined, filters.client, undefined, undefined, filters.archived,
     );
