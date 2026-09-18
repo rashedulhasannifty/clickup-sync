@@ -4,7 +4,7 @@ import { PrismaService } from '../database/prisma.service';
 import { parseDate } from './report-date.util';
 import { buildTaskWhere, TASK_LIST_SELECT } from './task-filter.util';
 import { isPartiallyChargeable } from '../time-entries/chargeability';
-import { AccessScope } from '../access/access-scope';
+import { AccessScope, isUnrestricted } from '../access/access-scope';
 import { maskCost } from '../access/cost-mask';
 import { leadScopeSql, taskScopeSql, taskScopeWhere } from '../access/scope-query';
 import { requireLeadView } from '../access/scope.decorator';
@@ -469,7 +469,14 @@ export class TasksReportService {
     // Below `ids.length` means at least one id doesn't exist OR is out of
     // scope. The two cases get the same error deliberately — telling them
     // apart would let a scoped caller probe for a task's existence.
-    if (tasks !== taskIds.length) throw new NotFoundException('Some tasks were not found');
+    //
+    // Ruling R13: only enforced for a scoped viewer. Unrestricted (Owner/Admin,
+    // or a flag-off MEMBER) must reproduce today's behaviour exactly — a stray
+    // id that doesn't exist degrades gracefully rather than 404ing the whole
+    // request, same as before scoping existed.
+    if (!isUnrestricted(scope) && tasks !== taskIds.length) {
+      throw new NotFoundException('Some tasks were not found');
+    }
     return {
       tasks,
       changing,

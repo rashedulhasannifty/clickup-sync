@@ -755,18 +755,45 @@ describe('TasksReportService', () => {
       expect(res).toEqual({ tasks: 3, changing: 2, timeEntries: 84, hours: 156.5 });
     });
 
-    // No existence oracle: an id that doesn't exist and an id that exists but
-    // is out of scope get the identical 404, so a scoped caller can't tell
-    // them apart by probing.
-    it('throws NotFoundException when not every given id resolves in scope', async () => {
+    // Ruling R13: the global "flag off must reproduce today exactly"
+    // constraint outranks the no-existence-oracle uniformity. Restored
+    // verbatim (with the UNRESTRICTED fixture): ids that don't exist inflate
+    // no denominator and throw nothing — an Owner/Admin or flag-off MEMBER
+    // caller keeps pre-scoping behavior exactly.
+    //
+    // Regression: `tasks` used to be `taskIds.length`, so ids that don't exist
+    // in the database inflated the "of N tasks" denominator in the confirmation
+    // dialog — and `changing` could exceed it, since `changing` only ever counts
+    // rows that exist.
+    it('counts only the tasks that actually exist, not every id given (unrestricted)', async () => {
+      const { prisma, count } = makePreviewPrisma(2, 1);
+
+      const res = await new TasksReportService(prisma).chargeablePreview(['t1', 't2', 'ghost'], false, UNRESTRICTED);
+
+      expect(res.tasks).toBe(2);
+      expect(res.changing).toBe(1);
+      // `tasks` must be a superset of what `changing` counts, so neither query
+      // may carry a filter the other lacks beyond the flag itself.
+      expect(count).toHaveBeenCalledWith({ where: { taskId: { in: ['t1', 't2', 'ghost'] } } });
+      expect(count).toHaveBeenCalledWith({ where: { taskId: { in: ['t1', 't2', 'ghost'] }, isChargeable: true } });
+    });
+
+    // No existence oracle, scoped viewers only (R13): an id that doesn't
+    // exist and an id that exists but is out of scope get the identical 404,
+    // so a scoped caller can't tell them apart by probing.
+    it('throws NotFoundException for a scoped viewer when not every given id resolves in scope', async () => {
       const { prisma } = makePreviewPrisma(2, 1);
+      const LEAD = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'LEAD' }], teamClients: [{ teamId: 'A', optionId: 'acme' }], teamMembers: [],
+      });
 
       await expect(
-        new TasksReportService(prisma).chargeablePreview(['t1', 't2', 'ghost'], false, UNRESTRICTED),
+        new TasksReportService(prisma).chargeablePreview(['t1', 't2', 'ghost'], false, LEAD),
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('scopes both counts identically apart from the flag when the ids all resolve', async () => {
+    it('a scoped viewer with every id in scope gets the normal response, no throw', async () => {
       const { prisma, count } = makePreviewPrisma(3, 1);
       const LEAD = resolveScope({
         role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
