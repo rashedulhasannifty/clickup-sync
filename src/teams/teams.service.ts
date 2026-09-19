@@ -189,7 +189,13 @@ export class TeamsService {
       name: m.team.name,
       role: m.role,
       clients: m.team.clients.map((c) => c.option.name),
-      members: m.team.members.map((mm) => ({ userId: mm.user.id, name: mm.user.name, email: mm.user.email })),
+      members: m.team.members.map((mm) => ({
+        userId: mm.user.id,
+        name: mm.user.name,
+        email: mm.user.email,
+        clickupUserId: mm.user.clickupUserId,
+        role: mm.role,
+      })),
     }));
 
     const ledTeamIds = scope.kind === 'scoped' ? scope.ledTeamIds : [];

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { Clock, Send, Trash2, ShieldCheck, X } from 'lucide-react';
 import { Drawer } from '../ui/Drawer';
 import { Button } from '../ui/Button';
@@ -7,8 +8,11 @@ import { Pill } from '../ui/Pill';
 import { Callout } from '../ui/Callout';
 import { Switch } from '../ui/Switch';
 import { RoleSelect, ROLE_META } from './RoleSelect';
+import { TeamAssignmentRows, type TeamAssignment } from '../teams/TeamAssignmentRows';
+import { useTeams, useTeamMutations } from '../../hooks/useTeams';
 import { fmt } from '../../lib/formatters';
 import type { Role } from '../../api/auth';
+import type { UserTeamRef } from '../../api/users';
 
 export interface DrawerMember {
   id: string;
@@ -19,6 +23,55 @@ export interface DrawerMember {
   /** Active members only. */
   lastLoginAt?: string | null;
   createdAt: string;
+  /** Active members only — omitted (or empty) for pending invites, whose team
+   *  assignments are fixed until accept and aren't editable here. */
+  teams?: UserTeamRef[];
+}
+
+/** Diffs the rows widget's full next list against what's on the server and
+ *  fires exactly the mutations needed — one per added/removed/role-changed
+ *  team, regardless of which single edit produced the new list.
+ *
+ *  `local` seeds from `member.teams` once and is then the source of truth for
+ *  the rest of this drawer's lifetime — the caller keys `<MemberDrawer>` on
+ *  `member.id` (see TeamPage.tsx) so opening a different member's drawer
+ *  remounts this hook with a fresh initializer instead of needing an effect
+ *  to resync it. */
+function useTeamsSection(member: DrawerMember, onToast: (msg: string) => void) {
+  const teamsQuery = useTeams();
+  const mutations = useTeamMutations();
+  const teamOptions = (teamsQuery.data ?? []).map((t) => ({ id: t.id, name: t.name }));
+
+  const [local, setLocal] = useState<TeamAssignment[]>(() => (member.teams ?? []).map((t) => ({ teamId: t.id, role: t.role })));
+
+  function apply(next: TeamAssignment[]) {
+    const prevMap = new Map(local.map((t) => [t.teamId, t.role]));
+    const nextMap = new Map(next.map((t) => [t.teamId, t.role]));
+    setLocal(next);
+    for (const [teamId] of prevMap) {
+      if (!nextMap.has(teamId)) {
+        mutations.removeMember.mutate(
+          { id: teamId, userId: member.id },
+          { onError: () => onToast('Could not remove from that team') },
+        );
+      }
+    }
+    for (const [teamId, role] of nextMap) {
+      if (!prevMap.has(teamId)) {
+        mutations.addMember.mutate(
+          { id: teamId, userId: member.id, role },
+          { onError: () => onToast('Could not add to that team') },
+        );
+      } else if (prevMap.get(teamId) !== role) {
+        mutations.setRole.mutate(
+          { id: teamId, userId: member.id, role },
+          { onError: () => onToast('Could not update that team role') },
+        );
+      }
+    }
+  }
+
+  return { teamOptions, local, apply };
 }
 
 function DrawerRow({ label, children }: { label: string; children: ReactNode }) {
@@ -60,6 +113,7 @@ export function MemberDrawer({
   onRemove,
   onResend,
   changingRole,
+  onTeamsError,
 }: {
   member: DrawerMember;
   isSelf: boolean;
@@ -71,8 +125,11 @@ export function MemberDrawer({
   onRemove: () => void;
   onResend: () => void;
   changingRole?: boolean;
+  /** Surfaces a failed team add/remove/role change (e.g. as a toast). */
+  onTeamsError?: (msg: string) => void;
 }) {
   const { pending } = member;
+  const teamsSection = useTeamsSection(member, onTeamsError ?? (() => undefined));
   const trimmedName = member.name?.trim();
   const displayName = trimmedName || member.email.split('@')[0];
   const avatarUser = trimmedName
@@ -190,6 +247,30 @@ export function MemberDrawer({
             <span style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>{ROLE_META[member.role].desc}</span>
           </div>
         </div>
+
+        {/* Teams — active members only; a pending invite's team assignments are
+            fixed until accept (InvitationTeam), not editable here. */}
+        {!pending && (
+          <div style={{ paddingTop: 18 }}>
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: 'var(--text-faint)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+                marginBottom: 8,
+              }}
+            >
+              Teams
+            </div>
+            {teamsSection.teamOptions.length === 0 ? (
+              <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>No teams exist yet.</span>
+            ) : (
+              <TeamAssignmentRows teams={teamsSection.teamOptions} value={teamsSection.local} onChange={teamsSection.apply} />
+            )}
+          </div>
+        )}
 
         {/* Space access — coming soon placeholder */}
         <div style={{ paddingTop: 18 }}>

@@ -112,7 +112,9 @@ export class TeamsRepository {
         team: {
           include: {
             clients: { include: { option: true } },
-            members: { include: { user: { select: { id: true, name: true, email: true } } } },
+            // clickupUserId is included so a lead's "My team" view (Task 18)
+            // can link a member straight to their timesheet.
+            members: { include: { user: { select: { id: true, name: true, email: true, clickupUserId: true } } } },
           },
         },
       },

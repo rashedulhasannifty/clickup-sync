@@ -266,6 +266,30 @@ describe('TeamsService', () => {
       expect(repo.activeOrgUsers).toHaveBeenCalledWith('org');
     });
 
+    it("carries each member's clickupUserId and team role so a lead can link to their timesheet", async () => {
+      const { svc } = make({
+        membershipsOf: jest.fn().mockResolvedValue([
+          {
+            role: 'LEAD',
+            team: {
+              id: 'A',
+              name: 'Team A',
+              clients: [],
+              members: [
+                { role: 'LEAD', user: { id: 'lead', name: 'Lead', email: 'lead@x', clickupUserId: 'cu-1' } },
+                { role: 'MEMBER', user: { id: 'u1', name: 'Unlinked', email: 'u1@x', clickupUserId: null } },
+              ],
+            },
+          },
+        ]),
+      });
+      const res = await svc.myTeams({ ...admin, userId: 'lead', role: 'MEMBER' }, leadOf('A'));
+      expect(res.teams[0].members).toEqual([
+        { userId: 'lead', name: 'Lead', email: 'lead@x', clickupUserId: 'cu-1', role: 'LEAD' },
+        { userId: 'u1', name: 'Unlinked', email: 'u1@x', clickupUserId: null, role: 'MEMBER' },
+      ]);
+    });
+
     it('returns no candidates when the caller leads nothing', async () => {
       const { svc, repo } = make({
         membershipsOf: jest.fn().mockResolvedValue([

@@ -66,6 +66,12 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
 
   const currency = entry.currency ?? 'USD';
   const hasCost = entry.status === 'COST_CALCULATED' && entry.costAud != null && entry.costAud > 0;
+  // A rate WAS resolved and the cost stored server-side; it's merely masked to
+  // null for this viewer (src/access/cost-mask.ts, based on canSeeCost for the
+  // entry's client) — distinct from a genuine NO_RATE_FOUND, which never has
+  // status COST_CALCULATED at all. Must not fall through to the "no rate
+  // found / add rate" branch below.
+  const costHidden = entry.status === 'COST_CALCULATED' && entry.costAud == null;
   const firstName = entry.userName.split(/\s+/)[0] ?? entry.userName;
 
   return (
@@ -154,6 +160,16 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
                 {fmt.duration(entry.durationHours)} × {fmt.money(entry.hourlyRateCents, currency)}/h ={' '}
                 {/* Guaranteed non-null here: `hasCost` (which gates this whole branch) already checked it. */}
                 <strong style={{ fontSize: 16 }}>{fmt.money(entry.costAud! * 100, currency)}</strong>
+              </div>
+            </div>
+          ) : costHidden ? (
+            // Deliberately NOT the amber no-rate box, and deliberately no "Add
+            // rate" CTA: a rate WAS found and the cost WAS calculated — it's
+            // just not visible to this viewer. There is nothing to fix here.
+            <div style={{ padding: 12, background: 'var(--muted-bg)', borderRadius: 8 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 4 }}>Cost hidden</div>
+              <div style={{ fontSize: 12, color: 'var(--text)' }}>
+                A rate was found and cost was calculated for this entry, but it isn&apos;t visible to you.
               </div>
             </div>
           ) : entry.status === 'COST_EXCLUDED' ? (

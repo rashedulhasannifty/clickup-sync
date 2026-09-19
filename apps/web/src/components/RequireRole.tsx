@@ -14,9 +14,11 @@ export function RequireRole({ min, children, redirect }: { min: Role; children: 
 /**
  * Route/section guard driven by the `/auth/me` access summary rather than
  * role alone (team-scoped access — see the design spec's "Navigation and
- * session payload" section). A missing `access` (still loading, or an older
- * cached session) is never treated as denied — only `loading` blocks
- * rendering; once loaded, a genuinely absent `access` redirects.
+ * session payload" section). A missing `access` (still loading, an older
+ * cached session, or scoping simply off) is never treated as denied — it's
+ * treated as unrestricted, same as every other consumer's `?? true` default
+ * (Sidebar, CommandPalette, etc.) — only `loading` blocks rendering, and only
+ * a genuinely-loaded `access` that fails `when` redirects.
  */
 export function RequireAccess({
   when, redirect, children,
@@ -27,6 +29,6 @@ export function RequireAccess({
 }) {
   const { access, loading } = useAuth();
   if (loading) return null;
-  if (!access || !when(access)) return <Navigate to={redirect} replace />;
+  if (access && !when(access)) return <Navigate to={redirect} replace />;
   return <>{children}</>;
 }
