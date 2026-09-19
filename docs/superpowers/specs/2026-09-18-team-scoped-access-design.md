@@ -35,7 +35,7 @@ need:
 | 7 | Lead chargeability scope | **Anything on their clients**, including entries logged by people outside the team. |
 | 8 | Who manages team membership? | **Owner/Admin fully. A lead can add *existing* org users** to a team they lead. |
 | 9 | Sprints | **Hidden for members.** Leads see sprints filtered to their clients. |
-| 10 | Timesheet vs client scope | A lead sees the timesheets of **only their own team members**, and each in **full**: rows on other teams' clients show client and task name and hours, but **no cost**. This is the one deliberate place where a lead sees another team's client identity. A member sees only their own full timesheet. |
+| 10 | Timesheet vs client scope | **Revised 2026-09-19.** Two gates, both required: *whose* timesheet (self, or a member of a team you lead) and *which rows* (the viewer's own client scope, same filter as every other list read). The original decision — a lead sees a member's other-team rows, hours only — was withdrawn: it made the timesheet the only surface showing work the rest of the app hides, and since a lead can add any org user to their team (decision 8), it let any lead read a colleague's cross-client task names. Cost inside the surviving rows is still masked per client. Cost of the change: a scoped viewer's own timesheet no longer shows their own hours on clients outside their teams — consistent with their Time Entries page. |
 | 11 | Tasks with no client / an unowned client | **Owner/Admin only.** |
 | 12 | Client moved to another team | The old team **loses all access immediately**, history included. No dated ownership. |
 | 13 | Invite with no team | **Allowed**, with a warning. The user sees nothing until assigned. |
@@ -298,7 +298,7 @@ enough, because the raw API response would still contain it.
 |---|---|---|---|
 | `tasks`, `tasks/summary`, `tasks/by-space-status`, `tasks/:id/description` | all | own clients, cost visible | own clients, cost masked |
 | `time-entries`, `time-entries/by-*`, `time-entries/aggregates`, `time-entries/chargeable-summary` | all | own clients, cost | own clients, hours only |
-| `timesheet` | anyone | self + members of led teams (full; cost masked off-client) | self only (hours only) |
+| `timesheet` | anyone, unfiltered | self + members of led teams, rows filtered to own clients, cost masked off-led-clients | self only, rows filtered to own clients, hours only |
 | `work`, `work/entries` | all | own clients | own clients, hours only |
 | `sprints`, `sprints/folders`, `sprints/velocity`, `sprints/:listId`, `sprint-points` | all | only sprints containing ≥1 in-scope task, totals over in-scope tasks | **403** |
 | `sprintStatus=active\|completed\|all` filter on `tasks` / `time-entries` | works | works | **works**: it narrows already-scoped rows via `clickup_lists` and reveals no sprint data, so the Tasks and Time Entries pages keep their Select. Only the Sprints *pages* are hidden. |
@@ -473,10 +473,11 @@ Scoping changes what existing MEMBER users see, so it ships dark:
 - Guardrail: every data route is scoped or `@Roles(OWNER, ADMIN)`.
 - Cost masking: a member sees no non-null cost anywhere; a lead sees cost on
   their clients only; `costPartial` is set when rows were excluded.
-- Timesheet: a lead sees a member's other-team rows (client and task name,
-  hours) with null cost; a lead **cannot** fetch the timesheet of anyone outside
-  the teams they lead, not even someone who logged time on the lead's clients; a
-  member cannot fetch a teammate's timesheet.
+- Timesheet: rows outside the viewer's client scope are **absent**, not merely
+  cost-masked (revised decision 10) — including on the viewer's own timesheet; a
+  lead **cannot** fetch the timesheet of anyone outside the teams they lead, not
+  even someone who logged time on the lead's clients; a member cannot fetch a
+  teammate's timesheet.
 - Chargeability: a lead's bulk request with one out-of-scope id is rejected
   whole and nothing changes; an in-scope request enqueues the scoped recalc.
 - Invitations: accept creates memberships and the ClickUp link; a deleted team
