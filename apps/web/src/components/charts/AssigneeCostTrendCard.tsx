@@ -12,7 +12,7 @@ import { segmentColor } from '../../lib/segmentColors';
 const BUCKET_ARIA: Record<CostTrendBucket, string> = { day: 'daily', week: 'weekly', month: 'monthly' };
 const BUCKET_DEFAULTS_DAYS: Record<Exclude<CostTrendBucket, 'month'>, number> = { day: 30, week: 7 * 12 };
 
-function moneyAud(dollars: number) { return fmt.money(Math.round(dollars * 100)); }
+function moneyAud(dollars: number | null) { return dollars == null ? '—' : fmt.money(Math.round(dollars * 100)); }
 
 function defaultRangeForBucket(bucket: CostTrendBucket): { from: string; to: string } {
   const to = new Date();

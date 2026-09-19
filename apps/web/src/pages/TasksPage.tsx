@@ -86,8 +86,12 @@ function isJustSynced(task: Task): boolean {
 }
 
 export function TasksPage() {
-  const { hasRole } = useAuth();
-  const canEdit = hasRole('ADMIN');
+  const { access } = useAuth();
+  // Server gate for the chargeability write paths is `requireLead` — a lead
+  // may edit chargeability for their own led clients, not just Owner/Admin.
+  // Missing `access` (still loading / an older cached session) is never
+  // treated as denied.
+  const canEdit = access?.canEditChargeability ?? true;
   const { space, fromDate, toDate } = useGlobalFilters();
   const { data: assigneesData } = useTasksAssignees();
   const { data: summary } = useTasksSummary();

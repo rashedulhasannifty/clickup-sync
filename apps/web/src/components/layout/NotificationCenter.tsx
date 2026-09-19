@@ -8,6 +8,7 @@ import { useStats, useAnomalies, useHourSpikeWatch } from '../../hooks/useReport
 import { useBudgetStatus } from '../../hooks/useBudgets';
 import type { BudgetStatusRow } from '../../api/budgets';
 import { fmt } from '../../lib/formatters';
+import { useAuth } from '../../hooks/useAuth';
 
 type Severity = 'red' | 'amber';
 
@@ -22,7 +23,8 @@ interface Notice {
 
 const SEEN_KEY = 'cc-notif-seen-v1';
 
-function moneyAud(dollars: number) {
+function moneyAud(dollars: number | null) {
+  if (dollars == null) return '—';
   return fmt.money(Math.round(dollars * 100));
 }
 
@@ -64,10 +66,15 @@ export function NotificationCenter() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
 
-  const stats = useStats();
-  const budgetStatus = useBudgetStatus();
-  const anomalies = useAnomalies();
-  const hourSpikes = useHourSpikeWatch();
+  const { access } = useAuth();
+  // A missing `access` (still loading / an older cached session) is never
+  // treated as denied — these default to unrestricted so nothing flickers off.
+  const unrestricted = access?.unrestricted ?? true;
+  const canSeeCost = access?.canSeeCost ?? true;
+  const stats = useStats(unrestricted);
+  const budgetStatus = useBudgetStatus(undefined, canSeeCost);
+  const anomalies = useAnomalies(unrestricted);
+  const hourSpikes = useHourSpikeWatch(unrestricted);
 
   const notices = useMemo<Notice[]>(() => {
     const out: Notice[] = [];

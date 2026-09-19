@@ -8,21 +8,22 @@ import { Kbd } from '../ui/Kbd';
 import { useSearch } from '../../hooks/useSearch';
 import { useAuth } from '../../hooks/useAuth';
 
-const NAV_ITEMS: { label: string; to: string; sub: string; icon: typeof Home; adminOnly?: boolean }[] = [
+const NAV_ITEMS: { label: string; to: string; sub: string; icon: typeof Home; adminOnly?: boolean; needs?: 'canSeeCost' | 'canSeeSprints' | 'canEditChargeability' }[] = [
   { label: 'Overview', to: '/overview', sub: '/overview', icon: Home },
-  { label: 'Analytics', to: '/analytics', sub: '/analytics', icon: BarChart3 },
-  { label: 'Time Spikes', to: '/time-spikes', sub: '/time-spikes', icon: Activity },
+  { label: 'Analytics', to: '/analytics', sub: '/analytics', icon: BarChart3, needs: 'canSeeCost' },
+  { label: 'Time Spikes', to: '/time-spikes', sub: '/time-spikes', icon: Activity, adminOnly: true },
   { label: 'Tasks', to: '/tasks', sub: '/tasks', icon: CheckSquare },
   { label: 'Tasks & time (beta)', to: '/work', sub: '/work', icon: ListTree },
   { label: 'Time Entries', to: '/time-entries', sub: '/time-entries', icon: Clock },
-  { label: 'Missing Rates', to: '/missing-rates', sub: '/missing-rates', icon: AlertTriangle },
-  { label: 'Assignee Rates', to: '/assignee-rates', sub: '/assignee-rates', icon: DollarSign },
-  { label: 'Chargeability Rules', to: '/chargeability-rules', sub: '/chargeability-rules', icon: Scale },
-  { label: 'Budgets', to: '/budgets', sub: '/budgets', icon: Wallet },
+  { label: 'Missing Rates', to: '/missing-rates', sub: '/missing-rates', icon: AlertTriangle, adminOnly: true },
+  { label: 'Assignee Rates', to: '/assignee-rates', sub: '/assignee-rates', icon: DollarSign, adminOnly: true },
+  { label: 'Chargeability Rules', to: '/chargeability-rules', sub: '/chargeability-rules', icon: Scale, needs: 'canEditChargeability' },
+  { label: 'Budgets', to: '/budgets', sub: '/budgets', icon: Wallet, needs: 'canSeeCost' },
   { label: 'Finance (beta)', to: '/finance', sub: '/finance', icon: Landmark, adminOnly: true },
   { label: 'Spaces', to: '/spaces', sub: '/spaces', icon: Layers },
-  { label: 'Sync Logs', to: '/sync-logs', sub: '/sync-logs', icon: Webhook },
+  { label: 'Sync Logs', to: '/sync-logs', sub: '/sync-logs', icon: Webhook, adminOnly: true },
   { label: 'Team', to: '/team', sub: '/team', icon: Users, adminOnly: true },
+  { label: 'Teams', to: '/teams', sub: '/teams', icon: Users, adminOnly: true },
   { label: 'Audit Log', to: '/audit-log', sub: '/audit-log', icon: ScrollText, adminOnly: true },
   { label: 'Settings', to: '/settings', sub: '/settings', icon: Settings, adminOnly: true },
 ];
@@ -39,7 +40,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [active, setActive] = useState(0);
   const [debounced, setDebounced] = useState('');
   const navigate = useNavigate();
-  const { hasRole } = useAuth();
+  const { hasRole, access } = useAuth();
+  const isAdmin = hasRole('ADMIN');
+  // Missing `access` (still loading / an older cached session) is never
+  // treated as denied — everything renders as if unrestricted until the real
+  // summary lands.
+  const canSeeCost = access?.canSeeCost ?? true;
+  const canSeeSprints = access?.canSeeSprints ?? true;
+  const canEditChargeability = access?.canEditChargeability ?? true;
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -48,7 +56,10 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return () => clearTimeout(t);
   }, [query]);
 
-  const { data: results } = useSearch(debounced);
+  // `/admin/search` is Owner/Admin-only — a non-admin falls back to page
+  // navigation only (the static NAV_ITEMS list below), never firing the
+  // request the server would 403.
+  const { data: results } = useSearch(debounced, isAdmin);
 
   const select = useCallback((to: string) => {
     navigate(to);
@@ -58,8 +69,12 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   const filtered = useMemo<Action[]>(() => {
     const q = query.trim().toLowerCase();
+    const needsMet: Record<'canSeeCost' | 'canSeeSprints' | 'canEditChargeability', boolean> = {
+      canSeeCost, canSeeSprints, canEditChargeability,
+    };
     const nav: Action[] = NAV_ITEMS
-      .filter((r) => !r.adminOnly || hasRole('ADMIN'))
+      .filter((r) => !r.adminOnly || isAdmin)
+      .filter((r) => !r.needs || needsMet[r.needs])
       .filter((r) => !q || (r.label + ' ' + r.sub).toLowerCase().includes(q))
       .map((r) => ({ key: 'nav:' + r.to, label: `Go to ${r.label}`, sub: r.sub, icon: r.icon, run: () => select(r.to) }));
 
@@ -81,7 +96,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     }));
 
     return [...taskActions, ...assigneeActions, ...nav].slice(0, 20);
-  }, [query, results, select, hasRole]);
+  }, [query, results, select, isAdmin, canSeeCost, canSeeSprints, canEditChargeability]);
 
   // Keep the active item visible when keyboard nav moves it past the fold.
   useEffect(() => {

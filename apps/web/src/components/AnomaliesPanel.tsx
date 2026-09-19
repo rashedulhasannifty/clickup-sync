@@ -4,13 +4,21 @@ import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { fmt } from '../lib/formatters';
 import { useAnomalies } from '../hooks/useReports';
+import { useAuth } from '../hooks/useAuth';
 
-function moneyAud(dollars: number) { return fmt.money(Math.round(dollars * 100)); }
+function moneyAud(dollars: number | null) { return dollars == null ? '—' : fmt.money(Math.round(dollars * 100)); }
 
 export function AnomaliesPanel() {
   const navigate = useNavigate();
-  const q = useAnomalies();
+  const { access } = useAuth();
+  // `/reports/anomalies` is requireUnrestricted server-side (R22) — a missing
+  // `access` (still loading / an older cached session) is never treated as
+  // denied, so this defaults to unrestricted.
+  const unrestricted = access?.unrestricted ?? true;
+  const q = useAnomalies(unrestricted);
   const data = q.data;
+
+  if (!unrestricted) return null;
 
   const rows: { key: string; title: string; subtitle: string; onClick: () => void }[] = [];
 

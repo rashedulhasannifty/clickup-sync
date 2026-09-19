@@ -24,6 +24,7 @@ import {
   Rocket,
   ListTree,
   Landmark,
+  Network,
 } from "lucide-react";
 import { useStats } from "../../hooks/useReports";
 import { useAuth } from "../../hooks/useAuth";
@@ -51,9 +52,17 @@ export function Sidebar({
   const [collapsedDesktop, setCollapsed] = useState(
     () => localStorage.getItem("sidebarCollapsed") === "true",
   );
-  const { data: stats } = useStats();
-  const { hasRole, user, org } = useAuth();
+  const { hasRole, user, org, access } = useAuth();
   const isAdmin = hasRole("ADMIN");
+  // A missing `access` (still loading, or an older cached session) is never
+  // treated as denied — everything renders as if unrestricted until the real
+  // summary lands, so nothing flickers off for an existing session.
+  const unrestricted = access?.unrestricted ?? true;
+  const canSeeCost = access?.canSeeCost ?? true;
+  const canSeeSprints = access?.canSeeSprints ?? true;
+  const canEditChargeability = access?.canEditChargeability ?? true;
+  const isLeadOfATeam = access?.teams.some((t) => t.role === "LEAD") ?? false;
+  const { data: stats } = useStats(unrestricted);
   // Finance is admin-only and appears only once the server has Xero credentials.
   const xeroStatus = useXeroStatus(isAdmin);
   const showFinance = isAdmin && !!xeroStatus.data?.configured;
@@ -67,31 +76,39 @@ export function Sidebar({
     localStorage.setItem("sidebarCollapsed", String(collapsedDesktop));
   }, [collapsedDesktop]);
 
-  // Audit Log and Settings are admin-only; members see everything else.
+  // Audit Log and Settings are admin-only; members see everything else, minus
+  // whatever their `access` summary says they can't see (team-scoped access —
+  // a no-op set of gates while `access.unrestricted` is true for everyone).
   const navItems: NavItem[] = [
     { to: "/overview", label: "Overview", icon: Home },
-    { to: "/analytics", label: "Analytics", icon: BarChart3 },
-    { to: "/time-spikes", label: "Time Spikes", icon: Activity },
+    ...(canSeeCost ? [{ to: "/analytics", label: "Analytics", icon: BarChart3 }] : []),
+    // Time Spikes, Missing Rates, Assignee Rates, Sync Logs are Owner/Admin
+    // endpoints — showing them to members was already a dead end.
+    ...(isAdmin ? [{ to: "/time-spikes", label: "Time Spikes", icon: Activity }] : []),
     { to: "/tasks", label: "Tasks", icon: CheckSquare },
     { to: "/work", label: "Tasks & time", icon: ListTree, tag: "Beta" },
-    { to: "/sprints", label: "Sprints", icon: Rocket },
+    ...(canSeeSprints ? [{ to: "/sprints", label: "Sprints", icon: Rocket }] : []),
     { to: "/time-entries", label: "Time Entries", icon: Clock },
     { to: "/timesheet", label: "Timesheet", icon: CalendarClock },
-    {
-      to: "/missing-rates",
-      label: "Missing Rates",
-      icon: AlertTriangle,
-      badge: stats?.missingRateEntries,
-    },
-    { to: "/assignee-rates", label: "Assignee Rates", icon: DollarSign },
-    { to: "/chargeability-rules", label: "Chargeability", icon: Scale },
-    { to: "/budgets", label: "Budgets", icon: Wallet },
+    ...(isAdmin
+      ? [{
+          to: "/missing-rates",
+          label: "Missing Rates",
+          icon: AlertTriangle,
+          badge: stats?.missingRateEntries,
+        }]
+      : []),
+    ...(isAdmin ? [{ to: "/assignee-rates", label: "Assignee Rates", icon: DollarSign }] : []),
+    ...(canEditChargeability ? [{ to: "/chargeability-rules", label: "Chargeability", icon: Scale }] : []),
+    ...(canSeeCost ? [{ to: "/budgets", label: "Budgets", icon: Wallet }] : []),
     ...(showFinance ? [{ to: "/finance", label: "Finance", icon: Landmark, tag: "Beta" }] : []),
     { to: "/spaces", label: "Spaces", icon: Layers },
-    { to: "/sync-logs", label: "Sync Logs", icon: Webhook },
+    ...(isAdmin ? [{ to: "/sync-logs", label: "Sync Logs", icon: Webhook }] : []),
+    ...(isLeadOfATeam ? [{ to: "/my-team", label: "My team", icon: UsersRound }] : []),
     ...(isAdmin
       ? [
           { to: "/team", label: "Team", icon: UsersRound },
+          { to: "/teams", label: "Teams", icon: Network },
           { to: "/audit-log", label: "Audit Log", icon: ShieldCheck },
           { to: "/settings", label: "Settings", icon: Settings },
         ]

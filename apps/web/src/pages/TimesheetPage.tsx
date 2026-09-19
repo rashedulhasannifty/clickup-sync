@@ -1,9 +1,10 @@
-import { useMemo, useState, useCallback, type ReactNode } from 'react';
+import { useMemo, useState, useCallback, useEffect, type ReactNode } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { CalendarClock, Download, AlertTriangle, Clock3, ChevronDown, ChevronRight } from 'lucide-react';
 import { useTimesheet, useTimeEntriesAssignees, type TimesheetDay } from '../hooks/useReports';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
+import { useAuth } from '../hooks/useAuth';
 import { exportTimesheetXlsx } from '../lib/timesheet-xlsx';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Button } from '../components/ui/Button';
@@ -108,13 +109,20 @@ export function TimesheetPage() {
   const navigate = useNavigate();
   const { fromDate, toDate, dateRangeLabel } = useGlobalFilters();
   const { data: assignees } = useTimeEntriesAssignees();
+  const { access } = useAuth();
   const [userId, setUserId] = useState('');
   const [showCost, setShowCost] = useState(true);
 
+  // `timesheetUserIds: null` means "anyone" (unrestricted, or a lead who can
+  // pick any teammate they lead). A non-null list scopes the picker to just
+  // those ClickUp users — typically the viewer's own id, plus their led
+  // teammates' ids if they lead a team.
+  const allowedUserIds = access?.timesheetUserIds ?? null;
   const assigneeOptions = useMemo(() => {
     const opts: { value: string; label: string; icon?: ReactNode }[] = [];
     for (const a of assignees ?? []) {
       if (!a.id) continue;
+      if (allowedUserIds && !allowedUserIds.includes(a.id)) continue;
       opts.push({
         value: a.id,
         label: a.name ?? a.id,
@@ -122,7 +130,19 @@ export function TimesheetPage() {
       });
     }
     return opts;
-  }, [assignees]);
+  }, [assignees, allowedUserIds]);
+
+  // A plain scoped member sees exactly one option (themself) — preselect it
+  // and hide the picker entirely rather than showing a single-item dropdown.
+  const singleUserId = allowedUserIds?.length === 1 ? allowedUserIds[0] : null;
+  const pickerHidden = singleUserId !== null;
+
+  useEffect(() => {
+    if (singleUserId && userId !== singleUserId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setUserId(singleUserId);
+    }
+  }, [singleUserId, userId]);
 
   const selected = useMemo(
     () => assignees?.find((a) => a.id === userId) ?? null,
@@ -134,10 +154,11 @@ export function TimesheetPage() {
   const sheet = query.data;
   const loading = query.isLoading && !!userId;
 
+  const canSeeCost = access?.canSeeCost ?? true;
   const exportExcel = useMutation({
     mutationFn: async () => {
       if (!sheet) return;
-      await exportTimesheetXlsx({ assigneeName: sheet.userName ?? assigneeName ?? 'assignee', sheet, includeCost: showCost });
+      await exportTimesheetXlsx({ assigneeName: sheet.userName ?? assigneeName ?? 'assignee', sheet, includeCost: showCost && canSeeCost });
     },
   });
 
@@ -193,12 +214,25 @@ export function TimesheetPage() {
         }
       />
 
+      {access && !access.hasClickupLink && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px',
+          background: 'var(--pill-amber-bg)', color: 'var(--pill-amber-text)',
+          border: '1px solid var(--border)', borderRadius: 10, fontSize: 12,
+        }}>
+          <AlertTriangle size={14} strokeWidth={1.75} style={{ flexShrink: 0 }} />
+          Your login isn&apos;t linked to a ClickUp user yet, so your own timesheet is empty.
+        </div>
+      )}
+
       {/* Toolbar: who + window + cost visibility */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
         padding: '10px 12px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
       }}>
-        <Select ariaLabel="Select teammate" size="md" searchable placeholder="Select a teammate…" searchPlaceholder="Search teammates…" options={assigneeOptions} value={userId} onChange={setUserId} />
+        {!pickerHidden && (
+          <Select ariaLabel="Select teammate" size="md" searchable placeholder="Select a teammate…" searchPlaceholder="Search teammates…" options={assigneeOptions} value={userId} onChange={setUserId} />
+        )}
         <span style={{
           display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12,
           color: 'var(--text-muted)', padding: '4px 8px', background: 'var(--muted-bg)', borderRadius: 6,

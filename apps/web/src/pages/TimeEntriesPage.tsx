@@ -28,7 +28,13 @@ import { TaskTimeEntriesPanel } from '../components/TaskTimeEntriesPanel';
 import { SelectionBar, type SelectionStat } from '../components/SelectionBar';
 import { useRowSelection } from '../hooks/useRowSelection';
 import { useAuth } from '../hooks/useAuth';
+import { useToast } from '../components/ui/Toast';
 import type { TimeEntryItem } from '../components/TimeEntryDrawer';
+
+/** Axios-style error → response.data.message, without `any` (same pattern as XeroSettingsTab). */
+function apiErrorMessage(e: unknown): string | undefined {
+  return (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+}
 
 const CHARGEABLE_OPTIONS = [
   { value: '', label: 'Chargeable + non' },
@@ -338,8 +344,12 @@ export function TimeEntriesPage() {
     [params, groupBy],
   );
   const entrySelection = useRowSelection<TimeEntryItem>(selectionScope);
-  const { hasRole } = useAuth();
-  const canEdit = hasRole('ADMIN');
+  const { access } = useAuth();
+  // Server gate is per-entry lead access (`ChargeabilityAccessService.assertEntries`)
+  // — a lead may override entries on their own led clients, not just Owner/Admin.
+  // Missing `access` (still loading / an older cached session) is never treated as denied.
+  const canEdit = access?.canEditChargeability ?? true;
+  const toast = useToast();
   const setOverride = useSetEntryChargeableOverride();
   // The selected rows carry their own ids, so no extra fetch is needed to turn
   // a selection into a write. Clears the selection on success — leaving rows
@@ -347,7 +357,15 @@ export function TimeEntriesPage() {
   const applyOverride = (chargeable: boolean | null) => {
     const ids = entrySelection.selectedRows.map((r) => r.timeEntryId);
     if (ids.length === 0) return;
-    setOverride.mutate({ timeEntryIds: ids, chargeable }, { onSuccess: () => entrySelection.clear() });
+    setOverride.mutate(
+      { timeEntryIds: ids, chargeable },
+      {
+        onSuccess: () => entrySelection.clear(),
+        // A lead who is only a MEMBER on some selected entries' clients gets a
+        // 403 for those rows — show the server's own message, not a generic one.
+        onError: (e) => toast.show(apiErrorMessage(e) ?? 'Could not update chargeability.', 'red'),
+      },
+    );
   };
   const groupSelection = useRowSelection<TimeEntryTaskGroup>(selectionScope);
   const selectionCount = grouped ? groupSelection.count : entrySelection.count;
@@ -447,8 +465,9 @@ export function TimeEntriesPage() {
   const totalHours = agg?.totalHours ?? 0;
   const chargeableHours = agg?.chargeableHours ?? 0;
   const nonChargeableHours = agg?.nonChargeableHours ?? 0;
-  const totalCostCents = agg?.totalCostCents ?? 0;
-  const avgRateCents = agg?.avgRateCents ?? 0;
+  const totalCostCents = agg?.totalCostCents ?? null;
+  const avgRateCents = agg?.avgRateCents ?? null;
+  const costPartial = agg?.costPartial ?? false;
   const missingRateCount = agg?.noRateFoundCount ?? 0;
   const calculatedCount = agg?.costCalculatedCount ?? 0;
   // Cards always count entries (they aggregate the entry set, not the rows on
@@ -574,7 +593,7 @@ export function TimeEntriesPage() {
       width: 100,
       align: 'right',
       render: (row) => (
-        row.costAud > 0
+        row.costAud != null && row.costAud > 0
           ? <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.money(row.costAud * 100, row.currency)}</span>
           : <span style={{ color: 'var(--text-faint)' }}>—</span>
       ),
@@ -808,7 +827,7 @@ export function TimeEntriesPage() {
   // Summed from the selected rows themselves — every row carries its own hours
   // and cost, so these are exact rather than a second opinion from the server.
   const selectionStats: SelectionStat[] = useMemo(() => {
-    const sum = <T,>(rows: T[], pick: (r: T) => number) => rows.reduce((n, r) => n + (pick(r) || 0), 0);
+    const sum = <T,>(rows: T[], pick: (r: T) => number | null) => rows.reduce((n, r) => n + (pick(r) || 0), 0);
     if (grouped) {
       const rows = groupSelection.selectedRows;
       const missing = sum(rows, r => r.missingRateCount);
@@ -878,7 +897,9 @@ export function TimeEntriesPage() {
           dense
           label="Total cost"
           value={fmt.money(totalCostCents)}
-          sublabel={avgRateCents > 0 ? `avg ${fmt.money(avgRateCents)}/h` : undefined}
+          sublabel={costPartial
+            ? 'Cost shown for your clients only'
+            : (avgRateCents != null && avgRateCents > 0 ? `avg ${fmt.money(avgRateCents)}/h` : undefined)}
           icon={<DollarSign size={13} strokeWidth={1.75} />}
         />
         <MetricCard

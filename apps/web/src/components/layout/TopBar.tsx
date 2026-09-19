@@ -9,6 +9,7 @@ import { useGlobalFilters, type DateRange } from '../../hooks/useGlobalFilters';
 import { useSpaces, useSyncHealth } from '../../hooks/useReports';
 import { fmt } from '../../lib/formatters';
 import { currentTheme, toggleTheme as flipTheme } from '../../lib/theme';
+import { useAuth } from '../../hooks/useAuth';
 
 // Spaces in the project's CLICKUP_SPACES config. Used as a fallback label so
 // the three primary spaces always render with their friendly names even if the
@@ -86,7 +87,10 @@ export function TopBar({ onSearchClick, isMobile = false, onMenuClick }: {
 }) {
   const navigate = useNavigate();
   const { dateRange, space, setDateRange, setSpace, customFrom, customTo, setCustomFrom, setCustomTo } = useGlobalFilters();
-  const { data: health } = useSyncHealth();
+  const { access } = useAuth();
+  // Missing `access` (still loading / an older cached session) is never
+  // treated as denied — defaults to unrestricted so nothing flickers off.
+  const { data: health } = useSyncHealth(access?.unrestricted ?? true);
   const { data: spacesData } = useSpaces();
   const [isDark, setIsDark] = useState(() => currentTheme() === 'dark');
 

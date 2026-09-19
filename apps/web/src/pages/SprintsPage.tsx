@@ -28,7 +28,8 @@ import { toCsv, downloadCsv, csvFilename, type CsvColumn } from '../lib/csv';
 // Backend returns dollars (`cost_cents / 100`); fmt.money expects cents. The
 // `*Aud` field name is legacy — the project's actual currency is USD (see the
 // currency-aud-usd-debt note) — this only fixes the unit, not the label.
-function moneyAud(dollars: number) {
+function moneyAud(dollars: number | null) {
+  if (dollars == null) return '—';
   return fmt.money(Math.round(dollars * 100));
 }
 
@@ -81,6 +82,9 @@ function SprintDetailPanel({ listId }: { listId: string }) {
             <Stat label="Assignees" value={fmt.number(detail.assigneeCount)} />
             <Stat label="Cycle time" value={detail.cycleTimeHours != null ? fmt.duration(detail.cycleTimeHours) : '—'} />
           </div>
+          {detail.list.costPartial && (
+            <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>Cost shown for your clients only</div>
+          )}
           <div>
             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
               Hours by assignee
@@ -192,7 +196,7 @@ export function SprintsPage() {
       { header: 'Tasks total', value: 'taskTotal' },
       { header: '% done', value: 'pctDone' },
       { header: 'Hours', value: (r) => r.hours.toFixed(2) },
-      { header: 'Cost (USD)', value: (r) => r.costAud.toFixed(2) },
+      { header: 'Cost (USD)', value: (r) => (r.costAud != null ? r.costAud.toFixed(2) : '') },
     ];
     downloadCsv(csvFilename('sprints'), toCsv(rows, cols));
   }

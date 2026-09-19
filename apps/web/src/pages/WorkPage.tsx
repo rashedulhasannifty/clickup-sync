@@ -9,6 +9,12 @@ import {
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { useRowSelection } from '../hooks/useRowSelection';
 import { useAuth } from '../hooks/useAuth';
+import { useToast } from '../components/ui/Toast';
+
+/** Axios-style error → response.data.message, without `any` (same pattern as XeroSettingsTab). */
+function apiErrorMessage(e: unknown): string | undefined {
+  return (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+}
 import {
   useClientOptions, useFolderOptions, useListOptions, useLoggedByOptions,
   useStatusOptions, useSubProjectOptions, useTaskAssigneeOptions,
@@ -70,8 +76,12 @@ const csv = (v: string[]) => (v.length ? v.join(',') : undefined);
 const blank = (v: unknown) => <span style={{ color: 'var(--text-faint)' }}>{v == null || v === '' ? '—' : String(v)}</span>;
 
 export function WorkPage() {
-  const { hasRole } = useAuth();
-  const canEdit = hasRole('ADMIN');
+  const { access } = useAuth();
+  // Server gate for these chargeability write paths is per-task/per-entry lead
+  // access, not Owner/Admin-only — a lead may edit chargeability on their own
+  // led clients. Missing `access` (still loading / an older cached session) is
+  // never treated as denied.
+  const canEdit = access?.canEditChargeability ?? true;
   const { space, fromDate, toDate } = useGlobalFilters();
 
   // ── Filters ───────────────────────────────────────────────────────────────
@@ -204,10 +214,19 @@ export function WorkPage() {
   const [selectedTask, setSelectedTask] = useState<WorkRow | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<TimeEntryItem | null>(null);
   const [chargeableTarget, setChargeableTarget] = useState<{ taskIds: string[]; chargeable: boolean; clearSelectionOnApply: boolean } | null>(null);
+  const toast = useToast();
   const setOverride = useSetEntryChargeableOverride();
   const applyOverride = (value: boolean | null) => {
     const ids = entrySel.selectedRows.map((r) => r.timeEntryId);
-    if (ids.length) setOverride.mutate({ timeEntryIds: ids, chargeable: value }, { onSuccess: () => entrySel.clear() });
+    if (ids.length) setOverride.mutate(
+      { timeEntryIds: ids, chargeable: value },
+      {
+        onSuccess: () => entrySel.clear(),
+        // A lead who is only a MEMBER on some selected entries' clients gets a
+        // 403 for those rows — show the server's own message, not a generic one.
+        onError: (e) => toast.show(apiErrorMessage(e) ?? 'Could not update chargeability.', 'red'),
+      },
+    );
   };
 
   // ── Reset ─────────────────────────────────────────────────────────────────
@@ -304,8 +323,8 @@ export function WorkPage() {
         { header: 'Duration (h)', value: 'durationHours', type: 'number' },
         { header: 'Chargeable', value: (e) => (e.chargeable ? 'Yes' : 'No') },
         { header: 'Override', value: (e) => (e.chargeableOverride === null ? '' : e.chargeableOverride ? 'Chargeable' : 'Non-chargeable') },
-        { header: 'Hourly rate', value: (e) => e.hourlyRateCents / 100, type: 'money' },
-        { header: 'Cost', value: (e) => (e.status === 'NO_RATE_FOUND' ? null : e.costCents / 100), type: 'money' },
+        { header: 'Hourly rate', value: (e) => (e.hourlyRateCents != null ? e.hourlyRateCents / 100 : null), type: 'money' },
+        { header: 'Cost', value: (e) => (e.status === 'NO_RATE_FOUND' || e.costCents == null ? null : e.costCents / 100), type: 'money' },
         { header: 'Currency', value: 'currency' },
         { header: 'Status', value: 'status' },
         { header: 'Description', value: 'description', width: 42 },
@@ -358,7 +377,7 @@ export function WorkPage() {
     { key: 'est', header: 'Est', width: 70, align: 'right', sortable: false, render: (r) => (r.timeEstimateHours != null ? <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{fmt.shortHours(r.timeEstimateHours)}</span> : blank(null)) },
     { key: 'logged', header: entryFiltersActive ? 'Logged (matching filters)' : 'Logged (in range)', width: 90, align: 'right', render: (r) => <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.duration(r.logged?.hours ?? 0)}</span> },
     { key: 'lifetime', header: 'Lifetime (ClickUp, ignores range)', width: 130, align: 'right', sortable: false, render: (r) => (r.lifetimeSpentHours != null ? <span title="ClickUp's own total — ignores the date range" style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{fmt.shortHours(r.lifetimeSpentHours)}</span> : blank(null)) },
-    { key: 'cost', header: 'Cost', width: 100, align: 'right', render: (r) => (r.logged && r.logged.costCents > 0 ? <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.money(r.logged.costCents, r.logged.currency)}</span> : blank(null)) },
+    { key: 'cost', header: 'Cost', width: 100, align: 'right', render: (r) => (r.logged && r.logged.costCents != null && r.logged.costCents > 0 ? <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.money(r.logged.costCents, r.logged.currency)}</span> : blank(null)) },
     {
       key: 'rates', header: 'Rates', width: 120, sortable: false,
       render: (r) => {

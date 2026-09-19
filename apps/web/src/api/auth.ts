@@ -1,9 +1,22 @@
 import { apiClient } from './client';
 
 export type Role = 'OWNER' | 'ADMIN' | 'MEMBER';
+
+export interface AccessSummary {
+  scopingEnabled: boolean;
+  unrestricted: boolean;
+  teams: { id: string; name: string; role: 'LEAD' | 'MEMBER' }[];
+  canSeeCost: boolean;
+  canSeeSprints: boolean;
+  canEditChargeability: boolean;
+  hasClickupLink: boolean;
+  timesheetUserIds: string[] | null;
+}
+
 export interface MeResponse {
   user: { id: string; email: string | null; role: Role; isMachine: boolean };
   org: { id: string; name: string };
+  access: AccessSummary;
 }
 
 export const authApi = {

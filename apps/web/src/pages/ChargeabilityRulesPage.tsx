@@ -37,8 +37,11 @@ interface TaskHit {
  */
 export function ChargeabilityRulesPage() {
   const navigate = useNavigate();
-  const { hasRole } = useAuth();
-  const canEdit = hasRole('ADMIN');
+  const { access } = useAuth();
+  // Server gate is `requireLead` — a lead may edit rules for their own led
+  // clients, not just Owner/Admin. Missing `access` (still loading / an older
+  // cached session) is never treated as denied.
+  const canEdit = access?.canEditChargeability ?? true;
   const [page, setPage] = useState(1);
   const rulesQuery = useChargeabilityRules({ limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE });
   const setRule = useSetAssigneeChargeable();

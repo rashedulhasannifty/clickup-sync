@@ -25,9 +25,11 @@ import { CycleTimeCard } from '../components/charts/CycleTimeCard';
 import { fmt } from '../lib/formatters';
 import { toCsv, downloadCsv, csvFilename } from '../lib/csv';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
+import { useAuth } from '../hooks/useAuth';
 
 // Backend returns dollars; fmt.money expects cents. USD is the project currency.
-function moneyAud(dollars: number) {
+function moneyAud(dollars: number | null) {
+  if (dollars == null) return '—';
   return fmt.money(Math.round(dollars * 100));
 }
 
@@ -52,9 +54,9 @@ const STATUS_FALLBACK_PALETTE = [
 ];
 
 type TaskBySpaceRow = { spaceName: string; status: string; count: number };
-type UserTimeRow    = { userId: string | null; userName: string; totalHours: number; totalCostAud: number };
-type ClientTimeRow  = { client: string; totalHours: number; totalCostAud: number };
-type DeptTimeRow    = { department: string; totalHours: number; totalCostAud: number };
+type UserTimeRow    = { userId: string | null; userName: string; totalHours: number; totalCostAud: number | null; costPartial?: boolean };
+type ClientTimeRow  = { client: string; totalHours: number; totalCostAud: number | null; costPartial?: boolean };
+type DeptTimeRow    = { department: string; totalHours: number; totalCostAud: number | null; costPartial?: boolean };
 type SprintPointRow = { spaceName: string; status: string; totalPoints: number };
 type Stats          = { missingRateEntries: number };
 type TasksSummary   = {
@@ -86,16 +88,25 @@ export function AnalyticsPage() {
   // call sites can't drift apart).
   const rowLabel = (d: BarData) => `View time entries for ${d.label}`;
 
-  const deltasQ = useOverviewDeltas();
+  const { access } = useAuth();
+  // A missing `access` (still loading / an older cached session) is never
+  // treated as denied — these default to unrestricted so nothing flickers off.
+  // (Reaching this page at all already implies `canSeeCost`, via the route's
+  // `RequireAccess` — these are the OTHER, unrelated gates this page touches.)
+  const unrestricted = access?.unrestricted ?? true;
+  const canSeeCost = access?.canSeeCost ?? true;
+  const canSeeSprints = access?.canSeeSprints ?? true;
+
+  const deltasQ = useOverviewDeltas(undefined, undefined, canSeeCost);
   const deltas = deltasQ.data;
 
-  const stats        = useStats();
+  const stats        = useStats(unrestricted);
   const tasksSummary = useTasksSummary();
   const tasksBySpace = useTasksBySpaceStatus();
   const timeByUser   = useTimeEntriesByUser();
   const timeByClient = useTimeEntriesByClient();
   const timeByDept   = useTimeEntriesByDepartment();
-  const sprintPoints = useSprintPoints();
+  const sprintPoints = useSprintPoints(undefined, canSeeSprints);
 
   const sd      = stats.data as Stats | undefined;
   const summary = tasksSummary.data as TasksSummary | undefined;
@@ -105,7 +116,11 @@ export function AnalyticsPage() {
 
   const userRows = (timeByUser.data as UserTimeRow[] | undefined) ?? [];
   const totalHours = userRows.reduce((s, r) => s + r.totalHours, 0);
-  const totalCost  = userRows.reduce((s, r) => s + r.totalCostAud, 0);
+  const totalCost  = userRows.reduce((s, r) => s + (r.totalCostAud ?? 0), 0);
+  // True when any assignee's cost (or either delta window's cost) was masked —
+  // the total above is a partial sum, not the whole window's cost.
+  const costPartial = userRows.some((r) => r.costPartial)
+    || !!deltas?.current.costPartial || !!deltas?.prior.costPartial;
   const missingRates = sd?.missingRateEntries ?? 0;
 
   // Short range label for delta pills — derived from the topbar's dateRange.
@@ -167,24 +182,26 @@ export function AnalyticsPage() {
     .sort((a, b) => b.totalHours - a.totalHours)
     .map((r, i) => ({ label: r.userName, value: r.totalHours, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} />, filterKey: r.userId ?? undefined }));
 
-  // BarChart: cost by assignee — all assignees.
+  // BarChart: cost by assignee — all assignees. Masked (null) cost sorts/plots
+  // as 0 here — the bar is visual only; `moneyAud` (via formatValue) still
+  // renders the true "—" for a masked value.
   const costByUserData = [...userRows]
-    .sort((a, b) => b.totalCostAud - a.totalCostAud)
-    .map((r, i) => ({ label: r.userName, value: r.totalCostAud, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} />, filterKey: r.userId ?? undefined }));
+    .sort((a, b) => (b.totalCostAud ?? 0) - (a.totalCostAud ?? 0))
+    .map((r, i) => ({ label: r.userName, value: r.totalCostAud ?? 0, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} />, filterKey: r.userId ?? undefined }));
 
   // BarChart: cost by department — all departments.
   const deptRows = (timeByDept.data as DeptTimeRow[] | undefined) ?? [];
   const costByDeptData = [...deptRows]
-    .sort((a, b) => b.totalCostAud - a.totalCostAud)
-    .map((r, i) => ({ label: r.department, value: r.totalCostAud, color: SPACE_COLORS[i % SPACE_COLORS.length] }));
+    .sort((a, b) => (b.totalCostAud ?? 0) - (a.totalCostAud ?? 0))
+    .map((r, i) => ({ label: r.department, value: r.totalCostAud ?? 0, color: SPACE_COLORS[i % SPACE_COLORS.length] }));
 
   // BarChart: cost by client — all clients.
   const clientRows = (timeByClient.data as ClientTimeRow[] | undefined) ?? [];
   const costByClientData = [...clientRows]
-    .sort((a, b) => b.totalCostAud - a.totalCostAud)
+    .sort((a, b) => (b.totalCostAud ?? 0) - (a.totalCostAud ?? 0))
     .map((r, i) => ({
       label: r.client,
-      value: Math.round(r.totalCostAud * 100),
+      value: Math.round((r.totalCostAud ?? 0) * 100),
       color: SPACE_COLORS[i % SPACE_COLORS.length],
       filterKey: r.client || undefined,
     }));
@@ -202,7 +219,7 @@ export function AnalyticsPage() {
   // are emitted as raw numbers (not "$1,234.00") so they stay spreadsheet-usable;
   // empty cells where a metric doesn't apply to that category.
   function handleExport() {
-    type Row = { category: string; label: string; hours?: number; cost?: number; tasks?: number; points?: number };
+    type Row = { category: string; label: string; hours?: number; cost?: number | null; tasks?: number; points?: number };
     const rows: Row[] = [];
     tasksByStatusData.forEach((d) => rows.push({ category: 'Tasks by status', label: d.label, tasks: d.value }));
     tasksBySpaceData.forEach((d) => rows.push({ category: 'Tasks by space', label: d.label, tasks: d.value }));
@@ -250,7 +267,7 @@ export function AnalyticsPage() {
         <MetricCard
           label="Calculated cost"
           value={timeByUser.isLoading ? '—' : moneyAud(totalCost)}
-          caption={dateRangeLabel}
+          caption={costPartial ? 'Cost shown for your clients only' : dateRangeLabel}
           delta={deltas && <Delta current={deltas.current.totalCostAud} prior={deltas.prior.totalCostAud} rangeLabel={rangeShort} />}
           icon={<DollarSign size={14} strokeWidth={1.75} />}
         />

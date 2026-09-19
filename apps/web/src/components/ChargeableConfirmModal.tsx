@@ -5,6 +5,11 @@ import { adminApi } from '../api/admin';
 import { reportsApi } from '../api/reports';
 import { fmt } from '../lib/formatters';
 
+/** Axios-style error → response.data.message, without `any` (same pattern as XeroSettingsTab). */
+function apiErrorMessage(e: unknown): string | undefined {
+  return (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+}
+
 /**
  * Confirms a chargeability change before it happens — required on every route
  * that sets the flag. The counts come from the server: a Tasks row carries
@@ -95,7 +100,12 @@ export function ChargeableConfirmModal({
         </div>
       )}
       {apply.isError && (
-        <p style={{ color: 'var(--red, var(--text))', fontSize: 12 }}>Could not apply the change. Try again.</p>
+        // A lead who is only a member on some of the selected tasks gets a 403
+        // for those rows — surface the server's own message (e.g. which task)
+        // rather than a generic one.
+        <p style={{ color: 'var(--red, var(--text))', fontSize: 12 }}>
+          {apiErrorMessage(apply.error) ?? 'Could not apply the change. Try again.'}
+        </p>
       )}
     </Modal>
   );
