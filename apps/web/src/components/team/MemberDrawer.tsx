@@ -34,7 +34,7 @@ export interface DrawerMember {
  *
  *  `local` seeds from `member.teams` once and is then the source of truth for
  *  the rest of this drawer's lifetime — the caller keys `<MemberDrawer>` on
- *  `member.id` (see TeamPage.tsx) so opening a different member's drawer
+ *  `member.id` (see UsersPage.tsx) so opening a different member's drawer
  *  remounts this hook with a fresh initializer instead of needing an effect
  *  to resync it. */
 function useTeamsSection(member: DrawerMember, onToast: (msg: string) => void) {

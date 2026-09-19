@@ -20,6 +20,7 @@ import {
   X,
   type LucideIcon,
   UsersRound,
+  UserCog,
   Wallet,
   Rocket,
   ListTree,
@@ -109,7 +110,7 @@ export function Sidebar({
     ...(isLeadOfATeam ? [{ to: "/my-team", label: "My team", icon: UsersRound }] : []),
     ...(isAdmin
       ? [
-          { to: "/team", label: "Team", icon: UsersRound },
+          { to: "/users", label: "Users", icon: UserCog },
           { to: "/teams", label: "Teams", icon: Network },
           { to: "/audit-log", label: "Audit Log", icon: ShieldCheck },
           { to: "/settings", label: "Settings", icon: Settings },

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Home, BarChart3, Activity, CheckSquare, Clock, AlertTriangle, DollarSign,
-  Layers, Webhook, Settings, Search, Wallet, Users, ScrollText, Scale, ListTree, Landmark,
+  Layers, Webhook, Settings, Search, Wallet, Users, UserCog, ScrollText, Scale, ListTree, Landmark,
 } from 'lucide-react';
 import { Kbd } from '../ui/Kbd';
 import { useSearch } from '../../hooks/useSearch';
@@ -25,7 +25,7 @@ const NAV_ITEMS: { label: string; to: string; sub: string; icon: typeof Home; ad
   { label: 'Finance (beta)', to: '/finance', sub: '/finance', icon: Landmark, adminOnly: true },
   { label: 'Spaces', to: '/spaces', sub: '/spaces', icon: Layers },
   { label: 'Sync Logs', to: '/sync-logs', sub: '/sync-logs', icon: Webhook, needs: 'unrestricted' },
-  { label: 'Team', to: '/team', sub: '/team', icon: Users, adminOnly: true },
+  { label: 'Users', to: '/users', sub: '/users', icon: UserCog, adminOnly: true },
   { label: 'Teams', to: '/teams', sub: '/teams', icon: Users, adminOnly: true },
   { label: 'Audit Log', to: '/audit-log', sub: '/audit-log', icon: ScrollText, adminOnly: true },
   { label: 'Settings', to: '/settings', sub: '/settings', icon: Settings, adminOnly: true },

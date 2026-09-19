@@ -386,7 +386,7 @@ function Checkbox({
 
 const TH: React.CSSProperties = { textAlign: 'left', padding: '10px 12px' };
 
-export function TeamPage() {
+export function UsersPage() {
   const { user, hasRole } = useAuth();
   const usersQuery = useOrgUsers();
   const invitesQuery = useInvites();
@@ -582,7 +582,7 @@ export function TeamPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <PageHeader
-        title="Team"
+        title="Users"
         description="Manage who has access to this workspace and what they can do."
         actions={
           <Button variant="accent" icon={<UserPlus size={14} />} onClick={() => setInviteOpen(true)}>

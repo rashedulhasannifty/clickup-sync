@@ -74,8 +74,8 @@ const SettingsPage = React.lazy(() =>
 const AuditLogPage = React.lazy(() =>
 	import('./pages/AuditLogPage').then((m) => ({ default: m.AuditLogPage })),
 );
-const TeamPage = React.lazy(() =>
-	import('./pages/TeamPage').then((m) => ({ default: m.TeamPage })),
+const UsersPage = React.lazy(() =>
+	import('./pages/UsersPage').then((m) => ({ default: m.UsersPage })),
 );
 const WorkPage = React.lazy(() =>
 	import('./pages/WorkPage').then((m) => ({ default: m.WorkPage })),
@@ -263,10 +263,23 @@ export default function App() {
 											}
 										/>
 										<Route
+											path="/users"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><UsersPage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										{/* Old link/bookmark for the org-users page (renamed from
+										    "Team" to "Users" to stop colliding with team-scoped
+										    "Teams"/"My team"). Guarded the same as the real route so a
+										    non-admin still bounces to /overview instead of learning
+										    /users exists. */}
+										<Route
 											path="/team"
 											element={
 												<RequireRole min="ADMIN" redirect="/overview">
-													<SuspenseRoute><TeamPage /></SuspenseRoute>
+													<Navigate to="/users" replace />
 												</RequireRole>
 											}
 										/>

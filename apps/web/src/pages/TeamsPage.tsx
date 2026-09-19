@@ -428,8 +428,8 @@ function ReadinessStrip({
           {readiness.membersWithoutTeam.map((u) => (
             <div key={u.id} style={{ fontSize: 13, color: 'var(--text)' }}>{u.name?.trim() || u.email}</div>
           ))}
-          <Link to="/team" style={{ fontSize: 12.5, color: 'var(--accent-strong)', fontWeight: 600 }}>
-            Fix in Team →
+          <Link to="/users" style={{ fontSize: 12.5, color: 'var(--accent-strong)', fontWeight: 600 }}>
+            Fix in Users →
           </Link>
         </div>
       )}
@@ -438,8 +438,8 @@ function ReadinessStrip({
           {readiness.usersWithoutClickupLink.map((u) => (
             <div key={u.id} style={{ fontSize: 13, color: 'var(--text)' }}>{u.name?.trim() || u.email}</div>
           ))}
-          <Link to="/team" style={{ fontSize: 12.5, color: 'var(--accent-strong)', fontWeight: 600 }}>
-            Fix in Team →
+          <Link to="/users" style={{ fontSize: 12.5, color: 'var(--accent-strong)', fontWeight: 600 }}>
+            Fix in Users →
           </Link>
         </div>
       )}
