@@ -23,9 +23,15 @@ import { UsersController } from './users.controller';
 import { isWorker } from '../config/role';
 import { AccessModule } from '../access/access.module';
 import { AccessScopeGuard } from '../access/access-scope.guard';
+import { TeamsModule } from '../teams/teams.module';
+import { ClickupModule } from '../clickup/clickup.module';
 
 @Module({
-  imports: [ConfigModule, MailerModule, AdminModule, AccessModule],
+  // TeamsModule: InvitationService validates an invite's team ids and applies
+  // TeamMember rows on accept (TeamsRepository). ClickupModule: InvitationService
+  // auto-matches an invite's clickupUserId by email (WorkspaceMembersService).
+  // Neither imports AuthModule, so there's no cycle.
+  imports: [ConfigModule, MailerModule, AdminModule, AccessModule, TeamsModule, ClickupModule],
   controllers: [AuthController, InvitationController, UsersController],
   providers: [
     PasswordService, TokenService, PermissionsService, SessionService,

@@ -370,9 +370,14 @@ Teams        [Digital Team A ▾]  as [Lead ▾]     [+ another team]
 ClickUp user [ auto-matched: new.person@company.com ✓ ▾ ]
 ```
 
-- Team rows are stored as `InvitationTeam`. On accept, the same transaction that
-  creates the `User` creates the `TeamMember` rows and copies `clickupUserId`.
-  A lead has access at first sign-in.
+- Team rows are stored as `InvitationTeam`. On accept, the `User` is created
+  first (with `clickupUserId` copied), then `TeamMember` rows are added
+  sequentially via `TeamsRepository.addMember` — **not** in the same
+  transaction as user creation. `addMember` is idempotent, and account
+  creation never fails because a team (or the ClickUp link) couldn't be
+  applied: a failure is logged and the affected user simply surfaces as
+  team-less, or unlinked, in the readiness summary. A lead has access at
+  first sign-in.
 - A team deleted before acceptance has its `InvitationTeam` row cascade-deleted,
   so the assignment is simply skipped.
 - **ClickUp user:** auto-matched by email against

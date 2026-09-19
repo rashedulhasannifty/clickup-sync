@@ -25,6 +25,12 @@ export class TeamsRepository {
     return this.prisma.team.findFirst({ where: { id, orgId }, select: { id: true } });
   }
 
+  /** Org-scoped existence check for a batch of ids (e.g. an invite's team assignments).
+   *  Callers compare the count against the deduped id count to catch any unknown/foreign id. */
+  countInOrg(orgId: string, ids: string[]) {
+    return this.prisma.team.count({ where: { orgId, id: { in: ids } } });
+  }
+
   create(orgId: string, name: string) {
     return this.prisma.team.create({ data: { orgId, name } });
   }

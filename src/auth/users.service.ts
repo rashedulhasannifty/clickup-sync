@@ -1,9 +1,15 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Role, UserStatus } from '@prisma/client';
 import { UserRepository } from './user.repository';
 import { PermissionsService } from './permissions.service';
 import { SessionService } from './session.service';
 import { AuthPrincipal } from './auth.types';
+
+/** Duck-typed Prisma error code check — matches the convention already used in
+ *  src/teams/teams.service.ts and src/auth/invitation.service.ts. */
+function prismaErrorCode(err: unknown): string | undefined {
+  return typeof err === 'object' && err !== null && 'code' in err ? (err as { code?: string }).code : undefined;
+}
 
 @Injectable()
 export class UsersService {
@@ -85,5 +91,19 @@ export class UsersService {
     await this.users.update(targetId, { role: Role.OWNER });
     await this.users.update(actor.userId, { role: Role.ADMIN });
     return { ok: true, newOwnerId: target.id };
+  }
+
+  /** Links (or clears, with `null`) a user's ClickUp identity. `clickupUserId` is
+   *  @unique — a collision with another account surfaces as 409, not a silent steal. */
+  async setClickupUser(actor: AuthPrincipal, targetId: string, clickupUserId: string | null) {
+    const target = await this.require(actor, targetId);
+    try {
+      return await this.users.update(target.id, { clickupUserId });
+    } catch (err) {
+      if (prismaErrorCode(err) === 'P2002') {
+        throw new ConflictException('That ClickUp user is already linked to another account');
+      }
+      throw err;
+    }
   }
 }

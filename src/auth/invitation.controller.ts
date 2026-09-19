@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
@@ -7,8 +7,10 @@ import { CreateInvitationDto } from './dto/create-invitation.dto';
 import { AcceptInvitationDto } from './dto/accept-invitation.dto';
 import { Public, Roles, CurrentUser } from './decorators';
 import { AuthPrincipal } from './auth.types';
+import { AuditLogInterceptor } from '../admin/audit-log.interceptor';
 
 @ApiTags('invitations')
+@UseInterceptors(AuditLogInterceptor)
 @Controller()
 export class InvitationController {
   constructor(private readonly invites: InvitationService) {}

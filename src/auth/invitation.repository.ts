@@ -15,7 +15,10 @@ export class InvitationRepository {
   }
 
   findByTokenHash(tokenHash: string) {
-    return this.prisma.invitation.findUnique({ where: { tokenHash }, include: { org: true } });
+    return this.prisma.invitation.findUnique({
+      where: { tokenHash },
+      include: { org: true, teams: { include: { team: { select: { id: true, name: true } } } } },
+    });
   }
 
   findPendingByEmail(orgId: string, email: string) {
@@ -28,6 +31,7 @@ export class InvitationRepository {
     return this.prisma.invitation.findMany({
       where: { orgId, ...(status ? { status } : {}) },
       orderBy: { createdAt: 'desc' },
+      include: { teams: { include: { team: { select: { id: true, name: true } } } } },
     });
   }
 

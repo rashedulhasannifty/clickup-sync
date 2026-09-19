@@ -5,6 +5,7 @@ import { UsersService } from './users.service';
 import { ChangeRoleDto } from './dto/change-role.dto';
 import { SetStatusDto } from './dto/set-status.dto';
 import { TransferOwnershipDto } from './dto/transfer-ownership.dto';
+import { SetClickupUserDto } from './dto/set-clickup-user.dto';
 import { Roles, CurrentUser } from './decorators';
 import { AuthPrincipal } from './auth.types';
 import { AuditLogInterceptor } from '../admin/audit-log.interceptor';
@@ -31,6 +32,12 @@ export class UsersController {
   @Patch(':id/status')
   setStatus(@CurrentUser() user: AuthPrincipal, @Param('id') id: string, @Body() dto: SetStatusDto) {
     return this.users.setStatus(user, id, dto.status);
+  }
+
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Patch(':id/clickup-user')
+  setClickupUser(@CurrentUser() user: AuthPrincipal, @Param('id') id: string, @Body() dto: SetClickupUserDto) {
+    return this.users.setClickupUser(user, id, dto.clickupUserId ?? null);
   }
 
   @Roles(Role.OWNER, Role.ADMIN)

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Role, UserStatus } from '@prisma/client';
 import { UsersService } from './users.service';
 import { PermissionsService } from './permissions.service';
@@ -102,5 +102,31 @@ describe('UsersService — cross-org IDOR scoping', () => {
     const d = deps([{ id: 'x1', role: Role.MEMBER, orgId: 'org_other', status: UserStatus.ACTIVE }]);
     const svc = new UsersService(d.userRepo as any, new PermissionsService(), sessions);
     await expect(svc.changeRole(owner, 'x1', Role.ADMIN)).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('UsersService.setClickupUser', () => {
+  it('links a user to a ClickUp identity', async () => {
+    const d = deps([{ id: 'm1', role: Role.MEMBER, orgId: 'org_seed', status: UserStatus.ACTIVE }]);
+    const svc = new UsersService(d.userRepo as any, new PermissionsService(), sessions);
+    const u = await svc.setClickupUser(owner, 'm1', 'cu1');
+    expect(u.clickupUserId).toBe('cu1');
+  });
+
+  it('maps a unique-constraint violation (P2002) to ConflictException', async () => {
+    const d = deps([{ id: 'm1', role: Role.MEMBER, orgId: 'org_seed', status: UserStatus.ACTIVE }]);
+    d.userRepo.update = jest.fn(async (_id: string, _data: unknown) => {
+      const err: any = new Error('Unique constraint failed');
+      err.code = 'P2002';
+      throw err;
+    });
+    const svc = new UsersService(d.userRepo as any, new PermissionsService(), sessions);
+    await expect(svc.setClickupUser(owner, 'm1', 'cu-taken')).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('404s a user in another org', async () => {
+    const d = deps([{ id: 'x1', role: Role.MEMBER, orgId: 'org_other', status: UserStatus.ACTIVE }]);
+    const svc = new UsersService(d.userRepo as any, new PermissionsService(), sessions);
+    await expect(svc.setClickupUser(owner, 'x1', 'cu1')).rejects.toBeInstanceOf(NotFoundException);
   });
 });

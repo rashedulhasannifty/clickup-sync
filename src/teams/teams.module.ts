@@ -15,5 +15,8 @@ import { TeamsService } from './teams.service';
   imports: [DatabaseModule, ClientsModule, AdminModule],
   controllers: [TeamsController, MyTeamsController],
   providers: [TeamsRepository, TeamsService, UserRepository],
+  // TeamsRepository is exported so AuthModule can validate an invitation's team
+  // ids and add accepted users to their teams (InvitationService).
+  exports: [TeamsRepository],
 })
 export class TeamsModule {}
