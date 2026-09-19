@@ -113,6 +113,7 @@ describe('UsersService.list', () => {
         role: Role.MEMBER,
         orgId: 'org_seed',
         status: UserStatus.ACTIVE,
+        passwordHash: 'scrypt$super-secret-hash',
         teamMemberships: [{ role: 'LEAD', team: { id: 't1', name: 'Team One' } }],
       },
       { id: 'm2', role: Role.MEMBER, orgId: 'org_seed', status: UserStatus.ACTIVE, teamMemberships: [] },
@@ -122,6 +123,15 @@ describe('UsersService.list', () => {
     expect(rows[0].teams).toEqual([{ id: 't1', name: 'Team One', role: 'LEAD' }]);
     expect(rows[0].teamMemberships).toBeUndefined();
     expect(rows[1].teams).toEqual([]);
+  });
+
+  it('never leaks passwordHash', async () => {
+    const d = deps([
+      { id: 'm1', role: Role.MEMBER, orgId: 'org_seed', status: UserStatus.ACTIVE, passwordHash: 'scrypt$secret', teamMemberships: [] },
+    ]);
+    const svc = new UsersService(d.userRepo as any, new PermissionsService(), sessions);
+    const rows = await svc.list('org_seed');
+    expect((rows[0] as any).passwordHash).toBeUndefined();
   });
 });
 

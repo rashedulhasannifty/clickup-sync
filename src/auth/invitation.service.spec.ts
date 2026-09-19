@@ -93,6 +93,55 @@ describe('InvitationService.create — teams and ClickUp link', () => {
       .rejects.toBeInstanceOf(BadRequestException);
     expect(d.inviteRepo.create).not.toHaveBeenCalled();
   });
+
+  it('rejects a duplicate teamId in the same invite (would otherwise hit InvitationTeam\'s composite PK as an uncaught P2002)', async () => {
+    const d = deps();
+    await expect(svc(d).create(actor, {
+      email: 'new@x.com',
+      role: 'MEMBER',
+      teams: [{ teamId: 't1', role: 'LEAD' }, { teamId: 't1', role: 'MEMBER' }],
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(d.inviteRepo.create).not.toHaveBeenCalled();
+  });
+
+  it('still creates the invite (clickupUserId: null) when the ClickUp directory lookup throws', async () => {
+    const d = deps();
+    d.directory.getDirectory = jest.fn(async () => { throw new Error('ClickUp unavailable'); });
+    await svc(d).create(actor, { email: 'new@x.com', role: 'MEMBER' });
+    expect(d.inviteRepo.create).toHaveBeenCalledWith(expect.objectContaining({ clickupUserId: null }));
+    expect(d.mailer.sendInvite).toHaveBeenCalled();
+  });
+
+  it('re-invite REPLACES the previous team assignments instead of accumulating them', async () => {
+    const d = deps();
+    d.invites.push({ id: 'i0', orgId: 'org_seed', email: 'new@x.com' });
+    d.inviteRepo.findPendingByEmail = jest.fn(async (_orgId: string, _email: string) => ({ id: 'i0' })) as any;
+    await svc(d).create(actor, { email: 'new@x.com', role: 'MEMBER', teams: [{ teamId: 't2', role: 'MEMBER' }] });
+    expect(d.inviteRepo.update).toHaveBeenCalledWith(
+      'i0',
+      expect.objectContaining({ teams: { deleteMany: {}, create: [{ teamId: 't2', role: 'MEMBER' }] } }),
+    );
+  });
+});
+
+describe('InvitationService.list', () => {
+  it('maps each invitation\'s teams and clickupUserId, and never leaks tokenHash', async () => {
+    const d = deps();
+    d.invites.push({
+      id: 'i0',
+      orgId: 'org_seed',
+      email: 'new@x.com',
+      role: Role.MEMBER,
+      status: InvitationStatus.PENDING,
+      clickupUserId: 'cu1',
+      tokenHash: 'super-secret-hash',
+      teams: [{ teamId: 't1', role: 'LEAD', team: { id: 't1', name: 'Team One' } }],
+    });
+    const rows = await svc(d).list('org_seed');
+    expect(rows[0].clickupUserId).toBe('cu1');
+    expect(rows[0].teams).toEqual([{ teamId: 't1', teamName: 'Team One', role: 'LEAD' }]);
+    expect((rows[0] as any).tokenHash).toBeUndefined();
+  });
 });
 
 describe('InvitationService.accept', () => {
@@ -172,14 +221,31 @@ describe('InvitationService.accept — teams and ClickUp link', () => {
     d.invites.push(pendingInvite({ tokenHash, clickupUserId: 'cu-taken' }));
     d.userRepo.create = jest.fn(async (data: any) => {
       if (data.clickupUserId === 'cu-taken') {
-        const err: any = new Error('Unique constraint failed');
+        const err: any = new Error('Unique constraint failed on the fields: (`clickup_user_id`)');
         err.code = 'P2002';
+        err.meta = { target: ['clickup_user_id'] };
         throw err;
       }
       return { id: 'newuser', ...data };
     });
     const user = await svc(d, tokens).accept(token, { name: 'New', password: 'longenough10' });
     expect((user as any).clickupUserId).toBeNull();
+  });
+
+  it('rethrows a P2002 on an unrelated column (e.g. a concurrent double-accept racing on `email`) without retrying unlinked', async () => {
+    const d = deps();
+    const tokens = new TokenService();
+    const { token, tokenHash } = tokens.generate();
+    d.invites.push(pendingInvite({ tokenHash, clickupUserId: 'cu1' }));
+    d.userRepo.create = jest.fn(async (_data: any) => {
+      const err: any = new Error('Unique constraint failed on the fields: (`email`)');
+      err.code = 'P2002';
+      err.meta = { target: ['email'] };
+      throw err;
+    });
+    await expect(svc(d, tokens).accept(token, { name: 'New', password: 'longenough10' }))
+      .rejects.toThrow('Unique constraint failed on the fields: (`email`)');
+    expect(d.userRepo.create).toHaveBeenCalledTimes(1); // no unlinked retry
   });
 });
 

@@ -32,6 +32,8 @@ export class InvitationRepository {
       where: { orgId, ...(status ? { status } : {}) },
       orderBy: { createdAt: 'desc' },
       include: { teams: { include: { team: { select: { id: true, name: true } } } } },
+      // The raw token hash is a credential, never fit for GET /invitations.
+      omit: { tokenHash: true },
     });
   }
 

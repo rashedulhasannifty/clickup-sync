@@ -21,9 +21,11 @@ export class UsersService {
 
   // Reshapes each row's `teamMemberships` (team + role) into the `teams: [{ id,
   // name, role }]` shape the Users page renders as chips — see Task 18.
+  // `passwordHash` is stripped defensively even though the repository query
+  // already omits it — a credential must never reach this API response.
   async list(orgId: string) {
     const users = await this.users.listByOrg(orgId);
-    return users.map(({ teamMemberships, ...u }: any) => ({
+    return users.map(({ teamMemberships, passwordHash: _passwordHash, ...u }: any) => ({
       ...u,
       teams: (teamMemberships ?? []).map((m: any) => ({ id: m.team.id, name: m.team.name, role: m.role })),
     }));

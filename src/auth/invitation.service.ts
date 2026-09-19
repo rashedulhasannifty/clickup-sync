@@ -22,6 +22,17 @@ function prismaErrorCode(err: unknown): string | undefined {
   return typeof err === 'object' && err !== null && 'code' in err ? (err as { code?: string }).code : undefined;
 }
 
+/** True only for a P2002 whose violated unique constraint is the ClickUp-user
+ *  column — never for an unrelated collision (e.g. a concurrent double-accept
+ *  racing on the `email` unique constraint), which must surface as-is instead
+ *  of being mislabelled as a link conflict and silently retried. */
+function isClickupUserIdConflict(err: unknown): boolean {
+  if (prismaErrorCode(err) !== 'P2002') return false;
+  const target = (err as { meta?: { target?: unknown } })?.meta?.target;
+  const targets = Array.isArray(target) ? target : typeof target === 'string' ? [target] : [];
+  return targets.some((t) => /clickup/i.test(String(t)));
+}
+
 @Injectable()
 export class InvitationService {
   private readonly logger = new Logger(InvitationService.name);
@@ -39,16 +50,28 @@ export class InvitationService {
   ) {}
 
   /** Resolves the invite's ClickUp link: `undefined` auto-matches by email against
-   *  the workspace directory, `null` (or an explicit id) is used as-is. */
+   *  the workspace directory, `null` (or an explicit id) is used as-is. The
+   *  directory call is best-effort — a ClickUp outage, bad token, or rate limit
+   *  must never block creating (and emailing) the invite over this optional
+   *  convenience field; the readiness summary already surfaces unlinked users. */
   private async resolveClickupUserId(email: string, dto: CreateInvitationDto): Promise<string | null> {
     if (dto.clickupUserId !== undefined) return dto.clickupUserId;
-    const members = await this.directory.getDirectory();
-    return members.find((m) => m.email?.toLowerCase() === email)?.id ?? null;
+    try {
+      const members = await this.directory.getDirectory();
+      return members.find((m) => m.email?.toLowerCase() === email)?.id ?? null;
+    } catch (err) {
+      this.logger.warn(`Could not auto-match a ClickUp identity for invite ${email}; creating unlinked (${String(err)}).`);
+      return null;
+    }
   }
 
   private async assertTeamsInOrg(orgId: string, teamIds: string[]): Promise<void> {
     if (!teamIds.length) return;
     const uniqueIds = [...new Set(teamIds)];
+    // A duplicate teamId would otherwise hit InvitationTeam's
+    // @@id([invitationId, teamId]) as an uncaught P2002 (500) on write — reject
+    // it up front instead.
+    if (uniqueIds.length !== teamIds.length) throw new BadRequestException('Duplicate team ids in the invitation.');
     const count = await this.teams.countInOrg(orgId, uniqueIds);
     if (count !== uniqueIds.length) throw new BadRequestException('One or more team ids are unknown.');
   }
@@ -101,9 +124,12 @@ export class InvitationService {
 
   async list(orgId: string) {
     const invites = await this.invites.listByOrg(orgId);
-    return invites.map((inv: any) => ({
+    // tokenHash is stripped defensively here even though the repository query
+    // already omits it — a single-use invitation secret must never reach the API
+    // response under any circumstance.
+    return invites.map(({ tokenHash: _tokenHash, teams, ...inv }: any) => ({
       ...inv,
-      teams: (inv.teams ?? []).map((t: any) => ({ teamId: t.teamId, teamName: t.team?.name ?? null, role: t.role })),
+      teams: (teams ?? []).map((t: any) => ({ teamId: t.teamId, teamName: t.team?.name ?? null, role: t.role })),
     }));
   }
 
@@ -152,14 +178,17 @@ export class InvitationService {
       org: { connect: { id: inv.orgId ?? SEED_ORG_ID } },
     };
     // The account must never fail to be created over a ClickUp-link collision: if
-    // the invited clickupUserId is already linked to someone else (P2002 on the
-    // unique column), fall back to creating the user unlinked and log it — the
-    // readiness summary (usersWithoutClickupLink) surfaces them for a manual fix.
+    // the invited clickupUserId is already linked to someone else (P2002 on that
+    // unique column specifically), fall back to creating the user unlinked and log
+    // it — the readiness summary (usersWithoutClickupLink) surfaces them for a
+    // manual fix. Any other P2002 (e.g. a concurrent double-accept racing on the
+    // `email` unique constraint) is a different failure and must rethrow as-is,
+    // not be mislabelled as a link conflict and retried identically.
     let user: User;
     try {
       user = await this.users.create({ ...baseData, clickupUserId: inv.clickupUserId ?? null });
     } catch (err) {
-      if (prismaErrorCode(err) !== 'P2002') throw err;
+      if (!inv.clickupUserId || !isClickupUserIdConflict(err)) throw err;
       this.logger.warn(
         `Invite accept for ${inv.email}: clickupUserId ${inv.clickupUserId} is already linked to another account; creating unlinked.`,
       );
