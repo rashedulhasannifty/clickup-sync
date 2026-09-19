@@ -52,7 +52,7 @@ Access is per-user with role-based access control, organized around a single ten
 - **Roles:**
   - **Owner** — org secrets (ClickUp API token, webhook secret, team ID, webhook registration) plus everything Admins can do.
   - **Admin** — operations: rates/tag-mapping CRUD, recalc, sync/backfill, dead-letter & webhook retry, view audit log, invite Members/Admins. Cannot touch org secrets or Owners.
-  - **Member** — read-only: dashboards and reports, no write actions.
+  - **Member** — read-only: dashboards and reports, no write actions. When Team-scoped access is on (Owner-only toggle in Settings), a Member's read is further narrowed to their team(s)' clients — see "Team-scoped access" in `CLAUDE.md` and the rollout runbook in `docs/OPERATIONS.md`.
 - **Sessions** are HTTP-only cookies, DB-backed (token stored only as a SHA-256 hash). Expired sessions are swept hourly.
 - **`ADMIN_API_KEY`** is no longer a shared admin login — it is now a machine/automation credential that authenticates as a synthetic Owner.
 

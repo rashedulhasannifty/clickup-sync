@@ -979,7 +979,14 @@ export function SettingsPage() {
                   ariaLabel="Team-scoped access"
                   checked={prefs?.access.teamScopingEnabled ?? false}
                   disabled={updateSettings.isPending}
-                  onChange={(v) => setAccessConfirm(v ? 'enable' : 'disable')}
+                  onChange={(v) => {
+                    // The readiness query has a 60s staleTime and no refetch-on-focus, so
+                    // without this an Owner opening the enable confirm minutes after the
+                    // page loaded could see counts that are already stale — force a fresh
+                    // read right as the "live counts" dialog opens.
+                    if (v) void readiness.refetch();
+                    setAccessConfirm(v ? 'enable' : 'disable');
+                  }}
                 />
               }
             />
@@ -1048,7 +1055,9 @@ export function SettingsPage() {
               <p style={{ margin: 0 }}>
                 {readiness.isLoading
                   ? 'Loading readiness…'
-                  : `${readiness.data?.unassignedClients.length ?? 0} clients unassigned, ${readiness.data?.membersWithoutTeam.length ?? 0} members without a team, ${readiness.data?.usersWithoutClickupLink.length ?? 0} users not linked to ClickUp.`}
+                  : readiness.isError
+                    ? 'Could not load the readiness check — counts below are unknown, not zero. Check the Teams page before continuing.'
+                    : `${readiness.data?.unassignedClients.length ?? 0} clients unassigned, ${readiness.data?.membersWithoutTeam.length ?? 0} members without a team, ${readiness.data?.usersWithoutClickupLink.length ?? 0} users not linked to ClickUp.`}
               </p>
               <p style={{ margin: 0, fontWeight: 600 }}>Members will immediately see only their teams' clients.</p>
               <p style={{ margin: 0, color: 'var(--text-muted)' }}>

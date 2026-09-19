@@ -182,12 +182,22 @@ export class TeamsService {
 
   /** R20/R33: the caller's own memberships, plus candidates for teams they LEAD.
    *  Never cost, or other members' ClickUp ids outside a team the caller LEADS —
-   *  `clickupUserId` is populated only for members of a team in `scope.ledTeamIds`
-   *  (so a lead can link to a member's timesheet); for a team the caller merely
-   *  belongs to, every member's `clickupUserId` comes back null. */
+   *  `clickupUserId` is populated only for members of a led team (so a lead can
+   *  link to a member's timesheet); for a team the caller merely belongs to,
+   *  every member's `clickupUserId` comes back null.
+   *
+   *  "Led" is derived from the membership rows, not from `scope.ledTeamIds`:
+   *  an unrestricted caller (Owner/Admin, or ANY caller while the flag is off —
+   *  `resolveScope` gives both `{ kind: 'unrestricted' }`) has no `ledTeamIds`
+   *  on their scope, but if they happen to hold a LEAD membership row they must
+   *  still get the timesheet link and lead-only `candidates` a scoped LEAD gets.
+   *  Scope only narrows a MEMBER; it must never take away from an unrestricted
+   *  caller what their own membership rows already grant. */
   async myTeams(actor: AuthPrincipal, scope: AccessScope) {
     const memberships = await this.repo.membershipsOf(actor.userId);
-    const ledTeamIds = scope.kind === 'scoped' ? scope.ledTeamIds : [];
+    const ledTeamIds = isUnrestricted(scope)
+      ? memberships.filter((m) => m.role === 'LEAD').map((m) => m.team.id)
+      : scope.ledTeamIds;
     const teams = memberships.map((m) => ({
       id: m.team.id,
       name: m.team.name,

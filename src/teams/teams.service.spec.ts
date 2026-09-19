@@ -322,6 +322,37 @@ describe('TeamsService', () => {
       ]);
     });
 
+    it('an unrestricted caller (Owner/Admin, or ANY caller with scoping off) who holds a LEAD membership still gets clickupUserId and candidates — scope must never take away what the membership rows already grant', async () => {
+      const { svc, repo } = make({
+        membershipsOf: jest.fn().mockResolvedValue([
+          {
+            role: 'LEAD',
+            team: {
+              id: 'A',
+              name: 'Team A',
+              clients: [{ option: { name: 'Acme' } }],
+              members: [
+                { role: 'LEAD', user: { id: 'admin', name: 'Admin', email: 'a@x', clickupUserId: 'cu-admin' } },
+                { role: 'MEMBER', user: { id: 'u1', name: 'Existing', email: 'u1@x', clickupUserId: 'cu-1' } },
+              ],
+            },
+          },
+        ]),
+        activeOrgUsers: jest.fn().mockResolvedValue([
+          { id: 'admin', name: 'Admin', email: 'a@x' },
+          { id: 'u1', name: 'Existing', email: 'u1@x' },
+          { id: 'u2', name: 'Candidate', email: 'u2@x' },
+        ]),
+      });
+      const res = await svc.myTeams(admin, { kind: 'unrestricted', canEdit: true });
+      expect(res.teams[0].members).toEqual([
+        { userId: 'admin', name: 'Admin', email: 'a@x', clickupUserId: 'cu-admin', role: 'LEAD' },
+        { userId: 'u1', name: 'Existing', email: 'u1@x', clickupUserId: 'cu-1', role: 'MEMBER' },
+      ]);
+      expect(res.candidates).toEqual([{ id: 'u2', name: 'Candidate', email: 'u2@x' }]);
+      expect(repo.activeOrgUsers).toHaveBeenCalledWith('org');
+    });
+
     it('returns no candidates when the caller leads nothing', async () => {
       const { svc, repo } = make({
         membershipsOf: jest.fn().mockResolvedValue([
