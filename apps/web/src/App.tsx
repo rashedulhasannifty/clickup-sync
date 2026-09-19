@@ -196,9 +196,9 @@ export default function App() {
 										<Route
 											path="/time-spikes"
 											element={
-												<RequireRole min="ADMIN" redirect="/overview">
+												<RequireAccess when={(a) => a.unrestricted} redirect="/overview">
 													<SuspenseRoute><HourSpikesPage /></SuspenseRoute>
-												</RequireRole>
+												</RequireAccess>
 											}
 										/>
 										<Route path="/tasks" element={<SuspenseRoute><TasksPage /></SuspenseRoute>} />
@@ -216,9 +216,9 @@ export default function App() {
 										<Route
 											path="/missing-rates"
 											element={
-												<RequireRole min="ADMIN" redirect="/overview">
+												<RequireAccess when={(a) => a.unrestricted} redirect="/overview">
 													<SuspenseRoute><MissingRatesPage /></SuspenseRoute>
-												</RequireRole>
+												</RequireAccess>
 											}
 										/>
 										<Route
@@ -257,9 +257,9 @@ export default function App() {
 										<Route
 											path="/sync-logs"
 											element={
-												<RequireRole min="ADMIN" redirect="/overview">
+												<RequireAccess when={(a) => a.unrestricted} redirect="/overview">
 													<SuspenseRoute><SyncLogsPage /></SuspenseRoute>
-												</RequireRole>
+												</RequireAccess>
 											}
 										/>
 										<Route

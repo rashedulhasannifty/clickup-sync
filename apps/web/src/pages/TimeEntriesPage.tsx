@@ -770,7 +770,7 @@ export function TimeEntriesPage() {
       align: 'right',
       render: (row) => {
         const cur = row.currency ?? 'USD';
-        return row.hourlyRateCents > 0 ? (
+        return row.hourlyRateCents != null && row.hourlyRateCents > 0 ? (
           <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)', fontSize: 12 }}>
             {fmt.money(row.hourlyRateCents, cur)}/h
           </span>
@@ -789,7 +789,7 @@ export function TimeEntriesPage() {
         if (row.status === 'COST_EXCLUDED') {
           return <span style={{ color: 'var(--text-faint)', fontSize: 12 }}>Excluded</span>;
         }
-        return row.costAud > 0 ? (
+        return row.costAud != null && row.costAud > 0 ? (
           <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.money(row.costAud * 100, cur)}</span>
         ) : (
           <span style={{ color: 'var(--text-faint)' }}>—</span>

@@ -276,7 +276,13 @@ export function TimesheetPage() {
             <MetricCard dense label="Total hours" value={fmt.hours(sheet?.totalHours ?? 0)} loading={loading} icon={<Clock3 size={13} strokeWidth={1.75} />} />
             <MetricCard dense label="Days logged" value={fmt.number(daysLogged)} sublabel={loading ? undefined : `${fmt.hours(avgPerLoggedDay)}/day avg`} loading={loading} />
             {showCost && (
-              <MetricCard dense label="Total cost" value={sheet?.totalCostAud == null ? '—' : fmt.money(sheet.totalCostAud * 100)} loading={loading} />
+              <MetricCard
+                dense
+                label="Total cost"
+                value={sheet?.totalCostAud == null ? '—' : fmt.money(sheet.totalCostAud * 100)}
+                sublabel={sheet?.costPartial ? 'Cost shown for your clients only' : undefined}
+                loading={loading}
+              />
             )}
             {!!sheet?.missingRateCount && (
               <MetricCard dense label="Missing rates" value={fmt.number(sheet.missingRateCount)} sublabel="no rate set" icon={<AlertTriangle size={13} strokeWidth={1.75} />} />

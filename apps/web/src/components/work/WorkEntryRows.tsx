@@ -87,10 +87,10 @@ export function WorkEntryRows({ taskId, params, selectedIds, onToggle, onOpen }:
                   </span>
                 </td>
                 <td style={{ ...cell, textAlign: 'right', color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>
-                  {e.hourlyRateCents > 0 ? `${fmt.money(e.hourlyRateCents, cur)}/h` : '—'}
+                  {e.hourlyRateCents != null && e.hourlyRateCents > 0 ? `${fmt.money(e.hourlyRateCents, cur)}/h` : '—'}
                 </td>
                 <td style={{ ...cell, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                  {e.status === 'COST_EXCLUDED' ? <span style={{ color: 'var(--text-faint)' }}>Excluded</span> : e.costAud > 0 ? fmt.money(e.costAud * 100, cur) : '—'}
+                  {e.status === 'COST_EXCLUDED' ? <span style={{ color: 'var(--text-faint)' }}>Excluded</span> : e.costAud != null && e.costAud > 0 ? fmt.money(e.costAud * 100, cur) : '—'}
                 </td>
                 <td style={cell}>
                   {e.status === 'COST_CALCULATED'

@@ -21,8 +21,8 @@ export interface TimeEntryItem {
   startTime: string;
   endTime: string | null;
   durationHours: number;
-  hourlyRateCents: number;
-  costAud: number;
+  hourlyRateCents: number | null;
+  costAud: number | null;
   status: string;
   chargeable: boolean;
   /**
@@ -65,7 +65,7 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
   }
 
   const currency = entry.currency ?? 'USD';
-  const hasCost = entry.status === 'COST_CALCULATED' && entry.costAud > 0;
+  const hasCost = entry.status === 'COST_CALCULATED' && entry.costAud != null && entry.costAud > 0;
   const firstName = entry.userName.split(/\s+/)[0] ?? entry.userName;
 
   return (
@@ -152,7 +152,8 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
               </div>
               <div style={{ fontSize: 13, color: 'var(--text)', fontVariantNumeric: 'tabular-nums', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 {fmt.duration(entry.durationHours)} × {fmt.money(entry.hourlyRateCents, currency)}/h ={' '}
-                <strong style={{ fontSize: 16 }}>{fmt.money(entry.costAud * 100, currency)}</strong>
+                {/* Guaranteed non-null here: `hasCost` (which gates this whole branch) already checked it. */}
+                <strong style={{ fontSize: 16 }}>{fmt.money(entry.costAud! * 100, currency)}</strong>
               </div>
             </div>
           ) : entry.status === 'COST_EXCLUDED' ? (
@@ -175,7 +176,7 @@ export function TimeEntryDrawer({ entry, onClose }: TimeEntryDrawerProps) {
                 This entry is non-chargeable, so its cost is $0. Hours still count toward totals.
                 {/* The rate is stored, but only when one covered the entry date —
                     don't present a zero as "the resolved rate". */}
-                {entry.hourlyRateCents > 0 && (
+                {entry.hourlyRateCents != null && entry.hourlyRateCents > 0 && (
                   <> The resolved rate was {fmt.money(entry.hourlyRateCents, currency)}/h.</>
                 )}
               </div>

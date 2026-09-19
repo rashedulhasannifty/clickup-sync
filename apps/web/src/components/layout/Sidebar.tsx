@@ -82,15 +82,17 @@ export function Sidebar({
   const navItems: NavItem[] = [
     { to: "/overview", label: "Overview", icon: Home },
     ...(canSeeCost ? [{ to: "/analytics", label: "Analytics", icon: BarChart3 }] : []),
-    // Time Spikes, Missing Rates, Assignee Rates, Sync Logs are Owner/Admin
-    // endpoints — showing them to members was already a dead end.
-    ...(isAdmin ? [{ to: "/time-spikes", label: "Time Spikes", icon: Activity }] : []),
+    // Time Spikes, Missing Rates and Sync Logs are `requireUnrestricted`
+    // server-side (Ruling R30/R22) — NOT Owner/Admin-only. A flag-off MEMBER
+    // uses these pages today, so they gate on `unrestricted`, not `isAdmin`.
+    // Assignee Rates really is `@Roles(OWNER, ADMIN)` and stays on `isAdmin`.
+    ...(unrestricted ? [{ to: "/time-spikes", label: "Time Spikes", icon: Activity }] : []),
     { to: "/tasks", label: "Tasks", icon: CheckSquare },
     { to: "/work", label: "Tasks & time", icon: ListTree, tag: "Beta" },
     ...(canSeeSprints ? [{ to: "/sprints", label: "Sprints", icon: Rocket }] : []),
     { to: "/time-entries", label: "Time Entries", icon: Clock },
     { to: "/timesheet", label: "Timesheet", icon: CalendarClock },
-    ...(isAdmin
+    ...(unrestricted
       ? [{
           to: "/missing-rates",
           label: "Missing Rates",
@@ -103,7 +105,7 @@ export function Sidebar({
     ...(canSeeCost ? [{ to: "/budgets", label: "Budgets", icon: Wallet }] : []),
     ...(showFinance ? [{ to: "/finance", label: "Finance", icon: Landmark, tag: "Beta" }] : []),
     { to: "/spaces", label: "Spaces", icon: Layers },
-    ...(isAdmin ? [{ to: "/sync-logs", label: "Sync Logs", icon: Webhook }] : []),
+    ...(unrestricted ? [{ to: "/sync-logs", label: "Sync Logs", icon: Webhook }] : []),
     ...(isLeadOfATeam ? [{ to: "/my-team", label: "My team", icon: UsersRound }] : []),
     ...(isAdmin
       ? [

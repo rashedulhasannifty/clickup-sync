@@ -440,7 +440,7 @@ export function OverviewPage() {
           delta={deltas && <Delta current={deltas.current.totalCostAud} prior={deltas.prior.totalCostAud} rangeLabel={rangeShort} />}
           icon={<DollarSign size={14} strokeWidth={1.75} />}
         />
-        {hasRole('ADMIN') && (
+        {unrestricted && (
           <MetricCard
             label="Missing rates"
             value={fmt.number(missingRates)}
@@ -575,8 +575,10 @@ export function OverviewPage() {
         </Card>}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
-          {/* Alerts */}
-          <Card
+          {/* Alerts — every input (`stats`) is `requireUnrestricted`; a disabled
+              query's `.data` is `undefined`, not a real "nothing's wrong", so
+              this whole card is hidden rather than fabricating "All clear". */}
+          {unrestricted && <Card
             padding={0}
             title="Alerts"
             subtitle="Items needing operator attention"
@@ -627,7 +629,7 @@ export function OverviewPage() {
                 ))}
               </div>
             )}
-          </Card>
+          </Card>}
           <AnomaliesPanel />
         </div>
       </div>

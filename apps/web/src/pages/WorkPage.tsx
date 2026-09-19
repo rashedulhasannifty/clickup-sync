@@ -276,7 +276,7 @@ export function WorkPage() {
         entries = entrySel.selectedRows.map((e) => ({
           timeEntryId: e.timeEntryId, taskId: e.taskId || null, taskName: e.taskName, userId: e.userId, userName: e.userName,
           userEmail: e.userEmail, startTime: e.startTime, endTime: e.endTime, durationHours: e.durationHours,
-          hourlyRateCents: e.hourlyRateCents, costCents: Math.round(e.costAud * 100), currency: e.currency ?? 'USD',
+          hourlyRateCents: e.hourlyRateCents, costCents: e.costAud != null ? Math.round(e.costAud * 100) : null, currency: e.currency ?? 'USD',
           status: e.status, chargeable: e.chargeable, chargeableOverride: e.chargeableOverride, description: e.description,
         }));
         // Both sheets describe the same set: only the tasks the selected entries belong to.
@@ -304,7 +304,7 @@ export function WorkPage() {
         { header: 'Est. hours', value: 'timeEstimateHours', type: 'number' },
         { header: 'Logged hours (in range)', value: (r) => r.logged?.hours ?? 0, type: 'number' },
         { header: 'Chargeable hours (in range)', value: (r) => r.logged?.chargeableHours ?? 0, type: 'number' },
-        { header: 'Cost (rated entries)', value: (r) => (r.logged?.costCents ?? 0) / 100, type: 'money' },
+        { header: 'Cost (rated entries)', value: (r) => (r.logged?.costCents != null ? r.logged.costCents / 100 : null), type: 'money' },
         { header: 'Currency', value: (r) => r.logged?.currency ?? '' },
         { header: 'Entries missing a rate', value: (r) => r.logged?.missingRateCount ?? 0, type: 'integer' },
         { header: 'Lifetime hours (ClickUp, ignores range)', value: 'lifetimeSpentHours', type: 'number' },
@@ -471,7 +471,13 @@ export function WorkPage() {
         <MetricCard dense label="Tasks" value={fmt.number(total)} sublabel="with activity in range" icon={<ListTree size={13} strokeWidth={1.75} />} />
         <MetricCard dense label="Logged in range" value={fmt.hours(totals?.hours ?? 0)} sublabel={`${fmt.number(totals?.entries ?? 0)} entries`} icon={<Clock size={13} strokeWidth={1.75} />} />
         <MetricCard dense label="Chargeable" value={fmt.hours(totals?.chargeableHours ?? 0)} sublabel={`${chargeablePct}%`} icon={<DollarSign size={13} strokeWidth={1.75} />} />
-        <MetricCard dense label="Cost" value={fmt.money(totals?.costCents ?? 0)} sublabel="rated entries only" icon={<DollarSign size={13} strokeWidth={1.75} />} />
+        <MetricCard
+          dense
+          label="Cost"
+          value={fmt.money(totals?.costCents ?? null)}
+          sublabel={totals?.costPartial ? 'Cost shown for your clients only' : 'rated entries only'}
+          icon={<DollarSign size={13} strokeWidth={1.75} />}
+        />
         <MetricCard dense label="Missing rates" value={fmt.number(totals?.missingRateCount ?? 0)} sublabel="entries need a rate" icon={<AlertTriangle size={13} strokeWidth={1.75} />} />
       </div>
 

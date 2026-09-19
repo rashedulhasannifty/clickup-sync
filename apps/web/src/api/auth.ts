@@ -16,7 +16,11 @@ export interface AccessSummary {
 export interface MeResponse {
   user: { id: string; email: string | null; role: Role; isMachine: boolean };
   org: { id: string; name: string };
-  access: AccessSummary;
+  // Optional: an older cached response (e.g. a stale service-worker cache, or
+  // a session predating this field) may not carry it. Every consumer already
+  // treats a missing `access` as unrestricted rather than denied — this makes
+  // the type honest about that possibility instead of lying with `access!`.
+  access?: AccessSummary;
 }
 
 export const authApi = {

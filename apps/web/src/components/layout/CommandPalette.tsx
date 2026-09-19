@@ -8,20 +8,23 @@ import { Kbd } from '../ui/Kbd';
 import { useSearch } from '../../hooks/useSearch';
 import { useAuth } from '../../hooks/useAuth';
 
-const NAV_ITEMS: { label: string; to: string; sub: string; icon: typeof Home; adminOnly?: boolean; needs?: 'canSeeCost' | 'canSeeSprints' | 'canEditChargeability' }[] = [
+const NAV_ITEMS: { label: string; to: string; sub: string; icon: typeof Home; adminOnly?: boolean; needs?: 'canSeeCost' | 'canSeeSprints' | 'canEditChargeability' | 'unrestricted' }[] = [
   { label: 'Overview', to: '/overview', sub: '/overview', icon: Home },
   { label: 'Analytics', to: '/analytics', sub: '/analytics', icon: BarChart3, needs: 'canSeeCost' },
-  { label: 'Time Spikes', to: '/time-spikes', sub: '/time-spikes', icon: Activity, adminOnly: true },
+  // Time Spikes, Missing Rates and Sync Logs are `requireUnrestricted`
+  // server-side (Ruling R30/R22) — NOT Owner/Admin-only. Assignee Rates really
+  // is `@Roles(OWNER, ADMIN)` and stays `adminOnly`.
+  { label: 'Time Spikes', to: '/time-spikes', sub: '/time-spikes', icon: Activity, needs: 'unrestricted' },
   { label: 'Tasks', to: '/tasks', sub: '/tasks', icon: CheckSquare },
   { label: 'Tasks & time (beta)', to: '/work', sub: '/work', icon: ListTree },
   { label: 'Time Entries', to: '/time-entries', sub: '/time-entries', icon: Clock },
-  { label: 'Missing Rates', to: '/missing-rates', sub: '/missing-rates', icon: AlertTriangle, adminOnly: true },
+  { label: 'Missing Rates', to: '/missing-rates', sub: '/missing-rates', icon: AlertTriangle, needs: 'unrestricted' },
   { label: 'Assignee Rates', to: '/assignee-rates', sub: '/assignee-rates', icon: DollarSign, adminOnly: true },
   { label: 'Chargeability Rules', to: '/chargeability-rules', sub: '/chargeability-rules', icon: Scale, needs: 'canEditChargeability' },
   { label: 'Budgets', to: '/budgets', sub: '/budgets', icon: Wallet, needs: 'canSeeCost' },
   { label: 'Finance (beta)', to: '/finance', sub: '/finance', icon: Landmark, adminOnly: true },
   { label: 'Spaces', to: '/spaces', sub: '/spaces', icon: Layers },
-  { label: 'Sync Logs', to: '/sync-logs', sub: '/sync-logs', icon: Webhook, adminOnly: true },
+  { label: 'Sync Logs', to: '/sync-logs', sub: '/sync-logs', icon: Webhook, needs: 'unrestricted' },
   { label: 'Team', to: '/team', sub: '/team', icon: Users, adminOnly: true },
   { label: 'Teams', to: '/teams', sub: '/teams', icon: Users, adminOnly: true },
   { label: 'Audit Log', to: '/audit-log', sub: '/audit-log', icon: ScrollText, adminOnly: true },
@@ -48,6 +51,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const canSeeCost = access?.canSeeCost ?? true;
   const canSeeSprints = access?.canSeeSprints ?? true;
   const canEditChargeability = access?.canEditChargeability ?? true;
+  const unrestricted = access?.unrestricted ?? true;
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -69,8 +73,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   const filtered = useMemo<Action[]>(() => {
     const q = query.trim().toLowerCase();
-    const needsMet: Record<'canSeeCost' | 'canSeeSprints' | 'canEditChargeability', boolean> = {
-      canSeeCost, canSeeSprints, canEditChargeability,
+    const needsMet: Record<'canSeeCost' | 'canSeeSprints' | 'canEditChargeability' | 'unrestricted', boolean> = {
+      canSeeCost, canSeeSprints, canEditChargeability, unrestricted,
     };
     const nav: Action[] = NAV_ITEMS
       .filter((r) => !r.adminOnly || isAdmin)
@@ -96,7 +100,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     }));
 
     return [...taskActions, ...assigneeActions, ...nav].slice(0, 20);
-  }, [query, results, select, isAdmin, canSeeCost, canSeeSprints, canEditChargeability]);
+  }, [query, results, select, isAdmin, canSeeCost, canSeeSprints, canEditChargeability, unrestricted]);
 
   // Keep the active item visible when keyboard nav moves it past the fold.
   useEffect(() => {

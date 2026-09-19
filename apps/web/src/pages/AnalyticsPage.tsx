@@ -182,26 +182,33 @@ export function AnalyticsPage() {
     .sort((a, b) => b.totalHours - a.totalHours)
     .map((r, i) => ({ label: r.userName, value: r.totalHours, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} />, filterKey: r.userId ?? undefined }));
 
-  // BarChart: cost by assignee — all assignees. Masked (null) cost sorts/plots
-  // as 0 here — the bar is visual only; `moneyAud` (via formatValue) still
-  // renders the true "—" for a masked value.
-  const costByUserData = [...userRows]
-    .sort((a, b) => (b.totalCostAud ?? 0) - (a.totalCostAud ?? 0))
-    .map((r, i) => ({ label: r.userName, value: r.totalCostAud ?? 0, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} />, filterKey: r.userId ?? undefined }));
+  // BarChart: cost by assignee — assignees whose cost isn't masked for this
+  // viewer. Ruling R31: a masked (null) cost must never render/plot as a real
+  // $0 bar — those rows are excluded entirely, and the caption below says how
+  // many were hidden, rather than lying with a zero-height bar.
+  const costByUserVisible = userRows.filter((r) => r.totalCostAud != null);
+  const costByUserHidden = userRows.length - costByUserVisible.length;
+  const costByUserData = costByUserVisible
+    .sort((a, b) => (b.totalCostAud as number) - (a.totalCostAud as number))
+    .map((r, i) => ({ label: r.userName, value: r.totalCostAud as number, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} />, filterKey: r.userId ?? undefined }));
 
-  // BarChart: cost by department — all departments.
+  // BarChart: cost by department — same masking rule as above.
   const deptRows = (timeByDept.data as DeptTimeRow[] | undefined) ?? [];
-  const costByDeptData = [...deptRows]
-    .sort((a, b) => (b.totalCostAud ?? 0) - (a.totalCostAud ?? 0))
-    .map((r, i) => ({ label: r.department, value: r.totalCostAud ?? 0, color: SPACE_COLORS[i % SPACE_COLORS.length] }));
+  const costByDeptVisible = deptRows.filter((r) => r.totalCostAud != null);
+  const costByDeptHidden = deptRows.length - costByDeptVisible.length;
+  const costByDeptData = costByDeptVisible
+    .sort((a, b) => (b.totalCostAud as number) - (a.totalCostAud as number))
+    .map((r, i) => ({ label: r.department, value: r.totalCostAud as number, color: SPACE_COLORS[i % SPACE_COLORS.length] }));
 
-  // BarChart: cost by client — all clients.
+  // BarChart: cost by client — same masking rule as above.
   const clientRows = (timeByClient.data as ClientTimeRow[] | undefined) ?? [];
-  const costByClientData = [...clientRows]
-    .sort((a, b) => (b.totalCostAud ?? 0) - (a.totalCostAud ?? 0))
+  const costByClientVisible = clientRows.filter((r) => r.totalCostAud != null);
+  const costByClientHidden = clientRows.length - costByClientVisible.length;
+  const costByClientData = costByClientVisible
+    .sort((a, b) => (b.totalCostAud as number) - (a.totalCostAud as number))
     .map((r, i) => ({
       label: r.client,
-      value: Math.round((r.totalCostAud ?? 0) * 100),
+      value: Math.round((r.totalCostAud as number) * 100),
       color: SPACE_COLORS[i % SPACE_COLORS.length],
       filterKey: r.client || undefined,
     }));
@@ -271,15 +278,20 @@ export function AnalyticsPage() {
           delta={deltas && <Delta current={deltas.current.totalCostAud} prior={deltas.prior.totalCostAud} rangeLabel={rangeShort} />}
           icon={<DollarSign size={14} strokeWidth={1.75} />}
         />
-        <MetricCard
-          label="Missing rates"
-          value={stats.isLoading ? '—' : fmt.number(missingRates)}
-          sublabel={missingRates > 0 ? 'needs review' : 'all costed'}
-          delta={missingRates > 0 ? 'needs review' : undefined}
-          deltaTone={missingRates > 0 ? 'down' : undefined}
-          icon={<AlertTriangle size={14} strokeWidth={1.75} />}
-          onClick={() => navigate('/missing-rates')}
-        />
+        {/* `stats` (ops/missing-rates) is `requireUnrestricted` — a disabled
+            query's `.data` is `undefined`, not a real zero. Hide the card
+            rather than show a fabricated "0" / "all costed" to a scoped viewer. */}
+        {unrestricted && (
+          <MetricCard
+            label="Missing rates"
+            value={stats.isLoading ? '—' : fmt.number(missingRates)}
+            sublabel={missingRates > 0 ? 'needs review' : 'all costed'}
+            delta={missingRates > 0 ? 'needs review' : undefined}
+            deltaTone={missingRates > 0 ? 'down' : undefined}
+            icon={<AlertTriangle size={14} strokeWidth={1.75} />}
+            onClick={() => navigate('/missing-rates')}
+          />
+        )}
       </div>
 
       {/* Cost trend */}
@@ -300,7 +312,11 @@ export function AnalyticsPage() {
           <DonutChart data={tasksByStatusData} size={140} thickness={14} centerLabel="Total" centerValue={totalTasks} />
         </Card>
 
-        <Card title="Cost by client" subtitle={`By spend · ${costByClientData.length} clients`} padding={16}>
+        <Card
+          title="Cost by client"
+          subtitle={`By spend · ${costByClientData.length} clients${costByClientHidden > 0 ? ` · ${costByClientHidden} hidden — cost not visible to you` : ''}`}
+          padding={16}
+        >
           <BarChart
             data={costByClientData}
             direction="horizontal"
@@ -320,7 +336,11 @@ export function AnalyticsPage() {
           />
         </Card>
 
-        <Card title="Cost by assignee" subtitle={`Calculated labor cost · ${costByUserData.length} assignees`} padding={16}>
+        <Card
+          title="Cost by assignee"
+          subtitle={`Calculated labor cost · ${costByUserData.length} assignees${costByUserHidden > 0 ? ` · ${costByUserHidden} hidden — cost not visible to you` : ''}`}
+          padding={16}
+        >
           <BarChart
             data={costByUserData}
             direction="horizontal"
@@ -330,7 +350,11 @@ export function AnalyticsPage() {
           />
         </Card>
 
-        <Card title="Cost by department" subtitle="Calculated labor cost" padding={16}>
+        <Card
+          title="Cost by department"
+          subtitle={costByDeptHidden > 0 ? `Calculated labor cost · ${costByDeptHidden} hidden — cost not visible to you` : 'Calculated labor cost'}
+          padding={16}
+        >
           <BarChart data={costByDeptData} direction="horizontal" formatValue={v => moneyAud(v)} />
         </Card>
 
