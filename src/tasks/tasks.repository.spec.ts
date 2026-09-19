@@ -20,7 +20,11 @@ describe('TasksRepository.upsert', () => {
       findUnique: jest.fn().mockResolvedValue(null),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     };
-    const prisma = { $transaction: jest.fn((fn: any) => fn(prisma)), clickupTask } as unknown as never;
+    const prisma = {
+      $transaction: jest.fn((fn: any) => fn(prisma)),
+      $executeRaw: jest.fn().mockResolvedValue(0),
+      clickupTask,
+    } as unknown as never;
     return { repo: new TasksRepository(prisma), upsert };
   }
 
@@ -65,7 +69,11 @@ describe('local annotations', () => {
       findUnique: jest.fn().mockResolvedValue(null),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     };
-    const prisma = { $transaction: jest.fn((fn: any) => fn(prisma)), clickupTask } as unknown as never;
+    const prisma = {
+      $transaction: jest.fn((fn: any) => fn(prisma)),
+      $executeRaw: jest.fn().mockResolvedValue(0),
+      clickupTask,
+    } as unknown as never;
     const repo = new TasksRepository(prisma);
 
     await repo.upsert({ taskId: 't1', taskName: 'Fix webhook dedupe', raw: {} } as never);
@@ -84,6 +92,7 @@ describe('TasksRepository.upsert scope_client_option_id', () => {
         upsert: jest.fn().mockResolvedValue({}),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      $executeRaw: jest.fn().mockResolvedValue(0),
     };
     const prisma = { $transaction: jest.fn((fn: any) => fn(tx)), clickupTask: tx.clickupTask } as unknown as never;
     return { repo: new TasksRepository(prisma), tx };
@@ -107,26 +116,34 @@ describe('TasksRepository.upsert scope_client_option_id', () => {
     expect(tx.clickupTask.upsert.mock.calls[0][0].update.scopeClientOptionId).toBe('acme');
   });
 
-  it('propagates to client-less children, touching only rows that actually differ', async () => {
+  /** `$executeRaw` is a tagged template: call[0] is the SQL fragments, the rest are the bound values. */
+  function rawCall(tx: any) {
+    const [fragments, ...values] = tx.$executeRaw.mock.calls[0];
+    return { sql: (fragments as string[]).join('?').replace(/\s+/g, ' ').trim(), values };
+  }
+
+  it('propagates down the WHOLE client-less subtree, not just direct children', async () => {
     const { repo, tx } = setup();
     await repo.upsert(makeTask({ taskId: 'p1', clientOptionId: 'bolt', parentTaskId: null }));
-    expect(tx.clickupTask.updateMany).toHaveBeenCalledWith({
-      where: {
-        parentTaskId: 'p1',
-        clientOptionId: null,
-        OR: [{ scopeClientOptionId: null }, { scopeClientOptionId: { not: 'bolt' } }],
-      },
-      data: { scopeClientOptionId: 'bolt' },
-    });
+    const { sql, values } = rawCall(tx);
+    // A single-level UPDATE left grandchildren on the previous client forever —
+    // nothing re-syncs them, because changing p1 doesn't bump their date_updated.
+    expect(sql).toContain('WITH RECURSIVE');
+    expect(sql).toContain('JOIN subtree s ON c.parent_task_id = s.task_id');
+    // Recursion must stop at a descendant that owns a client: its subtree is its own.
+    expect(sql).toContain('WHERE c.client_option_id IS NULL');
+    // Cycle-safe: UNION dedupes, UNION ALL would spin on a bad parent chain.
+    expect(sql).not.toContain('UNION ALL');
+    // Only rows that actually differ are written — every upsert runs this.
+    expect(sql).toContain('IS DISTINCT FROM');
+    expect(values).toEqual(['p1', 'bolt', 'bolt']);
   });
 
-  it('a null scope only clears children that currently have one', async () => {
+  it('a null scope clears the subtree that currently has one', async () => {
     const { repo, tx } = setup();
     await repo.upsert(makeTask({ taskId: 'p1', clientOptionId: null, parentTaskId: null }));
-    expect(tx.clickupTask.updateMany).toHaveBeenCalledWith({
-      where: { parentTaskId: 'p1', clientOptionId: null, scopeClientOptionId: { not: null } },
-      data: { scopeClientOptionId: null },
-    });
+    const { values } = rawCall(tx);
+    expect(values).toEqual(['p1', null, null]);
   });
 
   it('still never writes the local isChargeable annotation', async () => {

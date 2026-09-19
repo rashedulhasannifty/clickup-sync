@@ -45,20 +45,39 @@ export class TasksRepository {
         create: { ...shared, scopeClientOptionId, syncCount: 1 },
         update: { ...update, scopeClientOptionId },
       });
-      // Subtasks without their own client follow this task's scope. This runs for
-      // EVERY upsert (whole-space reconciles on a 1.9 GB host), so it must only
-      // match rows that actually differ — an unchanged parent is an indexed no-op.
-      // Prisma's `not` excludes NULLs, hence the explicit OR.
-      await tx.clickupTask.updateMany({
-        where: {
-          parentTaskId: task.taskId,
-          clientOptionId: null,
-          ...(scopeClientOptionId === null
-            ? { scopeClientOptionId: { not: null } }
-            : { OR: [{ scopeClientOptionId: null }, { scopeClientOptionId: { not: scopeClientOptionId } }] }),
-        },
-        data: { scopeClientOptionId },
-      });
+      // Descendants without their own client follow this task's scope — the WHOLE
+      // subtree, not just direct children. A single-level cascade left grandchildren
+      // pointing at the previous client indefinitely: `syncTask` upserts only the one
+      // task it fetched, and changing a task in ClickUp does not bump its descendants'
+      // `date_updated`, so no later webhook or backfill pass would ever correct them.
+      // That failed OPEN — the losing team kept seeing the row.
+      //
+      // Recursion stops at any descendant that has its own `client_option_id`: that
+      // task is its own scope root, and its subtree belongs to it, not to us.
+      // `UNION` (not `UNION ALL`) dedupes against rows already produced, so a cyclic
+      // parent chain from bad upstream data terminates instead of spinning.
+      //
+      // This runs for EVERY upsert (whole-space reconciles on a 1.9 GB host), so the
+      // final predicate keeps it to rows that actually differ — an unchanged parent
+      // walks its subtree and writes nothing. `IS DISTINCT FROM` is null-safe in both
+      // directions, which is what the old Prisma `OR`/`not` pair was working around.
+      await tx.$executeRaw`
+        WITH RECURSIVE subtree AS (
+          SELECT task_id
+          FROM clickup_tasks
+          WHERE parent_task_id = ${task.taskId} AND client_option_id IS NULL
+          UNION
+          SELECT c.task_id
+          FROM clickup_tasks c
+          JOIN subtree s ON c.parent_task_id = s.task_id
+          WHERE c.client_option_id IS NULL
+        )
+        UPDATE clickup_tasks t
+        SET scope_client_option_id = ${scopeClientOptionId}
+        FROM subtree s
+        WHERE t.task_id = s.task_id
+          AND t.scope_client_option_id IS DISTINCT FROM ${scopeClientOptionId}
+      `;
       return row;
     });
   }
