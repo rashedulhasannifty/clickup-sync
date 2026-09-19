@@ -45,14 +45,22 @@ function useTeamsSection(member: DrawerMember, onToast: (msg: string) => void) {
   const [local, setLocal] = useState<TeamAssignment[]>(() => (member.teams ?? []).map((t) => ({ teamId: t.id, role: t.role })));
 
   function apply(next: TeamAssignment[]) {
-    const prevMap = new Map(local.map((t) => [t.teamId, t.role]));
+    const prev = local;
+    const prevMap = new Map(prev.map((t) => [t.teamId, t.role]));
     const nextMap = new Map(next.map((t) => [t.teamId, t.role]));
     setLocal(next);
+    // Optimistic — the widget already shows `next`. A failed add/remove/role-change
+    // did NOT persist, so roll the whole row set back to what the server last
+    // confirmed rather than leaving the UI claiming a state it doesn't have.
+    function revert(msg: string) {
+      setLocal(prev);
+      onToast(msg);
+    }
     for (const [teamId] of prevMap) {
       if (!nextMap.has(teamId)) {
         mutations.removeMember.mutate(
           { id: teamId, userId: member.id },
-          { onError: () => onToast('Could not remove from that team') },
+          { onError: () => revert('Could not remove from that team') },
         );
       }
     }
@@ -60,12 +68,12 @@ function useTeamsSection(member: DrawerMember, onToast: (msg: string) => void) {
       if (!prevMap.has(teamId)) {
         mutations.addMember.mutate(
           { id: teamId, userId: member.id, role },
-          { onError: () => onToast('Could not add to that team') },
+          { onError: () => revert('Could not add to that team') },
         );
       } else if (prevMap.get(teamId) !== role) {
         mutations.setRole.mutate(
           { id: teamId, userId: member.id, role },
-          { onError: () => onToast('Could not update that team role') },
+          { onError: () => revert('Could not update that team role') },
         );
       }
     }

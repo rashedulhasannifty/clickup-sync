@@ -8,8 +8,8 @@ export function useTeams() {
 export function useClientOptions() {
   return useQuery({ queryKey: ['client-options'], queryFn: teamsApi.clientOptions });
 }
-export function useReadiness() {
-  return useQuery({ queryKey: ['readiness'], queryFn: teamsApi.readiness });
+export function useReadiness(enabled = true) {
+  return useQuery({ queryKey: ['readiness'], queryFn: teamsApi.readiness, enabled });
 }
 export function useMyTeams() {
   return useQuery({ queryKey: ['my-teams'], queryFn: teamsApi.mine });

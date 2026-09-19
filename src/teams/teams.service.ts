@@ -180,10 +180,14 @@ export class TeamsService {
     return { unassignedClients, membersWithoutTeam, usersWithoutClickupLink, ambiguousNames };
   }
 
-  /** R20: the caller's own memberships, plus candidates for teams they LEAD. Never
-   *  cost, other people's ClickUp ids, or teams the caller isn't in. */
+  /** R20/R33: the caller's own memberships, plus candidates for teams they LEAD.
+   *  Never cost, or other members' ClickUp ids outside a team the caller LEADS —
+   *  `clickupUserId` is populated only for members of a team in `scope.ledTeamIds`
+   *  (so a lead can link to a member's timesheet); for a team the caller merely
+   *  belongs to, every member's `clickupUserId` comes back null. */
   async myTeams(actor: AuthPrincipal, scope: AccessScope) {
     const memberships = await this.repo.membershipsOf(actor.userId);
+    const ledTeamIds = scope.kind === 'scoped' ? scope.ledTeamIds : [];
     const teams = memberships.map((m) => ({
       id: m.team.id,
       name: m.team.name,
@@ -193,12 +197,11 @@ export class TeamsService {
         userId: mm.user.id,
         name: mm.user.name,
         email: mm.user.email,
-        clickupUserId: mm.user.clickupUserId,
+        clickupUserId: ledTeamIds.includes(m.team.id) ? mm.user.clickupUserId : null,
         role: mm.role,
       })),
     }));
 
-    const ledTeamIds = scope.kind === 'scoped' ? scope.ledTeamIds : [];
     let candidates: { id: string; name: string | null; email: string }[] = [];
     if (ledTeamIds.length) {
       const alreadyMembers = new Set(

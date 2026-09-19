@@ -290,6 +290,38 @@ describe('TeamsService', () => {
       ]);
     });
 
+    it("R33: a plain member's memberships never carry teammates' clickupUserId", async () => {
+      const { svc } = make({
+        membershipsOf: jest.fn().mockResolvedValue([
+          {
+            role: 'MEMBER',
+            team: {
+              id: 'A',
+              name: 'Team A',
+              clients: [],
+              members: [
+                { role: 'LEAD', user: { id: 'lead', name: 'Lead', email: 'lead@x', clickupUserId: 'cu-1' } },
+                { role: 'MEMBER', user: { id: 'member', name: 'Member', email: 'member@x', clickupUserId: 'cu-2' } },
+              ],
+            },
+          },
+        ]),
+      });
+      const scope = resolveScope({
+        role: 'MEMBER',
+        scopingEnabled: true,
+        selfClickupId: 'cu-2',
+        memberships: [{ teamId: 'A', role: 'MEMBER' }],
+        teamClients: [],
+        teamMembers: [],
+      });
+      const res = await svc.myTeams({ ...admin, userId: 'member', role: 'MEMBER' }, scope);
+      expect(res.teams[0].members).toEqual([
+        { userId: 'lead', name: 'Lead', email: 'lead@x', clickupUserId: null, role: 'LEAD' },
+        { userId: 'member', name: 'Member', email: 'member@x', clickupUserId: null, role: 'MEMBER' },
+      ]);
+    });
+
     it('returns no candidates when the caller leads nothing', async () => {
       const { svc, repo } = make({
         membershipsOf: jest.fn().mockResolvedValue([

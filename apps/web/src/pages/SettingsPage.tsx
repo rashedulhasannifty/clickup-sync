@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   CircleCheck,
@@ -14,6 +14,7 @@ import { useSpaces, useSyncHealth, useStats } from '../hooks/useReports';
 import { useTagAssignee, useCreateTagAssignee, useUpdateTagAssignee, useDeleteTagAssignee } from '../hooks/useTagAssignee';
 import { useRegisterWebhook, useTestClickupConnection, useReconcileTasks, useReconcileActive, useWebhooks, useSyncTaskFull, useDeleteWebhook, usePruneStaleWebhooks, useRotateWebhook, useReconcileTimeEntriesWindow } from '../hooks/useAdmin';
 import { useSettings, useUpdateSettings } from '../hooks/useSettings';
+import { useReadiness } from '../hooks/useTeams';
 import { useAuth } from '../hooks/useAuth';
 import { RequireRole } from '../components/RequireRole';
 import { XeroSettingsTab, type XeroFlash } from '../components/finance/XeroSettingsTab';
@@ -373,6 +374,9 @@ export function SettingsPage() {
   const reconcileProgress = useReconcileActive(hasRole('ADMIN'));
   const settingsQuery = useSettings();
   const updateSettings = useUpdateSettings();
+  // Only fetched for an Owner — the enable-confirm dialog below is the only consumer.
+  const readiness = useReadiness(hasRole('OWNER'));
+  const [accessConfirm, setAccessConfirm] = useState<'enable' | 'disable' | null>(null);
   const toast = useToast();
   const webhooksList = useWebhooks();
   const syncTaskFull = useSyncTaskFull();
@@ -958,6 +962,29 @@ export function SettingsPage() {
             </Field>
           </Card>
 
+          <Card>
+            <CardHeader
+              title="Team-scoped access"
+              subtitle="Restricts each Member to only the clients their team(s) own — tasks, time entries, and cost across the app. Owner-only. Build teams and assign clients on the Teams page before turning this on."
+            />
+            <SettingRow
+              label="Restrict Members to their teams' clients"
+              desc={
+                prefs?.access.teamScopingEnabled
+                  ? 'On — Members see only their teams’ clients and no cost outside a team they lead. Manage teams on the Teams page.'
+                  : 'Off — every signed-in user sees all data, same as before Teams existed.'
+              }
+              control={
+                <Switch
+                  ariaLabel="Team-scoped access"
+                  checked={prefs?.access.teamScopingEnabled ?? false}
+                  disabled={updateSettings.isPending}
+                  onChange={(v) => setAccessConfirm(v ? 'enable' : 'disable')}
+                />
+              }
+            />
+          </Card>
+
           <div
             style={{
               display: 'flex',
@@ -980,6 +1007,59 @@ export function SettingsPage() {
           </div>
         </div>
         </RequireRole>
+      )}
+
+      {accessConfirm && (
+        <Modal
+          open
+          onClose={() => setAccessConfirm(null)}
+          title={accessConfirm === 'enable' ? 'Turn on team-scoped access?' : 'Turn off team-scoped access?'}
+          width={460}
+          footer={
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <Button size="md" variant="ghost" onClick={() => setAccessConfirm(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="md"
+                variant="caution"
+                loading={updateSettings.isPending}
+                onClick={() => {
+                  const enabling = accessConfirm === 'enable';
+                  updateSettings.mutate(
+                    { preferences: { access: { teamScopingEnabled: enabling } } },
+                    {
+                      onSuccess: () => {
+                        setAccessConfirm(null);
+                        showBanner(enabling ? 'Team-scoped access is on.' : 'Team-scoped access is off — everyone sees all data again.', 'blue');
+                      },
+                      onError: (err) => showBanner(`Save failed: ${(err as Error).message}`, 'red'),
+                    },
+                  );
+                }}
+              >
+                {accessConfirm === 'enable' ? 'Turn on' : 'Turn off'}
+              </Button>
+            </div>
+          }
+        >
+          {accessConfirm === 'enable' ? (
+            <div style={{ fontSize: 13, color: 'var(--text)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <p style={{ margin: 0 }}>
+                {readiness.isLoading
+                  ? 'Loading readiness…'
+                  : `${readiness.data?.unassignedClients.length ?? 0} clients unassigned, ${readiness.data?.membersWithoutTeam.length ?? 0} members without a team, ${readiness.data?.usersWithoutClickupLink.length ?? 0} users not linked to ClickUp.`}
+              </p>
+              <p style={{ margin: 0, fontWeight: 600 }}>Members will immediately see only their teams' clients.</p>
+              <p style={{ margin: 0, color: 'var(--text-muted)' }}>
+                A client with no team, or a Member with no team, sees/shows nothing for that gap — resolve these on the{' '}
+                <Link to="/teams" style={{ color: 'var(--accent)' }} onClick={() => setAccessConfirm(null)}>Teams page</Link> first if that's not what you want.
+              </p>
+            </div>
+          ) : (
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--text)' }}>Everyone will see all data again.</p>
+          )}
+        </Modal>
       )}
 
       {activeTab === 'sync' && (

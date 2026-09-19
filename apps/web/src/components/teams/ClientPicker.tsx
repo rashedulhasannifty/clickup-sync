@@ -163,7 +163,7 @@ export function ClientPicker({
                     {allowMove && (
                       <button
                         type="button"
-                        onClick={() => emit([...value, ...g.optionIds])}
+                        onClick={() => emit([...value, ...g.optionIds.filter((id) => !selected.has(id))])}
                         style={{
                           display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 600,
                           color: 'var(--accent-strong)', background: 'none', border: 0, cursor: 'pointer',

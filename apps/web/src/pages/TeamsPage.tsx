@@ -694,6 +694,13 @@ export function TeamsPage() {
       const conflicts: NamedConflict[] = options
         .filter((o) => optionIds.includes(o.optionId) && o.teamId && o.teamId !== teamId)
         .map((o) => ({ optionId: o.optionId, name: o.name, teamId: o.teamId as string, teamName: o.teamName ?? 'another team' }));
+      // Stale `clientOptions` can leave this empty even though the caller thought a
+      // move was needed — naming nothing in the confirm dialog is worse than just
+      // trying the plain (non-move) save below, which still 409s+confirms for real conflicts.
+      if (conflicts.length === 0) {
+        await saveClients(teamId, optionIds, false);
+        return;
+      }
       setMoveConfirm({ teamId, optionIds, conflicts });
       return;
     }

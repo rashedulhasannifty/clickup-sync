@@ -10,6 +10,7 @@ export interface SettingsPreferences {
   failure: { webhookRetryAttempts: number };
   spike: { medianEnabled: boolean };
   spaces: Record<string, { enabled: boolean }>;
+  access: { teamScopingEnabled: boolean };
 }
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] };
