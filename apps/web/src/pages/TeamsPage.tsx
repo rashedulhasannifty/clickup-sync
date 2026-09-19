@@ -265,6 +265,94 @@ function DeleteTeamModal({
   );
 }
 
+// ── Remove member confirm (R35: an access-removing one-click action) ────────
+function RemoveMemberModal({
+  name,
+  teamName,
+  loading,
+  onCancel,
+  onConfirm,
+}: {
+  name: string;
+  teamName: string;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal onClose={onCancel} width={440}>
+      <div style={{ display: 'flex', gap: 14 }}>
+        <div
+          style={{
+            width: 40, height: 40, flexShrink: 0, borderRadius: 10, background: 'var(--pill-red-bg)',
+            color: 'var(--pill-red-text)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <AlertTriangle size={19} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: 0 }}>Remove {name}?</h2>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '6px 0 0', lineHeight: 1.55 }}>
+            {name} loses access to {teamName}&apos;s clients.
+          </p>
+        </div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+        <Button variant="default" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant="danger" icon={<Trash2 size={13} />} loading={loading} onClick={onConfirm} style={{ boxShadow: 'none' }}>
+          Remove member
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+// ── Remove client confirm (R35: an access-removing one-click action) ────────
+function RemoveClientModal({
+  clientName,
+  teamName,
+  loading,
+  onCancel,
+  onConfirm,
+}: {
+  clientName: string;
+  teamName: string;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal onClose={onCancel} width={440}>
+      <div style={{ display: 'flex', gap: 14 }}>
+        <div
+          style={{
+            width: 40, height: 40, flexShrink: 0, borderRadius: 10, background: 'var(--pill-red-bg)',
+            color: 'var(--pill-red-text)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <AlertTriangle size={19} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', margin: 0 }}>Remove {clientName}?</h2>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '6px 0 0', lineHeight: 1.55 }}>
+            {teamName} loses access to {clientName} and all of its history.
+          </p>
+        </div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 20 }}>
+        <Button variant="default" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant="danger" icon={<X size={13} />} loading={loading} onClick={onConfirm} style={{ boxShadow: 'none' }}>
+          Remove client
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
 // ── Readiness strip ──────────────────────────────────────────────────────────
 function ReadinessStrip({
   readiness,
@@ -417,9 +505,9 @@ function TeamDetail({
   onClose,
   onRequestDelete,
   onRequestEditClients,
-  onRemoveClient,
+  onRequestRemoveClient,
   onSetRole,
-  onRemoveMember,
+  onRequestRemoveMember,
   onAddMember,
   onRename,
   toast,
@@ -430,9 +518,9 @@ function TeamDetail({
   onClose: () => void;
   onRequestDelete: () => void;
   onRequestEditClients: () => void;
-  onRemoveClient: (optionId: string) => void;
+  onRequestRemoveClient: (optionId: string, name: string) => void;
   onSetRole: (userId: string, role: TeamMemberRoleValue) => void;
-  onRemoveMember: (userId: string) => void;
+  onRequestRemoveMember: (userId: string, name: string) => void;
   onAddMember: (userId: string) => void;
   onRename: (name: string) => void;
   toast: (msg: string) => void;
@@ -515,7 +603,7 @@ function TeamDetail({
                 <button
                   type="button"
                   aria-label={`Remove ${c.name}`}
-                  onClick={() => onRemoveClient(c.optionId)}
+                  onClick={() => onRequestRemoveClient(c.optionId, c.name)}
                   style={{ width: 16, height: 16, border: 0, background: 'transparent', color: 'var(--text-faint)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
                 >
                   <X size={12} />
@@ -564,7 +652,7 @@ function TeamDetail({
                 <button
                   type="button"
                   aria-label={`Remove ${m.name ?? m.email}`}
-                  onClick={() => onRemoveMember(m.userId)}
+                  onClick={() => onRequestRemoveMember(m.userId, m.name?.trim() || emailLabel(m.email))}
                   style={{ width: 28, height: 28, border: 0, background: 'transparent', color: 'var(--text-faint)', cursor: 'pointer', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 >
                   <Trash2 size={13} />
@@ -640,6 +728,11 @@ export function TeamsPage() {
   const [editClientsOpen, setEditClientsOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Team | null>(null);
   const [moveConfirm, setMoveConfirm] = useState<{ teamId: string; optionIds: string[]; conflicts: NamedConflict[] } | null>(null);
+  // R35: the two one-click actions that instantly revoke access (member
+  // remove, client-chip remove) go through a confirm first instead of firing
+  // immediately — same pattern as `deleteTarget`/`moveConfirm` above.
+  const [removeMemberTarget, setRemoveMemberTarget] = useState<{ teamId: string; teamName: string; userId: string; name: string } | null>(null);
+  const [removeClientTarget, setRemoveClientTarget] = useState<{ teamId: string; teamName: string; optionId: string; name: string } | null>(null);
   const [toast, setToastMsg] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -732,8 +825,28 @@ export function TeamsPage() {
     }
   }
 
-  function removeClient(team: Team, optionId: string) {
-    void saveClients(team.id, team.clients.filter((c) => c.optionId !== optionId).map((c) => c.optionId), false);
+  function requestRemoveClient(team: Team, optionId: string, name: string) {
+    setRemoveClientTarget({ teamId: team.id, teamName: team.name, optionId, name });
+  }
+
+  async function confirmRemoveClient() {
+    if (!removeClientTarget) return;
+    const team = teams.find((t) => t.id === removeClientTarget.teamId);
+    if (!team) {
+      setRemoveClientTarget(null);
+      return;
+    }
+    try {
+      await m.setClients.mutateAsync({
+        id: team.id,
+        optionIds: team.clients.filter((c) => c.optionId !== removeClientTarget.optionId).map((c) => c.optionId),
+        move: false,
+      });
+      setRemoveClientTarget(null);
+      showToast('Clients updated');
+    } catch (e) {
+      showToast(axiosMessage(e));
+    }
   }
 
   function assignUnassigned(optionId: string, teamId: string) {
@@ -751,9 +864,15 @@ export function TeamsPage() {
     }
   }
 
-  async function removeMember(teamId: string, userId: string) {
+  function requestRemoveMember(teamId: string, teamName: string, userId: string, name: string) {
+    setRemoveMemberTarget({ teamId, teamName, userId, name });
+  }
+
+  async function confirmRemoveMember() {
+    if (!removeMemberTarget) return;
     try {
-      await m.removeMember.mutateAsync({ id: teamId, userId });
+      await m.removeMember.mutateAsync({ id: removeMemberTarget.teamId, userId: removeMemberTarget.userId });
+      setRemoveMemberTarget(null);
       showToast('Member removed');
     } catch (e) {
       showToast(axiosMessage(e));
@@ -855,9 +974,9 @@ export function TeamsPage() {
           onClose={() => setSelectedId(null)}
           onRequestDelete={() => setDeleteTarget(selectedTeam)}
           onRequestEditClients={() => setEditClientsOpen(true)}
-          onRemoveClient={(optionId) => removeClient(selectedTeam, optionId)}
+          onRequestRemoveClient={(optionId, name) => requestRemoveClient(selectedTeam, optionId, name)}
           onSetRole={(userId, role) => void setRole(selectedTeam.id, userId, role)}
-          onRemoveMember={(userId) => void removeMember(selectedTeam.id, userId)}
+          onRequestRemoveMember={(userId, name) => requestRemoveMember(selectedTeam.id, selectedTeam.name, userId, name)}
           onAddMember={(userId) => void addMember(selectedTeam.id, userId)}
           onRename={(name) => void renameTeam(selectedTeam.id, name)}
           toast={showToast}
@@ -898,6 +1017,26 @@ export function TeamsPage() {
           loading={m.remove.isPending}
           onCancel={() => setDeleteTarget(null)}
           onConfirm={() => void deleteTeam()}
+        />
+      )}
+
+      {removeMemberTarget && (
+        <RemoveMemberModal
+          name={removeMemberTarget.name}
+          teamName={removeMemberTarget.teamName}
+          loading={m.removeMember.isPending}
+          onCancel={() => setRemoveMemberTarget(null)}
+          onConfirm={() => void confirmRemoveMember()}
+        />
+      )}
+
+      {removeClientTarget && (
+        <RemoveClientModal
+          clientName={removeClientTarget.name}
+          teamName={removeClientTarget.teamName}
+          loading={m.setClients.isPending}
+          onCancel={() => setRemoveClientTarget(null)}
+          onConfirm={() => void confirmRemoveClient()}
         />
       )}
 

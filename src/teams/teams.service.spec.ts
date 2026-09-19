@@ -204,6 +204,28 @@ describe('TeamsService', () => {
     });
   });
 
+  describe('a stale UI row (target already removed) 404s instead of a raw Prisma P2025', () => {
+    it('setMemberRole', async () => {
+      const { svc } = make({ setMemberRole: jest.fn().mockRejectedValue({ code: 'P2025' }) });
+      await expect(svc.setMemberRole('org', 'A', 'u2', 'LEAD')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('removeMember', async () => {
+      const { svc } = make({ removeMember: jest.fn().mockRejectedValue({ code: 'P2025' }) });
+      await expect(svc.removeMember('org', 'A', 'u2')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('setMemberRole rethrows a non-P2025 error unchanged', async () => {
+      const { svc } = make({ setMemberRole: jest.fn().mockRejectedValue(new Error('boom')) });
+      await expect(svc.setMemberRole('org', 'A', 'u2', 'LEAD')).rejects.toThrow('boom');
+    });
+
+    it('removeMember rethrows a non-P2025 error unchanged', async () => {
+      const { svc } = make({ removeMember: jest.fn().mockRejectedValue(new Error('boom')) });
+      await expect(svc.removeMember('org', 'A', 'u2')).rejects.toThrow('boom');
+    });
+  });
+
   it('readiness lists unassigned clients, team-less members, unlinked users and ambiguous names', async () => {
     const { svc } = make({
       readinessData: jest.fn().mockResolvedValue([
@@ -322,7 +344,7 @@ describe('TeamsService', () => {
       ]);
     });
 
-    it('an unrestricted caller (Owner/Admin, or ANY caller with scoping off) who holds a LEAD membership still gets clickupUserId and candidates — scope must never take away what the membership rows already grant', async () => {
+    it('an unrestricted caller with canEdit (Owner/Admin) who holds a LEAD membership still gets clickupUserId and candidates — scope must never take away what the membership rows already grant', async () => {
       const { svc, repo } = make({
         membershipsOf: jest.fn().mockResolvedValue([
           {
@@ -351,6 +373,32 @@ describe('TeamsService', () => {
       ]);
       expect(res.candidates).toEqual([{ id: 'u2', name: 'Candidate', email: 'u2@x' }]);
       expect(repo.activeOrgUsers).toHaveBeenCalledWith('org');
+    });
+
+    it("R34: a flag-off lead (unrestricted, canEdit:false) keeps the clickupUserId timesheet link but gets no candidates — leadAddMember would 403 them, so the add-member affordance must not be offered", async () => {
+      const { svc, repo } = make({
+        membershipsOf: jest.fn().mockResolvedValue([
+          {
+            role: 'LEAD',
+            team: {
+              id: 'A',
+              name: 'Team A',
+              clients: [{ option: { name: 'Acme' } }],
+              members: [
+                { role: 'LEAD', user: { id: 'admin', name: 'Admin', email: 'a@x', clickupUserId: 'cu-admin' } },
+                { role: 'MEMBER', user: { id: 'u1', name: 'Existing', email: 'u1@x', clickupUserId: 'cu-1' } },
+              ],
+            },
+          },
+        ]),
+      });
+      const res = await svc.myTeams(admin, { kind: 'unrestricted', canEdit: false });
+      expect(res.teams[0].members).toEqual([
+        { userId: 'admin', name: 'Admin', email: 'a@x', clickupUserId: 'cu-admin', role: 'LEAD' },
+        { userId: 'u1', name: 'Existing', email: 'u1@x', clickupUserId: 'cu-1', role: 'MEMBER' },
+      ]);
+      expect(res.candidates).toEqual([]);
+      expect(repo.activeOrgUsers).not.toHaveBeenCalled();
     });
 
     it('returns no candidates when the caller leads nothing', async () => {

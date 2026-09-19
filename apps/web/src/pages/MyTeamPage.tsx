@@ -149,6 +149,7 @@ function LedTeamCard({
                 icon={<UserPlus size={12} />}
                 onClick={() => setAddingOpen(true)}
                 disabled={teamCandidates.length === 0}
+                title={teamCandidates.length === 0 ? 'No members available to add right now.' : undefined}
               >
                 Add member
               </Button>

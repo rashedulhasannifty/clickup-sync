@@ -143,12 +143,24 @@ export class TeamsService {
 
   async setMemberRole(orgId: string, teamId: string, userId: string, role: TeamRole) {
     await this.assertTeam(orgId, teamId);
-    return this.repo.setMemberRole(teamId, userId, role);
+    try {
+      return await this.repo.setMemberRole(teamId, userId, role);
+    } catch (err) {
+      // A stale UI row (member already removed elsewhere) must 404, not a raw
+      // Prisma P2025 -> 500.
+      if (prismaErrorCode(err) === 'P2025') throw new NotFoundException('Member not found');
+      throw err;
+    }
   }
 
   async removeMember(orgId: string, teamId: string, userId: string) {
     await this.assertTeam(orgId, teamId);
-    return this.repo.removeMember(teamId, userId);
+    try {
+      return await this.repo.removeMember(teamId, userId);
+    } catch (err) {
+      if (prismaErrorCode(err) === 'P2025') throw new NotFoundException('Member not found');
+      throw err;
+    }
   }
 
   async leadAddMember(scope: AccessScope, actor: AuthPrincipal, teamId: string, userId: string) {
@@ -180,23 +192,36 @@ export class TeamsService {
     return { unassignedClients, membersWithoutTeam, usersWithoutClickupLink, ambiguousNames };
   }
 
-  /** R20/R33: the caller's own memberships, plus candidates for teams they LEAD.
+  /** R20/R33/R34: the caller's own memberships, plus candidates for teams they LEAD.
    *  Never cost, or other members' ClickUp ids outside a team the caller LEADS —
    *  `clickupUserId` is populated only for members of a led team (so a lead can
    *  link to a member's timesheet); for a team the caller merely belongs to,
    *  every member's `clickupUserId` comes back null.
    *
-   *  "Led" is derived from the membership rows, not from `scope.ledTeamIds`:
-   *  an unrestricted caller (Owner/Admin, or ANY caller while the flag is off —
-   *  `resolveScope` gives both `{ kind: 'unrestricted' }`) has no `ledTeamIds`
-   *  on their scope, but if they happen to hold a LEAD membership row they must
-   *  still get the timesheet link and lead-only `candidates` a scoped LEAD gets.
-   *  Scope only narrows a MEMBER; it must never take away from an unrestricted
-   *  caller what their own membership rows already grant. */
+   *  "Led" (for the `clickupUserId` timesheet link) is derived from the
+   *  membership rows, not from `scope.ledTeamIds`: an unrestricted caller
+   *  (Owner/Admin, or ANY caller while the flag is off — `resolveScope` gives
+   *  both `{ kind: 'unrestricted' }`) has no `ledTeamIds` on their scope, but
+   *  if they happen to hold a LEAD membership row they must still get the
+   *  timesheet link a scoped LEAD gets. Scope only narrows a MEMBER; it must
+   *  never take away from an unrestricted caller what their own membership
+   *  rows already grant.
+   *
+   *  `candidates` (R34) is a DIFFERENT question — not "is this a led team" but
+   *  "could this caller actually add a member right now" — because it's the
+   *  affordance for `leadAddMember`, which 403s an unrestricted-but-`canEdit:
+   *  false` caller (a flag-off lead). So candidates follow write capability:
+   *  for an unrestricted caller that's `canEdit` AND a LEAD membership row;
+   *  for a scoped caller it's `scope.ledTeamIds` as before. Without this split
+   *  a flag-off lead would see an "Add member" control whose every use fails. */
   async myTeams(actor: AuthPrincipal, scope: AccessScope) {
     const memberships = await this.repo.membershipsOf(actor.userId);
-    const ledTeamIds = isUnrestricted(scope)
-      ? memberships.filter((m) => m.role === 'LEAD').map((m) => m.team.id)
+    const memberLedTeamIds = memberships.filter((m) => m.role === 'LEAD').map((m) => m.team.id);
+    const ledTeamIds = isUnrestricted(scope) ? memberLedTeamIds : scope.ledTeamIds;
+    const candidateLedTeamIds = isUnrestricted(scope)
+      ? scope.canEdit
+        ? memberLedTeamIds
+        : []
       : scope.ledTeamIds;
     const teams = memberships.map((m) => ({
       id: m.team.id,
@@ -213,9 +238,9 @@ export class TeamsService {
     }));
 
     let candidates: { id: string; name: string | null; email: string }[] = [];
-    if (ledTeamIds.length) {
+    if (candidateLedTeamIds.length) {
       const alreadyMembers = new Set(
-        teams.filter((t) => ledTeamIds.includes(t.id)).flatMap((t) => t.members.map((mm) => mm.userId)),
+        teams.filter((t) => candidateLedTeamIds.includes(t.id)).flatMap((t) => t.members.map((mm) => mm.userId)),
       );
       const users = await this.repo.activeOrgUsers(actor.orgId);
       candidates = users
