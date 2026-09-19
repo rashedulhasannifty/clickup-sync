@@ -30,6 +30,9 @@ export function useUserMutations() {
       mutationFn: ({ id, clickupUserId }: { id: string; clickupUserId: string | null }) => usersApi.setClickupUser(id, clickupUserId),
       onSuccess: invAndRefresh,
     }),
+    // No cache to invalidate: sending a reset link changes nothing the Users
+    // page displays.
+    sendPasswordReset: useMutation({ mutationFn: (id: string) => usersApi.sendPasswordReset(id) }),
     remove: useMutation({ mutationFn: (id: string) => usersApi.remove(id), onSuccess: inv }),
     resend: useMutation({ mutationFn: (id: string) => usersApi.resendInvite(id), onSuccess: () => { inv(); invTeams(); } }),
     revoke: useMutation({ mutationFn: (id: string) => usersApi.revokeInvite(id), onSuccess: () => { inv(); invTeams(); } }),

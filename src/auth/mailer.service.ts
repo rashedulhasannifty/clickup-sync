@@ -58,6 +58,22 @@ export class MailerService implements OnModuleInit {
     }
   }
 
+  async sendPasswordReset(to: string, token: string): Promise<void> {
+    const base = this.config.get<string>('APP_BASE_URL', 'http://localhost:5173');
+    const link = `${base}/reset/${token}`;
+    const from = this.config.get<string>('MAIL_FROM', 'no-reply@example.com');
+    const html = `<p>We received a request to reset your ClickUp Sync password.</p>
+<p><a href="${link}">Choose a new password</a></p>
+<p>Or paste this link: ${link}</p>
+<p>This link expires in 1 hour and can only be used once. If you didn't ask for it, you can ignore this email — your password won't change.</p>`;
+    const info = await this.transport.sendMail({ from, to, subject: 'Reset your ClickUp Sync password', html });
+    if (!this.config.get<string>('SMTP_HOST', '')) {
+      this.logger.log(`[DEV EMAIL] password reset for ${to}: ${link}`);
+    } else {
+      this.logger.log(`Password reset email sent to ${to} (messageId=${(info as { messageId?: string }).messageId})`);
+    }
+  }
+
   async sendSpikeNotice(args: SpikeNoticeArgs): Promise<void> {
     const from = this.config.get<string>('MAIL_FROM', 'no-reply@example.com');
     const rows = args.tasks

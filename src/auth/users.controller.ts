@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, UseInterce
 import { ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { UsersService } from './users.service';
+import { PasswordResetService } from './password-reset.service';
 import { ChangeRoleDto } from './dto/change-role.dto';
 import { SetStatusDto } from './dto/set-status.dto';
 import { TransferOwnershipDto } from './dto/transfer-ownership.dto';
@@ -14,7 +15,10 @@ import { AuditLogInterceptor } from '../admin/audit-log.interceptor';
 @UseInterceptors(AuditLogInterceptor)
 @Controller('users')
 export class UsersController {
-  constructor(private readonly users: UsersService) {}
+  constructor(
+    private readonly users: UsersService,
+    private readonly resets: PasswordResetService,
+  ) {}
 
   @Roles(Role.OWNER, Role.ADMIN)
   @Get()
@@ -38,6 +42,13 @@ export class UsersController {
   @Patch(':id/clickup-user')
   setClickupUser(@CurrentUser() user: AuthPrincipal, @Param('id') id: string, @Body() dto: SetClickupUserDto) {
     return this.users.setClickupUser(user, id, dto.clickupUserId ?? null);
+  }
+
+  @Roles(Role.OWNER, Role.ADMIN)
+  @HttpCode(200)
+  @Post(':id/send-password-reset')
+  sendPasswordReset(@CurrentUser() user: AuthPrincipal, @Param('id') id: string) {
+    return this.resets.sendForUser(user, id);
   }
 
   @Roles(Role.OWNER, Role.ADMIN)

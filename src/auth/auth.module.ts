@@ -10,11 +10,13 @@ import { SessionService } from './session.service';
 import { SessionCleanupService } from './session-cleanup.service';
 import { AuthService } from './auth.service';
 import { InvitationService } from './invitation.service';
+import { PasswordResetService } from './password-reset.service';
 import { UsersService } from './users.service';
 import { OrgRepository } from './org.repository';
 import { UserRepository } from './user.repository';
 import { SessionRepository } from './session.repository';
 import { InvitationRepository } from './invitation.repository';
+import { PasswordResetRepository } from './password-reset.repository';
 import { AuthGuard } from './auth.guard';
 import { RolesGuard } from './roles.guard';
 import { AuthController } from './auth.controller';
@@ -35,8 +37,8 @@ import { ClickupModule } from '../clickup/clickup.module';
   controllers: [AuthController, InvitationController, UsersController],
   providers: [
     PasswordService, TokenService, PermissionsService, SessionService,
-    AuthService, InvitationService, UsersService,
-    OrgRepository, UserRepository, SessionRepository, InvitationRepository,
+    AuthService, InvitationService, UsersService, PasswordResetService,
+    OrgRepository, UserRepository, SessionRepository, InvitationRepository, PasswordResetRepository,
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     // Registration order matters: Nest runs APP_GUARDs in the order they're
