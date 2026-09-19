@@ -19,8 +19,14 @@ export class UsersService {
     private readonly sessions: SessionService,
   ) {}
 
-  list(orgId: string) {
-    return this.users.listByOrg(orgId);
+  // Reshapes each row's `teamMemberships` (team + role) into the `teams: [{ id,
+  // name, role }]` shape the Users page renders as chips — see Task 18.
+  async list(orgId: string) {
+    const users = await this.users.listByOrg(orgId);
+    return users.map(({ teamMemberships, ...u }: any) => ({
+      ...u,
+      teams: (teamMemberships ?? []).map((m: any) => ({ id: m.team.id, name: m.team.name, role: m.role })),
+    }));
   }
 
   private async require(actor: AuthPrincipal, id: string) {

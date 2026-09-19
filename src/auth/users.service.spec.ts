@@ -105,6 +105,26 @@ describe('UsersService — cross-org IDOR scoping', () => {
   });
 });
 
+describe('UsersService.list', () => {
+  it('maps each user\'s teamMemberships into teams: [{ id, name, role }]', async () => {
+    const d = deps([
+      {
+        id: 'm1',
+        role: Role.MEMBER,
+        orgId: 'org_seed',
+        status: UserStatus.ACTIVE,
+        teamMemberships: [{ role: 'LEAD', team: { id: 't1', name: 'Team One' } }],
+      },
+      { id: 'm2', role: Role.MEMBER, orgId: 'org_seed', status: UserStatus.ACTIVE, teamMemberships: [] },
+    ]);
+    const svc = new UsersService(d.userRepo as any, new PermissionsService(), sessions);
+    const rows = await svc.list('org_seed');
+    expect(rows[0].teams).toEqual([{ id: 't1', name: 'Team One', role: 'LEAD' }]);
+    expect(rows[0].teamMemberships).toBeUndefined();
+    expect(rows[1].teams).toEqual([]);
+  });
+});
+
 describe('UsersService.setClickupUser', () => {
   it('links a user to a ClickUp identity', async () => {
     const d = deps([{ id: 'm1', role: Role.MEMBER, orgId: 'org_seed', status: UserStatus.ACTIVE }]);

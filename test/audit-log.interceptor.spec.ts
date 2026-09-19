@@ -9,6 +9,7 @@ function makeCtx(opts: {
   method: string;
   path: string;
   routePath?: string;
+  params?: Record<string, string>;
   body?: unknown;
   headers?: Record<string, string>;
   statusCode?: number;
@@ -17,6 +18,7 @@ function makeCtx(opts: {
     method: opts.method,
     path: opts.path,
     route: opts.routePath ? { path: opts.routePath } : undefined,
+    params: opts.params ?? {},
     headers: opts.headers ?? {},
     body: opts.body,
     ip: '127.0.0.1',
@@ -141,5 +143,54 @@ describe('AuditLogInterceptor', () => {
       makeNext({ ok: 1 }),
     ));
     expect(out).toEqual({ ok: 1 });
+  });
+});
+
+describe('AuditLogInterceptor — secret-shaped path params', () => {
+  it('redacts a :token route param and never persists the raw token', async () => {
+    const repo = makeRepo();
+    const interceptor = new AuditLogInterceptor(repo as any);
+    await lastValueFrom(interceptor.intercept(
+      makeCtx({
+        method: 'POST',
+        path: '/auth/invitations/abc123secrettoken/accept',
+        routePath: '/auth/invitations/:token/accept',
+        params: { token: 'abc123secrettoken' },
+        body: { name: 'New', password: 'longenough10' },
+      }),
+      makeNext({ ok: 1 }),
+    ));
+    const call = repo.create.mock.calls[0][0];
+    expect(call.path).toBe('/auth/invitations/[REDACTED]/accept');
+    expect(call.path).not.toContain('abc123secrettoken');
+    expect(call.routePattern).toBe('/auth/invitations/:token/accept');
+  });
+
+  it('keeps a normal :id route param as the real value', async () => {
+    const repo = makeRepo();
+    const interceptor = new AuditLogInterceptor(repo as any);
+    await lastValueFrom(interceptor.intercept(
+      makeCtx({
+        method: 'PATCH',
+        path: '/users/u1/role',
+        routePath: '/users/:id/role',
+        params: { id: 'u1' },
+        body: { role: 'ADMIN' },
+      }),
+      makeNext({ ok: 1 }),
+    ));
+    const call = repo.create.mock.calls[0][0];
+    expect(call.path).toBe('/users/u1/role');
+  });
+
+  it('falls back to req.path when there is no route pattern', async () => {
+    const repo = makeRepo();
+    const interceptor = new AuditLogInterceptor(repo as any);
+    await lastValueFrom(interceptor.intercept(
+      makeCtx({ method: 'POST', path: '/x/unmatched', body: {} }),
+      makeNext({ ok: 1 }),
+    ));
+    const call = repo.create.mock.calls[0][0];
+    expect(call.path).toBe('/x/unmatched');
   });
 });
