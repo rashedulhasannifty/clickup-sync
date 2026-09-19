@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ClickUpCustomField, ClickUpCustomFieldOption, ClickUpTask } from './clickup.types';
 import { toNumberOrZero, toSafeInt32 } from '../common/utils/safe-value';
 
-export interface ExtractedCustomFields { executiveName: string | null; department: string | null; client: string | null; subProjects: string[]; cost: number; estimation: number; sprintName: string | null; sprintPoints: number; }
+export interface ExtractedCustomFields { executiveName: string | null; department: string | null; client: string | null; clientOptionId: string | null; subProjects: string[]; cost: number; estimation: number; sprintName: string | null; sprintPoints: number; }
 
 @Injectable()
 export class CustomFieldExtractor {
@@ -10,6 +10,7 @@ export class CustomFieldExtractor {
     let executiveName: string | null = null;
     let department: string | null = null;
     let client: string | null = null;
+    let clientOptionId: string | null = null;
     let subProjects: string[] = [];
     let cost = 0;
     let estimation = 0;
@@ -20,7 +21,11 @@ export class CustomFieldExtractor {
       const name = (cf.name || '').toLowerCase();
       const value = cf.value;
       if (value === undefined || value === null || value === '') continue;
-      if (name === 'client' && cf.type === 'drop_down') client = this.resolveDropdown(cf, value);
+      if (name === 'client' && cf.type === 'drop_down') {
+        const opt = this.findDropdownOption(cf, value);
+        client = this.cleanText(opt?.name ?? null);
+        clientOptionId = opt?.id ?? null;
+      }
       // Exact (normalized) match, never `includes('project')`: that would also
       // swallow a plain "Project" field, last-write-wins.
       if (name.replace(/[\s_-]/g, '') === 'subproject') subProjects = this.resolveOptions(cf, value);
@@ -34,13 +39,18 @@ export class CustomFieldExtractor {
     // sprint_points is an int4 column; a mis-matched custom field can carry a
     // value far beyond int4 range (the `name.includes('point')` match above is
     // broad). Clamp obvious garbage to 0 so it can't overflow and abort the upsert.
-    return { executiveName, department, client, subProjects, cost, estimation, sprintName, sprintPoints: toSafeInt32(sprintPoints) };
+    return { executiveName, department, client, clientOptionId, subProjects, cost, estimation, sprintName, sprintPoints: toSafeInt32(sprintPoints) };
   }
 
-  private resolveDropdown(cf: ClickUpCustomField, value: unknown): string | null {
+  /** The selected drop_down option: the value is its orderindex, or (newer payloads) its id. */
+  private findDropdownOption(cf: ClickUpCustomField, value: unknown): ClickUpCustomFieldOption | undefined {
+    const options = cf.type_config?.options ?? [];
+    if (typeof value === 'string') {
+      const byId = options.find((o) => o.id === value);
+      if (byId) return byId;
+    }
     const selected = Number(value);
-    const option = cf.type_config?.options?.find((opt) => opt.orderindex === selected);
-    return this.cleanText(option?.name ?? null);
+    return options.find((o) => o.orderindex === selected);
   }
 
   /**

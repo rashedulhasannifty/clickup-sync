@@ -46,7 +46,9 @@ type SpaceRow = {
   /** Distinct users with logged time against tasks in this space. */
   memberCount: number;
   hoursLogged: number;
-  costAud: number;
+  /** Null when a scoped viewer doesn't lead any client active in this space. */
+  costAud: number | null;
+  costPartial?: boolean;
   /** false = configured space that has never produced any synced data yet */
   synced: boolean;
   /** Last successful sync time (from the sync checkpoint), or null. */
@@ -505,7 +507,7 @@ function WorkloadView({ spaces, controls }: { spaces: SpaceRow[]; controls: Sync
                 {sp.taskCount > 0 ? `${completionPct(sp.taskCount, sp.openCount)}%` : '—'}
               </td>
               <td style={{ padding: '10px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>
-                {fmt.money(Math.round(Number(sp.costAud ?? 0) * 100))}
+                {fmt.money(sp.costAud != null ? Math.round(sp.costAud * 100) : null)}
               </td>
               <td style={{ padding: '10px 16px', textAlign: 'right' }}>
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
@@ -549,10 +551,15 @@ export function SpacesPage() {
   // empty AND no completed-within-1h drains pending).
   const [optimisticQueued, setOptimisticQueued] = useState<Set<string>>(new Set());
   const [lookbackInput, setLookbackInput] = useState<Record<string, string>>({});
-  const { hasRole } = useAuth();
+  const { hasRole, access } = useAuth();
   const canSync = hasRole('ADMIN');
+  // `/reports/ops/sync-health` is requireUnrestricted server-side (R22) — gate
+  // on `access.unrestricted`, not `isAdmin` (a flag-off MEMBER is unrestricted
+  // too). Missing `access` (still loading / an older cached session) is never
+  // treated as denied.
+  const unrestricted = access?.unrestricted ?? true;
   const spacesQuery = useSpaces();
-  const syncHealthQuery = useSyncHealth();
+  const syncHealthQuery = useSyncHealth(unrestricted);
   const backfill = useBackfill();
   const queryClient = useQueryClient();
   const activeBackfills = useActiveBackfills(canSync);

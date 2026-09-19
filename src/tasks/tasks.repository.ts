@@ -7,7 +7,7 @@ import { NormalizedTask } from '../clickup/clickup-normalizer';
 export class TasksRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  upsert(task: NormalizedTask) {
+  async upsert(task: NormalizedTask) {
     // `shared` is built from NormalizedTask alone, which deliberately carries
     // no local annotations (see the "Local annotations" block in
     // schema.prisma). Do NOT switch this to writing every column: user-set
@@ -29,10 +29,56 @@ export class TasksRepository {
     // a backfill pass blank a value the webhook path already captured. The plain
     // `description` is present on both, so it stays an unconditional overwrite.
     if (task.markdownDescription == null) delete (update as Record<string, unknown>).markdownDescription;
-    return this.prisma.clickupTask.upsert({
-      where: { taskId: task.taskId },
-      create: { ...shared, syncCount: 1 },
-      update,
+    return this.prisma.$transaction(async (tx) => {
+      // DERIVED access key (see schema): own option id, else the parent's. Sync owns
+      // this column — it is NOT a local annotation, so writing it here is correct.
+      let scopeClientOptionId = task.clientOptionId;
+      if (!scopeClientOptionId && task.parentTaskId) {
+        const parent = await tx.clickupTask.findUnique({
+          where: { taskId: task.parentTaskId },
+          select: { scopeClientOptionId: true },
+        });
+        scopeClientOptionId = parent?.scopeClientOptionId ?? null;
+      }
+      const row = await tx.clickupTask.upsert({
+        where: { taskId: task.taskId },
+        create: { ...shared, scopeClientOptionId, syncCount: 1 },
+        update: { ...update, scopeClientOptionId },
+      });
+      // Descendants without their own client follow this task's scope — the WHOLE
+      // subtree, not just direct children. A single-level cascade left grandchildren
+      // pointing at the previous client indefinitely: `syncTask` upserts only the one
+      // task it fetched, and changing a task in ClickUp does not bump its descendants'
+      // `date_updated`, so no later webhook or backfill pass would ever correct them.
+      // That failed OPEN — the losing team kept seeing the row.
+      //
+      // Recursion stops at any descendant that has its own `client_option_id`: that
+      // task is its own scope root, and its subtree belongs to it, not to us.
+      // `UNION` (not `UNION ALL`) dedupes against rows already produced, so a cyclic
+      // parent chain from bad upstream data terminates instead of spinning.
+      //
+      // This runs for EVERY upsert (whole-space reconciles on a 1.9 GB host), so the
+      // final predicate keeps it to rows that actually differ — an unchanged parent
+      // walks its subtree and writes nothing. `IS DISTINCT FROM` is null-safe in both
+      // directions, which is what the old Prisma `OR`/`not` pair was working around.
+      await tx.$executeRaw`
+        WITH RECURSIVE subtree AS (
+          SELECT task_id
+          FROM clickup_tasks
+          WHERE parent_task_id = ${task.taskId} AND client_option_id IS NULL
+          UNION
+          SELECT c.task_id
+          FROM clickup_tasks c
+          JOIN subtree s ON c.parent_task_id = s.task_id
+          WHERE c.client_option_id IS NULL
+        )
+        UPDATE clickup_tasks t
+        SET scope_client_option_id = ${scopeClientOptionId}
+        FROM subtree s
+        WHERE t.task_id = s.task_id
+          AND t.scope_client_option_id IS DISTINCT FROM ${scopeClientOptionId}
+      `;
+      return row;
     });
   }
 

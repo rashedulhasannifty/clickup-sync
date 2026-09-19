@@ -25,7 +25,7 @@ const BUCKET_ARIA: Record<CostTrendBucket, string> = {
   month: 'monthly',
 };
 
-function moneyAud(dollars: number) { return fmt.money(Math.round(dollars * 100)); }
+function moneyAud(dollars: number | null) { return dollars == null ? '—' : fmt.money(Math.round(dollars * 100)); }
 
 function defaultRangeForBucket(bucket: CostTrendBucket): { from: string; to: string } {
   // Rolling window to now. Month uses ~365d back, which generally produces

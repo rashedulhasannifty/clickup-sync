@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { HttpService } from "@nestjs/axios";
 import { firstValueFrom } from "rxjs";
 import {
+  ClickUpCustomField,
   ClickUpMember,
   ClickUpTask,
   ClickUpTaskPage,
@@ -460,6 +461,16 @@ export class ClickupClient {
   async getWebhooks(teamId: string): Promise<ClickUpWebhook[]> {
     const res: any = await this.request("GET", `/team/${teamId}/webhook`);
     return res.webhooks || [];
+  }
+
+  async getWorkspaceFields(teamId: string): Promise<ClickUpCustomField[]> {
+    const res: any = await this.request("GET", `/team/${teamId}/field`);
+    return res.fields || [];
+  }
+
+  async getSpaceFields(spaceId: string): Promise<ClickUpCustomField[]> {
+    const res: any = await this.request("GET", `/space/${spaceId}/field`);
+    return res.fields || [];
   }
   async createWebhook(
     teamId: string,

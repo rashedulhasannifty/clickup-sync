@@ -64,12 +64,12 @@ export function UserMenu() {
             <button
               type="button"
               className="row-3d"
-              onClick={() => { setOpen(false); navigate('/team'); }}
+              onClick={() => { setOpen(false); navigate('/users'); }}
               style={menuItemStyle}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
-              <Users size={14} style={{ color: 'var(--text-muted)' }} /> Manage team
+              <Users size={14} style={{ color: 'var(--text-muted)' }} /> Manage users
             </button>
           )}
 

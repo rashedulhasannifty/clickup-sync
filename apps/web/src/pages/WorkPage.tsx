@@ -9,6 +9,12 @@ import {
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
 import { useRowSelection } from '../hooks/useRowSelection';
 import { useAuth } from '../hooks/useAuth';
+import { useToast } from '../components/ui/Toast';
+
+/** Axios-style error → response.data.message, without `any` (same pattern as XeroSettingsTab). */
+function apiErrorMessage(e: unknown): string | undefined {
+  return (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+}
 import {
   useClientOptions, useFolderOptions, useListOptions, useLoggedByOptions,
   useStatusOptions, useSubProjectOptions, useTaskAssigneeOptions,
@@ -70,8 +76,12 @@ const csv = (v: string[]) => (v.length ? v.join(',') : undefined);
 const blank = (v: unknown) => <span style={{ color: 'var(--text-faint)' }}>{v == null || v === '' ? '—' : String(v)}</span>;
 
 export function WorkPage() {
-  const { hasRole } = useAuth();
-  const canEdit = hasRole('ADMIN');
+  const { access } = useAuth();
+  // Server gate for these chargeability write paths is per-task/per-entry lead
+  // access, not Owner/Admin-only — a lead may edit chargeability on their own
+  // led clients. Missing `access` (still loading / an older cached session) is
+  // never treated as denied.
+  const canEdit = access?.canEditChargeability ?? true;
   const { space, fromDate, toDate } = useGlobalFilters();
 
   // ── Filters ───────────────────────────────────────────────────────────────
@@ -204,10 +214,19 @@ export function WorkPage() {
   const [selectedTask, setSelectedTask] = useState<WorkRow | null>(null);
   const [selectedEntry, setSelectedEntry] = useState<TimeEntryItem | null>(null);
   const [chargeableTarget, setChargeableTarget] = useState<{ taskIds: string[]; chargeable: boolean; clearSelectionOnApply: boolean } | null>(null);
+  const toast = useToast();
   const setOverride = useSetEntryChargeableOverride();
   const applyOverride = (value: boolean | null) => {
     const ids = entrySel.selectedRows.map((r) => r.timeEntryId);
-    if (ids.length) setOverride.mutate({ timeEntryIds: ids, chargeable: value }, { onSuccess: () => entrySel.clear() });
+    if (ids.length) setOverride.mutate(
+      { timeEntryIds: ids, chargeable: value },
+      {
+        onSuccess: () => entrySel.clear(),
+        // A lead who is only a MEMBER on some selected entries' clients gets a
+        // 403 for those rows — show the server's own message, not a generic one.
+        onError: (e) => toast.show(apiErrorMessage(e) ?? 'Could not update chargeability.', 'red'),
+      },
+    );
   };
 
   // ── Reset ─────────────────────────────────────────────────────────────────
@@ -257,7 +276,7 @@ export function WorkPage() {
         entries = entrySel.selectedRows.map((e) => ({
           timeEntryId: e.timeEntryId, taskId: e.taskId || null, taskName: e.taskName, userId: e.userId, userName: e.userName,
           userEmail: e.userEmail, startTime: e.startTime, endTime: e.endTime, durationHours: e.durationHours,
-          hourlyRateCents: e.hourlyRateCents, costCents: Math.round(e.costAud * 100), currency: e.currency ?? 'USD',
+          hourlyRateCents: e.hourlyRateCents, costCents: e.costAud != null ? Math.round(e.costAud * 100) : null, currency: e.currency ?? 'USD',
           status: e.status, chargeable: e.chargeable, chargeableOverride: e.chargeableOverride, description: e.description,
         }));
         // Both sheets describe the same set: only the tasks the selected entries belong to.
@@ -285,7 +304,7 @@ export function WorkPage() {
         { header: 'Est. hours', value: 'timeEstimateHours', type: 'number' },
         { header: 'Logged hours (in range)', value: (r) => r.logged?.hours ?? 0, type: 'number' },
         { header: 'Chargeable hours (in range)', value: (r) => r.logged?.chargeableHours ?? 0, type: 'number' },
-        { header: 'Cost (rated entries)', value: (r) => (r.logged?.costCents ?? 0) / 100, type: 'money' },
+        { header: 'Cost (rated entries)', value: (r) => (r.logged?.costCents != null ? r.logged.costCents / 100 : null), type: 'money' },
         { header: 'Currency', value: (r) => r.logged?.currency ?? '' },
         { header: 'Entries missing a rate', value: (r) => r.logged?.missingRateCount ?? 0, type: 'integer' },
         { header: 'Lifetime hours (ClickUp, ignores range)', value: 'lifetimeSpentHours', type: 'number' },
@@ -304,8 +323,8 @@ export function WorkPage() {
         { header: 'Duration (h)', value: 'durationHours', type: 'number' },
         { header: 'Chargeable', value: (e) => (e.chargeable ? 'Yes' : 'No') },
         { header: 'Override', value: (e) => (e.chargeableOverride === null ? '' : e.chargeableOverride ? 'Chargeable' : 'Non-chargeable') },
-        { header: 'Hourly rate', value: (e) => e.hourlyRateCents / 100, type: 'money' },
-        { header: 'Cost', value: (e) => (e.status === 'NO_RATE_FOUND' ? null : e.costCents / 100), type: 'money' },
+        { header: 'Hourly rate', value: (e) => (e.hourlyRateCents != null ? e.hourlyRateCents / 100 : null), type: 'money' },
+        { header: 'Cost', value: (e) => (e.status === 'NO_RATE_FOUND' || e.costCents == null ? null : e.costCents / 100), type: 'money' },
         { header: 'Currency', value: 'currency' },
         { header: 'Status', value: 'status' },
         { header: 'Description', value: 'description', width: 42 },
@@ -358,7 +377,7 @@ export function WorkPage() {
     { key: 'est', header: 'Est', width: 70, align: 'right', sortable: false, render: (r) => (r.timeEstimateHours != null ? <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{fmt.shortHours(r.timeEstimateHours)}</span> : blank(null)) },
     { key: 'logged', header: entryFiltersActive ? 'Logged (matching filters)' : 'Logged (in range)', width: 90, align: 'right', render: (r) => <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.duration(r.logged?.hours ?? 0)}</span> },
     { key: 'lifetime', header: 'Lifetime (ClickUp, ignores range)', width: 130, align: 'right', sortable: false, render: (r) => (r.lifetimeSpentHours != null ? <span title="ClickUp's own total — ignores the date range" style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{fmt.shortHours(r.lifetimeSpentHours)}</span> : blank(null)) },
-    { key: 'cost', header: 'Cost', width: 100, align: 'right', render: (r) => (r.logged && r.logged.costCents > 0 ? <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.money(r.logged.costCents, r.logged.currency)}</span> : blank(null)) },
+    { key: 'cost', header: 'Cost', width: 100, align: 'right', render: (r) => (r.logged && r.logged.costCents != null && r.logged.costCents > 0 ? <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.money(r.logged.costCents, r.logged.currency)}</span> : blank(null)) },
     {
       key: 'rates', header: 'Rates', width: 120, sortable: false,
       render: (r) => {
@@ -452,7 +471,13 @@ export function WorkPage() {
         <MetricCard dense label="Tasks" value={fmt.number(total)} sublabel="with activity in range" icon={<ListTree size={13} strokeWidth={1.75} />} />
         <MetricCard dense label="Logged in range" value={fmt.hours(totals?.hours ?? 0)} sublabel={`${fmt.number(totals?.entries ?? 0)} entries`} icon={<Clock size={13} strokeWidth={1.75} />} />
         <MetricCard dense label="Chargeable" value={fmt.hours(totals?.chargeableHours ?? 0)} sublabel={`${chargeablePct}%`} icon={<DollarSign size={13} strokeWidth={1.75} />} />
-        <MetricCard dense label="Cost" value={fmt.money(totals?.costCents ?? 0)} sublabel="rated entries only" icon={<DollarSign size={13} strokeWidth={1.75} />} />
+        <MetricCard
+          dense
+          label="Cost"
+          value={fmt.money(totals?.costCents ?? null)}
+          sublabel={totals?.costPartial ? 'Cost shown for your clients only' : 'rated entries only'}
+          icon={<DollarSign size={13} strokeWidth={1.75} />}
+        />
         <MetricCard dense label="Missing rates" value={fmt.number(totals?.missingRateCount ?? 0)} sublabel="entries need a rate" icon={<AlertTriangle size={13} strokeWidth={1.75} />} />
       </div>
 

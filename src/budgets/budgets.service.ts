@@ -1,7 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { AccessScope, isUnrestricted, leadClientIds } from '../access/access-scope';
+import { leadScopeSql } from '../access/scope-query';
+import { requireLeadView } from '../access/scope.decorator';
+import { ClientOptionsRepository } from '../clients/client-options.repository';
 import { BudgetsRepository } from './budgets.repository';
+import { leadBudgetClientNames } from './budget-scope';
 import {
   dhakaTodayParts,
   monthBounds,
@@ -46,14 +51,28 @@ function addDaysIso(isoDate: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Team scoping (Task 13): `clientBudgetStatus` is a cost-only view (Ruling R1 -
+ * `requireLeadView` gate; per spec "Cost masking", `budgets/status` is scoped
+ * to the viewer's LEAD clients, 403 for a non-lead). `ClientBudget` is keyed by
+ * name, not option id, so a scoped lead's spend query is filtered with
+ * `leadScopeSql` (option-id based, on the task join) while the budget rows and
+ * the final per-client result rows are filtered through `leadBudgetClientNames`
+ * (see budget-scope.ts), the option-id -> name bridge. A name also owned by a
+ * team the viewer doesn't lead is ambiguous and excluded entirely, even from a
+ * LEAD-owned option of that same name.
+ */
 @Injectable()
 export class BudgetsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly repo: BudgetsRepository,
+    private readonly clientOptions: ClientOptionsRepository,
   ) {}
 
-  async clientBudgetStatus(args: { month?: string; now?: Date }): Promise<ClientBudgetStatusRow[]> {
+  async clientBudgetStatus(args: { month?: string; now?: Date; scope: AccessScope }): Promise<ClientBudgetStatusRow[]> {
+    const { scope } = args;
+    requireLeadView(scope);
     const now = args.now ?? new Date();
     const { year, month0 } = parseMonth(args.month, now);
     const bounds = monthBounds(year, month0);
@@ -80,6 +99,9 @@ export class BudgetsService {
     const rawLower = new Date(`${addDaysIso(bounds.start, -1)}T00:00:00Z`);
     const rawUpper = new Date(`${addDaysIso(effectiveToday, 2)}T00:00:00Z`);
 
+    const scoped = !isUnrestricted(scope);
+    const scopeClause = scoped ? Prisma.sql`AND ${leadScopeSql(scope, 't')}` : Prisma.empty;
+
     const dailyRows = await this.prisma.$queryRaw<DailyRow[]>(Prisma.sql`
       SELECT to_char(${dhakaDay}, 'YYYY-MM-DD')              AS day,
              COALESCE(NULLIF(t.client, ''), ${NO_CLIENT})    AS client,
@@ -93,6 +115,7 @@ export class BudgetsService {
         AND ${dhakaDay} >= ${bounds.start}::date
         AND ${dhakaDay} <= ${effectiveToday}::date
         AND t.is_deleted = false
+        ${scopeClause}
       GROUP BY 1, 2
     `);
 
@@ -107,9 +130,21 @@ export class BudgetsService {
     // Resolve the applicable budget per client (latest validFrom covering the month;
     // validFrom <= month end AND (validTo null OR validTo >= month start)).
     const budgets = await this.repo.findAllRows(); // sorted client asc, validFrom desc
+
+    // `ClientBudget` is name-keyed, with no scope_client_option_id to filter on
+    // directly. A scoped lead's allowed names are bridged from their LEAD option
+    // ids (see budget-scope.ts); `null` means unrestricted (no filter at all).
+    // Loaded only when scoped — unrestricted never needs the options lookup.
+    let allowedNames: Set<string> | null = null;
+    if (scoped) {
+      const options = await this.clientOptions.list();
+      allowedNames = leadBudgetClientNames(leadClientIds(scope) ?? [], options, [...scope.ledTeamIds]);
+    }
+
     const budgetFor = new Map<string, { amountCents: number; currency: string }>();
     for (const b of budgets) {
       if (budgetFor.has(b.client)) continue; // first match = latest validFrom (desc order)
+      if (allowedNames && !allowedNames.has(b.client)) continue;
       const vf = b.validFrom.toISOString().slice(0, 10);
       const vt = b.validTo ? b.validTo.toISOString().slice(0, 10) : null;
       if (vf <= bounds.end && (vt === null || vt >= bounds.start)) {
@@ -118,7 +153,12 @@ export class BudgetsService {
     }
 
     // Every client that either has spend this month or has a budget row.
-    const clients = new Set<string>([...byClient.keys(), ...budgetFor.keys()]);
+    // Ambiguous names (see budget-scope.ts) are excluded from the result rows
+    // too, not just the budget lookup — a lead must never see even a spend-only
+    // row for a name a foreign team also owns.
+    const clients = new Set<string>(
+      [...byClient.keys(), ...budgetFor.keys()].filter((c) => !allowedNames || allowedNames.has(c)),
+    );
 
     const businessDaysInMonth = countBusinessDays(bounds.start, bounds.end);
     const businessDaysElapsed = countBusinessDays(bounds.start, effectiveToday);

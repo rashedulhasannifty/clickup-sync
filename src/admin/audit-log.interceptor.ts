@@ -10,7 +10,30 @@ import { AuditLogRepository } from './audit-log.repository';
 
 const WRITE_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 const REDACT_RE = /(secret|token|api[_-]?key|password|signature)/i;
+const PATH_PARAM_RE = /:([A-Za-z0-9_]+)/g;
 const MAX_BODY_BYTES = 16 * 1024;
+
+/**
+ * Builds the path we persist to the audit log. A raw path segment (e.g. a
+ * single-use invitation token, or any other secret-shaped route param) must
+ * never land in the database — so this rebuilds the path from the route's
+ * pattern (`req.route.path`, e.g. `/auth/invitations/:token/accept`),
+ * substituting each `:paramName` with its real value, except a param whose
+ * NAME matches REDACT_RE, which becomes `[REDACTED]`. Deliberately general:
+ * any future `:token`/`:secret`/... route param is covered without a new rule.
+ * Falls back to the resolved `req.path` (today's behavior) when there's no
+ * route pattern to work from.
+ */
+function loggedPath(req: { path?: string; route?: { path?: string }; params?: Record<string, string> }): string {
+  const pattern = req.route?.path;
+  if (!pattern) return req.path ?? '';
+  const params = req.params ?? {};
+  return pattern.replace(PATH_PARAM_RE, (match, name: string) => {
+    if (REDACT_RE.test(name)) return '[REDACTED]';
+    const value = params[name];
+    return value !== undefined ? String(value) : match;
+  });
+}
 
 function redact(value: unknown, seen = new WeakSet()): unknown {
   if (value === null || typeof value !== 'object') return value;
@@ -54,7 +77,7 @@ export class AuditLogInterceptor implements NestInterceptor {
     const startedAt = Date.now();
     const meta = {
       method: req.method as string,
-      path: req.path as string,
+      path: loggedPath(req),
       routePattern: (req.route?.path as string | undefined) ?? null,
       actor:
         ((req.user?.email as string | undefined) ??

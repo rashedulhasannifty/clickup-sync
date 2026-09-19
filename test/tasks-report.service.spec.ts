@@ -1,4 +1,21 @@
+import { Prisma } from '@prisma/client';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { TasksReportService } from '../src/reports/tasks-report.service';
+import { resolveScope, type AccessScope } from '../src/access/access-scope';
+
+// Shared fixture for the calls in this file that don't care about scope
+// behavior — `scope` is a required param (Ruling R10), so every call needs
+// one. The scope-specific tests below (`tasks (access scope)`, `access scope
+// (FALSE on empty scope)`, `taskDescription`, `sprintPoints`, `spaces`,
+// `chargeablePreview`) use their own NONE/LEAD/LEAD_A_MEMBER_B scopes.
+const UNRESTRICTED: AccessScope = { kind: 'unrestricted', canEdit: true };
+// A MEMBER of exactly zero teams: `visibleClientIds` resolves to `[]`, so a
+// scoped query must pin to an empty IN list (matches nothing / FALSE) rather
+// than fall through to "no filter".
+const NONE = resolveScope({
+  role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+  memberships: [], teamClients: [], teamMembers: [],
+});
 
 describe('TasksReportService', () => {
   function makePrisma(overrides: Partial<Record<string, any>> = {}) {
@@ -25,6 +42,28 @@ describe('TasksReportService', () => {
     return { ...base, ...overrides } as any;
   }
 
+  describe('access scope (FALSE on empty scope)', () => {
+    const sqlOf = (call: any[]) => (call[0] as Prisma.Sql).sql;
+    it.each([
+      ['tasksSummary', []], ['tasksBySpaceStatus', []], ['tasksAssignees', []],
+      ['tasksClients', [{}]], ['tasksSubProjects', [{}]], ['tasksLists', [undefined]],
+      ['tasksFolders', [undefined]], ['spaces', []],
+    ])('%s applies an empty scope as FALSE', async (method, args) => {
+      const prisma = {
+        $queryRaw: jest.fn().mockResolvedValue([]),
+        clickupTask: {
+          groupBy: jest.fn().mockResolvedValue([]),
+          count: jest.fn().mockResolvedValue(0),
+          findMany: jest.fn().mockResolvedValue([]),
+        },
+      } as any;
+      await (new TasksReportService(prisma) as any)[method](...args, NONE);
+      const calls = prisma.$queryRaw.mock.calls;
+      if (calls.length) expect(calls.every((c: any[]) => sqlOf(c).includes('FALSE'))).toBe(true);
+      else expect(JSON.stringify(prisma.clickupTask.groupBy.mock.calls.concat(prisma.clickupTask.count.mock.calls))).toContain('"in":[]');
+    });
+  });
+
   describe('tasksSummary', () => {
     it('returns bySpace (collapsed by space_id via raw SQL), byStatus, byStatusType and total', async () => {
       const prisma = makePrisma();
@@ -37,11 +76,25 @@ describe('TasksReportService', () => {
         .mockResolvedValueOnce([{ status: 'in progress', _count: { taskId: 3 } }])
         .mockResolvedValueOnce([{ statusType: 'open', _count: { taskId: 4 } }]);
       prisma.clickupTask.count.mockResolvedValue(10);
-      const result = await new TasksReportService(prisma).tasksSummary();
+      const result = await new TasksReportService(prisma).tasksSummary(UNRESTRICTED);
       expect(result.total).toBe(10);
       expect(result.bySpace[0]).toEqual({ spaceId: '3577824', spaceName: 'Digital Marketing', count: 5 });
       expect(result.byStatus[0]).toEqual({ status: 'in progress', count: 3 });
       expect(result.byStatusType[0]).toEqual({ statusType: 'open', count: 4 });
+    });
+
+    // Fix round 1, item 4: the generic "FALSE on empty scope" it.each above
+    // only inspects the raw `bySpace` query (tasksSummary also issues one);
+    // pin the Prisma-side `byStatus`/`byStatusType`/`total` calls directly so
+    // an empty scope pins them to `scopeClientOptionId: { in: [] }` too.
+    it('pins byStatus, byStatusType and total to an empty scopeClientOptionId IN list for NONE', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasksSummary(NONE);
+      const groupByWheres = prisma.clickupTask.groupBy.mock.calls.map((c: any[]) => c[0].where);
+      const countWhere = prisma.clickupTask.count.mock.calls[0][0].where;
+      for (const where of [...groupByWheres, countWhere]) {
+        expect(where.scopeClientOptionId).toEqual({ in: [] });
+      }
     });
   });
 
@@ -51,7 +104,7 @@ describe('TasksReportService', () => {
       prisma.clickupTask.groupBy.mockResolvedValue([
         { spaceName: 'Projects', status: 'complete', _count: { taskId: 12 } },
       ]);
-      const result = await new TasksReportService(prisma).tasksBySpaceStatus();
+      const result = await new TasksReportService(prisma).tasksBySpaceStatus(UNRESTRICTED);
       expect(result[0]).toEqual({ spaceName: 'Projects', status: 'complete', count: 12 });
     });
   });
@@ -63,7 +116,7 @@ describe('TasksReportService', () => {
         { client: 'Acme Corp', task_count: BigInt(12) },
         { client: 'Globex', task_count: BigInt(3) },
       ]);
-      const result = await new TasksReportService(prisma).tasksClients();
+      const result = await new TasksReportService(prisma).tasksClients(undefined, UNRESTRICTED);
       expect(result).toEqual([
         { client: 'Acme Corp', taskCount: 12 },
         { client: 'Globex', taskCount: 3 },
@@ -73,7 +126,7 @@ describe('TasksReportService', () => {
     it('excludes soft-deleted tasks and empty clients in the SQL', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([]);
-      await new TasksReportService(prisma).tasksClients();
+      await new TasksReportService(prisma).tasksClients(undefined, UNRESTRICTED);
       const call = prisma.$queryRaw.mock.calls[0][0];
       const sqlText: string = call.sql ?? call.text ?? String(call);
       expect(sqlText).toMatch(/is_deleted\s*=\s*false/);
@@ -87,7 +140,7 @@ describe('TasksReportService', () => {
     it('scopes by space_id when spaceId is given', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([]);
-      await new TasksReportService(prisma).tasksClients({ spaceId: '3589129' });
+      await new TasksReportService(prisma).tasksClients({ spaceId: '3589129' }, UNRESTRICTED);
       const call = prisma.$queryRaw.mock.calls[0][0];
       const sqlText: string = call.sql ?? call.text ?? String(call);
       expect(sqlText).toMatch(/space_id\s*=/);
@@ -96,7 +149,7 @@ describe('TasksReportService', () => {
     it('applies the updated_date window when from/to are given', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([]);
-      await new TasksReportService(prisma).tasksClients({ from: '2025-12-01', to: '2026-08-27' });
+      await new TasksReportService(prisma).tasksClients({ from: '2025-12-01', to: '2026-08-27' }, UNRESTRICTED);
       const call = prisma.$queryRaw.mock.calls[0][0];
       const sqlText: string = call.sql ?? call.text ?? String(call);
       expect(sqlText).toMatch(/updated_date\s*>=/);
@@ -107,8 +160,8 @@ describe('TasksReportService', () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([]);
       const svc = new TasksReportService(prisma);
-      await svc.tasksClients({ archived: 'exclude' });
-      await svc.tasksClients({ archived: 'only' });
+      await svc.tasksClients({ archived: 'exclude' }, UNRESTRICTED);
+      await svc.tasksClients({ archived: 'only' }, UNRESTRICTED);
       const text = (i: number) => {
         const call = prisma.$queryRaw.mock.calls[i][0];
         return (call.sql ?? call.text ?? String(call)) as string;
@@ -122,7 +175,7 @@ describe('TasksReportService', () => {
     it('emits no space/date/archived clause when called with no options', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([]);
-      await new TasksReportService(prisma).tasksClients();
+      await new TasksReportService(prisma).tasksClients(undefined, UNRESTRICTED);
       const call = prisma.$queryRaw.mock.calls[0][0];
       const sqlText: string = call.sql ?? call.text ?? String(call);
       expect(sqlText).not.toMatch(/space_id/);
@@ -138,7 +191,7 @@ describe('TasksReportService', () => {
         { list_id: 'L1', list_name: 'Backlog', space_name: 'Projects', task_count: BigInt(7) },
         { list_id: 'L2', list_name: 'Sprint 12', space_name: 'R&D Apps', task_count: BigInt(3) },
       ]);
-      const result = await new TasksReportService(prisma).tasksLists();
+      const result = await new TasksReportService(prisma).tasksLists(undefined, UNRESTRICTED);
       expect(result).toEqual([
         { listId: 'L1', listName: 'Backlog', spaceName: 'Projects', taskCount: 7 },
         { listId: 'L2', listName: 'Sprint 12', spaceName: 'R&D Apps', taskCount: 3 },
@@ -148,7 +201,7 @@ describe('TasksReportService', () => {
     it('scopes by space_id when spaceId is given', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([]);
-      await new TasksReportService(prisma).tasksLists('3577824');
+      await new TasksReportService(prisma).tasksLists('3577824', UNRESTRICTED);
       const call = prisma.$queryRaw.mock.calls[0][0];
       const sqlText: string = call.sql ?? call.text ?? String(call);
       expect(sqlText).toMatch(/space_id\s*=/);
@@ -157,7 +210,7 @@ describe('TasksReportService', () => {
     it('excludes soft-deleted tasks and empty lists in the SQL', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([]);
-      await new TasksReportService(prisma).tasksLists();
+      await new TasksReportService(prisma).tasksLists(undefined, UNRESTRICTED);
       const call = prisma.$queryRaw.mock.calls[0][0];
       const sqlText: string = call.sql ?? call.text ?? String(call);
       expect(sqlText).toMatch(/is_deleted\s*=\s*false/);
@@ -172,7 +225,7 @@ describe('TasksReportService', () => {
         { folder_id: 'F1', folder_name: 'Q3 Campaigns', space_name: 'Digital Marketing', task_count: BigInt(9) },
         { folder_id: 'F2', folder_name: 'Internal', space_name: 'R&D Apps', task_count: BigInt(4) },
       ]);
-      const result = await new TasksReportService(prisma).tasksFolders();
+      const result = await new TasksReportService(prisma).tasksFolders(undefined, UNRESTRICTED);
       expect(result).toEqual([
         { folderId: 'F1', folderName: 'Q3 Campaigns', spaceName: 'Digital Marketing', taskCount: 9 },
         { folderId: 'F2', folderName: 'Internal', spaceName: 'R&D Apps', taskCount: 4 },
@@ -182,7 +235,7 @@ describe('TasksReportService', () => {
     it('scopes by space_id when spaceId is given', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([]);
-      await new TasksReportService(prisma).tasksFolders('3577824');
+      await new TasksReportService(prisma).tasksFolders('3577824', UNRESTRICTED);
       const call = prisma.$queryRaw.mock.calls[0][0];
       const sqlText: string = call.sql ?? call.text ?? String(call);
       expect(sqlText).toMatch(/space_id\s*=/);
@@ -191,7 +244,7 @@ describe('TasksReportService', () => {
     it('excludes soft-deleted tasks, null folders, and empty folder names in the SQL', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([]);
-      await new TasksReportService(prisma).tasksFolders();
+      await new TasksReportService(prisma).tasksFolders(undefined, UNRESTRICTED);
       const call = prisma.$queryRaw.mock.calls[0][0];
       const sqlText: string = call.sql ?? call.text ?? String(call);
       expect(sqlText).toMatch(/is_deleted\s*=\s*false/);
@@ -207,7 +260,7 @@ describe('TasksReportService', () => {
         { sub_project: 'Mobile App', task_count: BigInt(4) },
         { sub_project: 'Website', task_count: BigInt(2) },
       ]);
-      const result = await new TasksReportService(prisma).tasksSubProjects();
+      const result = await new TasksReportService(prisma).tasksSubProjects(undefined, UNRESTRICTED);
       expect(result).toEqual([
         { subProject: 'Mobile App', taskCount: 4 },
         { subProject: 'Website', taskCount: 2 },
@@ -216,7 +269,7 @@ describe('TasksReportService', () => {
 
     it('unnests the array and counts distinct non-deleted tasks', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasksSubProjects();
+      await new TasksReportService(prisma).tasksSubProjects(undefined, UNRESTRICTED);
       const call = prisma.$queryRaw.mock.calls[0][0];
       const sqlText: string = call.sql ?? call.text ?? String(call);
       expect(sqlText).toMatch(/unnest\(\s*sub_projects\s*\)/i);
@@ -228,7 +281,7 @@ describe('TasksReportService', () => {
       const prisma = makePrisma();
       await new TasksReportService(prisma).tasksSubProjects({
         spaceId: '3525433', from: '2026-01-01', to: '2026-02-01', archived: 'exclude',
-      });
+      }, UNRESTRICTED);
       const call = prisma.$queryRaw.mock.calls[0][0];
       const sqlText: string = call.sql ?? call.text ?? String(call);
       expect(sqlText).toMatch(/space_id\s*=/);
@@ -240,7 +293,7 @@ describe('TasksReportService', () => {
 
   describe('tasks (sub-project filter)', () => {
     const withSubProject = (prisma: any, subProject?: string) =>
-      new TasksReportService(prisma).tasks(
+      new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         subProject,
@@ -271,7 +324,7 @@ describe('TasksReportService', () => {
   describe('tasks (client filter)', () => {
     it('wraps a single client in an IN clause (the deep-link path)', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(
+      await new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, 'Acme Corp',
       );
@@ -281,7 +334,7 @@ describe('TasksReportService', () => {
 
     it('splits a comma-separated client list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(
+      await new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, 'Acme Corp,Globex',
       );
@@ -291,14 +344,14 @@ describe('TasksReportService', () => {
 
     it('omits the client clause when client is undefined', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks();
+      await new TasksReportService(prisma).tasks(UNRESTRICTED);
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
       expect(arg.where.client).toBeUndefined();
     });
 
     it('omits the client clause when client is commas only', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(
+      await new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, ' , ',
       );
@@ -310,7 +363,7 @@ describe('TasksReportService', () => {
   describe('tasks (list filter)', () => {
     it('wraps a single listId in an IN clause', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(
+      await new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined, 'L1',
       );
@@ -320,7 +373,7 @@ describe('TasksReportService', () => {
 
     it('splits a comma-separated listId list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(
+      await new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined, 'L1,L2',
       );
@@ -330,7 +383,7 @@ describe('TasksReportService', () => {
 
     it('omits the listId clause when listId is undefined', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks();
+      await new TasksReportService(prisma).tasks(UNRESTRICTED);
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
       expect(arg.where.listId).toBeUndefined();
     });
@@ -339,7 +392,7 @@ describe('TasksReportService', () => {
   describe('tasks (folder filter)', () => {
     it('wraps a single folderId in an IN clause', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(
+      await new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'F1',
       );
@@ -349,7 +402,7 @@ describe('TasksReportService', () => {
 
     it('splits a comma-separated folderId list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(
+      await new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, 'F1,F2',
       );
@@ -359,7 +412,7 @@ describe('TasksReportService', () => {
 
     it('omits the folderId clause when folderId is undefined', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks();
+      await new TasksReportService(prisma).tasks(UNRESTRICTED);
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
       expect(arg.where.folderId).toBeUndefined();
     });
@@ -368,21 +421,21 @@ describe('TasksReportService', () => {
   describe('tasks (status filter)', () => {
     it('wraps a single status in an IN clause', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(undefined, 'in progress');
+      await new TasksReportService(prisma).tasks(UNRESTRICTED, undefined, 'in progress');
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
       expect(arg.where.status).toEqual({ in: ['in progress'] });
     });
 
     it('splits a comma-separated status list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(undefined, 'in progress,in review');
+      await new TasksReportService(prisma).tasks(UNRESTRICTED, undefined, 'in progress,in review');
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
       expect(arg.where.status).toEqual({ in: ['in progress', 'in review'] });
     });
 
     it('omits the status clause when status is undefined', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks();
+      await new TasksReportService(prisma).tasks(UNRESTRICTED);
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
       expect(arg.where.status).toBeUndefined();
     });
@@ -391,7 +444,7 @@ describe('TasksReportService', () => {
   describe('tasks (priority filter)', () => {
     it('splits a comma-separated priority list into an IN clause', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(
+      await new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0, 'urgent,high',
       );
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
@@ -400,7 +453,7 @@ describe('TasksReportService', () => {
 
     it('omits the priority clause when priority is undefined', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks();
+      await new TasksReportService(prisma).tasks(UNRESTRICTED);
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
       expect(arg.where.priority).toBeUndefined();
     });
@@ -409,7 +462,7 @@ describe('TasksReportService', () => {
   describe('tasks (assignee filter)', () => {
     it('pushes a single-name OR group onto where.AND', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(
+      await new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, 'Alice',
       );
@@ -424,7 +477,7 @@ describe('TasksReportService', () => {
 
     it('ORs every selected assignee name inside one AND entry', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(
+      await new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, 'Alice,Bob',
       );
@@ -440,7 +493,7 @@ describe('TasksReportService', () => {
 
     it('keeps the assignee OR and the search OR as separate AND entries', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(
+      await new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, 'launch', undefined, undefined, 50, 0,
         undefined, 'Alice,Bob',
       );
@@ -462,7 +515,7 @@ describe('TasksReportService', () => {
 
     it('omits the assignee clause when assigneeId is undefined', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks();
+      await new TasksReportService(prisma).tasks(UNRESTRICTED);
       const arg = prisma.clickupTask.findMany.mock.calls[0][0];
       expect(arg.where.AND).toBeUndefined();
       expect(arg.where.assigneesNames).toBeUndefined();
@@ -472,7 +525,7 @@ describe('TasksReportService', () => {
   describe('tasks (taskIds filter)', () => {
     it('parses comma-separated taskIds into where.taskId.in', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(
+      await new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, 't1,t2 , ,t3',
       );
@@ -482,7 +535,7 @@ describe('TasksReportService', () => {
 
     it('omits the taskId clause when taskIds resolves to an empty list', async () => {
       const prisma = makePrisma();
-      await new TasksReportService(prisma).tasks(
+      await new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, ' , , ',
       );
@@ -493,7 +546,7 @@ describe('TasksReportService', () => {
 
   describe('tasks (sprintStatus filter)', () => {
     function callTasks(prisma: any, sprintStatus?: string, listId?: string) {
-      return new TasksReportService(prisma).tasks(
+      return new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined, listId, undefined,
         sprintStatus,
@@ -566,31 +619,103 @@ describe('TasksReportService', () => {
     });
   });
 
+  describe('taskDescription', () => {
+    function makeDescPrisma(row: { description: string | null; markdownDescription: string | null } | null) {
+      return { clickupTask: { findFirst: jest.fn().mockResolvedValue(row) } } as any;
+    }
+
+    it('returns description + markdownDescription for an in-scope task', async () => {
+      const prisma = makeDescPrisma({ description: 'plain', markdownDescription: '**md**' });
+      const result = await new TasksReportService(prisma).taskDescription('t1', UNRESTRICTED);
+      expect(result).toEqual({ description: 'plain', markdownDescription: '**md**' });
+    });
+
+    it('scopes the lookup with taskScopeWhere(scope)', async () => {
+      const prisma = makeDescPrisma({ description: null, markdownDescription: null });
+      const LEAD = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'LEAD' }], teamClients: [{ teamId: 'A', optionId: 'acme' }], teamMembers: [],
+      });
+      await new TasksReportService(prisma).taskDescription('t1', LEAD);
+      expect(prisma.clickupTask.findFirst).toHaveBeenCalledWith({
+        where: { taskId: 't1', scopeClientOptionId: { in: ['acme'] } },
+        select: { description: true, markdownDescription: true },
+      });
+    });
+
+    // Ruling R14: unrestricted (Owner/Admin, or a flag-off MEMBER) keeps
+    // today's exact pre-scoping behaviour for a missing id — `null`, not a
+    // 404 (base 1cec3e4 returned `null` for a missing row via `findUnique`).
+    it('returns null for a missing task when unrestricted (no behaviour change)', async () => {
+      const prisma = makeDescPrisma(null);
+      const result = await new TasksReportService(prisma).taskDescription('ghost', UNRESTRICTED);
+      expect(result).toBeNull();
+    });
+
+    // Never 403 for a scoped viewer: a 403 here would confirm the task
+    // exists but is out of scope, which is exactly the existence oracle
+    // scoping must not create.
+    it('throws NotFoundException for a scoped viewer when the task is out of scope or missing', async () => {
+      const prisma = makeDescPrisma(null);
+      const LEAD = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'LEAD' }], teamClients: [{ teamId: 'A', optionId: 'acme' }], teamMembers: [],
+      });
+      await expect(new TasksReportService(prisma).taskDescription('ghost', LEAD)).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('sprintPoints', () => {
     it('maps groupBy to spaceName, status, totalPoints', async () => {
       const prisma = makePrisma();
       prisma.clickupTask.groupBy.mockResolvedValue([
         { spaceName: 'R&D Apps', status: 'complete', _sum: { sprintPoints: 21 } },
       ]);
-      const result = await new TasksReportService(prisma).sprintPoints();
+      const result = await new TasksReportService(prisma).sprintPoints(undefined, UNRESTRICTED);
       expect(result[0]).toEqual({ spaceName: 'R&D Apps', status: 'complete', totalPoints: 21 });
     });
 
     it('defaults totalPoints to 0 when sum is null', async () => {
       const prisma = makePrisma();
       prisma.clickupTask.groupBy.mockResolvedValue([{ spaceName: 'X', status: 'open', _sum: { sprintPoints: null } }]);
-      const result = await new TasksReportService(prisma).sprintPoints();
+      const result = await new TasksReportService(prisma).sprintPoints(undefined, UNRESTRICTED);
       expect(result[0].totalPoints).toBe(0);
+    });
+
+    // Ruling R1: requireLeadView, not requireLead — a flag-off MEMBER's scope
+    // is 'unrestricted' (canEdit: false) and must keep reading sprint points
+    // exactly as today.
+    it('lets an unrestricted flag-off MEMBER through unchanged', async () => {
+      const prisma = makePrisma();
+      const FLAG_OFF_MEMBER: AccessScope = { kind: 'unrestricted', canEdit: false };
+      await expect(new TasksReportService(prisma).sprintPoints(undefined, FLAG_OFF_MEMBER)).resolves.toEqual([]);
+    });
+
+    it('403s a scoped viewer who leads no team', async () => {
+      const prisma = makePrisma();
+      await expect(new TasksReportService(prisma).sprintPoints(undefined, NONE)).rejects.toThrow(ForbiddenException);
+      expect(prisma.clickupTask.groupBy).not.toHaveBeenCalled();
+    });
+
+    it('lets a scoped LEAD through and scopes the query', async () => {
+      const prisma = makePrisma();
+      const LEAD = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'LEAD' }], teamClients: [{ teamId: 'A', optionId: 'acme' }], teamMembers: [],
+      });
+      await new TasksReportService(prisma).sprintPoints(undefined, LEAD);
+      const arg = prisma.clickupTask.groupBy.mock.calls[0][0];
+      expect(arg.where.scopeClientOptionId).toEqual({ in: ['acme'] });
     });
   });
 
-  describe('spaces', () => {
+  describe('spaces (cost masking)', () => {
     it('returns per-space aggregated stats', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([
-        { space_id: '3577824', space_name: 'Digital Marketing', task_count: BigInt(10), open_count: BigInt(5), hours_logged: 20.5, cost_cents: 5000 },
+        { space_id: '3577824', space_name: 'Digital Marketing', task_count: BigInt(10), open_count: BigInt(5), hours_logged: 20.5, cost_cents: 5000, cost_partial: false },
       ]);
-      const result = await new TasksReportService(prisma).spaces();
+      const result = await new TasksReportService(prisma).spaces(UNRESTRICTED);
       expect(result).toHaveLength(1);
       expect(result[0].spaceId).toBe('3577824');
       expect(result[0].spaceName).toBe('Digital Marketing');
@@ -598,13 +723,107 @@ describe('TasksReportService', () => {
       expect(result[0].openCount).toBe(5);
       expect(result[0].hoursLogged).toBe(20.5);
       expect(result[0].costAud).toBe(50);
+      expect(result[0].costPartial).toBe(false);
     });
 
     it('returns empty array when no spaces exist', async () => {
       const prisma = makePrisma();
       prisma.$queryRaw.mockResolvedValue([]);
-      const result = await new TasksReportService(prisma).spaces();
+      const result = await new TasksReportService(prisma).spaces(UNRESTRICTED);
       expect(result).toEqual([]);
+    });
+
+    // Ruling R12: a viewer who leads no client in scope sees costPartial: true
+    // wherever an in-scope-but-not-led row exists, and `costAud` itself is
+    // `null` (not a misleadingly precise 0) — the sum is already narrowed to
+    // LEAD-only cost by the CASE WHEN in the SQL, but a lead-of-nothing
+    // viewer must never see a number at all.
+    it('surfaces costPartial and null costAud for a scoped viewer who leads no client (MEMBER-only)', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([
+        { space_id: '3577824', space_name: 'Digital Marketing', task_count: BigInt(2), open_count: BigInt(1), hours_logged: 5, cost_cents: 0, cost_partial: true, has_led_cost: false },
+      ]);
+      const NONE_LEAD = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'MEMBER' }], teamClients: [{ teamId: 'A', optionId: 'acme' }], teamMembers: [],
+      });
+      const result = await new TasksReportService(prisma).spaces(NONE_LEAD);
+      expect(result[0].costPartial).toBe(true);
+      expect(result[0].costAud).toBeNull();
+    });
+
+    // Ruling R17 (canonical R12 rule, fix round 1 item 1 restated): a space
+    // that mixes lead-visible (A) and not-led (B) rows gets a real number —
+    // `has_led_cost: true` — not null, and `costPartial` reflects that some
+    // of the space's cost was still excluded from the sum.
+    it('gives a partial lead (leads some but not all in-scope clients) a real costAud number when some of this space is LED', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([
+        { space_id: '3577824', space_name: 'Digital Marketing', task_count: BigInt(3), open_count: BigInt(1), hours_logged: 8, cost_cents: 2500, cost_partial: true, has_led_cost: true },
+      ]);
+      const PARTIAL_LEAD = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [
+          { teamId: 'A', role: 'LEAD' },
+          { teamId: 'B', role: 'MEMBER' },
+        ],
+        teamClients: [
+          { teamId: 'A', optionId: 'acme' },
+          { teamId: 'B', optionId: 'bolt' },
+        ],
+        teamMembers: [],
+      });
+      const result = await new TasksReportService(prisma).spaces(PARTIAL_LEAD);
+      expect(result[0].costAud).toBe(25);
+      expect(result[0].costPartial).toBe(true);
+    });
+
+    // Ruling R17: standardises on the per-space rule instead of "leads
+    // nothing ANYWHERE in scope" — a lead of A viewing a space whose ONLY
+    // entries are on B (not led) must see null, exactly as if they led
+    // nothing at all, because THIS space has zero LEAD-visible rows.
+    it('gives null costAud to a lead of A when a space has only B (not-led) rows', async () => {
+      const prisma = makePrisma();
+      prisma.$queryRaw.mockResolvedValue([
+        { space_id: '3589129', space_name: 'R&D Apps', task_count: BigInt(2), open_count: BigInt(1), hours_logged: 5, cost_cents: 0, cost_partial: true, has_led_cost: false },
+      ]);
+      const LEAD_A_MEMBER_B = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [
+          { teamId: 'A', role: 'LEAD' },
+          { teamId: 'B', role: 'MEMBER' },
+        ],
+        teamClients: [
+          { teamId: 'A', optionId: 'acme' },
+          { teamId: 'B', optionId: 'bolt' },
+        ],
+        teamMembers: [],
+      });
+      const result = await new TasksReportService(prisma).spaces(LEAD_A_MEMBER_B);
+      expect(result[0].costAud).toBeNull();
+      expect(result[0].costPartial).toBe(true);
+    });
+
+    it('wraps the cost sum in a CASE WHEN and scopes the WHERE clause', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).spaces(NONE);
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/CASE WHEN/i);
+      expect(sqlText).toMatch(/BOOL_OR/i);
+      expect(sqlText).toContain('FALSE');
+    });
+
+    // Fix round 1, item 2: without the `e.task_id IS NOT NULL` guard, a
+    // non-lead task with ZERO time entries still flips `cost_partial` true
+    // via the LEFT JOIN's single all-NULL entry row, even though no cost was
+    // actually hidden. Pin the guard clause is present in the generated SQL.
+    it('guards cost_partial so a task with no time entries is not counted as hidden cost', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).spaces(NONE);
+      const call = prisma.$queryRaw.mock.calls[0][0];
+      const sqlText: string = call.sql ?? call.text ?? String(call);
+      expect(sqlText).toMatch(/BOOL_OR\(\s*e\.task_id\s+IS\s+NOT\s+NULL\s+AND\s+NOT/i);
     });
   });
 
@@ -626,19 +845,25 @@ describe('TasksReportService', () => {
     it('reports how many of the given tasks would actually change', async () => {
       const { prisma } = makePreviewPrisma(3, 2);
 
-      const res = await new TasksReportService(prisma).chargeablePreview(['t1', 't2', 't3'], false);
+      const res = await new TasksReportService(prisma).chargeablePreview(['t1', 't2', 't3'], false, UNRESTRICTED);
 
       expect(res).toEqual({ tasks: 3, changing: 2, timeEntries: 84, hours: 156.5 });
     });
 
+    // Ruling R13: the global "flag off must reproduce today exactly"
+    // constraint outranks the no-existence-oracle uniformity. Restored
+    // verbatim (with the UNRESTRICTED fixture): ids that don't exist inflate
+    // no denominator and throw nothing — an Owner/Admin or flag-off MEMBER
+    // caller keeps pre-scoping behavior exactly.
+    //
     // Regression: `tasks` used to be `taskIds.length`, so ids that don't exist
     // in the database inflated the "of N tasks" denominator in the confirmation
     // dialog — and `changing` could exceed it, since `changing` only ever counts
     // rows that exist.
-    it('counts only the tasks that actually exist, not every id given', async () => {
+    it('counts only the tasks that actually exist, not every id given (unrestricted)', async () => {
       const { prisma, count } = makePreviewPrisma(2, 1);
 
-      const res = await new TasksReportService(prisma).chargeablePreview(['t1', 't2', 'ghost'], false);
+      const res = await new TasksReportService(prisma).chargeablePreview(['t1', 't2', 'ghost'], false, UNRESTRICTED);
 
       expect(res.tasks).toBe(2);
       expect(res.changing).toBe(1);
@@ -646,6 +871,48 @@ describe('TasksReportService', () => {
       // may carry a filter the other lacks beyond the flag itself.
       expect(count).toHaveBeenCalledWith({ where: { taskId: { in: ['t1', 't2', 'ghost'] } } });
       expect(count).toHaveBeenCalledWith({ where: { taskId: { in: ['t1', 't2', 'ghost'] }, isChargeable: true } });
+    });
+
+    // No existence oracle, scoped viewers only (R13): an id that doesn't
+    // exist and an id that exists but is out of scope get the identical 404,
+    // so a scoped caller can't tell them apart by probing.
+    it('throws NotFoundException for a scoped viewer when not every given id resolves in scope', async () => {
+      const { prisma } = makePreviewPrisma(2, 1);
+      const LEAD = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'LEAD' }], teamClients: [{ teamId: 'A', optionId: 'acme' }], teamMembers: [],
+      });
+
+      await expect(
+        new TasksReportService(prisma).chargeablePreview(['t1', 't2', 'ghost'], false, LEAD),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('a scoped viewer with every id in scope gets the normal response, no throw', async () => {
+      const { prisma, count } = makePreviewPrisma(3, 1);
+      const LEAD = resolveScope({
+        role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+        memberships: [{ teamId: 'A', role: 'LEAD' }], teamClients: [{ teamId: 'A', optionId: 'acme' }], teamMembers: [],
+      });
+
+      const res = await new TasksReportService(prisma).chargeablePreview(['t1', 't2', 't3'], false, LEAD);
+
+      expect(res.tasks).toBe(3);
+      expect(res.changing).toBe(1);
+      expect(count).toHaveBeenCalledWith({
+        where: { taskId: { in: ['t1', 't2', 't3'] }, scopeClientOptionId: { in: ['acme'] } },
+      });
+      expect(count).toHaveBeenCalledWith({
+        where: { taskId: { in: ['t1', 't2', 't3'] }, scopeClientOptionId: { in: ['acme'] }, isChargeable: true },
+      });
+    });
+
+    it('an empty scope 404s any non-empty request', async () => {
+      const { prisma } = makePreviewPrisma(0, 0);
+
+      await expect(
+        new TasksReportService(prisma).chargeablePreview(['t1'], false, NONE),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -675,7 +942,7 @@ describe('TasksReportService', () => {
       prisma.taskAssigneeChargeability.findMany.mockResolvedValue([
         { taskId: 't1', chargeable: false },
       ]);
-      const result = await new TasksReportService(prisma).tasks();
+      const result = await new TasksReportService(prisma).tasks(UNRESTRICTED);
       expect(result.items[0].isChargeable).toBe(true);
       expect(result.items[0].partiallyChargeable).toBe(true);
     });
@@ -686,14 +953,14 @@ describe('TasksReportService', () => {
       prisma.taskAssigneeChargeability.findMany.mockResolvedValue([
         { taskId: 't1', chargeable: true },
       ]);
-      const result = await new TasksReportService(prisma).tasks();
+      const result = await new TasksReportService(prisma).tasks(UNRESTRICTED);
       expect(result.items[0].partiallyChargeable).toBe(true);
     });
 
     it('leaves a task with no rules alone', async () => {
       const prisma = makePrisma();
       prisma.clickupTask.findMany.mockResolvedValue([taskRow('t1', true), taskRow('t2', false)]);
-      const result = await new TasksReportService(prisma).tasks();
+      const result = await new TasksReportService(prisma).tasks(UNRESTRICTED);
       expect(result.items.map((i: any) => i.partiallyChargeable)).toEqual([false, false]);
     });
 
@@ -703,7 +970,7 @@ describe('TasksReportService', () => {
       prisma.taskAssigneeChargeability.findMany.mockResolvedValue([
         { taskId: 't1', chargeable: true },
       ]);
-      const result = await new TasksReportService(prisma).tasks();
+      const result = await new TasksReportService(prisma).tasks(UNRESTRICTED);
       expect(result.items[0].partiallyChargeable).toBe(false);
     });
 
@@ -713,7 +980,7 @@ describe('TasksReportService', () => {
       prisma.taskAssigneeChargeability.findMany.mockResolvedValue([
         { taskId: 't2', chargeable: false },
       ]);
-      const result = await new TasksReportService(prisma).tasks();
+      const result = await new TasksReportService(prisma).tasks(UNRESTRICTED);
       expect(result.items.map((i: any) => i.partiallyChargeable)).toEqual([false, true]);
     });
 
@@ -722,7 +989,7 @@ describe('TasksReportService', () => {
     it('scopes the rule lookup to the page\'s task ids', async () => {
       const prisma = makePrisma();
       prisma.clickupTask.findMany.mockResolvedValue([taskRow('t1', true), taskRow('t2', true)]);
-      await new TasksReportService(prisma).tasks();
+      await new TasksReportService(prisma).tasks(UNRESTRICTED);
       expect(prisma.taskAssigneeChargeability.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: { taskId: { in: ['t1', 't2'] } } }),
       );
@@ -733,7 +1000,7 @@ describe('TasksReportService', () => {
     it('skips the rule query entirely when the page is empty', async () => {
       const prisma = makePrisma();
       prisma.clickupTask.findMany.mockResolvedValue([]);
-      await new TasksReportService(prisma).tasks();
+      await new TasksReportService(prisma).tasks(UNRESTRICTED);
       expect(prisma.taskAssigneeChargeability.findMany).not.toHaveBeenCalled();
     });
   });
@@ -746,7 +1013,7 @@ describe('TasksReportService', () => {
     // note in the service for what has to change together later.)
     const call = (chargeable?: string) => {
       const prisma = makePrisma();
-      return new TasksReportService(prisma).tasks(
+      return new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, chargeable,
@@ -813,7 +1080,7 @@ describe('TasksReportService', () => {
         { taskId: 't1', isChargeable: true, _count: 4 },
         { taskId: 't1', isChargeable: false, _count: 1 },
       ]);
-      const result = await new TasksReportService(prisma).tasks();
+      const result = await new TasksReportService(prisma).tasks(UNRESTRICTED);
       expect(result.items[0].partiallyChargeable).toBe(true);
     });
 
@@ -823,7 +1090,7 @@ describe('TasksReportService', () => {
       prisma.clickupTimeEntry.groupBy.mockResolvedValue([
         { taskId: 't1', isChargeable: true, _count: 5 },
       ]);
-      const result = await new TasksReportService(prisma).tasks();
+      const result = await new TasksReportService(prisma).tasks(UNRESTRICTED);
       expect(result.items[0].partiallyChargeable).toBe(false);
     });
 
@@ -833,7 +1100,7 @@ describe('TasksReportService', () => {
       prisma.clickupTimeEntry.groupBy.mockResolvedValue([
         { taskId: 't1', isChargeable: false, _count: 5 },
       ]);
-      const result = await new TasksReportService(prisma).tasks();
+      const result = await new TasksReportService(prisma).tasks(UNRESTRICTED);
       expect(result.items[0].partiallyChargeable).toBe(false);
     });
 
@@ -845,14 +1112,14 @@ describe('TasksReportService', () => {
         { taskId: 't2', isChargeable: true, _count: 2 },
         { taskId: 't2', isChargeable: false, _count: 1 },
       ]);
-      const result = await new TasksReportService(prisma).tasks();
+      const result = await new TasksReportService(prisma).tasks(UNRESTRICTED);
       expect(result.items.map((i: any) => i.partiallyChargeable)).toEqual([false, true]);
     });
 
     it('skips the entry aggregate entirely when the page is empty', async () => {
       const prisma = makePrisma();
       prisma.clickupTask.findMany.mockResolvedValue([]);
-      await new TasksReportService(prisma).tasks();
+      await new TasksReportService(prisma).tasks(UNRESTRICTED);
       expect(prisma.clickupTimeEntry.groupBy).not.toHaveBeenCalled();
     });
   });
@@ -860,7 +1127,7 @@ describe('TasksReportService', () => {
   describe('tasks (chargeability filter: entries arm)', () => {
     const call = (chargeable?: string) => {
       const prisma = makePrisma();
-      return new TasksReportService(prisma).tasks(
+      return new TasksReportService(prisma).tasks(UNRESTRICTED,
         undefined, undefined, undefined, undefined, undefined, 50, 0,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, chargeable,
@@ -905,6 +1172,62 @@ describe('TasksReportService', () => {
         chargeabilityRules: { none: { chargeable: true } },
         timeEntries: { none: { isChargeable: true } },
       });
+    });
+  });
+
+  describe('tasks (access scope)', () => {
+    // A MEMBER of exactly zero teams: `visibleClientIds` resolves to `[]`, so
+    // the where-clause must pin to an empty IN list (matches nothing) rather
+    // than fall through to "no filter".
+    const NONE = resolveScope({
+      role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+      memberships: [], teamClients: [], teamMembers: [],
+    });
+    // LEAD of team A (client 'acme'), plain MEMBER of team B (client 'bolt').
+    const LEAD_A_MEMBER_B = resolveScope({
+      role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+      memberships: [
+        { teamId: 'A', role: 'LEAD' },
+        { teamId: 'B', role: 'MEMBER' },
+      ],
+      teamClients: [
+        { teamId: 'A', optionId: 'acme' },
+        { teamId: 'B', optionId: 'bolt' },
+      ],
+      teamMembers: [],
+    });
+
+    const dec = (n: number) => ({ toNumber: () => n }) as any;
+    function taskRow(taskId: string, scopeClientOptionId: string | null) {
+      return {
+        taskId, taskName: 'T', url: null, spaceId: '1', spaceName: 'S', status: 'open',
+        statusType: 'open', statusColor: null, priority: null, parentTaskId: null,
+        assigneesNames: null, assigneesEmails: null, updatedDate: new Date(), syncedAt: new Date(),
+        sprintPoints: null, sprintName: null, cost: dec(500), client: null, department: null,
+        isDeleted: false, archived: false, listName: null, dueDate: null, timeEstimate: null,
+        timeSpent: null, createdDate: null, closedDate: null, startDate: null, syncCount: 1,
+        estimation: dec(10), folderName: null, creatorName: null, executiveName: null,
+        isChargeable: true, scopeClientOptionId,
+      };
+    }
+
+    it('an empty scope pins the query to an empty id list', async () => {
+      const prisma = makePrisma();
+      await new TasksReportService(prisma).tasks(NONE);
+      const arg = prisma.clickupTask.findMany.mock.calls[0][0];
+      expect(arg.where.AND).toContainEqual({ scopeClientOptionId: { in: [] } });
+    });
+
+    it('masks cost/estimation on rows outside the clients the viewer LEADS, keeps them on led rows', async () => {
+      const prisma = makePrisma();
+      prisma.clickupTask.findMany.mockResolvedValue([taskRow('t-acme', 'acme'), taskRow('t-bolt', 'bolt')]);
+      const result = await new TasksReportService(prisma).tasks(LEAD_A_MEMBER_B);
+      const acme = result.items.find((i: any) => i.taskId === 't-acme')!;
+      const bolt = result.items.find((i: any) => i.taskId === 't-bolt')!;
+      expect(acme.cost).toBe(500);
+      expect(acme.estimation).toBe(10);
+      expect(bolt.cost).toBeNull();
+      expect(bolt.estimation).toBeNull();
     });
   });
 

@@ -15,6 +15,12 @@ import { TaskTimeline, type TaskTimelineEvent } from './TaskTimeline';
 import { fmt } from '../../lib/formatters';
 import { reportsApi } from '../../api/reports';
 import { parseAssignees, subProjectsOf, type Task } from '../../lib/taskFields';
+import { useToast } from '../ui/Toast';
+
+/** Axios-style error → response.data.message, without `any` (same pattern as XeroSettingsTab). */
+function apiErrorMessage(e: unknown): string | undefined {
+  return (e as { response?: { data?: { message?: string } } })?.response?.data?.message;
+}
 
 function MetaGrid({ items }: { items: [string, ReactNode | unknown][] }) {
   return (
@@ -57,7 +63,13 @@ export function TaskDetailDrawer({
   const taskIdForHistory = task ? String(task.taskId ?? task.task_id ?? '') : null;
   const history = useTaskHistory(taskIdForHistory || null);
   const { data: assigneeChargeData } = useTaskAssigneeChargeability(taskIdForHistory);
+  const toast = useToast();
   const setAssigneeChargeable = useSetAssigneeChargeable();
+  // A lead who is only a MEMBER on this task's client (not its LEAD) gets a
+  // 403 from the server for this row — surface its own message rather than a
+  // generic one, so "why didn't that work" is answerable without a devtools tab.
+  const onChargeableError = (e: unknown) =>
+    toast.show(apiErrorMessage(e) ?? 'Could not update chargeability.', 'red');
 
   // Description is fetched on demand (not carried in the paged list/export
   // payload — see taskDescription() in tasks-report.service.ts).
@@ -237,7 +249,7 @@ export function TaskDetailDrawer({
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => setAssigneeChargeable.mutate({ taskId, userId: a.userId, chargeable: !a.chargeable })}
+                              onClick={() => setAssigneeChargeable.mutate({ taskId, userId: a.userId, chargeable: !a.chargeable }, { onError: onChargeableError })}
                             >
                               {a.chargeable ? 'Mark non-chargeable' : 'Mark chargeable'}
                             </Button>
@@ -246,7 +258,7 @@ export function TaskDetailDrawer({
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => setAssigneeChargeable.mutate({ taskId, userId: a.userId, chargeable: null })}
+                              onClick={() => setAssigneeChargeable.mutate({ taskId, userId: a.userId, chargeable: null }, { onError: onChargeableError })}
                             >
                               Clear rule
                             </Button>

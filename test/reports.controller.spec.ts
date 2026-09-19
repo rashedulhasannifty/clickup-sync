@@ -1,6 +1,8 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { resolveScope } from '../src/access/access-scope';
+import { SCOPE_PARAM } from '../src/access/scope.decorator';
 import { ReportsController } from '../src/reports/reports.controller';
 import { TasksReportService } from '../src/reports/tasks-report.service';
 import { TimeEntriesReportService } from '../src/reports/time-entries-report.service';
@@ -47,12 +49,27 @@ describe('ReportsController', () => {
     return {
       getSpikeHoursCap: jest.fn().mockReturnValue(cap),
       isSpikeMedianEnabled: jest.fn().mockReturnValue(medianEnabled),
+      // Read by `stats`/`missingRates` (ops routes) to exclude assignees.
+      getExcludedAssigneeIds: jest.fn().mockReturnValue([]),
     } as any;
   }
 
   function makeBudgets() {
     return { clientBudgetStatus: jest.fn().mockResolvedValue([]) } as any;
   }
+
+  // Scopes for the ops/anomaly/spike routes (Ruling R8): requireUnrestricted() must let
+  // an OWNER/ADMIN and a flag-off MEMBER through (flag-off parity) but 403 a scoped MEMBER.
+  const OWNER_SCOPE = resolveScope({
+    role: 'OWNER', scopingEnabled: true, selfClickupId: null, memberships: [], teamClients: [], teamMembers: [],
+  });
+  const FLAG_OFF_MEMBER_SCOPE = resolveScope({
+    role: 'MEMBER', scopingEnabled: false, selfClickupId: null, memberships: [], teamClients: [], teamMembers: [],
+  });
+  const SCOPED_MEMBER_SCOPE = resolveScope({
+    role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+    memberships: [{ teamId: 'A', role: 'MEMBER' }], teamClients: [], teamMembers: [],
+  });
 
   describe('overviewDeltas', () => {
     function makeTimeEntriesWithDeltas() {
@@ -64,22 +81,28 @@ describe('ReportsController', () => {
       } as any;
     }
 
-    it('passes from/to through to the service', async () => {
+    it('passes scope + from/to through to the service', async () => {
       const timeEntries = makeTimeEntriesWithDeltas();
       const ctrl = makeCtrl({ timeEntries });
-      await ctrl.overviewDeltas('2026-05-01', '2026-05-31');
-      expect(timeEntries.overviewDeltas).toHaveBeenCalledWith('2026-05-01', '2026-05-31');
+      await ctrl.overviewDeltas(OWNER_SCOPE, '2026-05-01', '2026-05-31');
+      expect(timeEntries.overviewDeltas).toHaveBeenCalledWith(OWNER_SCOPE, '2026-05-01', '2026-05-31');
     });
 
     it('returns the service result unchanged', async () => {
       const timeEntries = makeTimeEntriesWithDeltas();
       const ctrl = makeCtrl({ timeEntries });
-      const result = await ctrl.overviewDeltas();
+      const result = await ctrl.overviewDeltas(OWNER_SCOPE);
       expect(result).toEqual({
         current: { totalHours: 10, totalCostAud: 1000 },
         prior:   { totalHours: 8,  totalCostAud: 800 },
       });
     });
+
+    // Fix round 1 (R15): the requireLeadView gate moved into
+    // TimeEntriesReportService.overviewDeltas itself — this controller
+    // handler is a thin passthrough with no gating of its own. The
+    // Forbidden/flag-off-allowed coverage now lives in
+    // test/time-entries-report.service.spec.ts ('overviewDeltas (access scope)').
   });
 
   describe('anomalies', () => {
@@ -91,40 +114,57 @@ describe('ReportsController', () => {
         }),
       } as any;
       const ctrl = makeCtrl({ anomaly });
-      const result = await ctrl.anomalies();
+      const result = await ctrl.anomalies(OWNER_SCOPE);
       expect(anomaly.anomalies).toHaveBeenCalledTimes(1);
       expect(result.dailySpikes).toHaveLength(1);
       expect(result.clientSpikes).toEqual([]);
     });
+
+    it('scoped MEMBER (Ruling R8): throws ForbiddenException, service not called', () => {
+      const anomaly = { anomalies: jest.fn() } as any;
+      const ctrl = makeCtrl({ anomaly });
+      expect(() => ctrl.anomalies(SCOPED_MEMBER_SCOPE)).toThrow(ForbiddenException);
+      expect(anomaly.anomalies).not.toHaveBeenCalled();
+    });
+
+    it('flag-off MEMBER (Ruling R8): reproduces today exactly — service is called', async () => {
+      const anomaly = { anomalies: jest.fn().mockResolvedValue({ dailySpikes: [], clientSpikes: [] }) } as any;
+      const ctrl = makeCtrl({ anomaly });
+      await ctrl.anomalies(FLAG_OFF_MEMBER_SCOPE);
+      expect(anomaly.anomalies).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('costTrend', () => {
-    it('passes bucket + from + to through to the service for valid bucket', async () => {
+    // requireLeadView() lives in CostTrendReportService.costTrend itself — this
+    // controller handler is a thin passthrough with no gating of its own, same
+    // pattern as overviewDeltas above.
+    it('passes scope + bucket + from + to through to the service for valid bucket', async () => {
       const costTrend = { costTrend: jest.fn().mockResolvedValue([]) } as any;
       const ctrl = makeCtrl({ costTrend });
-      await ctrl.costTrend('day', '2026-05-01', '2026-05-21');
-      expect(costTrend.costTrend).toHaveBeenCalledWith('day', '2026-05-01', '2026-05-21');
+      await ctrl.costTrend(OWNER_SCOPE, 'day', '2026-05-01', '2026-05-21');
+      expect(costTrend.costTrend).toHaveBeenCalledWith(OWNER_SCOPE, 'day', '2026-05-01', '2026-05-21');
     });
 
     it('rejects bucket="hour" with BadRequestException', () => {
       const costTrend = { costTrend: jest.fn().mockResolvedValue([]) } as any;
       const ctrl = makeCtrl({ costTrend });
-      expect(() => ctrl.costTrend('hour' as any)).toThrow(BadRequestException);
+      expect(() => ctrl.costTrend(OWNER_SCOPE, 'hour' as any)).toThrow(BadRequestException);
       expect(costTrend.costTrend).not.toHaveBeenCalled();
     });
 
     it('rejects missing bucket', () => {
       const costTrend = { costTrend: jest.fn().mockResolvedValue([]) } as any;
       const ctrl = makeCtrl({ costTrend });
-      expect(() => ctrl.costTrend(undefined as any)).toThrow(BadRequestException);
+      expect(() => ctrl.costTrend(OWNER_SCOPE, undefined as any)).toThrow(BadRequestException);
       expect(costTrend.costTrend).not.toHaveBeenCalled();
     });
 
     it.each(['day', 'week', 'month'] as const)('accepts bucket=%s', async (b) => {
       const costTrend = { costTrend: jest.fn().mockResolvedValue([]) } as any;
       const ctrl = makeCtrl({ costTrend });
-      await ctrl.costTrend(b);
-      expect(costTrend.costTrend).toHaveBeenCalledWith(b, undefined, undefined);
+      await ctrl.costTrend(OWNER_SCOPE, b);
+      expect(costTrend.costTrend).toHaveBeenCalledWith(OWNER_SCOPE, b, undefined, undefined);
     });
   });
 
@@ -133,7 +173,7 @@ describe('ReportsController', () => {
       const anomaly = { hourSpikes: jest.fn().mockResolvedValue({ cap: 10, watchlist: [], watchlistTotal: 0, byUser: { buckets: [], users: [] } }) } as any;
       const settings = makeSettings(10);
       const ctrl = makeCtrl({ anomaly, settings });
-      const result = await ctrl.hourSpikes('2026-06-01', '2026-06-10');
+      const result = await ctrl.hourSpikes(OWNER_SCOPE, '2026-06-01', '2026-06-10');
       expect(settings.getSpikeHoursCap).toHaveBeenCalledTimes(1);
       expect(anomaly.hourSpikes).toHaveBeenCalledWith(10, '2026-06-01', '2026-06-10', 20, false, true);
       expect(result.cap).toBe(10);
@@ -143,102 +183,147 @@ describe('ReportsController', () => {
       const anomaly = { hourSpikes: jest.fn().mockResolvedValue({ cap: 10, watchlist: [], watchlistTotal: 0, byUser: { buckets: [], users: [] } }) } as any;
       const settings = makeSettings(10);
       const ctrl = makeCtrl({ anomaly, settings });
-      await ctrl.hourSpikes('2026-06-01', '2026-06-10', '40', 'true');
+      await ctrl.hourSpikes(OWNER_SCOPE, '2026-06-01', '2026-06-10', '40', 'true');
       expect(anomaly.hourSpikes).toHaveBeenCalledWith(10, '2026-06-01', '2026-06-10', 40, true, true);
     });
 
     it('forwards medianEnabled=false from settings into the service', async () => {
       const anomaly = { hourSpikes: jest.fn().mockResolvedValue({ cap: 10, watchlist: [], watchlistTotal: 0, byUser: { buckets: [], users: [] } }) } as any;
       const ctrl = makeCtrl({ anomaly, settings: makeSettings(10, false) });
-      await ctrl.hourSpikes('2026-06-01', '2026-06-10');
+      await ctrl.hourSpikes(OWNER_SCOPE, '2026-06-01', '2026-06-10');
       expect(anomaly.hourSpikes).toHaveBeenCalledWith(10, '2026-06-01', '2026-06-10', 20, false, false);
+    });
+
+    it('scoped MEMBER (Ruling R8): throws ForbiddenException, service not called', () => {
+      const anomaly = { hourSpikes: jest.fn() } as any;
+      const ctrl = makeCtrl({ anomaly });
+      expect(() => ctrl.hourSpikes(SCOPED_MEMBER_SCOPE, '2026-06-01', '2026-06-10')).toThrow(ForbiddenException);
+      expect(anomaly.hourSpikes).not.toHaveBeenCalled();
+    });
+
+    it('flag-off MEMBER (Ruling R8): reproduces today exactly — service is called', async () => {
+      const anomaly = { hourSpikes: jest.fn().mockResolvedValue({ cap: 10, watchlist: [], watchlistTotal: 0, byUser: { buckets: [], users: [] } }) } as any;
+      const ctrl = makeCtrl({ anomaly, settings: makeSettings(10) });
+      await ctrl.hourSpikes(FLAG_OFF_MEMBER_SCOPE, '2026-06-01', '2026-06-10');
+      expect(anomaly.hourSpikes).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // Whole-branch review item 2: every ops/anomaly/spike route (per the spec's
+  // "Ops, anomaly and hour-spike reports stay Owner/Admin only" default) must
+  // 403 a scoped MEMBER and behave exactly like today for a flag-off MEMBER
+  // (Ruling R8). One parametrised table covers all 8 routes so a new one
+  // added here without `requireUnrestricted()` fails the same way.
+  describe('ops-route access gate (all 8 admin-grade routes)', () => {
+    it.each([
+      ['anomalies', 'anomaly', 'anomalies', (ctrl: ReportsController, scope: any) => ctrl.anomalies(scope)],
+      ['hourSpikes', 'anomaly', 'hourSpikes', (ctrl: ReportsController, scope: any) => ctrl.hourSpikes(scope)],
+      ['syncHealth', 'ops', 'syncHealth', (ctrl: ReportsController, scope: any) => ctrl.syncHealth(scope)],
+      ['webhookEvents', 'ops', 'webhookEvents', (ctrl: ReportsController, scope: any) => ctrl.webhookEvents(scope)],
+      ['jobLogs', 'ops', 'jobLogs', (ctrl: ReportsController, scope: any) => ctrl.jobLogs(scope)],
+      ['deadLetters', 'ops', 'deadLetters', (ctrl: ReportsController, scope: any) => ctrl.deadLetters(scope)],
+      ['stats', 'ops', 'stats', (ctrl: ReportsController, scope: any) => ctrl.stats(scope)],
+      ['missingRates', 'ops', 'missingRates', (ctrl: ReportsController, scope: any) => ctrl.missingRates(scope)],
+    ] as const)('%s: scoped MEMBER throws ForbiddenException (service not called); flag-off MEMBER calls the service', async (_name, group, method, invoke) => {
+      const mockFn = jest.fn().mockResolvedValue({});
+      const collaborator = { [method]: mockFn } as any;
+
+      const scopedCtrl = makeCtrl({ [group]: collaborator } as any);
+      expect(() => invoke(scopedCtrl, SCOPED_MEMBER_SCOPE)).toThrow(ForbiddenException);
+      expect(mockFn).not.toHaveBeenCalled();
+
+      const flagOffCtrl = makeCtrl({ [group]: collaborator } as any);
+      await invoke(flagOffCtrl, FLAG_OFF_MEMBER_SCOPE);
+      expect(mockFn).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('budgetStatus', () => {
-    it('delegates to budgets.clientBudgetStatus with the given month', async () => {
+    // requireLeadView() lives in BudgetsService.clientBudgetStatus itself — this
+    // controller handler is a thin passthrough with no gating of its own.
+    it('delegates to budgets.clientBudgetStatus with the given month + scope', async () => {
       const budgets = makeBudgets();
       const ctrl = makeCtrl({ budgets });
-      await ctrl.budgetStatus('2026-06');
-      expect(budgets.clientBudgetStatus).toHaveBeenCalledWith({ month: '2026-06' });
+      await ctrl.budgetStatus(OWNER_SCOPE, '2026-06');
+      expect(budgets.clientBudgetStatus).toHaveBeenCalledWith({ month: '2026-06', scope: OWNER_SCOPE });
     });
 
     it('passes undefined month when not supplied', async () => {
       const budgets = makeBudgets();
       const ctrl = makeCtrl({ budgets });
-      await ctrl.budgetStatus();
-      expect(budgets.clientBudgetStatus).toHaveBeenCalledWith({ month: undefined });
+      await ctrl.budgetStatus(OWNER_SCOPE);
+      expect(budgets.clientBudgetStatus).toHaveBeenCalledWith({ month: undefined, scope: OWNER_SCOPE });
     });
   });
 
   describe('sprints', () => {
-    it('GET /reports/sprints delegates status + paging to the service', async () => {
+    it('GET /reports/sprints delegates status + paging + scope to the service', async () => {
       const sprints = { sprints: jest.fn().mockResolvedValue({ items: [], total: 0 }), sprintFolders: jest.fn(), velocity: jest.fn(), sprintDetail: jest.fn() } as any;
       const ctrl = makeCtrl({ sprints });
-      await ctrl.sprints('s1', 'f1', 'completed', 'foo', '25', '0');
-      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ spaceId: 's1', folderId: 'f1', status: 'completed', search: 'foo', limit: 25, offset: 0 }));
+      await ctrl.sprints(OWNER_SCOPE, 's1', 'f1', 'completed', 'foo', '25', '0');
+      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ spaceId: 's1', folderId: 'f1', status: 'completed', search: 'foo', limit: 25, offset: 0 }), OWNER_SCOPE);
     });
 
     it('defaults status to "active" (not "all") when omitted — the sprints list default differs from tasks/time-entries', async () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      await ctrl.sprints();
-      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ status: 'active' }));
+      await ctrl.sprints(OWNER_SCOPE);
+      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ status: 'active' }), OWNER_SCOPE);
     });
 
     it('ignores an unrecognized status value and falls back to "active"', async () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      await ctrl.sprints(undefined, undefined, 'bogus');
-      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ status: 'active' }));
+      await ctrl.sprints(OWNER_SCOPE, undefined, undefined, 'bogus');
+      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ status: 'active' }), OWNER_SCOPE);
     });
 
     it('defaults limit/offset when the query params are missing', async () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      await ctrl.sprints();
-      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ limit: 50, offset: 0 }));
+      await ctrl.sprints(OWNER_SCOPE);
+      expect(sprints.sprints).toHaveBeenCalledWith(expect.objectContaining({ limit: 50, offset: 0 }), OWNER_SCOPE);
     });
   });
 
   describe('sprintFolders', () => {
-    it('delegates spaceId to sprintsReports.sprintFolders', async () => {
+    it('delegates spaceId + scope to sprintsReports.sprintFolders', async () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      await ctrl.sprintFolders('3577824');
-      expect(sprints.sprintFolders).toHaveBeenCalledWith('3577824');
+      await ctrl.sprintFolders(OWNER_SCOPE, '3577824');
+      expect(sprints.sprintFolders).toHaveBeenCalledWith('3577824', OWNER_SCOPE);
     });
   });
 
   describe('velocity', () => {
-    it('delegates folderId + limit to sprintsReports.velocity', async () => {
+    it('delegates folderId + limit + scope to sprintsReports.velocity', async () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      await ctrl.velocity('F1', '5');
-      expect(sprints.velocity).toHaveBeenCalledWith('F1', 5);
+      await ctrl.velocity(OWNER_SCOPE, 'F1', '5');
+      expect(sprints.velocity).toHaveBeenCalledWith('F1', 5, OWNER_SCOPE);
     });
 
     it('defaults limit to 12 when omitted', async () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      await ctrl.velocity('F1');
-      expect(sprints.velocity).toHaveBeenCalledWith('F1', 12);
+      await ctrl.velocity(OWNER_SCOPE, 'F1');
+      expect(sprints.velocity).toHaveBeenCalledWith('F1', 12, OWNER_SCOPE);
     });
 
     it('rejects a missing folderId with BadRequestException', () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      expect(() => ctrl.velocity()).toThrow(BadRequestException);
+      expect(() => ctrl.velocity(OWNER_SCOPE)).toThrow(BadRequestException);
       expect(sprints.velocity).not.toHaveBeenCalled();
     });
   });
 
   describe('sprintDetail', () => {
-    it('delegates listId to sprintsReports.sprintDetail', async () => {
+    it('delegates listId + scope to sprintsReports.sprintDetail', async () => {
       const sprints = makeSprints();
       const ctrl = makeCtrl({ sprints });
-      await ctrl.sprintDetail('L1');
-      expect(sprints.sprintDetail).toHaveBeenCalledWith('L1');
+      await ctrl.sprintDetail('L1', OWNER_SCOPE);
+      expect(sprints.sprintDetail).toHaveBeenCalledWith('L1', OWNER_SCOPE);
     });
   });
 
@@ -246,7 +331,7 @@ describe('ReportsController', () => {
     it('passes filters through, normalizes sprintStatus and numbers', async () => {
       const work = { work: jest.fn().mockResolvedValue({ items: [] }), workEntries: jest.fn() };
       const ctrl = makeCtrl({ work });
-      await ctrl.work('2026-09-01', '2026-09-14', 's1', 'checkout', 'complete', undefined, undefined, 'Sam', 'u1', undefined, 'true', 'Acme', undefined, undefined, undefined, 'include', 'bogus', 'partial', 'cost', 'asc', '25', '50');
+      await ctrl.work(OWNER_SCOPE, '2026-09-01', '2026-09-14', 's1', 'checkout', 'complete', undefined, undefined, 'Sam', 'u1', undefined, 'true', 'Acme', undefined, undefined, undefined, 'include', 'bogus', 'partial', 'cost', 'asc', '25', '50');
       expect(work.work).toHaveBeenCalledWith(expect.objectContaining({
         from: '2026-09-01', to: '2026-09-14', spaceId: 's1', search: 'checkout', status: 'complete',
         assignedTo: 'Sam', loggedBy: 'u1', missingOnly: 'true', client: 'Acme', archived: 'include',
@@ -257,7 +342,7 @@ describe('ReportsController', () => {
     it('entries route reuses the same params', async () => {
       const work = { work: jest.fn(), workEntries: jest.fn().mockResolvedValue({ items: [], truncated: false }) };
       const ctrl = makeCtrl({ work });
-      await ctrl.workEntries('2026-09-01', '2026-09-14');
+      await ctrl.workEntries(OWNER_SCOPE, '2026-09-01', '2026-09-14');
       expect(work.workEntries).toHaveBeenCalledWith(expect.objectContaining({ from: '2026-09-01', sprintStatus: 'all' }));
     });
   });
@@ -286,6 +371,14 @@ describe('ReportsController', () => {
         ],
       }).compile();
       const app = moduleRef.createNestApplication();
+      // No AccessScopeGuard is registered in this bare controller-only test
+      // module (this suite is only about route-ordering), so `@Scope()`
+      // would otherwise 403 on the missing request property. Stand in for
+      // the guard with a trivial middleware.
+      app.use((req: any, _res: any, next: () => void) => {
+        req[SCOPE_PARAM] = OWNER_SCOPE;
+        next();
+      });
       await app.init();
       return app;
     }
@@ -312,21 +405,22 @@ describe('ReportsController', () => {
       const sprints = makeSprints();
       const app = await bootApp(sprints);
       await request(app.getHttpServer()).get('/reports/sprints/SOME_LIST_ID').expect(200);
-      expect(sprints.sprintDetail).toHaveBeenCalledWith('SOME_LIST_ID');
+      expect(sprints.sprintDetail).toHaveBeenCalledWith('SOME_LIST_ID', OWNER_SCOPE);
       await app.close();
     });
   });
 
   describe('tasks (sprintStatus + chargeable passthrough)', () => {
-    // Positions in the service's argument list. These were `args.length - 1`
-    // until a later param was appended and silently moved sprintStatus off the
-    // end — naming the index makes adding another param a compile-time-obvious
-    // edit rather than three mystery failures.
-    const SPRINT_STATUS_ARG = 15;
-    const CHARGEABLE_ARG = 16;
+    // Positions in the service's argument list. `scope` is now index 0
+    // (Ruling R10: required params can't follow optional ones, so it moved to
+    // the front) — naming the index makes adding another param a
+    // compile-time-obvious edit rather than three mystery failures.
+    const SPRINT_STATUS_ARG = 16;
+    const CHARGEABLE_ARG = 17;
 
     function callTasks(ctrl: ReportsController, sprintStatus?: string, chargeable?: string) {
       return ctrl.tasks(
+        OWNER_SCOPE,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         sprintStatus, chargeable,
@@ -375,21 +469,21 @@ describe('ReportsController', () => {
     it('parses the csv taskIds and threads chargeable through to the service', async () => {
       const tasks = { chargeablePreview: jest.fn().mockResolvedValue({ tasks: 3, changing: 3, timeEntries: 0, hours: 0 }) } as any;
       const ctrl = makeCtrl({ tasks });
-      await ctrl.chargeablePreview('t1,t2,t3', 'true');
-      expect(tasks.chargeablePreview).toHaveBeenCalledWith(['t1', 't2', 't3'], true);
+      await ctrl.chargeablePreview(OWNER_SCOPE, 't1,t2,t3', 'true');
+      expect(tasks.chargeablePreview).toHaveBeenCalledWith(['t1', 't2', 't3'], true, OWNER_SCOPE);
     });
 
     it('defaults chargeable to false when omitted', async () => {
       const tasks = { chargeablePreview: jest.fn().mockResolvedValue({ tasks: 1, changing: 1, timeEntries: 0, hours: 0 }) } as any;
       const ctrl = makeCtrl({ tasks });
-      await ctrl.chargeablePreview('t1');
-      expect(tasks.chargeablePreview).toHaveBeenCalledWith(['t1'], false);
+      await ctrl.chargeablePreview(OWNER_SCOPE, 't1');
+      expect(tasks.chargeablePreview).toHaveBeenCalledWith(['t1'], false, OWNER_SCOPE);
     });
 
     it('rejects a missing taskIds with BadRequestException', () => {
       const tasks = { chargeablePreview: jest.fn() } as any;
       const ctrl = makeCtrl({ tasks });
-      expect(() => ctrl.chargeablePreview()).toThrow(BadRequestException);
+      expect(() => ctrl.chargeablePreview(OWNER_SCOPE)).toThrow(BadRequestException);
       expect(tasks.chargeablePreview).not.toHaveBeenCalled();
     });
 
@@ -397,7 +491,7 @@ describe('ReportsController', () => {
       const tasks = { chargeablePreview: jest.fn() } as any;
       const ctrl = makeCtrl({ tasks });
       const taskIds = Array.from({ length: 501 }, (_, i) => `t${i}`).join(',');
-      expect(() => ctrl.chargeablePreview(taskIds)).toThrow(BadRequestException);
+      expect(() => ctrl.chargeablePreview(OWNER_SCOPE, taskIds)).toThrow(BadRequestException);
       expect(tasks.chargeablePreview).not.toHaveBeenCalled();
     });
   });
@@ -405,13 +499,15 @@ describe('ReportsController', () => {
   describe('timeEntriesList (sprintStatus passthrough)', () => {
     // Pinned by position rather than "the last argument": `taskId` now trails
     // sprintStatus in the service signature, and any future trailing param
-    // would silently make these assertions inspect the wrong slot.
-    const SPRINT_STATUS_ARG = 14;
+    // would silently make these assertions inspect the wrong slot. `scope` is
+    // index 0 (Ruling R10: required params can't follow optional ones).
+    const SPRINT_STATUS_ARG = 15;
 
     it('normalizes and threads sprintStatus="active" through to the service', async () => {
       const timeEntries = { timeEntriesList: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
       const ctrl = makeCtrl({ timeEntries });
       await ctrl.timeEntriesList(
+        OWNER_SCOPE,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, 'active',
@@ -423,6 +519,7 @@ describe('ReportsController', () => {
       const timeEntries = { timeEntriesList: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
       const ctrl = makeCtrl({ timeEntries });
       await ctrl.timeEntriesList(
+        OWNER_SCOPE,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, 'nonsense',
@@ -434,6 +531,7 @@ describe('ReportsController', () => {
       const timeEntries = { timeEntriesList: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
       const ctrl = makeCtrl({ timeEntries });
       await ctrl.timeEntriesList(
+        OWNER_SCOPE,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, '86abc123',
@@ -451,6 +549,7 @@ describe('ReportsController', () => {
       const timeEntries = makeGrouped();
       const ctrl = makeCtrl({ timeEntries });
       await ctrl.timeEntriesByTask(
+        OWNER_SCOPE,
         'u1,u2', '2026-01-01', '2026-02-01', 'NO_RATE_FOUND', '25', '50',
         'true', 'webhook', 'space-1', undefined, 'Acme', 'list-1', 'folder-1', 'exclude', 'active',
       );
@@ -458,7 +557,7 @@ describe('ReportsController', () => {
         userId: 'u1,u2', from: '2026-01-01', to: '2026-02-01', status: 'NO_RATE_FOUND',
         limit: 25, offset: 50, chargeable: 'true', search: 'webhook', spaceId: 'space-1',
         missingOnly: undefined, client: 'Acme', listId: 'list-1', folderId: 'folder-1',
-        archived: 'exclude', sprintStatus: 'active',
+        archived: 'exclude', sprintStatus: 'active', scope: OWNER_SCOPE,
       });
     });
 
@@ -466,6 +565,7 @@ describe('ReportsController', () => {
       const timeEntries = makeGrouped();
       const ctrl = makeCtrl({ timeEntries });
       await ctrl.timeEntriesByTask(
+        OWNER_SCOPE,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined,
         undefined, undefined, 'nonsense',
@@ -476,7 +576,7 @@ describe('ReportsController', () => {
     it('falls back to a 50-task page when limit/offset are absent', async () => {
       const timeEntries = makeGrouped();
       const ctrl = makeCtrl({ timeEntries });
-      await ctrl.timeEntriesByTask();
+      await ctrl.timeEntriesByTask(OWNER_SCOPE);
       expect(timeEntries.timeEntriesByTask.mock.calls[0][0]).toMatchObject({ limit: 50, offset: 0 });
     });
   });

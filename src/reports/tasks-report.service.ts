@@ -1,16 +1,20 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { parseDate } from './report-date.util';
 import { buildTaskWhere, TASK_LIST_SELECT } from './task-filter.util';
 import { isPartiallyChargeable } from '../time-entries/chargeability';
+import { AccessScope, isUnrestricted, leadClientIds } from '../access/access-scope';
+import { maskCost } from '../access/cost-mask';
+import { leadScopeSql, taskScopeSql, taskScopeWhere } from '../access/scope-query';
+import { requireLeadView } from '../access/scope.decorator';
 
 /** Task-centric report queries (counts, filters, per-space aggregates). */
 @Injectable()
 export class TasksReportService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async tasksSummary() {
+  async tasksSummary(scope: AccessScope) {
     // `byStatusType` is added so the Overview KPIs can derive open/closed
     // counts reliably. The per-list `status` strings are unstable across
     // workspaces ('Closed' vs 'closed', 'done' vs 'complete'), but ClickUp's
@@ -31,12 +35,21 @@ export class TasksReportService {
                COUNT(*)::bigint AS count
         FROM clickup_tasks
         WHERE is_deleted = false
+          AND ${taskScopeSql(scope, 'clickup_tasks')}
         GROUP BY space_id
         ORDER BY count DESC
       `),
-      this.prisma.clickupTask.groupBy({ by: ['status'], where: { isDeleted: false }, _count: { taskId: true } }),
-      this.prisma.clickupTask.groupBy({ by: ['statusType'], where: { isDeleted: false }, _count: { taskId: true } }),
-      this.prisma.clickupTask.count({ where: { isDeleted: false } }),
+      this.prisma.clickupTask.groupBy({
+        by: ['status'],
+        where: { isDeleted: false, ...taskScopeWhere(scope) },
+        _count: { taskId: true },
+      }),
+      this.prisma.clickupTask.groupBy({
+        by: ['statusType'],
+        where: { isDeleted: false, ...taskScopeWhere(scope) },
+        _count: { taskId: true },
+      }),
+      this.prisma.clickupTask.count({ where: { isDeleted: false, ...taskScopeWhere(scope) } }),
     ]);
     return {
       bySpace: bySpaceRows.map(r => ({ spaceId: r.space_id, spaceName: r.space_name, count: Number(r.count) })),
@@ -46,10 +59,10 @@ export class TasksReportService {
     };
   }
 
-  async tasksBySpaceStatus() {
+  async tasksBySpaceStatus(scope: AccessScope) {
     const rows = await this.prisma.clickupTask.groupBy({
       by: ['spaceName', 'status'],
-      where: { isDeleted: false },
+      where: { isDeleted: false, ...taskScopeWhere(scope) },
       _count: { taskId: true },
       orderBy: { spaceName: 'asc' },
     });
@@ -68,7 +81,7 @@ export class TasksReportService {
    * pairing in a single pass; SQL beats Prisma here because Prisma can't
    * express ordinal-paired array unpacking.
    */
-  async tasksAssignees() {
+  async tasksAssignees(scope: AccessScope) {
     type Row = { name: string; email: string | null; task_count: bigint };
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT name, email, COUNT(*)::bigint AS task_count
@@ -82,6 +95,7 @@ export class TasksReportService {
           string_to_array(COALESCE(assignees_emails, ''), ',')
         ) AS u(n, e)
         WHERE is_deleted = false
+          AND ${taskScopeSql(scope, 'clickup_tasks')}
       ) AS s
       WHERE name <> ''
       GROUP BY name, email
@@ -105,8 +119,11 @@ export class TasksReportService {
    * workspace-wide query: Budgets wants the full client list regardless of the
    * dashboard's space/date pickers, and calls this bare.
    */
-  async tasksClients(opts?: { spaceId?: string; from?: string; to?: string; archived?: string }) {
-    const { spaceId, from, to, archived } = opts ?? {};
+  async tasksClients(
+    opts: { spaceId?: string; from?: string; to?: string; archived?: string } = {},
+    scope: AccessScope,
+  ) {
+    const { spaceId, from, to, archived } = opts;
     // Same shape as `tasksList`: 'only' → archived only, 'exclude' → hide
     // archived, anything else (including the default 'include') → no clause.
     const archivedSql =
@@ -125,6 +142,7 @@ export class TasksReportService {
       WHERE is_deleted = false
         AND client IS NOT NULL
         AND client <> ''
+        AND ${taskScopeSql(scope, 'clickup_tasks')}
         ${spaceId ? Prisma.sql`AND space_id = ${spaceId}` : Prisma.empty}
         ${archivedSql}
         ${dateSql}
@@ -143,8 +161,11 @@ export class TasksReportService {
    * MORE than the task total. That's correct — each count is "tasks you'd see
    * if you picked only this option" — don't "fix" it into a partition.
    */
-  async tasksSubProjects(opts?: { spaceId?: string; from?: string; to?: string; archived?: string }) {
-    const { spaceId, from, to, archived } = opts ?? {};
+  async tasksSubProjects(
+    opts: { spaceId?: string; from?: string; to?: string; archived?: string } = {},
+    scope: AccessScope,
+  ) {
+    const { spaceId, from, to, archived } = opts;
     const archivedSql =
       archived === 'only' ? Prisma.sql`AND archived = true`
       : archived === 'exclude' ? Prisma.sql`AND archived = false`
@@ -158,6 +179,7 @@ export class TasksReportService {
       FROM clickup_tasks, unnest(sub_projects) AS sp
       WHERE is_deleted = false
         AND sp <> ''
+        AND ${taskScopeSql(scope, 'clickup_tasks')}
         ${spaceId ? Prisma.sql`AND space_id = ${spaceId}` : Prisma.empty}
         ${archivedSql}
         ${dateSql}
@@ -167,7 +189,7 @@ export class TasksReportService {
     return rows.map((r) => ({ subProject: r.sub_project, taskCount: Number(r.task_count) }));
   }
 
-  async tasksLists(spaceId?: string) {
+  async tasksLists(spaceId: string | undefined = undefined, scope: AccessScope) {
     type Row = { list_id: string; list_name: string; space_name: string | null; task_count: bigint };
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT list_id, list_name, MAX(space_name) AS space_name, COUNT(*)::bigint AS task_count
@@ -175,6 +197,7 @@ export class TasksReportService {
       WHERE is_deleted = false
         AND list_id IS NOT NULL
         AND list_name <> ''
+        AND ${taskScopeSql(scope, 'clickup_tasks')}
         ${spaceId ? Prisma.sql`AND space_id = ${spaceId}` : Prisma.empty}
       GROUP BY list_id, list_name
       ORDER BY MAX(space_name) ASC, list_name ASC
@@ -187,7 +210,7 @@ export class TasksReportService {
     }));
   }
 
-  async tasksFolders(spaceId?: string) {
+  async tasksFolders(spaceId: string | undefined = undefined, scope: AccessScope) {
     type Row = { folder_id: string; folder_name: string; space_name: string | null; task_count: bigint };
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT folder_id, folder_name, MAX(space_name) AS space_name, COUNT(*)::bigint AS task_count
@@ -195,6 +218,7 @@ export class TasksReportService {
       WHERE is_deleted = false
         AND folder_id IS NOT NULL
         AND folder_name <> ''
+        AND ${taskScopeSql(scope, 'clickup_tasks')}
         ${spaceId ? Prisma.sql`AND space_id = ${spaceId}` : Prisma.empty}
       GROUP BY folder_id, folder_name
       ORDER BY MAX(space_name) ASC, folder_name ASC
@@ -208,6 +232,11 @@ export class TasksReportService {
   }
 
   async tasks(
+    // Required, no default, and FIRST (Ruling R10): TS disallows a required
+    // param after optional ones, and a default here would be fail-open — a
+    // future caller that forgets it would silently see every client's cost.
+    // Every HTTP path supplies a real one via the controller's `@Scope()`.
+    scope: AccessScope,
     spaceId?: string,
     status?: string,
     search?: string,
@@ -235,7 +264,7 @@ export class TasksReportService {
       spaceId, status, search, from: fromParam, to: toParam, priority,
       assigneeNames: assigneeId, type, archived, client, taskIds, listId,
       folderId, sprintStatus, chargeable, subProject,
-    });
+    }, scope);
     const [items, total] = await Promise.all([
       this.prisma.clickupTask.findMany({
         where,
@@ -293,19 +322,23 @@ export class TasksReportService {
     const MS_PER_H = 3600000;
     return {
       items: items.map((t) => {
-        const { timeEstimate, timeSpent, cost, estimation, ...rest } = t;
-        return {
-          ...rest,
-          partiallyChargeable: isPartiallyChargeable({
-            taskChargeable: t.isChargeable,
-            rules: rulesByTask.get(t.taskId) ?? [],
-            ...(countsByTask.get(t.taskId) ?? {}),
-          }),
-          cost: cost.toNumber(),
-          estimation: estimation.toNumber(),
-          timeEstimateHours: timeEstimate != null ? Number(timeEstimate) / MS_PER_H : null,
-          timeSpentHours: timeSpent != null ? Number(timeSpent) / MS_PER_H : null,
-        };
+        const { timeEstimate, timeSpent, cost, estimation, scopeClientOptionId, ...rest } = t;
+        return maskCost(
+          {
+            ...rest,
+            partiallyChargeable: isPartiallyChargeable({
+              taskChargeable: t.isChargeable,
+              rules: rulesByTask.get(t.taskId) ?? [],
+              ...(countsByTask.get(t.taskId) ?? {}),
+            }),
+            cost: cost.toNumber(),
+            estimation: estimation.toNumber(),
+            timeEstimateHours: timeEstimate != null ? Number(timeEstimate) / MS_PER_H : null,
+            timeSpentHours: timeSpent != null ? Number(timeSpent) / MS_PER_H : null,
+          },
+          scope,
+          scopeClientOptionId,
+        );
       }),
       total,
       limit: safeLimit,
@@ -320,17 +353,30 @@ export class TasksReportService {
    * the drawer, while the list endpoint is also the CSV/Excel export source
    * (limit up to 5000 rows) on a memory-tight host. Fetch on drawer open.
    */
-  async taskDescription(taskId: string) {
-    const row = await this.prisma.clickupTask.findUnique({
-      where: { taskId },
+  async taskDescription(taskId: string, scope: AccessScope) {
+    // `findFirst`, not `findUnique`: the latter can't be combined with the
+    // scope filter. A row outside scope must 404 exactly like a row that
+    // doesn't exist at all — never 403, which would confirm the task exists.
+    const row = await this.prisma.clickupTask.findFirst({
+      where: { taskId, ...taskScopeWhere(scope) },
       select: { description: true, markdownDescription: true },
     });
-    if (!row) return null;
+    if (!row) {
+      // Ruling R14: unrestricted (Owner/Admin, or a flag-off MEMBER) keeps
+      // today's exact pre-scoping behaviour for a missing id — `null`, not a
+      // 404. Only a scoped viewer gets the no-existence-oracle 404.
+      if (!isUnrestricted(scope)) throw new NotFoundException('Task not found');
+      return null;
+    }
     return { description: row.description, markdownDescription: row.markdownDescription };
   }
 
-  async sprintPoints(spaceId?: string) {
-    const where: Prisma.ClickupTaskWhereInput = { isDeleted: false };
+  async sprintPoints(spaceId: string | undefined = undefined, scope: AccessScope) {
+    // Sprints are hidden for plain members (Endpoint classification table);
+    // requireLeadView lets an unrestricted viewer (incl. a flag-off MEMBER)
+    // through unchanged and 403s a scoped non-lead.
+    requireLeadView(scope);
+    const where: Prisma.ClickupTaskWhereInput = { isDeleted: false, ...taskScopeWhere(scope) };
     if (spaceId) where.spaceId = spaceId;
     const rows = await this.prisma.clickupTask.groupBy({
       by: ['spaceName', 'status'],
@@ -341,7 +387,7 @@ export class TasksReportService {
     return rows.map(r => ({ spaceName: r.spaceName, status: r.status, totalPoints: r._sum.sprintPoints ?? 0 }));
   }
 
-  async spaces() {
+  async spaces(scope: AccessScope) {
     type Row = {
       space_id: string;
       space_name: string;
@@ -350,6 +396,8 @@ export class TasksReportService {
       member_count: bigint;
       hours_logged: number;
       cost_cents: number;
+      cost_partial: boolean;
+      has_led_cost: boolean;
     };
     // Open count uses `status_type`, ClickUp's coarse-grained classification
     // (open / custom / done / closed), not the per-list `status` string. The
@@ -374,13 +422,34 @@ export class TasksReportService {
         COUNT(DISTINCT t.task_id) FILTER (WHERE t.status_type NOT IN ('closed', 'done'))::bigint AS open_count,
         COUNT(DISTINCT e.user_id) FILTER (WHERE e.user_id IS NOT NULL)::bigint AS member_count,
         COALESCE(SUM(e.duration_hours), 0)::float AS hours_logged,
-        COALESCE(SUM(e.cost_cents), 0)::float AS cost_cents
+        COALESCE(SUM(CASE WHEN ${leadScopeSql(scope, 't')} THEN e.cost_cents ELSE 0 END), 0)::float AS cost_cents,
+        -- Only an entry that actually exists AND is outside the viewer's LEAD
+        -- clients hides cost. Without the e.task_id IS NOT NULL guard, a
+        -- non-lead task with zero time entries still flips this true via the
+        -- LEFT JOIN's single NULL-entry row, even though nothing was hidden.
+        BOOL_OR(e.task_id IS NOT NULL AND NOT ${leadScopeSql(scope, 't')}) AS cost_partial,
+        -- Same guard, inverted: whether the space has AT LEAST ONE entry the
+        -- viewer actually LEADS (Ruling R17). Standardises this endpoint on
+        -- the per-group rule used elsewhere instead of "leads nothing
+        -- anywhere in scope" — a lead of client A must still see A's cost on
+        -- a space that mixes A and B rows.
+        BOOL_OR(e.task_id IS NOT NULL AND ${leadScopeSql(scope, 't')}) AS has_led_cost
       FROM clickup_tasks t
       LEFT JOIN clickup_time_entries e ON e.task_id = t.task_id
       WHERE t.is_deleted = false
+        AND ${taskScopeSql(scope, 't')}
       GROUP BY t.space_id
       ORDER BY task_count DESC
     `);
+    // Ruling R17 (canonical R12 rule): a scoped viewer gets `null`, not a
+    // misleadingly precise 0, only when THIS space has in-scope rows but ZERO
+    // of them are LEAD-visible (`has_led_cost`) — not merely because the
+    // viewer leads nothing ANYWHERE in scope. A lead of client A still sees a
+    // real number on a space mixing A (led) and B (not led) rows.
+    // `leadClientIds(scope) === null` is unrestricted (incl. a flag-off
+    // MEMBER); `leadScopeSql` is then always TRUE, so `has_led_cost` is
+    // BOOL_OR(TRUE-ish) and this never masks an unrestricted viewer.
+    const scoped = leadClientIds(scope) !== null;
     return rows.map(r => ({
       spaceId: r.space_id,
       spaceName: r.space_name,
@@ -388,7 +457,10 @@ export class TasksReportService {
       openCount: Number(r.open_count),
       memberCount: Number(r.member_count),
       hoursLogged: Number(r.hours_logged),
-      costAud: Number(r.cost_cents) / 100,
+      costAud: scoped && !r.has_led_cost && r.cost_partial ? null : Number(r.cost_cents) / 100,
+      // Only meaningful for a scoped viewer: `leadScopeSql` is always TRUE
+      // when unrestricted, so `BOOL_OR(... AND NOT TRUE)` is always false there.
+      costPartial: !!r.cost_partial,
     }));
   }
 
@@ -400,22 +472,37 @@ export class TasksReportService {
    * dialog overstates what is about to happen. The entry count and hours cover
    * every given task, since that is the time whose cost is being re-evaluated.
    */
-  async chargeablePreview(taskIds: string[], chargeable: boolean) {
+  async chargeablePreview(taskIds: string[], chargeable: boolean, scope: AccessScope) {
+    const scopeWhere = taskScopeWhere(scope);
     const [tasks, changing, entries] = await Promise.all([
-      // The tasks that actually EXIST among the given ids, not `taskIds.length`:
-      // an id with no row inflates the "of N tasks" denominator the dialog
-      // shows, and could even make `changing` exceed it — `changing` only ever
-      // counts rows that exist. Same filter as `changing` apart from the flag,
-      // so `tasks` is always a superset of it. Duplicates are already collapsed
+      // The tasks that actually EXIST *and are in scope* among the given ids,
+      // not `taskIds.length`: an id with no row (or one outside scope) would
+      // otherwise inflate the "of N tasks" denominator the dialog shows, and
+      // could even make `changing` exceed it — `changing` only ever counts
+      // rows that exist. Same filter as `changing` apart from the flag, so
+      // `tasks` is always a superset of it. Duplicates are already collapsed
       // upstream by `csvList`.
-      this.prisma.clickupTask.count({ where: { taskId: { in: taskIds } } }),
-      this.prisma.clickupTask.count({ where: { taskId: { in: taskIds }, isChargeable: !chargeable } }),
+      this.prisma.clickupTask.count({ where: { taskId: { in: taskIds }, ...scopeWhere } }),
+      this.prisma.clickupTask.count({
+        where: { taskId: { in: taskIds }, ...scopeWhere, isChargeable: !chargeable },
+      }),
       this.prisma.clickupTimeEntry.aggregate({
         where: { taskId: { in: taskIds } },
         _count: true,
         _sum: { durationHours: true },
       }),
     ]);
+    // Below `ids.length` means at least one id doesn't exist OR is out of
+    // scope. The two cases get the same error deliberately — telling them
+    // apart would let a scoped caller probe for a task's existence.
+    //
+    // Ruling R13: only enforced for a scoped viewer. Unrestricted (Owner/Admin,
+    // or a flag-off MEMBER) must reproduce today's behaviour exactly — a stray
+    // id that doesn't exist degrades gracefully rather than 404ing the whole
+    // request, same as before scoping existed.
+    if (!isUnrestricted(scope) && tasks !== taskIds.length) {
+      throw new NotFoundException('Some tasks were not found');
+    }
     return {
       tasks,
       changing,

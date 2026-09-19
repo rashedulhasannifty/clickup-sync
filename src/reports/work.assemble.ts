@@ -140,16 +140,46 @@ export function parseWorkSort(v: string | undefined): WorkSort {
   return v === 'updated' || v === 'name' || v === 'cost' || v === 'lastActivity' ? v : 'logged';
 }
 
-export function sortRows<T extends ResolvedRow>(rows: T[], sort: WorkSort, dir: 'asc' | 'desc'): T[] {
+/**
+ * `canSeeCost` decides, per row, whether the viewer may see ITS cost. Under
+ * `sort=cost` a row the viewer can't see cost for must not be ranked by that
+ * hidden cost at all — not even indirectly via its position relative to
+ * visible-cost rows in a chosen direction — or a MEMBER-only viewer could
+ * infer a hidden client's relative cost (and, combined with visible hours,
+ * its rate) purely from where its tasks land in the list. So cost-sorted
+ * rows split into two blocks: visible-cost rows sorted normally by
+ * direction, then EVERY hidden-cost row after them (regardless of `dir`),
+ * order-stable via `taskId` so a hidden row's position never depends on its
+ * real cost. Every other sort key is unaffected — cost is the only masked
+ * field. Defaults to "every row visible" so callers that don't scope (or
+ * don't sort by cost) see byte-identical behavior to before this existed.
+ */
+export function sortRows<T extends ResolvedRow>(
+  rows: T[],
+  sort: WorkSort,
+  dir: 'asc' | 'desc',
+  canSeeCost: (row: T) => boolean = () => true,
+): T[] {
+  const sign = dir === 'asc' ? 1 : -1;
+  if (sort === 'cost') {
+    const visible = rows.filter((r) => canSeeCost(r));
+    const hidden = rows.filter((r) => !canSeeCost(r));
+    const sortedVisible = [...visible].sort((a, b) => {
+      const cmp = (a.bucket?.costCents ?? 0) - (b.bucket?.costCents ?? 0);
+      return cmp * sign || a.taskId.localeCompare(b.taskId);
+    });
+    // Never sorted by `dir` — a hidden row's rank must never move with the
+    // viewer's chosen direction, which would itself leak a comparison.
+    const sortedHidden = [...hidden].sort((a, b) => a.taskId.localeCompare(b.taskId));
+    return [...sortedVisible, ...sortedHidden];
+  }
   const num = (r: T): number => {
     switch (sort) {
-      case 'cost': return r.bucket?.costCents ?? 0;
       case 'lastActivity': return r.bucket?.lastActivity?.getTime() ?? 0;
       case 'updated': return r.updatedDate?.getTime() ?? 0;
       default: return r.bucket?.hours ?? 0;
     }
   };
-  const sign = dir === 'asc' ? 1 : -1;
   return [...rows].sort((a, b) => {
     const cmp = sort === 'name'
       ? (a.taskName ?? '').localeCompare(b.taskName ?? '', undefined, { sensitivity: 'base' })

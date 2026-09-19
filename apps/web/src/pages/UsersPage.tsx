@@ -12,6 +12,8 @@ import {
   Check,
   ChevronDown,
   CircleCheck,
+  Network,
+  Link2,
 } from 'lucide-react';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Tabs } from '../components/ui/Tabs';
@@ -25,6 +27,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
 import { useOrgUsers, useInvites, useUserMutations } from '../hooks/useUsers';
 import { useAuth } from '../hooks/useAuth';
+import { useClickupMembers } from '../hooks/useClickupMembers';
 import { fmt } from '../lib/formatters';
 import { onActivate } from '../lib/a11y';
 import type { OrgUser, Invite } from '../api/users';
@@ -33,6 +36,88 @@ import { RoleSelect, ROLE_META, ALL_ROLES } from '../components/team/RoleSelect'
 import { InviteMembersModal, type InvitePayload } from '../components/team/InviteMembersModal';
 import { MemberDrawer, type DrawerMember } from '../components/team/MemberDrawer';
 import { ConfirmRemove, type RemoveTarget } from '../components/team/ConfirmRemove';
+
+const TEAM_CHIP_TONE = { LEAD: 'purple', MEMBER: 'gray' } as const;
+
+/** ClickUp column cell: avatar + name when linked, an inline searchable Select
+ *  to link when not. `PATCH /users/:id/clickup-user`. */
+function ClickupLinkCell({
+  user,
+  onLink,
+  saving,
+}: {
+  user: OrgUser;
+  onLink: (id: string | null) => void;
+  saving: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const { byId, members } = useClickupMembers();
+  const linked = user.clickupUserId ? byId.get(user.clickupUserId) : undefined;
+
+  if (editing) {
+    return (
+      <div style={{ minWidth: 190 }} onClick={(e) => e.stopPropagation()}>
+        <Select
+          fullWidth
+          searchable
+          value={user.clickupUserId ?? ''}
+          onChange={(v) => {
+            onLink(v || null);
+            setEditing(false);
+          }}
+          options={[
+            { value: '', label: 'Not linked' },
+            ...members.map((m) => ({ value: m.id, label: m.name?.trim() || m.email || m.id })),
+          ]}
+          ariaLabel={`ClickUp link for ${user.name ?? user.email}`}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        setEditing(true);
+      }}
+      disabled={saving}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 8, background: 'none', border: 0, padding: 0,
+        cursor: saving ? 'default' : 'pointer', fontFamily: 'inherit',
+      }}
+    >
+      {linked ? (
+        <>
+          <Avatar name={linked.name ?? undefined} image={linked.profilePicture} size={22} />
+          <span style={{ fontSize: 12.5, color: 'var(--text)' }}>{linked.name?.trim() || linked.email}</span>
+        </>
+      ) : user.clickupUserId ? (
+        <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>Linked</span>
+      ) : (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, color: 'var(--text-faint)' }}>
+          <Link2 size={12} /> Not linked
+        </span>
+      )}
+    </button>
+  );
+}
+
+function TeamChips({ teams }: { teams: OrgUser['teams'] }) {
+  if (!teams || teams.length === 0) {
+    return <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>—</span>;
+  }
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+      {teams.map((t) => (
+        <Pill key={t.id} tone={TEAM_CHIP_TONE[t.role]} size="xs">
+          {t.name}
+        </Pill>
+      ))}
+    </div>
+  );
+}
 
 type Tab = 'active' | 'pending';
 
@@ -301,7 +386,7 @@ function Checkbox({
 
 const TH: React.CSSProperties = { textAlign: 'left', padding: '10px 12px' };
 
-export function TeamPage() {
+export function UsersPage() {
   const { user, hasRole } = useAuth();
   const usersQuery = useOrgUsers();
   const invitesQuery = useInvites();
@@ -392,6 +477,15 @@ export function TeamPage() {
     }
   }
 
+  async function linkClickup(id: string, clickupUserId: string | null) {
+    try {
+      await m.setClickupUser.mutateAsync({ id, clickupUserId });
+      showToast(clickupUserId ? 'ClickUp user linked' : 'ClickUp link removed');
+    } catch (e) {
+      toastError(e);
+    }
+  }
+
   async function bulkChangeRole(role: Role) {
     const ids = [...selected].filter((id) => {
       const u = users.find((x) => x.id === id);
@@ -445,7 +539,7 @@ export function TeamPage() {
     let ok = 0;
     for (const inv of invites) {
       try {
-        await m.invite.mutateAsync({ email: inv.email, role: inv.role });
+        await m.invite.mutateAsync(inv);
         ok++;
       } catch (e) {
         toastError(e);
@@ -474,6 +568,7 @@ export function TeamPage() {
         pending: false,
         lastLoginAt: u.lastLoginAt,
         createdAt: u.createdAt,
+        teams: u.teams,
       };
     const inv = pendingInvites.find((x) => x.id === detailId);
     if (inv)
@@ -487,7 +582,7 @@ export function TeamPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <PageHeader
-        title="Team"
+        title="Users"
         description="Manage who has access to this workspace and what they can do."
         actions={
           <Button variant="accent" icon={<UserPlus size={14} />} onClick={() => setInviteOpen(true)}>
@@ -606,6 +701,7 @@ export function TeamPage() {
             }
           />
         ) : (
+          <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr
@@ -627,6 +723,8 @@ export function TeamPage() {
                 <th style={{ ...TH, width: 150 }}>Role</th>
                 {tab === 'active' ? (
                   <>
+                    <th style={{ ...TH, width: 170 }}>ClickUp</th>
+                    <th style={{ ...TH, width: 160 }}>Teams</th>
                     <th style={{ ...TH, width: 130 }}>Last active</th>
                     <th style={{ ...TH, width: 90 }}>2FA</th>
                     <th style={{ ...TH, width: 130 }}>Joined</th>
@@ -711,6 +809,16 @@ export function TeamPage() {
                             onChange={(r) => void changeRole(u.id, r)}
                           />
                         </td>
+                        <td style={{ padding: '11px 12px' }} onClick={(e) => e.stopPropagation()}>
+                          <ClickupLinkCell
+                            user={u}
+                            saving={m.setClickupUser.isPending}
+                            onLink={(id) => void linkClickup(u.id, id)}
+                          />
+                        </td>
+                        <td style={{ padding: '11px 12px' }}>
+                          <TeamChips teams={u.teams} />
+                        </td>
                         <td style={{ padding: '11px 12px', color: 'var(--text-muted)' }}>
                           {activeNow ? (
                             <span
@@ -737,7 +845,22 @@ export function TeamPage() {
                           </span>
                         </td>
                         <td style={{ padding: '11px 12px', color: 'var(--text-muted)' }}>{fmt.date(u.createdAt)}</td>
-                        <td style={{ padding: '11px 16px 11px 12px', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                        <td style={{ padding: '11px 16px 11px 12px', textAlign: 'right', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            aria-label={`Manage teams for ${u.name?.trim() || emailLabel(u.email)}`}
+                            title="Manage teams"
+                            onClick={() => setDetailId(u.id)}
+                            className="btn-3d"
+                            style={{
+                              width: 28, height: 28, border: '1px solid transparent', background: 'transparent',
+                              borderRadius: 7, cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex',
+                              alignItems: 'center', justifyContent: 'center', marginRight: 2,
+                              ['--b-edge' as string]: 'transparent', ['--b-glow' as string]: 'transparent', ['--b-glow-strong' as string]: 'transparent',
+                            }}
+                          >
+                            <Network size={14} />
+                          </button>
                           <RowMenu
                             tab="active"
                             isSelf={isSelf}
@@ -805,6 +928,7 @@ export function TeamPage() {
                   ))}
             </tbody>
           </table>
+          </div>
         )}
       </Card>
 
@@ -824,6 +948,10 @@ export function TeamPage() {
 
       {detailMember && (
         <MemberDrawer
+          // Keying on the member id remounts the drawer (and its Teams
+          // section's local state) fresh whenever a different row is opened,
+          // instead of needing an effect to resync it.
+          key={detailMember.id}
           member={detailMember}
           isSelf={detailMember.id === user?.id}
           canRemove={
@@ -839,6 +967,7 @@ export function TeamPage() {
           onClose={() => setDetailId(null)}
           onRole={(r) => void changeRole(detailMember.id, r)}
           onResend={() => void doResend(detailMember.id)}
+          onTeamsError={(msg) => showToast(msg)}
           onRemove={() =>
             setConfirm([
               {

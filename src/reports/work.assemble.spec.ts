@@ -109,4 +109,43 @@ describe('sortRows / parseWorkSort / sumTotals', () => {
     const t = sumTotals([row('a', 2, 'A'), row('b', 0, 'B'), row('c', 3, 'C')]);
     expect(t).toEqual({ tasks: 3, entries: 2, hours: 5, chargeableHours: 5, costCents: 500, missingRateCount: 0 });
   });
+
+  describe('sort=cost with a canSeeCost predicate (fix round 1, item 1)', () => {
+    // hours*100 = costCents (see `row` above), so a bigger hours value means a
+    // bigger real cost — deliberately assigned so the hidden row 'z' out-costs
+    // every visible row, to prove it can't ride that cost to the top.
+    const visibleIds = new Set(['a', 'b', 'c']);
+    const canSeeCost = (r: ResolvedRow) => visibleIds.has(r.taskId);
+
+    it('desc: hidden-cost rows sort after every visible row, however high their real cost', () => {
+      const rows = [row('a', 2, 'A'), row('b', 5, 'B'), row('c', 1, 'C'), row('z', 90, 'Z')];
+      const out = sortRows(rows, 'cost', 'desc', canSeeCost);
+      expect(out.map((r) => r.taskId)).toEqual(['b', 'a', 'c', 'z']);
+    });
+
+    it('asc: hidden-cost rows STILL sort last — rank never follows direction', () => {
+      const rows = [row('a', 2, 'A'), row('b', 5, 'B'), row('c', 1, 'C'), row('z', 90, 'Z')];
+      const out = sortRows(rows, 'cost', 'asc', canSeeCost);
+      // Visible rows reverse (asc by cost); the hidden row stays last either way.
+      expect(out.map((r) => r.taskId)).toEqual(['c', 'a', 'b', 'z']);
+    });
+
+    it('multiple hidden rows tie-break deterministically by taskId, not by their real cost', () => {
+      const rows = [row('a', 2, 'A'), row('z2', 1, 'Z2'), row('z1', 99, 'Z1')];
+      const onlyASeen = (r: ResolvedRow) => r.taskId === 'a';
+      const out = sortRows(rows, 'cost', 'desc', onlyASeen);
+      expect(out.map((r) => r.taskId)).toEqual(['a', 'z1', 'z2']);
+    });
+
+    it('omitting canSeeCost preserves the original unmasked behavior', () => {
+      const rows = [row('a', 2, 'A'), row('b', 5, 'B'), row('c', 1, 'C')];
+      expect(sortRows(rows, 'cost', 'desc').map((r) => r.taskId)).toEqual(['b', 'a', 'c']);
+    });
+
+    it('non-cost sorts are unaffected by canSeeCost', () => {
+      const rows = [row('a', 2, 'A'), row('b', 5, 'B')];
+      const hideAll = () => false;
+      expect(sortRows(rows, 'logged', 'desc', hideAll).map((r) => r.taskId)).toEqual(['b', 'a']);
+    });
+  });
 });

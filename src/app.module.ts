@@ -12,6 +12,7 @@ import { DatabaseModule } from './database/database.module';
 import { SettingsModule } from './settings/settings.module';
 import { SettingsSyncModule } from './settings/settings-sync.module';
 import { ClickupModule } from './clickup/clickup.module';
+import { ClientsModule } from './clients/clients.module';
 import { QueuesModule } from './queues/queues.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { TasksModule } from './tasks/tasks.module';
@@ -26,6 +27,8 @@ import { XeroModule } from './xero/xero.module';
 import { ReportsModule } from './reports/reports.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
+import { AccessModule } from './access/access.module';
+import { TeamsModule } from './teams/teams.module';
 
 // Background work (BullMQ processors + cron) only runs in the worker role. In
 // the web role these are omitted so blue-green's warm old web color can't
@@ -53,6 +56,7 @@ const worker = isWorker();
     SettingsModule,
     SettingsSyncModule,
     ClickupModule,
+    ClientsModule,
     QueuesModule,
     WebhooksModule,
     TasksModule,
@@ -66,7 +70,9 @@ const worker = isWorker();
     XeroModule,
     ReportsModule,
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 5 }]),
+    AccessModule,
     AuthModule,
+    TeamsModule,
     HealthModule,
   ],
 })

@@ -1,8 +1,10 @@
 import { BadRequestException, Body, Controller, Get, HttpCode, Param, Patch, Query, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
-import { CurrentUser, Roles } from '../auth/decorators';
+import { CurrentUser } from '../auth/decorators';
 import { AuthPrincipal } from '../auth/auth.types';
+import { AccessScope, leadClientIds } from '../access/access-scope';
+import { requireLead, Scope } from '../access/scope.decorator';
+import { ChargeabilityAccessService } from '../access/chargeability-access.service';
 import { AuditLogInterceptor } from './audit-log.interceptor';
 import { SetTaskChargeableDto } from './dto/set-task-chargeable.dto';
 import { SetAssigneeChargeableDto } from './dto/set-assignee-chargeable.dto';
@@ -14,10 +16,15 @@ import { TaskAssigneeChargeabilityRepository } from '../tasks/task-assignee-char
 import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
 import { MAX_CHARGEABLE_TASK_IDS, MAX_CHARGEABLE_TIME_ENTRY_IDS } from '../tasks/task-chargeability.constants';
 
-/** Locally-owned task annotations under `/admin`. Today: chargeability. */
+/**
+ * Locally-owned task annotations under `/admin`. Today: chargeability.
+ *
+ * Not class-level @Roles: a team lead may edit chargeability on their own LEAD
+ * clients (all-or-nothing, gated by ChargeabilityAccessService), so each route
+ * checks scope itself instead of being blanket Owner/Admin-only.
+ */
 @ApiTags('admin')
 @ApiSecurity('x-admin-key')
-@Roles(Role.OWNER, Role.ADMIN)
 @UseInterceptors(AuditLogInterceptor)
 @Controller('admin')
 export class AdminTasksController {
@@ -26,6 +33,7 @@ export class AdminTasksController {
     private readonly tasksRepo: TasksRepository,
     private readonly rules: TaskAssigneeChargeabilityRepository,
     private readonly entries: TimeEntriesRepository,
+    private readonly access: ChargeabilityAccessService,
   ) {}
 
   @Get('chargeability-rules')
@@ -33,7 +41,8 @@ export class AdminTasksController {
     summary:
       "Every (task, assignee) chargeability rule, newest first, with the task it names and the tracked time it affects. The only aggregate view of rules — everywhere else you must already know which task to open. `userName` is best-effort (rules store only a ClickUp user id, so the name is borrowed from a time entry) and is null for a rule set before its assignee logged anything. To clear a rule, PATCH /admin/tasks/:taskId/assignee-chargeable with `chargeable: null` — that path is already audited and recalc-scoped, so there is deliberately no DELETE here.",
   })
-  listChargeabilityRules(@Query('limit') limit?: string, @Query('offset') offset?: string) {
+  listChargeabilityRules(@Scope() scope: AccessScope, @Query('limit') limit?: string, @Query('offset') offset?: string) {
+    requireLead(scope);
     // Query strings are user input. Anything not a positive number — absent,
     // 'abc', '0', '-5' — falls back to the default rather than being clamped
     // into range, so a typo returns a normal page instead of a single row.
@@ -43,17 +52,20 @@ export class AdminTasksController {
     return this.rules.list({
       limit: Number.isFinite(l) && l > 0 ? Math.min(Math.floor(l), 500) : 50,
       offset: Number.isFinite(o) && o > 0 ? Math.floor(o) : 0,
+      clientOptionIds: leadClientIds(scope),
     });
   }
 
   @Patch('tasks/chargeable')
   @HttpCode(200)
   @ApiOperation({ summary: "Mark tasks Chargeable or Non-chargeable. Non-chargeable time costs zero, so the affected tasks' entries are re-costed by a scoped recalculate-costs job. Idempotent: tasks already in the requested state are neither written nor recalculated." })
-  async setChargeable(@Body() dto: SetTaskChargeableDto) {
+  async setChargeable(@Body() dto: SetTaskChargeableDto, @Scope() scope: AccessScope) {
     // Also guarded by the DTO; kept here so a direct service call can't bypass it.
     if (dto.taskIds.length > MAX_CHARGEABLE_TASK_IDS) {
       throw new BadRequestException(`At most ${MAX_CHARGEABLE_TASK_IDS} tasks per request`);
     }
+    // All-or-nothing, before any write: one out-of-scope or unknown id rejects the whole request.
+    await this.access.assertTasks(scope, dto.taskIds);
     const { count } = await this.tasksRepo.setChargeable(dto.taskIds, dto.chargeable);
     // Nothing changed means no stored cost can have changed either.
     if (count > 0) {
@@ -70,11 +82,13 @@ export class AdminTasksController {
     summary:
       "Override chargeability on specific time entries — the most specific layer there is, beating the (task, assignee) rule and the task flag. `chargeable: null` clears the override and falls back to those. Re-costs only the entries whose override actually changed; entries already holding the requested value are neither written nor recalculated.",
   })
-  async setEntryChargeableOverride(@Body() dto: SetEntryChargeableOverrideDto) {
+  async setEntryChargeableOverride(@Body() dto: SetEntryChargeableOverrideDto, @Scope() scope: AccessScope) {
     // Also guarded by the DTO; kept here so a direct service call can't bypass it.
     if (dto.timeEntryIds.length > MAX_CHARGEABLE_TIME_ENTRY_IDS) {
       throw new BadRequestException(`At most ${MAX_CHARGEABLE_TIME_ENTRY_IDS} time entries per request`);
     }
+    // All-or-nothing, before any write: one out-of-scope or unknown id rejects the whole request.
+    await this.access.assertEntries(scope, dto.timeEntryIds);
     const { changed } = await this.entries.setChargeableOverride(dto.timeEntryIds, dto.chargeable);
     // Scope the recalc to what was actually WRITTEN, not what was requested:
     // re-costing an untouched entry is wasted work and a misleading job log.
@@ -96,7 +110,10 @@ export class AdminTasksController {
     @Param('taskId') taskId: string,
     @Body() dto: SetAssigneeChargeableDto,
     @CurrentUser() user: AuthPrincipal,
+    @Scope() scope: AccessScope,
   ) {
+    // All-or-nothing, before any write: one out-of-scope or unknown id rejects the whole request.
+    await this.access.assertTasks(scope, [taskId]);
     const { changed } =
       dto.chargeable === null
         ? await this.rules.clearRule(taskId, dto.userId)

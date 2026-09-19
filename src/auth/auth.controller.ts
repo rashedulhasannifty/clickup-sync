@@ -11,6 +11,9 @@ import { LoginDto } from './dto/login.dto';
 import { Public, CurrentUser } from './decorators';
 import { SESSION_COOKIE } from './auth.guard';
 import { AuthPrincipal } from './auth.types';
+import { AccessScopeService } from '../access/access-scope.service';
+import { Scope } from '../access/scope.decorator';
+import { AccessScope } from '../access/access-scope';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -19,6 +22,7 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly sessions: SessionService,
     private readonly orgs: OrgRepository,
+    private readonly access: AccessScopeService,
   ) {}
 
   private async setSession(res: Response, req: Request, userId: string) {
@@ -71,10 +75,14 @@ export class AuthController {
   }
 
   @Get('me')
-  async me(@CurrentUser() user: AuthPrincipal) {
+  async me(@CurrentUser() user: AuthPrincipal, @Scope() scope: AccessScope) {
     if (!user) throw new UnauthorizedException();
     const org = await this.orgs.get(user.orgId);
-    return { user: { id: user.userId, email: user.email, role: user.role, isMachine: user.isMachine }, org: { id: org?.id, name: org?.name } };
+    return {
+      user: { id: user.userId, email: user.email, role: user.role, isMachine: user.isMachine },
+      org: { id: org?.id, name: org?.name },
+      access: await this.access.summary(user, scope),
+    };
   }
 
   private publicUser(u: { id: string; email: string; name: string | null; role: string }) {

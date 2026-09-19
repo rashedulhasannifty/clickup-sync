@@ -6,7 +6,8 @@ describe('ListCatalogService', () => {
       { id: 'l1', name: 'Sprint 1', folderId: 'f1', folderName: 'X Sprint', spaceId: 's1', spaceName: 'X', archived: true, startDate: new Date('2026-07-01'), dueDate: null },
     ]) } as any;
     const repo = { upsertMany: jest.fn().mockResolvedValue(1) } as any;
-    const svc = new ListCatalogService(clickup, repo);
+    const clientOptions = { syncSpace: jest.fn() } as any;
+    const svc = new ListCatalogService(clickup, repo, clientOptions);
     const res = await svc.syncSpace('s1');
     expect(clickup.getSpaceListCatalog).toHaveBeenCalledWith('s1');
     expect(repo.upsertMany).toHaveBeenCalledWith([expect.objectContaining({ listId: 'l1', archived: true })]);

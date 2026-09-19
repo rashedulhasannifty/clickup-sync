@@ -14,8 +14,16 @@ export class UserRepository {
     return this.prisma.user.findUnique({ where: { id } });
   }
 
+  // `teamMemberships` is included so UsersService.list() can surface each user's
+  // teams (id, name, role) — the Users page team picker/chips (Task 18).
+  // `passwordHash` is a credential, never fit for GET /users.
   listByOrg(orgId: string) {
-    return this.prisma.user.findMany({ where: { orgId }, orderBy: { createdAt: 'asc' } });
+    return this.prisma.user.findMany({
+      where: { orgId },
+      orderBy: { createdAt: 'asc' },
+      include: { teamMemberships: { include: { team: { select: { id: true, name: true } } } } },
+      omit: { passwordHash: true },
+    });
   }
 
   countOwners(orgId: string) {

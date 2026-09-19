@@ -2,6 +2,9 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { CycleTimeReportService } from './cycle-time-report.service';
+import { AccessScope, isUnrestricted } from '../access/access-scope';
+import { leadScopeSql, taskScopeSql } from '../access/scope-query';
+import { requireLeadView } from '../access/scope.decorator';
 
 export interface SprintRow {
   listId: string;
@@ -15,7 +18,8 @@ export interface SprintRow {
   taskDone: number;
   pctDone: number;
   hours: number;
-  costAud: number;
+  costAud: number | null;
+  costPartial: boolean;
 }
 
 type SprintStatus = 'active' | 'completed' | 'all';
@@ -32,6 +36,8 @@ type SprintQueryRow = {
   task_done: bigint;
   hours: number;
   cost_cents: bigint;
+  has_led_cost: boolean;
+  cost_partial: boolean;
 };
 
 /**
@@ -45,6 +51,14 @@ type SprintQueryRow = {
  * `spaces()`). `SUM(te.duration_hours)` / `SUM(te.cost_cents)` are safe as
  * plain sums because each time-entry row appears exactly once regardless of
  * how many task rows it's joined against.
+ *
+ * Team scoping (Task 12): all four sprint methods are lead-only views
+ * (Ruling R1) — gated by `requireLeadView` as the first statement, which lets
+ * an unrestricted viewer (incl. a flag-off MEMBER) through unchanged and 403s
+ * a scoped non-lead. The `clickup_tasks` join is scoped with `taskScopeSql`
+ * so a lead's totals cover only in-scope tasks; cost is narrowed further to
+ * LEAD clients only (`leadScopeSql`, Ruling R12) since a lead of one team can
+ * also be a plain member of another and must not see that team's cost.
  */
 @Injectable()
 export class SprintsReportService {
@@ -77,9 +91,29 @@ export class SprintsReportService {
     return Prisma.sql`l.archived = false`;
   }
 
-  private toSprintRow(r: SprintQueryRow): SprintRow {
+  /**
+   * Ruling R12: unrestricted (incl. a flag-off MEMBER) keeps the exact prior
+   * computation — the full cost sum, never null, `costPartial: false`. A
+   * scoped viewer's cost was already summed over LEAD clients only (via
+   * `leadScopeSql` in the query); this nulls it when NONE of the row's cost
+   * was LEAD-visible (`has_led_cost`), rather than a misleadingly precise $0.
+   */
+  private maskAggregateCost(
+    costCents: bigint | number,
+    hasLedCost: boolean,
+    costPartial: boolean,
+    scope: AccessScope,
+  ): { costAud: number | null; costPartial: boolean } {
+    if (isUnrestricted(scope)) {
+      return { costAud: Number(costCents) / 100, costPartial: false };
+    }
+    return { costAud: hasLedCost ? Number(costCents) / 100 : null, costPartial: !!costPartial };
+  }
+
+  private toSprintRow(r: SprintQueryRow, scope: AccessScope): SprintRow {
     const taskTotal = Number(r.task_total);
     const taskDone = Number(r.task_done);
+    const { costAud, costPartial } = this.maskAggregateCost(r.cost_cents, r.has_led_cost, r.cost_partial, scope);
     return {
       listId: r.list_id,
       name: r.name,
@@ -92,18 +126,25 @@ export class SprintsReportService {
       taskDone,
       pctDone: taskTotal ? Math.round((taskDone / taskTotal) * 100) : 0,
       hours: Number(r.hours),
-      costAud: Number(r.cost_cents) / 100,
+      costAud,
+      costPartial,
     };
   }
 
-  async sprints(p: {
-    spaceId?: string;
-    folderId?: string;
-    status?: SprintStatus;
-    search?: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<{ items: SprintRow[]; total: number }> {
+  async sprints(
+    p: {
+      spaceId?: string;
+      folderId?: string;
+      status?: SprintStatus;
+      search?: string;
+      limit?: number;
+      offset?: number;
+    },
+    scope: AccessScope,
+  ): Promise<{ items: SprintRow[]; total: number }> {
+    // Lead-only view (Ruling R1): an unrestricted viewer (incl. a flag-off
+    // MEMBER) reads sprints exactly as today; a scoped non-lead 403s.
+    requireLeadView(scope);
     const { spaceId, folderId, status } = p;
     const search = p.search?.trim();
     // Bound query parameters (mirrors ops-report.service.ts's
@@ -117,6 +158,16 @@ export class SprintsReportService {
     const spaceClause = spaceId ? Prisma.sql`AND l.space_id = ${spaceId}` : Prisma.empty;
     const folderClause = folderId ? Prisma.sql`AND l.folder_id = ${folderId}` : Prisma.empty;
     const searchClause = search ? Prisma.sql`AND l.name ILIKE ${'%' + search + '%'}` : Prisma.empty;
+    const scoped = !isUnrestricted(scope);
+    // Scoping the join must not change unrestricted results: `taskScopeSql`
+    // is TRUE when unrestricted, so the join and counts are identical to
+    // before. Only a scoped viewer gets the HAVING (a lead's list must
+    // contain at least one in-scope task) and the matching EXISTS on the
+    // total-count query below.
+    const havingClause = scoped ? Prisma.sql`HAVING COUNT(t.task_id) > 0` : Prisma.empty;
+    const totalExistsClause = scoped
+      ? Prisma.sql`AND EXISTS (SELECT 1 FROM clickup_tasks t WHERE t.list_id = l.list_id AND t.is_deleted = false AND ${taskScopeSql(scope, 't')})`
+      : Prisma.empty;
 
     const [items, totalRows] = await Promise.all([
       this.prisma.$queryRaw<SprintQueryRow[]>(Prisma.sql`
@@ -124,15 +175,18 @@ export class SprintsReportService {
                COUNT(DISTINCT t.task_id)::bigint AS task_total,
                COUNT(DISTINCT t.task_id) FILTER (WHERE t.status_type IN ('closed', 'done'))::bigint AS task_done,
                COALESCE(SUM(te.duration_hours), 0)::float AS hours,
-               COALESCE(SUM(te.cost_cents), 0)::bigint AS cost_cents
+               COALESCE(SUM(CASE WHEN ${leadScopeSql(scope, 't')} THEN te.cost_cents ELSE 0 END), 0)::bigint AS cost_cents,
+               BOOL_OR(te.task_id IS NOT NULL AND ${leadScopeSql(scope, 't')}) AS has_led_cost,
+               BOOL_OR(te.task_id IS NOT NULL AND NOT ${leadScopeSql(scope, 't')}) AS cost_partial
         FROM clickup_lists l
-        LEFT JOIN clickup_tasks t ON t.list_id = l.list_id AND t.is_deleted = false
+        LEFT JOIN clickup_tasks t ON t.list_id = l.list_id AND t.is_deleted = false AND ${taskScopeSql(scope, 't')}
         LEFT JOIN clickup_time_entries te ON te.task_id = t.task_id
         WHERE ${statusClause}
           ${spaceClause}
           ${folderClause}
           ${searchClause}
         GROUP BY l.list_id, l.name, l.folder_name, l.space_name, l.archived, l.start_date, l.due_date
+        ${havingClause}
         ORDER BY l.due_date DESC NULLS LAST, l.name ASC
         LIMIT ${safeLimit} OFFSET ${safeOffset}
       `),
@@ -143,19 +197,25 @@ export class SprintsReportService {
           ${spaceClause}
           ${folderClause}
           ${searchClause}
+          ${totalExistsClause}
       `),
     ]);
 
     return {
-      items: items.map((r) => this.toSprintRow(r)),
+      items: items.map((r) => this.toSprintRow(r, scope)),
       total: Number(totalRows[0]?.total ?? 0n),
     };
   }
 
   async sprintFolders(
-    spaceId?: string,
+    spaceId: string | undefined = undefined,
+    scope: AccessScope,
   ): Promise<{ folderId: string; folderName: string | null; spaceName: string | null; activeCount: number; completedCount: number }[]> {
+    requireLeadView(scope);
     type Row = { folder_id: string; folder_name: string | null; space_name: string | null; active_count: bigint; completed_count: bigint };
+    const scopedClause = !isUnrestricted(scope)
+      ? Prisma.sql`AND EXISTS (SELECT 1 FROM clickup_tasks t WHERE t.list_id = clickup_lists.list_id AND t.is_deleted = false AND ${taskScopeSql(scope, 't')})`
+      : Prisma.empty;
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT folder_id,
              MAX(folder_name) AS folder_name,
@@ -165,6 +225,7 @@ export class SprintsReportService {
       FROM clickup_lists
       WHERE folder_id IS NOT NULL
         ${spaceId ? Prisma.sql`AND space_id = ${spaceId}` : Prisma.empty}
+        ${scopedClause}
       GROUP BY folder_id
       ORDER BY MAX(space_name) ASC, MAX(folder_name) ASC
     `);
@@ -177,15 +238,19 @@ export class SprintsReportService {
     }));
   }
 
-  async sprintDetail(listId: string): Promise<{
+  async sprintDetail(
+    listId: string,
+    scope: AccessScope,
+  ): Promise<{
     list: SprintRow;
     byStatus: { status: string; color: string | null; count: number }[];
-    byAssignee: { userName: string; hours: number; costAud: number }[];
+    byAssignee: { userName: string; hours: number; costAud: number | null; costPartial: boolean }[];
     assigneeCount: number;
     cycleTimeHours: number | null;
   }> {
+    requireLeadView(scope);
     type StatusRow = { status: string; color: string | null; count: bigint };
-    type AssigneeRow = { user_name: string; hours: number; cost_cents: bigint };
+    type AssigneeRow = { user_name: string; hours: number; cost_cents: bigint; has_led_cost: boolean; cost_partial: boolean };
     type CycleRow = { mean_hours: number | null; task_count: bigint };
 
     const [listRows, statusRows, assigneeRows, cycleRows] = await Promise.all([
@@ -194,9 +259,11 @@ export class SprintsReportService {
                COUNT(DISTINCT t.task_id)::bigint AS task_total,
                COUNT(DISTINCT t.task_id) FILTER (WHERE t.status_type IN ('closed', 'done'))::bigint AS task_done,
                COALESCE(SUM(te.duration_hours), 0)::float AS hours,
-               COALESCE(SUM(te.cost_cents), 0)::bigint AS cost_cents
+               COALESCE(SUM(CASE WHEN ${leadScopeSql(scope, 't')} THEN te.cost_cents ELSE 0 END), 0)::bigint AS cost_cents,
+               BOOL_OR(te.task_id IS NOT NULL AND ${leadScopeSql(scope, 't')}) AS has_led_cost,
+               BOOL_OR(te.task_id IS NOT NULL AND NOT ${leadScopeSql(scope, 't')}) AS cost_partial
         FROM clickup_lists l
-        LEFT JOIN clickup_tasks t ON t.list_id = l.list_id AND t.is_deleted = false
+        LEFT JOIN clickup_tasks t ON t.list_id = l.list_id AND t.is_deleted = false AND ${taskScopeSql(scope, 't')}
         LEFT JOIN clickup_time_entries te ON te.task_id = t.task_id
         WHERE l.list_id = ${listId}
         GROUP BY l.list_id, l.name, l.folder_name, l.space_name, l.archived, l.start_date, l.due_date
@@ -204,17 +271,19 @@ export class SprintsReportService {
       this.prisma.$queryRaw<StatusRow[]>(Prisma.sql`
         SELECT t.status AS status, MAX(t.status_color) AS color, COUNT(*)::bigint AS count
         FROM clickup_tasks t
-        WHERE t.list_id = ${listId} AND t.is_deleted = false AND t.status IS NOT NULL
+        WHERE t.list_id = ${listId} AND t.is_deleted = false AND t.status IS NOT NULL AND ${taskScopeSql(scope, 't')}
         GROUP BY t.status
         ORDER BY count DESC
       `),
       this.prisma.$queryRaw<AssigneeRow[]>(Prisma.sql`
         SELECT COALESCE(NULLIF(te.user_name, ''), te.user_id, 'Unknown') AS user_name,
                COALESCE(SUM(te.duration_hours), 0)::float AS hours,
-               COALESCE(SUM(te.cost_cents), 0)::bigint AS cost_cents
+               COALESCE(SUM(CASE WHEN ${leadScopeSql(scope, 't')} THEN te.cost_cents ELSE 0 END), 0)::bigint AS cost_cents,
+               BOOL_OR(${leadScopeSql(scope, 't')}) AS has_led_cost,
+               BOOL_OR(NOT ${leadScopeSql(scope, 't')}) AS cost_partial
         FROM clickup_time_entries te
         JOIN clickup_tasks t ON t.task_id = te.task_id AND t.is_deleted = false
-        WHERE t.list_id = ${listId}
+        WHERE t.list_id = ${listId} AND ${taskScopeSql(scope, 't')}
         GROUP BY 1
         ORDER BY hours DESC
       `),
@@ -224,7 +293,7 @@ export class SprintsReportService {
       // over this sprint's tasks; null when no task has both endpoints.
       this.prisma.$queryRaw<CycleRow[]>(Prisma.sql`
         WITH sprint_tasks AS (
-          SELECT task_id FROM clickup_tasks WHERE list_id = ${listId} AND is_deleted = false
+          SELECT task_id FROM clickup_tasks t WHERE t.list_id = ${listId} AND t.is_deleted = false AND ${taskScopeSql(scope, 't')}
         ),
         task_endpoints AS (
           SELECT e.task_id,
@@ -243,19 +312,23 @@ export class SprintsReportService {
     ]);
 
     const listRow = listRows[0];
-    if (!listRow) throw new NotFoundException(`Sprint (list) ${listId} not found`);
+    // R13/R14: 404 for a list with no in-scope task applies only when scoped
+    // — an unrestricted viewer keeps today's behaviour for a missing OR a
+    // genuinely empty list (task_total === 0 is not itself a 404 there).
+    if (!listRow || (!isUnrestricted(scope) && Number(listRow.task_total) === 0)) {
+      throw new NotFoundException(`Sprint (list) ${listId} not found`);
+    }
 
-    const byAssignee = assigneeRows.map((r) => ({
-      userName: r.user_name,
-      hours: Number(r.hours),
-      costAud: Number(r.cost_cents) / 100,
-    }));
+    const byAssignee = assigneeRows.map((r) => {
+      const { costAud, costPartial } = this.maskAggregateCost(r.cost_cents, r.has_led_cost, r.cost_partial, scope);
+      return { userName: r.user_name, hours: Number(r.hours), costAud, costPartial };
+    });
 
     const cycle = cycleRows[0];
     const cycleTimeHours = cycle && Number(cycle.task_count) > 0 && cycle.mean_hours != null ? Number(cycle.mean_hours) : null;
 
     return {
-      list: this.toSprintRow(listRow),
+      list: this.toSprintRow(listRow, scope),
       byStatus: statusRows.map((r) => ({ status: r.status, color: r.color, count: Number(r.count) })),
       byAssignee,
       assigneeCount: byAssignee.length,
@@ -266,20 +339,24 @@ export class SprintsReportService {
   async velocity(
     folderId: string,
     limit = 12,
+    scope: AccessScope,
   ): Promise<{ listId: string; name: string; dueDate: Date | null; taskDone: number; hours: number }[]> {
+    requireLeadView(scope);
     type Row = { list_id: string; name: string; due_date: Date | null; task_done: bigint; hours: number };
     // See sprints()'s comment: clamp to a finite integer first, then bind it
     // as a normal query parameter (mirrors ops-report.service.ts).
     const safeLimit = this.clampInt(limit, 12, 1, 100);
+    const havingClause = !isUnrestricted(scope) ? Prisma.sql`HAVING COUNT(t.task_id) > 0` : Prisma.empty;
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT l.list_id, l.name, l.due_date,
              COUNT(DISTINCT t.task_id) FILTER (WHERE t.status_type IN ('closed', 'done'))::bigint AS task_done,
              COALESCE(SUM(te.duration_hours), 0)::float AS hours
       FROM clickup_lists l
-      LEFT JOIN clickup_tasks t ON t.list_id = l.list_id AND t.is_deleted = false
+      LEFT JOIN clickup_tasks t ON t.list_id = l.list_id AND t.is_deleted = false AND ${taskScopeSql(scope, 't')}
       LEFT JOIN clickup_time_entries te ON te.task_id = t.task_id
       WHERE l.folder_id = ${folderId}
       GROUP BY l.list_id, l.name, l.due_date
+      ${havingClause}
       ORDER BY l.due_date DESC NULLS LAST
       LIMIT ${safeLimit}
     `);

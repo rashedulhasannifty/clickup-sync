@@ -1,21 +1,27 @@
-import { useState } from 'react';
-import { Mail, X, Plus, Info, Send } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Mail, X, Plus, Info, Send, CircleCheck } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Callout } from '../ui/Callout';
+import { Select } from '../ui/Select';
 import { RoleSelect } from './RoleSelect';
+import { TeamAssignmentRows, type TeamAssignment } from '../teams/TeamAssignmentRows';
+import { useTeams } from '../../hooks/useTeams';
+import { useClickupMembers } from '../../hooks/useClickupMembers';
 import type { Role } from '../../api/auth';
+import type { InvitePayload } from '../../api/users';
+
+export type { InvitePayload };
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const DONT_LINK = '__none__';
 
 interface InviteRow {
   email: string;
   role: Role;
-}
-
-export interface InvitePayload {
-  email: string;
-  role: Role;
+  teams: TeamAssignment[];
+  /** undefined = untouched (server auto-matches by email); null = explicit "don't link". */
+  clickupUserId: string | null | undefined;
 }
 
 /** Roles assignable on invite — no OWNER (ownership transfer is a separate flow). */
@@ -33,13 +39,16 @@ export function InviteMembersModal({
   existing?: string[];
   sending?: boolean;
 }) {
-  const [rows, setRows] = useState<InviteRow[]>([{ email: '', role: 'MEMBER' }]);
+  const [rows, setRows] = useState<InviteRow[]>([{ email: '', role: 'MEMBER', teams: [], clickupUserId: undefined }]);
   const [touched, setTouched] = useState(false);
   const existLower = existing.map((e) => e.toLowerCase());
+  const teamsQuery = useTeams();
+  const teamOptions = useMemo(() => (teamsQuery.data ?? []).map((t) => ({ id: t.id, name: t.name })), [teamsQuery.data]);
+  const { members: clickupMembers, byEmail } = useClickupMembers();
 
   const setRow = (i: number, patch: Partial<InviteRow>) =>
     setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-  const addRow = () => setRows((rs) => [...rs, { email: '', role: 'MEMBER' }]);
+  const addRow = () => setRows((rs) => [...rs, { email: '', role: 'MEMBER', teams: [], clickupUserId: undefined }]);
   const removeRow = (i: number) => setRows((rs) => rs.filter((_, j) => j !== i));
 
   const errorFor = (r: InviteRow, i: number): string | null => {
@@ -62,13 +71,20 @@ export function InviteMembersModal({
   const send = () => {
     setTouched(true);
     if (!allValid) return;
-    onSend(filled.map((r) => ({ email: r.email.trim(), role: r.role })));
+    onSend(
+      filled.map((r) => ({
+        email: r.email.trim(),
+        role: r.role,
+        teams: r.teams,
+        clickupUserId: r.clickupUserId,
+      })),
+    );
   };
 
   return (
     <Modal
       onClose={onClose}
-      width={540}
+      width={620}
       title="Invite members"
       subtitle="They'll get an email invitation to join this workspace."
       onSubmit={send}
@@ -89,18 +105,24 @@ export function InviteMembersModal({
         </div>
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {/* column labels */}
-        <div style={{ display: 'flex', gap: 10, padding: '0 2px' }}>
-          <span style={{ flex: 1, fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)' }}>Email address</span>
-          <span style={{ width: 138, fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)' }}>Role</span>
-          <span style={{ width: 28 }} />
-        </div>
-
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {rows.map((r, i) => {
           const err = touched && r.email.trim() ? errorFor(r, i) : null;
+          const emailKey = r.email.trim().toLowerCase();
+          const autoMatch = emailKey ? byEmail.get(emailKey) : undefined;
+          const effectiveClickupId = r.clickupUserId === undefined ? (autoMatch?.id ?? DONT_LINK) : (r.clickupUserId ?? DONT_LINK);
+          const showAutoHint = r.clickupUserId === undefined && !!autoMatch;
+          const noTeamWarning = r.role === 'MEMBER' && r.teams.length === 0;
+
           return (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div
+              key={i}
+              style={{
+                display: 'flex', flexDirection: 'column', gap: 10, padding: rows.length > 1 ? 12 : 0,
+                border: rows.length > 1 ? '1px solid var(--border-soft)' : undefined,
+                borderRadius: rows.length > 1 ? 10 : undefined,
+              }}
+            >
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <div style={{ flex: 1, position: 'relative', display: 'flex' }}>
                   <span
@@ -177,6 +199,44 @@ export function InviteMembersModal({
               {err && err !== 'empty' && (
                 <span style={{ fontSize: 11.5, color: 'var(--red)', paddingLeft: 2 }}>{err}</span>
               )}
+
+              {/* Teams */}
+              <div>
+                <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
+                  Teams
+                </span>
+                <TeamAssignmentRows teams={teamOptions} value={r.teams} onChange={(teams) => setRow(i, { teams })} />
+                {noTeamWarning && (
+                  <div style={{ marginTop: 8 }}>
+                    <Callout tone="amber" icon={<Info size={13} />}>
+                      This user will see no data until they&apos;re added to a team.
+                    </Callout>
+                  </div>
+                )}
+              </div>
+
+              {/* ClickUp user */}
+              <div>
+                <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
+                  ClickUp user
+                </span>
+                <Select
+                  fullWidth
+                  searchable
+                  value={effectiveClickupId}
+                  onChange={(v) => setRow(i, { clickupUserId: v === DONT_LINK ? null : v })}
+                  ariaLabel={`ClickUp user for ${r.email || `invite ${i + 1}`}`}
+                  options={[
+                    { value: DONT_LINK, label: "Don't link" },
+                    ...clickupMembers.map((m) => ({ value: m.id, label: m.name?.trim() || m.email || m.id })),
+                  ]}
+                />
+                {showAutoHint && (
+                  <div style={{ marginTop: 5, display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--pill-green-text)' }}>
+                    <CircleCheck size={12} /> Auto-matched by email
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}

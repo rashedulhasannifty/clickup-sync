@@ -1,4 +1,12 @@
 import { WorkReportService } from '../src/reports/work-report.service';
+import { resolveScope, type AccessScope } from '../src/access/access-scope';
+
+// Shared fixture: `scope` is a required field on `WorkParams` (Ruling R10),
+// spread into `base` below so every pre-existing call in this file that
+// doesn't care about scope behavior gets one for free. The scope-specific
+// tests override it via `{ ...base, scope: NONE }` / `{ ...base, scope:
+// LEAD_A_MEMBER_B }`.
+const UNRESTRICTED: AccessScope = { kind: 'unrestricted', canEdit: true };
 
 const dec = (n: number) => ({ toNumber: () => n });
 
@@ -13,10 +21,11 @@ function grp(taskId: string | null, over: Partial<{ userId: string; isChargeable
   };
 }
 
-function cand(taskId: string, over: Partial<{ updatedDate: Date | null; isDeleted: boolean; isChargeable: boolean; taskName: string }> = {}) {
+function cand(taskId: string, over: Partial<{ updatedDate: Date | null; isDeleted: boolean; isChargeable: boolean; taskName: string; scopeClientOptionId: string | null }> = {}) {
   return {
     taskId, taskName: over.taskName ?? taskId, updatedDate: over.updatedDate ?? new Date('2026-09-05T00:00:00Z'),
     isDeleted: over.isDeleted ?? false, isChargeable: over.isChargeable ?? true,
+    scopeClientOptionId: over.scopeClientOptionId ?? null,
   };
 }
 
@@ -43,7 +52,7 @@ function makePrisma(opts: {
   } as any;
 }
 
-const base = { from: '2026-09-01T00:00:00Z', to: '2026-09-14T23:59:59Z' };
+const base = { from: '2026-09-01T00:00:00Z', to: '2026-09-14T23:59:59Z', scope: UNRESTRICTED };
 
 describe('WorkReportService.work', () => {
   it('lists updated-only, logged-only and both; totals cover every row', async () => {
@@ -192,6 +201,169 @@ describe('WorkReportService.work', () => {
   });
 });
 
+describe('WorkReportService.work (access scope)', () => {
+  // A MEMBER of exactly zero teams: `visibleClientIds` resolves to `[]`, so
+  // the candidate query must pin to an empty IN list (matches nothing) rather
+  // than fall through to "no filter".
+  const NONE = resolveScope({
+    role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+    memberships: [], teamClients: [], teamMembers: [],
+  });
+  // LEAD of team A (client 'acme'), plain MEMBER of team B (client 'bolt').
+  const LEAD_A_MEMBER_B = resolveScope({
+    role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+    memberships: [
+      { teamId: 'A', role: 'LEAD' },
+      { teamId: 'B', role: 'MEMBER' },
+    ],
+    teamClients: [
+      { teamId: 'A', optionId: 'acme' },
+      { teamId: 'B', optionId: 'bolt' },
+    ],
+    teamMembers: [],
+  });
+  // Plain MEMBER of team A (client 'acme') — sees 'acme' rows but LEADS
+  // nothing. Distinct from `NONE`: rows ARE visible here, just not led.
+  const MEMBER_ONLY_A = resolveScope({
+    role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+    memberships: [{ teamId: 'A', role: 'MEMBER' }],
+    teamClients: [{ teamId: 'A', optionId: 'acme' }],
+    teamMembers: [],
+  });
+
+  it('an empty scope pins the candidate query to an empty id list', async () => {
+    const prisma = makePrisma({});
+    await new WorkReportService(prisma).work({ ...base, scope: NONE });
+    const where = prisma.clickupTask.findMany.mock.calls[0][0].where;
+    expect(JSON.stringify(where)).toContain('"scopeClientOptionId":{"in":[]}');
+  });
+
+  it('masks logged.costCents on rows outside the clients the viewer LEADS; totals sum only visible cost and flag costPartial', async () => {
+    const prisma = makePrisma({
+      groups: [grp('t-acme', { cost: 500n }), grp('t-bolt', { cost: 700n })],
+      candidates: [cand('t-acme', { scopeClientOptionId: 'acme' }), cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+      pageTasks: [cand('t-acme', { scopeClientOptionId: 'acme' }), cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+    });
+    const res = await new WorkReportService(prisma).work({ ...base, scope: LEAD_A_MEMBER_B });
+    const byId = Object.fromEntries(res.items.map((r: any) => [r.taskId, r]));
+    expect(byId['t-acme'].logged.costCents).toBe(500);
+    expect(byId['t-bolt'].logged.costCents).toBeNull();
+    expect(res.totals.costCents).toBe(500);
+    expect((res.totals as any).costPartial).toBe(true);
+    // Fix round 1, item 4: the internal scoping id must never leak into the
+    // response, same as `tasks()`.
+    expect(byId['t-acme']).not.toHaveProperty('scopeClientOptionId');
+    expect(byId['t-bolt']).not.toHaveProperty('scopeClientOptionId');
+  });
+
+  // Ruling R10 item 2: this must not rest on an indirect guarantee from
+  // buildTimeEntryWhere (which only excludes task-less entries against a real
+  // database). The mocked `groupBy` below returns a task-less entry group
+  // regardless of the `where` clause built from `scope` — exactly what a real
+  // Prisma call would never do for a scoped viewer, but what a unit test's
+  // mock happily will. `candidates()` must exclude the synthetic `__none__`
+  // row itself whenever the scope isn't unrestricted, not rely on `buckets`
+  // already being clean.
+  it('never shows the synthetic __none__ row for a scoped viewer, even if the entry query would otherwise return task-less entries', async () => {
+    const prisma = makePrisma({ groups: [grp(null)], candidates: [], pageTasks: [] });
+    const res = await new WorkReportService(prisma).work({ ...base, scope: NONE });
+    expect(res.items).toEqual([]);
+    expect(res.items.map((r: any) => r.taskId)).not.toContain('__none__');
+  });
+
+  // Fix round 1, item 1: `sort=cost` must never let a hidden-cost row's real
+  // cost decide its rank — a MEMBER-only viewer on client B (higher cost than
+  // A, which they LEAD) could otherwise infer B's relative cost, and combined
+  // with B's visible hours, its rate. Hidden-cost rows sort after every
+  // visible-cost row regardless of `dir`.
+  it('sort=cost never lets a hidden-cost row outrank a visible one by its real cost', async () => {
+    const prisma = makePrisma({
+      // 'bolt' (hidden) costs MORE than 'acme' (visible/led) — under a naive
+      // cost-desc sort bolt would rank first, leaking that it out-costs acme.
+      groups: [grp('t-acme', { cost: 500n }), grp('t-bolt', { cost: 900n })],
+      candidates: [cand('t-acme', { scopeClientOptionId: 'acme' }), cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+      pageTasks: [cand('t-acme', { scopeClientOptionId: 'acme' }), cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+    });
+    const res = await new WorkReportService(prisma).work({
+      ...base, scope: LEAD_A_MEMBER_B, sort: 'cost', dir: 'desc',
+    });
+    // Visible-cost rows (acme) must precede every hidden-cost row (bolt),
+    // no matter bolt's real cost or the chosen direction.
+    expect(res.items.map((r: any) => r.taskId)).toEqual(['t-acme', 't-bolt']);
+  });
+
+  it('sort=cost also keeps hidden rows last under dir=asc (rank never follows direction)', async () => {
+    const prisma = makePrisma({
+      groups: [grp('t-acme', { cost: 500n }), grp('t-bolt', { cost: 100n })],
+      candidates: [cand('t-acme', { scopeClientOptionId: 'acme' }), cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+      pageTasks: [cand('t-acme', { scopeClientOptionId: 'acme' }), cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+    });
+    const res = await new WorkReportService(prisma).work({
+      ...base, scope: LEAD_A_MEMBER_B, sort: 'cost', dir: 'asc',
+    });
+    expect(res.items.map((r: any) => r.taskId)).toEqual(['t-acme', 't-bolt']);
+  });
+
+  // Ruling R12 (fix round 1, item 3): leading NO client in scope must read as
+  // "can't see it" (null), never as a misleadingly precise $0.
+  it('a MEMBER-only scope (leads no client) gets totals.costCents: null, with costPartial true when rows exist', async () => {
+    const prisma = makePrisma({
+      groups: [grp('t-acme', { cost: 500n })],
+      candidates: [cand('t-acme', { scopeClientOptionId: 'acme' })],
+      pageTasks: [cand('t-acme', { scopeClientOptionId: 'acme' })],
+    });
+    const res = await new WorkReportService(prisma).work({ ...base, scope: MEMBER_ONLY_A });
+    expect(res.items[0].logged!.costCents).toBeNull();
+    expect(res.totals.costCents).toBeNull();
+    expect((res.totals as any).costPartial).toBe(true);
+  });
+
+  // Ruling R17 (canonical R12 rule): an empty result (no rows at all) keeps
+  // today's $0, not null — "leads nothing in scope" alone must never
+  // collapse a genuinely-empty result to null.
+  it('a MEMBER-only scope with no rows at all gets costCents: 0 and costPartial: false', async () => {
+    const prisma = makePrisma({ groups: [], candidates: [], pageTasks: [] });
+    const res = await new WorkReportService(prisma).work({ ...base, scope: MEMBER_ONLY_A });
+    expect(res.totals.costCents).toBe(0);
+    expect((res.totals as any).costPartial).toBe(false);
+  });
+
+  // Ruling R17: standardises on the per-page rule instead of "leads nothing
+  // ANYWHERE in scope" — a lead of A viewing a page whose only bucketed row
+  // is on B (not led) must see null, exactly as if they led nothing at all,
+  // because THIS page has zero LEAD-visible cost.
+  it('a lead of A viewing a page with only a B (not-led) bucketed row gets costCents: null, costPartial true', async () => {
+    const prisma = makePrisma({
+      groups: [grp('t-bolt', { cost: 700n })],
+      candidates: [cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+      pageTasks: [cand('t-bolt', { scopeClientOptionId: 'bolt' })],
+    });
+    const res = await new WorkReportService(prisma).work({ ...base, scope: LEAD_A_MEMBER_B });
+    expect(res.totals.costCents).toBeNull();
+    expect((res.totals as any).costPartial).toBe(true);
+  });
+
+  // Fix round 1, item 5: a non-lead row with NOTHING logged (no bucket) must
+  // not flip costPartial — it never contributed to the total either way.
+  it('costPartial ignores non-lead rows with no logged time (no bucket)', async () => {
+    const prisma = makePrisma({
+      groups: [grp('t-acme', { cost: 500n })],
+      candidates: [
+        cand('t-acme', { scopeClientOptionId: 'acme' }),
+        // 'bolt' candidate with NO matching group -> no bucket, no cost to hide.
+        cand('t-bolt-no-time', { scopeClientOptionId: 'bolt' }),
+      ],
+      pageTasks: [
+        cand('t-acme', { scopeClientOptionId: 'acme' }),
+        cand('t-bolt-no-time', { scopeClientOptionId: 'bolt' }),
+      ],
+    });
+    const res = await new WorkReportService(prisma).work({ ...base, scope: LEAD_A_MEMBER_B });
+    expect((res.totals as any).costPartial).toBe(false);
+    expect(res.totals.costCents).toBe(500);
+  });
+});
+
 describe('WorkReportService.workEntries', () => {
   it('uses the same entry where as the aggregation, limited to the listed tasks', async () => {
     const prisma = makePrisma({ groups: [grp('t2')], candidates: [cand('t2')] });
@@ -249,5 +421,62 @@ describe('WorkReportService.workEntries', () => {
     const res = await new WorkReportService(prisma).workEntries({ ...base });
     expect(res).toEqual({ items: [], truncated: true });
     expect(prisma.clickupTimeEntry.findMany.mock.calls[0][0].take).toBe(5001);
+  });
+
+  it('masks hourlyRateCents/costCents on entries outside the clients the viewer LEADS', async () => {
+    // LEAD of team A (client 'acme'), plain MEMBER of team B (client 'bolt').
+    const LEAD_A_MEMBER_B = resolveScope({
+      role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+      memberships: [
+        { teamId: 'A', role: 'LEAD' },
+        { teamId: 'B', role: 'MEMBER' },
+      ],
+      teamClients: [
+        { teamId: 'A', optionId: 'acme' },
+        { teamId: 'B', optionId: 'bolt' },
+      ],
+      teamMembers: [],
+    });
+    const prisma = makePrisma({ groups: [grp('t-acme'), grp('t-bolt')], candidates: [cand('t-acme'), cand('t-bolt')] });
+    prisma.clickupTimeEntry.findMany.mockResolvedValue([
+      {
+        timeEntryId: 'e-acme', taskId: 't-acme', userId: 'u1', userName: 'A', userEmail: null,
+        startTime: new Date(), endTime: null, durationHours: dec(1), hourlyRateCents: 1500n,
+        costCents: 1500n, currency: 'USD', status: 'COST_CALCULATED', isChargeable: true,
+        chargeableOverride: null, description: null, task: { taskName: 'A', scopeClientOptionId: 'acme' },
+      },
+      {
+        timeEntryId: 'e-bolt', taskId: 't-bolt', userId: 'u1', userName: 'A', userEmail: null,
+        startTime: new Date(), endTime: null, durationHours: dec(1), hourlyRateCents: 1500n,
+        costCents: 1500n, currency: 'USD', status: 'COST_CALCULATED', isChargeable: true,
+        chargeableOverride: null, description: null, task: { taskName: 'B', scopeClientOptionId: 'bolt' },
+      },
+    ]);
+    const res = await new WorkReportService(prisma).workEntries({ ...base, scope: LEAD_A_MEMBER_B });
+    const acme = res.items.find((e) => e.timeEntryId === 'e-acme')!;
+    const bolt = res.items.find((e) => e.timeEntryId === 'e-bolt')!;
+    expect(acme.hourlyRateCents).toBe(1500);
+    expect(acme.costCents).toBe(1500);
+    expect(bolt.hourlyRateCents).toBeNull();
+    expect(bolt.costCents).toBeNull();
+    // Non-cost fields survive the mask.
+    expect(bolt.durationHours).toBe(1);
+  });
+
+  // Ruling R10 item 2, entries side: `workEntries` must never list `__none__`
+  // entries for a scoped viewer either. Since `candidates()` now excludes the
+  // synthetic row explicitly (see the `work()` regression above), `rows`
+  // never contains `__none__`, so the `{ taskId: null }` OR-branch is never
+  // added — even though the mocked `groupBy` below would otherwise make it
+  // look like there's task-less time to list.
+  it('excludes __none__ entries for a scoped viewer even if the entry query would otherwise return task-less entries', async () => {
+    const NONE = resolveScope({
+      role: 'MEMBER', scopingEnabled: true, selfClickupId: null,
+      memberships: [], teamClients: [], teamMembers: [],
+    });
+    const prisma = makePrisma({ groups: [grp(null)], candidates: [] });
+    const res = await new WorkReportService(prisma).workEntries({ ...base, scope: NONE });
+    expect(res).toEqual({ items: [], truncated: false });
+    expect(prisma.clickupTimeEntry.findMany).not.toHaveBeenCalled();
   });
 });

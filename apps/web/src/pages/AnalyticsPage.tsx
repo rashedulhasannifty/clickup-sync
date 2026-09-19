@@ -25,9 +25,11 @@ import { CycleTimeCard } from '../components/charts/CycleTimeCard';
 import { fmt } from '../lib/formatters';
 import { toCsv, downloadCsv, csvFilename } from '../lib/csv';
 import { useGlobalFilters } from '../hooks/useGlobalFilters';
+import { useAuth } from '../hooks/useAuth';
 
 // Backend returns dollars; fmt.money expects cents. USD is the project currency.
-function moneyAud(dollars: number) {
+function moneyAud(dollars: number | null) {
+  if (dollars == null) return '—';
   return fmt.money(Math.round(dollars * 100));
 }
 
@@ -52,9 +54,9 @@ const STATUS_FALLBACK_PALETTE = [
 ];
 
 type TaskBySpaceRow = { spaceName: string; status: string; count: number };
-type UserTimeRow    = { userId: string | null; userName: string; totalHours: number; totalCostAud: number };
-type ClientTimeRow  = { client: string; totalHours: number; totalCostAud: number };
-type DeptTimeRow    = { department: string; totalHours: number; totalCostAud: number };
+type UserTimeRow    = { userId: string | null; userName: string; totalHours: number; totalCostAud: number | null; costPartial?: boolean };
+type ClientTimeRow  = { client: string; totalHours: number; totalCostAud: number | null; costPartial?: boolean };
+type DeptTimeRow    = { department: string; totalHours: number; totalCostAud: number | null; costPartial?: boolean };
 type SprintPointRow = { spaceName: string; status: string; totalPoints: number };
 type Stats          = { missingRateEntries: number };
 type TasksSummary   = {
@@ -86,16 +88,25 @@ export function AnalyticsPage() {
   // call sites can't drift apart).
   const rowLabel = (d: BarData) => `View time entries for ${d.label}`;
 
-  const deltasQ = useOverviewDeltas();
+  const { access } = useAuth();
+  // A missing `access` (still loading / an older cached session) is never
+  // treated as denied — these default to unrestricted so nothing flickers off.
+  // (Reaching this page at all already implies `canSeeCost`, via the route's
+  // `RequireAccess` — these are the OTHER, unrelated gates this page touches.)
+  const unrestricted = access?.unrestricted ?? true;
+  const canSeeCost = access?.canSeeCost ?? true;
+  const canSeeSprints = access?.canSeeSprints ?? true;
+
+  const deltasQ = useOverviewDeltas(undefined, undefined, canSeeCost);
   const deltas = deltasQ.data;
 
-  const stats        = useStats();
+  const stats        = useStats(unrestricted);
   const tasksSummary = useTasksSummary();
   const tasksBySpace = useTasksBySpaceStatus();
   const timeByUser   = useTimeEntriesByUser();
   const timeByClient = useTimeEntriesByClient();
   const timeByDept   = useTimeEntriesByDepartment();
-  const sprintPoints = useSprintPoints();
+  const sprintPoints = useSprintPoints(undefined, canSeeSprints);
 
   const sd      = stats.data as Stats | undefined;
   const summary = tasksSummary.data as TasksSummary | undefined;
@@ -105,7 +116,11 @@ export function AnalyticsPage() {
 
   const userRows = (timeByUser.data as UserTimeRow[] | undefined) ?? [];
   const totalHours = userRows.reduce((s, r) => s + r.totalHours, 0);
-  const totalCost  = userRows.reduce((s, r) => s + r.totalCostAud, 0);
+  const totalCost  = userRows.reduce((s, r) => s + (r.totalCostAud ?? 0), 0);
+  // True when any assignee's cost (or either delta window's cost) was masked —
+  // the total above is a partial sum, not the whole window's cost.
+  const costPartial = userRows.some((r) => r.costPartial)
+    || !!deltas?.current.costPartial || !!deltas?.prior.costPartial;
   const missingRates = sd?.missingRateEntries ?? 0;
 
   // Short range label for delta pills — derived from the topbar's dateRange.
@@ -167,24 +182,33 @@ export function AnalyticsPage() {
     .sort((a, b) => b.totalHours - a.totalHours)
     .map((r, i) => ({ label: r.userName, value: r.totalHours, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} />, filterKey: r.userId ?? undefined }));
 
-  // BarChart: cost by assignee — all assignees.
-  const costByUserData = [...userRows]
-    .sort((a, b) => b.totalCostAud - a.totalCostAud)
-    .map((r, i) => ({ label: r.userName, value: r.totalCostAud, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} />, filterKey: r.userId ?? undefined }));
+  // BarChart: cost by assignee — assignees whose cost isn't masked for this
+  // viewer. Ruling R31: a masked (null) cost must never render/plot as a real
+  // $0 bar — those rows are excluded entirely, and the caption below says how
+  // many were hidden, rather than lying with a zero-height bar.
+  const costByUserVisible = userRows.filter((r) => r.totalCostAud != null);
+  const costByUserHidden = userRows.length - costByUserVisible.length;
+  const costByUserData = costByUserVisible
+    .sort((a, b) => (b.totalCostAud as number) - (a.totalCostAud as number))
+    .map((r, i) => ({ label: r.userName, value: r.totalCostAud as number, color: SPACE_COLORS[i % SPACE_COLORS.length], leading: <ClickupAvatar name={r.userName} size={18} />, filterKey: r.userId ?? undefined }));
 
-  // BarChart: cost by department — all departments.
+  // BarChart: cost by department — same masking rule as above.
   const deptRows = (timeByDept.data as DeptTimeRow[] | undefined) ?? [];
-  const costByDeptData = [...deptRows]
-    .sort((a, b) => b.totalCostAud - a.totalCostAud)
-    .map((r, i) => ({ label: r.department, value: r.totalCostAud, color: SPACE_COLORS[i % SPACE_COLORS.length] }));
+  const costByDeptVisible = deptRows.filter((r) => r.totalCostAud != null);
+  const costByDeptHidden = deptRows.length - costByDeptVisible.length;
+  const costByDeptData = costByDeptVisible
+    .sort((a, b) => (b.totalCostAud as number) - (a.totalCostAud as number))
+    .map((r, i) => ({ label: r.department, value: r.totalCostAud as number, color: SPACE_COLORS[i % SPACE_COLORS.length] }));
 
-  // BarChart: cost by client — all clients.
+  // BarChart: cost by client — same masking rule as above.
   const clientRows = (timeByClient.data as ClientTimeRow[] | undefined) ?? [];
-  const costByClientData = [...clientRows]
-    .sort((a, b) => b.totalCostAud - a.totalCostAud)
+  const costByClientVisible = clientRows.filter((r) => r.totalCostAud != null);
+  const costByClientHidden = clientRows.length - costByClientVisible.length;
+  const costByClientData = costByClientVisible
+    .sort((a, b) => (b.totalCostAud as number) - (a.totalCostAud as number))
     .map((r, i) => ({
       label: r.client,
-      value: Math.round(r.totalCostAud * 100),
+      value: Math.round((r.totalCostAud as number) * 100),
       color: SPACE_COLORS[i % SPACE_COLORS.length],
       filterKey: r.client || undefined,
     }));
@@ -202,7 +226,7 @@ export function AnalyticsPage() {
   // are emitted as raw numbers (not "$1,234.00") so they stay spreadsheet-usable;
   // empty cells where a metric doesn't apply to that category.
   function handleExport() {
-    type Row = { category: string; label: string; hours?: number; cost?: number; tasks?: number; points?: number };
+    type Row = { category: string; label: string; hours?: number; cost?: number | null; tasks?: number; points?: number };
     const rows: Row[] = [];
     tasksByStatusData.forEach((d) => rows.push({ category: 'Tasks by status', label: d.label, tasks: d.value }));
     tasksBySpaceData.forEach((d) => rows.push({ category: 'Tasks by space', label: d.label, tasks: d.value }));
@@ -250,19 +274,24 @@ export function AnalyticsPage() {
         <MetricCard
           label="Calculated cost"
           value={timeByUser.isLoading ? '—' : moneyAud(totalCost)}
-          caption={dateRangeLabel}
+          caption={costPartial ? 'Cost shown for your clients only' : dateRangeLabel}
           delta={deltas && <Delta current={deltas.current.totalCostAud} prior={deltas.prior.totalCostAud} rangeLabel={rangeShort} />}
           icon={<DollarSign size={14} strokeWidth={1.75} />}
         />
-        <MetricCard
-          label="Missing rates"
-          value={stats.isLoading ? '—' : fmt.number(missingRates)}
-          sublabel={missingRates > 0 ? 'needs review' : 'all costed'}
-          delta={missingRates > 0 ? 'needs review' : undefined}
-          deltaTone={missingRates > 0 ? 'down' : undefined}
-          icon={<AlertTriangle size={14} strokeWidth={1.75} />}
-          onClick={() => navigate('/missing-rates')}
-        />
+        {/* `stats` (ops/missing-rates) is `requireUnrestricted` — a disabled
+            query's `.data` is `undefined`, not a real zero. Hide the card
+            rather than show a fabricated "0" / "all costed" to a scoped viewer. */}
+        {unrestricted && (
+          <MetricCard
+            label="Missing rates"
+            value={stats.isLoading ? '—' : fmt.number(missingRates)}
+            sublabel={missingRates > 0 ? 'needs review' : 'all costed'}
+            delta={missingRates > 0 ? 'needs review' : undefined}
+            deltaTone={missingRates > 0 ? 'down' : undefined}
+            icon={<AlertTriangle size={14} strokeWidth={1.75} />}
+            onClick={() => navigate('/missing-rates')}
+          />
+        )}
       </div>
 
       {/* Cost trend */}
@@ -283,7 +312,11 @@ export function AnalyticsPage() {
           <DonutChart data={tasksByStatusData} size={140} thickness={14} centerLabel="Total" centerValue={totalTasks} />
         </Card>
 
-        <Card title="Cost by client" subtitle={`By spend · ${costByClientData.length} clients`} padding={16}>
+        <Card
+          title="Cost by client"
+          subtitle={`By spend · ${costByClientData.length} clients${costByClientHidden > 0 ? ` · ${costByClientHidden} hidden — cost not visible to you` : ''}`}
+          padding={16}
+        >
           <BarChart
             data={costByClientData}
             direction="horizontal"
@@ -303,7 +336,11 @@ export function AnalyticsPage() {
           />
         </Card>
 
-        <Card title="Cost by assignee" subtitle={`Calculated labor cost · ${costByUserData.length} assignees`} padding={16}>
+        <Card
+          title="Cost by assignee"
+          subtitle={`Calculated labor cost · ${costByUserData.length} assignees${costByUserHidden > 0 ? ` · ${costByUserHidden} hidden — cost not visible to you` : ''}`}
+          padding={16}
+        >
           <BarChart
             data={costByUserData}
             direction="horizontal"
@@ -313,7 +350,11 @@ export function AnalyticsPage() {
           />
         </Card>
 
-        <Card title="Cost by department" subtitle="Calculated labor cost" padding={16}>
+        <Card
+          title="Cost by department"
+          subtitle={costByDeptHidden > 0 ? `Calculated labor cost · ${costByDeptHidden} hidden — cost not visible to you` : 'Calculated labor cost'}
+          padding={16}
+        >
           <BarChart data={costByDeptData} direction="horizontal" formatValue={v => moneyAud(v)} />
         </Card>
 

@@ -1,5 +1,7 @@
 import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../database/prisma.service';
+import { AccessScope } from '../access/access-scope';
+import { timeEntryScopeWhere } from '../access/scope-query';
 
 /**
  * Shared parsing for the dashboard's multi-select filter params.
@@ -153,9 +155,13 @@ export interface TimeEntryFilters {
 export async function buildTimeEntryWhere(
   prisma: Pick<PrismaService, '$queryRaw'>,
   f: TimeEntryFilters,
+  scope: AccessScope,
 ): Promise<Prisma.ClickupTimeEntryWhereInput> {
   const where: Prisma.ClickupTimeEntryWhereInput = { startTime: { gte: f.from, lte: f.to } };
   const and: Prisma.ClickupTimeEntryWhereInput[] = [];
+  // Team scope first: every filter below narrows WITHIN what the viewer may see.
+  const scoped = timeEntryScopeWhere(scope);
+  if (Object.keys(scoped).length) and.push(scoped);
   if (f.spaceId) and.push({ task: { spaceId: f.spaceId, isDeleted: false } });
   // The categorical filters are multi-select in the dashboard and arrive as a
   // comma-separated list. A single value parses as a one-element list, so

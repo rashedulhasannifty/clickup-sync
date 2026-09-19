@@ -53,6 +53,74 @@ describe('CustomFieldExtractor', () => {
     expect(extractor.extract(task).client).toBe('Acme Corp');
   });
 
+  describe('CustomFieldExtractor client option id', () => {
+    it('resolves name and option id from the orderindex value', () => {
+      const r = extractor.extract({
+        id: 't',
+        custom_fields: [
+          {
+            id: 'field-client',
+            name: 'Client',
+            type: 'drop_down',
+            value: 1,
+            type_config: { options: [{ id: 'opt-acme', orderindex: 0, name: 'Acme' }, { id: 'opt-bolt', orderindex: 1, name: ' Bolt ' }] },
+          },
+        ],
+      } as any);
+      expect(r.client).toBe('Bolt');
+      expect(r.clientOptionId).toBe('opt-bolt');
+    });
+
+    it('accepts the option id itself as the value', () => {
+      const r = extractor.extract({
+        id: 't',
+        custom_fields: [
+          {
+            id: 'field-client',
+            name: 'Client',
+            type: 'drop_down',
+            value: 'opt-acme',
+            type_config: { options: [{ id: 'opt-acme', orderindex: 0, name: 'Acme' }, { id: 'opt-bolt', orderindex: 1, name: ' Bolt ' }] },
+          },
+        ],
+      } as any);
+      expect(r.clientOptionId).toBe('opt-acme');
+      expect(r.client).toBe('Acme');
+    });
+
+    it('null when unset or unmatched', () => {
+      expect(
+        extractor.extract({
+          id: 't',
+          custom_fields: [
+            {
+              id: 'field-client',
+              name: 'Client',
+              type: 'drop_down',
+              value: null,
+              type_config: { options: [{ id: 'opt-acme', orderindex: 0, name: 'Acme' }, { id: 'opt-bolt', orderindex: 1, name: ' Bolt ' }] },
+            },
+          ],
+        } as any).clientOptionId,
+      ).toBeNull();
+
+      expect(
+        extractor.extract({
+          id: 't',
+          custom_fields: [
+            {
+              id: 'field-client',
+              name: 'Client',
+              type: 'drop_down',
+              value: 9,
+              type_config: { options: [{ id: 'opt-acme', orderindex: 0, name: 'Acme' }, { id: 'opt-bolt', orderindex: 1, name: ' Bolt ' }] },
+            },
+          ],
+        } as any).clientOptionId,
+      ).toBeNull();
+    });
+  });
+
   describe('sub-project', () => {
     it('resolves a labels field (array of option ids) to option labels', () => {
       const task = taskWith([

@@ -3,12 +3,13 @@ import { searchApi, type SearchResult } from '../api/search';
 
 const EMPTY: SearchResult = { tasks: [], assignees: [] };
 
-export function useSearch(query: string) {
+/** `/admin/search` is `@Roles(OWNER, ADMIN)` — gate on `isAdmin`. */
+export function useSearch(query: string, isAdmin = true) {
   const q = query.trim();
   return useQuery({
     queryKey: ['search', q],
     queryFn: () => searchApi.query(q),
-    enabled: q.length >= 2,
+    enabled: q.length >= 2 && isAdmin,
     placeholderData: (prev) => prev ?? EMPTY,
     staleTime: 10_000,
   });

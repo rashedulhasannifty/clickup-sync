@@ -2,12 +2,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { budgetsApi } from '../api/budgets';
 import type { Budget } from '../api/budgets';
 
-export function useBudgets() {
-  return useQuery({ queryKey: ['budgets'], queryFn: budgetsApi.list });
+/** `/admin/budgets` is `@Roles(OWNER, ADMIN)` — gate on `isAdmin`. */
+export function useBudgets(enabled = true) {
+  return useQuery({ queryKey: ['budgets'], queryFn: budgetsApi.list, enabled });
 }
 
-export function useBudgetStatus(month?: string) {
-  return useQuery({ queryKey: ['budget-status', month ?? 'current'], queryFn: () => budgetsApi.status(month) });
+/** `/reports/budgets/status` is lead-only — gate on `access.canSeeCost`. */
+export function useBudgetStatus(month?: string, enabled = true) {
+  return useQuery({ queryKey: ['budget-status', month ?? 'current'], queryFn: () => budgetsApi.status(month), enabled });
 }
 
 function useInvalidate() {

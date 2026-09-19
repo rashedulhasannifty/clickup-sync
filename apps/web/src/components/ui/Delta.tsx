@@ -1,10 +1,10 @@
 import { ArrowDown, ArrowUp, Minus } from 'lucide-react';
 
 interface DeltaProps {
-  /** Current-period value. */
-  current: number;
-  /** Prior-period value. */
-  prior: number;
+  /** Current-period value. Null when a scoped viewer's cost is masked for this window. */
+  current: number | null;
+  /** Prior-period value. Null when a scoped viewer's cost is masked for this window. */
+  prior: number | null;
   /** Suffix label, e.g. "30d" → renders "vs prior 30d". */
   rangeLabel: string;
   /**
@@ -19,6 +19,11 @@ interface DeltaProps {
 const NEUTRAL_THRESHOLD = 0.02;
 
 export function Delta({ current, prior, rangeLabel, desirable = 'down' }: DeltaProps) {
+  // Masked cost (a scoped viewer with no lead visibility this window) — no
+  // comparison to make, and definitely not "new" or "-100%".
+  if (current == null || prior == null) {
+    return <Pill icon={<Minus size={11} strokeWidth={2} />} text="—" tone="neutral" suffix={rangeLabel} />;
+  }
   // No prior data — show "new" or neutral.
   if (prior === 0) {
     if (current === 0) return <Pill icon={<Minus size={11} strokeWidth={2} />} text="—" tone="neutral" suffix={rangeLabel} />;

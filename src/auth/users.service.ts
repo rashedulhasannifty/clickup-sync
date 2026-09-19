@@ -1,9 +1,15 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Role, UserStatus } from '@prisma/client';
 import { UserRepository } from './user.repository';
 import { PermissionsService } from './permissions.service';
 import { SessionService } from './session.service';
 import { AuthPrincipal } from './auth.types';
+
+/** Duck-typed Prisma error code check — matches the convention already used in
+ *  src/teams/teams.service.ts and src/auth/invitation.service.ts. */
+function prismaErrorCode(err: unknown): string | undefined {
+  return typeof err === 'object' && err !== null && 'code' in err ? (err as { code?: string }).code : undefined;
+}
 
 @Injectable()
 export class UsersService {
@@ -13,8 +19,16 @@ export class UsersService {
     private readonly sessions: SessionService,
   ) {}
 
-  list(orgId: string) {
-    return this.users.listByOrg(orgId);
+  // Reshapes each row's `teamMemberships` (team + role) into the `teams: [{ id,
+  // name, role }]` shape the Users page renders as chips — see Task 18.
+  // `passwordHash` is stripped defensively even though the repository query
+  // already omits it — a credential must never reach this API response.
+  async list(orgId: string) {
+    const users = await this.users.listByOrg(orgId);
+    return users.map(({ teamMemberships, passwordHash: _passwordHash, ...u }: any) => ({
+      ...u,
+      teams: (teamMemberships ?? []).map((m: any) => ({ id: m.team.id, name: m.team.name, role: m.role })),
+    }));
   }
 
   private async require(actor: AuthPrincipal, id: string) {
@@ -85,5 +99,19 @@ export class UsersService {
     await this.users.update(targetId, { role: Role.OWNER });
     await this.users.update(actor.userId, { role: Role.ADMIN });
     return { ok: true, newOwnerId: target.id };
+  }
+
+  /** Links (or clears, with `null`) a user's ClickUp identity. `clickupUserId` is
+   *  @unique — a collision with another account surfaces as 409, not a silent steal. */
+  async setClickupUser(actor: AuthPrincipal, targetId: string, clickupUserId: string | null) {
+    const target = await this.require(actor, targetId);
+    try {
+      return await this.users.update(target.id, { clickupUserId });
+    } catch (err) {
+      if (prismaErrorCode(err) === 'P2002') {
+        throw new ConflictException('That ClickUp user is already linked to another account');
+      }
+      throw err;
+    }
   }
 }

@@ -185,6 +185,59 @@ Only the backfill/cron/`POST /admin/lists/sync` paths are authoritative for the 
 
 Rates are managed in the dashboard (`/assignee-rates`) via `POST|PATCH|DELETE /admin/rates`. Changing a rate automatically triggers a scoped `recalculate-costs` job on the `maintenance` queue that recomputes costs for affected `clickup_time_entries`. There is no Google Sheets sync. For a manual full recalculation, call `POST /admin/rates/recalculate`.
 
+## Team-scoped access rollout
+
+Restricts each MEMBER to only the clients their team(s) own (tasks, time entries, cost, sprints). Ships **dark** — every step below except the last is invisible to end users; nothing changes for anyone until an Owner flips the Settings switch in the final step. Spec: `docs/superpowers/specs/2026-09-18-team-scoped-access-design.md`. See also the "Team-scoped access" subsection of `CLAUDE.md`'s Data model rules for how the resolver, masking, and route guardrail work.
+
+### 1. Deploy and backfill
+
+`npm run prisma:deploy` applies migration `0023_team_scoped_access`. It is additive only (new tables, new nullable columns on `clickup_tasks`, a `CREATE INDEX` on `scope_client_option_id`) and needs no downtime.
+
+After deploying, backfill the new columns on the worker from each task's already-stored `raw` JSON — no ClickUp API calls:
+
+```bash
+# local
+npm run backfill:client-option-ids -- --dry-run   # list what would change
+npm run backfill:client-option-ids                # write
+
+# production host, in DEPLOY_PATH (the image ships dist/ only)
+docker compose -f docker-compose.prod.yml exec app-worker node dist/scripts/backfill-client-option-ids.js --dry-run
+docker compose -f docker-compose.prod.yml exec app-worker node dist/scripts/backfill-client-option-ids.js
+```
+
+It is idempotent — safe to re-run. If it warns that the parent-to-subtask inheritance pass hit its cap, re-run it; a later pass finishes rows a prior run left unscoped.
+
+### 2. Populate the Client option catalog
+
+`POST /admin/lists/sync` (empty body syncs every configured space) also piggybacks a Client-option catalog refresh for each space (`ListCatalogService.syncSpace` → `ClientOptionsService.syncSpace`, best-effort — a field-fetch failure there doesn't fail the list sync). Do this before creating any teams: `team_clients.option_id` has a `RESTRICT` foreign key to `clickup_client_options`, so a client can't be assigned to a team until its option row exists. The daily 03:00 list-catalog cron keeps this current afterward, but don't wait for it on first rollout.
+
+### 3. Build teams until readiness is clean
+
+On `/teams` (Owner/Admin), create teams, assign every client to one, add members, and set at least one LEAD per team. `GET /teams/readiness` (surfaced on the Teams page) reports:
+
+- `unassignedClients` — Client options not yet assigned to any team. Once scoping is on, tasks/entries for an unassigned client are visible to Owner/Admin only.
+- `membersWithoutTeam` — MEMBER-role users not on any team. Once scoping is on, such a user sees nothing.
+- `usersWithoutClickupLink` — users with no `clickupUserId` set (see the Users page). A lead without a ClickUp link can still lead a team, but can't be resolved to "self" for the timesheet shortcut.
+- `ambiguousNames` — two teams whose client-option catalogs contain an option of the same display name (a naming collision to double-check, not a hard blocker).
+
+None of these block flipping the switch — they're a checklist, not a gate — but an unresolved gap becomes real the moment scoping goes on (an unassigned client or teamless member effectively goes dark for every MEMBER).
+
+### 4. Owner flips the switch
+
+Settings → Connection → **Team-scoped access** (Owner-only; hidden for Admin and Member). The toggle is `preferences.access.teamScopingEnabled`, written via the same `PATCH /admin/settings` path as every other preference — already audited (`AdminController`'s class-level `AuditLogInterceptor`; no extra wiring needed). It takes effect on the very next request for every process, no redeploy or restart (`SettingsService`'s Redis change-publisher propagates the flip). The enable confirm dialog shows the live readiness counts from step 3.
+
+Equivalent direct call:
+
+```bash
+curl -X PATCH https://your-domain.com/admin/settings \
+  -H 'Content-Type: application/json' -H 'Cookie: <owner session>' \
+  -d '{"preferences": {"access": {"teamScopingEnabled": true}}}'
+```
+
+### 5. Flipping it back off
+
+Same toggle, same path — flip it off (Settings, or the same `PATCH` with `"teamScopingEnabled": false`). It reverts **immediately**: every MEMBER goes back to reading everything with cost, exactly as before this feature existed. Local annotations made while scoping was on (chargeability overrides, team/client assignments) are untouched — turning scoping back on later re-applies them as-is. Only Owner/Admin/machine-credential requests are ever unaffected by the flag.
+
 ## Production deployment
 
 Production runs on the shared BDIX VPS (PM2 + host Caddy + Dockerised Postgres/Redis) and deploys on every push to `main`. See `docs/DEPLOYMENT.md`.

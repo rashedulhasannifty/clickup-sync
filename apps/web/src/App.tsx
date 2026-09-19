@@ -14,7 +14,7 @@ import { ToastProvider } from './components/ui/Toast';
 import { AppLayout } from './components/layout/AppLayout';
 import { LoginPage } from './pages/LoginPage';
 import { useAuth } from './hooks/useAuth';
-import { RequireRole } from './components/RequireRole';
+import { RequireRole, RequireAccess } from './components/RequireRole';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PageSkeleton } from './components/ui/PageSkeleton';
 import './index.css';
@@ -74,8 +74,8 @@ const SettingsPage = React.lazy(() =>
 const AuditLogPage = React.lazy(() =>
 	import('./pages/AuditLogPage').then((m) => ({ default: m.AuditLogPage })),
 );
-const TeamPage = React.lazy(() =>
-	import('./pages/TeamPage').then((m) => ({ default: m.TeamPage })),
+const UsersPage = React.lazy(() =>
+	import('./pages/UsersPage').then((m) => ({ default: m.UsersPage })),
 );
 const WorkPage = React.lazy(() =>
 	import('./pages/WorkPage').then((m) => ({ default: m.WorkPage })),
@@ -93,6 +93,12 @@ const AcceptInvitePage = React.lazy(() =>
 );
 const FinancePage = React.lazy(() =>
 	import('./pages/FinancePage').then((m) => ({ default: m.FinancePage })),
+);
+const TeamsPage = React.lazy(() =>
+	import('./pages/TeamsPage').then((m) => ({ default: m.TeamsPage })),
+);
+const MyTeamPage = React.lazy(() =>
+	import('./pages/MyTeamPage').then((m) => ({ default: m.MyTeamPage })),
 );
 
 function PageLoader() {
@@ -179,17 +185,66 @@ export default function App() {
 									<Route element={<AppLayout />}>
 										<Route index element={<Navigate to="/overview" replace />} />
 										<Route path="/overview" element={<SuspenseRoute><OverviewPage /></SuspenseRoute>} />
-										<Route path="/analytics" element={<SuspenseRoute><AnalyticsPage /></SuspenseRoute>} />
-										<Route path="/time-spikes" element={<SuspenseRoute><HourSpikesPage /></SuspenseRoute>} />
+										<Route
+											path="/analytics"
+											element={
+												<RequireAccess when={(a) => a.canSeeCost} redirect="/overview">
+													<SuspenseRoute><AnalyticsPage /></SuspenseRoute>
+												</RequireAccess>
+											}
+										/>
+										<Route
+											path="/time-spikes"
+											element={
+												<RequireAccess when={(a) => a.unrestricted} redirect="/overview">
+													<SuspenseRoute><HourSpikesPage /></SuspenseRoute>
+												</RequireAccess>
+											}
+										/>
 										<Route path="/tasks" element={<SuspenseRoute><TasksPage /></SuspenseRoute>} />
 										<Route path="/work" element={<SuspenseRoute><WorkPage /></SuspenseRoute>} />
-										<Route path="/sprints" element={<SuspenseRoute><SprintsPage /></SuspenseRoute>} />
+										<Route
+											path="/sprints"
+											element={
+												<RequireAccess when={(a) => a.canSeeSprints} redirect="/overview">
+													<SuspenseRoute><SprintsPage /></SuspenseRoute>
+												</RequireAccess>
+											}
+										/>
 										<Route path="/time-entries" element={<SuspenseRoute><TimeEntriesPage /></SuspenseRoute>} />
 										<Route path="/timesheet" element={<SuspenseRoute><TimesheetPage /></SuspenseRoute>} />
-										<Route path="/missing-rates" element={<SuspenseRoute><MissingRatesPage /></SuspenseRoute>} />
-										<Route path="/assignee-rates" element={<SuspenseRoute><AssigneeRatesPage /></SuspenseRoute>} />
-										<Route path="/chargeability-rules" element={<SuspenseRoute><ChargeabilityRulesPage /></SuspenseRoute>} />
-										<Route path="/budgets" element={<SuspenseRoute><BudgetsPage /></SuspenseRoute>} />
+										<Route
+											path="/missing-rates"
+											element={
+												<RequireAccess when={(a) => a.unrestricted} redirect="/overview">
+													<SuspenseRoute><MissingRatesPage /></SuspenseRoute>
+												</RequireAccess>
+											}
+										/>
+										<Route
+											path="/assignee-rates"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><AssigneeRatesPage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										<Route
+											path="/chargeability-rules"
+											element={
+												<RequireAccess when={(a) => a.canEditChargeability} redirect="/overview">
+													<SuspenseRoute><ChargeabilityRulesPage /></SuspenseRoute>
+												</RequireAccess>
+											}
+										/>
+										<Route
+											path="/budgets"
+											element={
+												<RequireAccess when={(a) => a.canSeeCost} redirect="/overview">
+													<SuspenseRoute><BudgetsPage /></SuspenseRoute>
+												</RequireAccess>
+											}
+										/>
 										<Route
 											path="/finance"
 											element={
@@ -199,15 +254,44 @@ export default function App() {
 											}
 										/>
 										<Route path="/spaces" element={<SuspenseRoute><SpacesPage /></SuspenseRoute>} />
-										<Route path="/sync-logs" element={<SuspenseRoute><SyncLogsPage /></SuspenseRoute>} />
+										<Route
+											path="/sync-logs"
+											element={
+												<RequireAccess when={(a) => a.unrestricted} redirect="/overview">
+													<SuspenseRoute><SyncLogsPage /></SuspenseRoute>
+												</RequireAccess>
+											}
+										/>
+										<Route
+											path="/users"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><UsersPage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										{/* Old link/bookmark for the org-users page (renamed from
+										    "Team" to "Users" to stop colliding with team-scoped
+										    "Teams"/"My team"). Guarded the same as the real route so a
+										    non-admin still bounces to /overview instead of learning
+										    /users exists. */}
 										<Route
 											path="/team"
 											element={
 												<RequireRole min="ADMIN" redirect="/overview">
-													<SuspenseRoute><TeamPage /></SuspenseRoute>
+													<Navigate to="/users" replace />
 												</RequireRole>
 											}
 										/>
+										<Route
+											path="/teams"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><TeamsPage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										<Route path="/my-team" element={<SuspenseRoute><MyTeamPage /></SuspenseRoute>} />
 										<Route
 											path="/audit-log"
 											element={

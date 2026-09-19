@@ -88,9 +88,11 @@ export function BudgetsPage() {
   // Forecast toggle
   const [forecastMode, setForecastMode] = useState<ForecastMode>('runrate');
 
-  // Queries
+  // Queries. `/admin/budgets` is Owner/Admin-only (`@Roles`); `/reports/budgets/status`
+  // is lead-only (`access.canSeeCost`) — reaching this page at all already implies
+  // canSeeCost via the route's `RequireAccess`, but `useBudgets` needs its own gate.
   const statusQuery = useBudgetStatus(month);
-  const budgetsQuery = useBudgets();
+  const budgetsQuery = useBudgets(isAdmin);
   const clientsQuery = useClients();
 
   const statusRows: BudgetStatusRow[] = statusQuery.data ?? [];

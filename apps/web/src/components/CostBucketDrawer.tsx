@@ -16,7 +16,7 @@ interface CostBucketDrawerProps {
 
 interface ClientRow { client: string; totalHours: number; totalCostAud: number; }
 
-function moneyAud(dollars: number) { return fmt.money(Math.round(dollars * 100)); }
+function moneyAud(dollars: number | null) { return dollars == null ? '—' : fmt.money(Math.round(dollars * 100)); }
 
 export function CostBucketDrawer({ open, bucket, bucketType, onClose }: CostBucketDrawerProps) {
   const navigate = useNavigate();

@@ -3,8 +3,9 @@ import { adminApi, type SpikeNoticePreview } from '../api/admin';
 import { reportsApi } from '../api/reports';
 import { useGlobalFilters } from './useGlobalFilters';
 
-export function useStats() {
-  return useQuery({ queryKey: ['stats'], queryFn: reportsApi.stats });
+/** `/reports/ops/stats` is `requireUnrestricted` server-side — gate on `access.unrestricted`, not `isAdmin` (R22). */
+export function useStats(enabled = true) {
+  return useQuery({ queryKey: ['stats'], queryFn: reportsApi.stats, enabled });
 }
 
 export function useTasksSummary() {
@@ -91,15 +92,18 @@ export interface CostTrendPoint {
   entryCount: number;
 }
 
+/** `requireLeadView` server-side — gate on `access.canSeeCost`. */
 export function useCostTrend(
   bucket: CostTrendBucket,
   from?: string,
   to?: string,
+  enabled = true,
 ) {
   return useQuery<CostTrendPoint[]>({
     queryKey: ['cost-trend', bucket, from || null, to || null],
     queryFn: () => reportsApi.costTrend({ bucket, from, to }),
     placeholderData: keepPreviousData,
+    enabled,
   });
 }
 
@@ -114,15 +118,18 @@ export interface AssigneeCostTrendData {
   points: AssigneeCostTrendPoint[];
 }
 
+/** `requireLeadView` server-side — gate on `access.canSeeCost`. */
 export function useAssigneeCostTrend(
   bucket: CostTrendBucket,
   from?: string,
   to?: string,
+  enabled = true,
 ) {
   return useQuery<AssigneeCostTrendData>({
     queryKey: ['cost-trend-by-assignee', bucket, from || null, to || null],
     queryFn: () => reportsApi.costTrendByAssignee({ bucket, from, to }),
     placeholderData: keepPreviousData,
+    enabled,
   });
 }
 
@@ -132,6 +139,7 @@ export interface ClientCostTrendData {
   points: AssigneeCostTrendPoint[];
 }
 
+/** `requireLeadView` server-side — callers must AND their own `enabled` with `access.canSeeCost`. */
 export function useClientCostTrend(
   bucket: CostTrendBucket,
   from?: string,
@@ -193,7 +201,8 @@ export interface TimeEntryTaskGroup {
   chargeable: boolean;
   partiallyChargeable: boolean;
   chargeableHours: number;
-  costAud: number;
+  /** Null when a scoped viewer doesn't lead this task's client — masked, not zero. */
+  costAud: number | null;
   missingRateCount: number;
   excludedCount: number;
   lastActivity: string | null;
@@ -223,8 +232,8 @@ export interface WorkLogged {
   entryCount: number;
   hours: number;
   chargeableHours: number;
-  /** Rated entries only. */
-  costCents: number;
+  /** Rated entries only. Null when a scoped viewer doesn't lead this row's client. */
+  costCents: number | null;
   currency: string;
   missingRateCount: number;
   excludedCount: number;
@@ -268,8 +277,11 @@ export interface WorkTotals {
   entries: number;
   hours: number;
   chargeableHours: number;
-  costCents: number;
+  /** Null when this page's logged time has no LEAD-visible cost for a scoped viewer. */
+  costCents: number | null;
   missingRateCount: number;
+  /** True when some of this page's logged time belongs to a client the viewer doesn't lead. */
+  costPartial: boolean;
 }
 
 export interface WorkResponse {
@@ -291,8 +303,8 @@ export interface WorkEntry {
   startTime: string | null;
   endTime: string | null;
   durationHours: number;
-  hourlyRateCents: number;
-  costCents: number;
+  hourlyRateCents: number | null;
+  costCents: number | null;
   currency: string;
   status: string;
   chargeable: boolean;
@@ -319,10 +331,13 @@ export interface TimeEntriesAggregates {
   totalHours: number;
   chargeableHours: number;
   nonChargeableHours: number;
-  totalCostCents: number;
-  avgRateCents: number;
+  /** Null (not a misleading $0) when the viewer is scoped and none of these entries' cost is theirs to see. */
+  totalCostCents: number | null;
+  avgRateCents: number | null;
   costCalculatedCount: number;
   noRateFoundCount: number;
+  /** True when a scoped viewer leads only some of the visible entries' clients — the total above is a partial sum, not the whole window's cost. */
+  costPartial: boolean;
 }
 
 /**
@@ -339,39 +354,48 @@ export function useTimeEntriesAggregates(params: Record<string, string | number 
   });
 }
 
-export function useSprintPoints(spaceId?: string) {
+/** Gate on `access.canSeeSprints`. */
+export function useSprintPoints(spaceId?: string, enabled = true) {
   return useQuery({
     queryKey: ['sprint-points', spaceId],
     queryFn: () => reportsApi.sprintPoints({ spaceId }),
+    enabled,
   });
 }
 
-export function useSyncHealth() {
+/** `requireUnrestricted` server-side (R22) — gate on `access.unrestricted`. */
+export function useSyncHealth(enabled = true) {
   return useQuery({
     queryKey: ['sync-health'],
     queryFn: reportsApi.syncHealth,
     refetchInterval: 60_000,
+    enabled,
   });
 }
 
-export function useWebhookEvents(params?: { limit?: number; offset?: number; status?: string; eventType?: string; search?: string }) {
+/** `requireUnrestricted` server-side (R22) — gate on `access.unrestricted`. */
+export function useWebhookEvents(params?: { limit?: number; offset?: number; status?: string; eventType?: string; search?: string }, enabled = true) {
   return useQuery({
     queryKey: ['webhook-events', params],
     queryFn: () => reportsApi.webhookEvents(params),
     placeholderData: keepPreviousData,
+    enabled,
   });
 }
 
-export function useJobLogs(params?: { queueName?: string; status?: string; limit?: number; offset?: number }) {
+/** `requireUnrestricted` server-side (R22) — gate on `access.unrestricted`. */
+export function useJobLogs(params?: { queueName?: string; status?: string; limit?: number; offset?: number }, enabled = true) {
   return useQuery({
     queryKey: ['job-logs', params],
     queryFn: () => reportsApi.jobLogs(params),
     placeholderData: keepPreviousData,
+    enabled,
   });
 }
 
-export function useMissingRates() {
-  return useQuery({ queryKey: ['missing-rates'], queryFn: reportsApi.missingRates });
+/** `requireUnrestricted` server-side (R22) — gate on `access.unrestricted`. */
+export function useMissingRates(enabled = true) {
+  return useQuery({ queryKey: ['missing-rates'], queryFn: reportsApi.missingRates, enabled });
 }
 
 export function useSpaces() {
@@ -397,13 +421,15 @@ export interface Anomalies {
   clientSpikes: ClientSpike[];
 }
 
-export function useAnomalies() {
+/** `requireUnrestricted` server-side (R22) — gate on `access.unrestricted`. */
+export function useAnomalies(enabled = true) {
   return useQuery<Anomalies>({
     queryKey: ['anomalies'],
     queryFn: () => reportsApi.anomalies(),
     // Anomalies are computed off rolling windows that don't shift often; a
     // 60s stale time keeps the panel responsive without hammering the DB.
     staleTime: 60_000,
+    enabled,
   });
 }
 
@@ -429,12 +455,14 @@ export interface HourSpikes {
   byUser: { buckets: string[]; users: HourSpikeUser[] };
 }
 
-export function useHourSpikes(limit: number, includeResolved: boolean) {
+/** `requireUnrestricted` server-side (R22) — gate on `access.unrestricted`. */
+export function useHourSpikes(limit: number, includeResolved: boolean, enabled = true) {
   const { fromDate, toDate } = useGlobalFilters();
   return useQuery<HourSpikes>({
     queryKey: ['hour-spikes', fromDate, toDate, limit, includeResolved],
     queryFn: () => reportsApi.hourSpikes({ from: fromDate, to: toDate, limit, includeResolved }),
     placeholderData: keepPreviousData,
+    enabled,
   });
 }
 
@@ -444,7 +472,8 @@ export function useHourSpikes(limit: number, includeResolved: boolean) {
  * stable regardless of what range the user is currently viewing. Keyed by the
  * day (not the exact timestamp) so it doesn't refetch on every render.
  */
-export function useHourSpikeWatch() {
+/** `requireUnrestricted` server-side (R22) — gate on `access.unrestricted`. */
+export function useHourSpikeWatch(enabled = true) {
   const now = Date.now();
   const to = new Date(now).toISOString();
   const from = new Date(now - 7 * 86_400_000).toISOString();
@@ -452,6 +481,7 @@ export function useHourSpikeWatch() {
     queryKey: ['hour-spikes-watch', from.slice(0, 10), to.slice(0, 10)],
     queryFn: () => reportsApi.hourSpikes({ from, to }),
     staleTime: 60_000,
+    enabled,
   });
 }
 
@@ -501,8 +531,8 @@ export function useUnresolveSpike() {
 }
 
 export interface OverviewDeltas {
-  current: { totalHours: number; totalCostAud: number };
-  prior:   { totalHours: number; totalCostAud: number };
+  current: { totalHours: number; totalCostAud: number | null; costPartial: boolean };
+  prior:   { totalHours: number; totalCostAud: number | null; costPartial: boolean };
 }
 
 /**
@@ -510,7 +540,8 @@ export interface OverviewDeltas {
  * CostTrendCard pass their own range when the trend chart's window differs
  * from the topbar (e.g. weekly view with the default 12-week window).
  */
-export function useOverviewDeltas(from?: string, to?: string) {
+/** `requireLeadView` server-side — gate on `access.canSeeCost`. */
+export function useOverviewDeltas(from?: string, to?: string, enabled = true) {
   const filters = useGlobalFilters();
   const effFrom = from ?? filters.fromDate;
   const effTo = to ?? filters.toDate;
@@ -518,6 +549,7 @@ export function useOverviewDeltas(from?: string, to?: string) {
     queryKey: ['overview-deltas', effFrom, effTo],
     queryFn: () => reportsApi.overviewDeltas({ from: effFrom, to: effTo }),
     placeholderData: keepPreviousData,
+    enabled,
   });
 }
 
@@ -567,6 +599,8 @@ export interface Timesheet {
   totalHours: number;
   totalCostAud: number | null;
   missingRateCount: number;
+  /** True when at least one row's cost was hidden from this viewer (scope masking). */
+  costPartial: boolean;
 }
 
 /**
@@ -585,29 +619,33 @@ export function useTimesheet(params: { userId: string; from?: string; to?: strin
 export interface SprintRow {
   listId: string; name: string; folderName: string | null; spaceName: string | null;
   archived: boolean; startDate: string | null; dueDate: string | null;
-  taskTotal: number; taskDone: number; pctDone: number; hours: number; costAud: number;
+  taskTotal: number; taskDone: number; pctDone: number; hours: number;
+  /** Null when a scoped viewer doesn't lead any client active in this sprint. */
+  costAud: number | null;
+  costPartial: boolean;
 }
 export interface SprintFolder { folderId: string; folderName: string | null; spaceName: string | null; activeCount: number; completedCount: number; }
 export interface SprintVelocityPoint { listId: string; name: string; dueDate: string | null; taskDone: number; hours: number; }
 export interface SprintDetail {
   list: SprintRow;
   byStatus: { status: string; color: string | null; count: number }[];
-  byAssignee: { userName: string; hours: number; costAud: number }[];
+  byAssignee: { userName: string; hours: number; costAud: number | null; costPartial: boolean }[];
   assigneeCount: number;
   cycleTimeHours: number | null;
 }
 
-export function useSprints(params: Record<string, string | number | undefined>) {
-  return useQuery({ queryKey: ['sprints', params], queryFn: () => reportsApi.sprints(params) as Promise<{ items: SprintRow[]; total: number }>, placeholderData: keepPreviousData });
+// The four hooks below back /reports/sprint* — gate every call site on `access.canSeeSprints`.
+export function useSprints(params: Record<string, string | number | undefined>, enabled = true) {
+  return useQuery({ queryKey: ['sprints', params], queryFn: () => reportsApi.sprints(params) as Promise<{ items: SprintRow[]; total: number }>, placeholderData: keepPreviousData, enabled });
 }
-export function useSprintFolders(spaceId?: string) {
-  return useQuery({ queryKey: ['sprint-folders', spaceId ?? 'all'], queryFn: () => reportsApi.sprintFolders(spaceId ? { spaceId } : undefined) as Promise<SprintFolder[]> });
+export function useSprintFolders(spaceId?: string, enabled = true) {
+  return useQuery({ queryKey: ['sprint-folders', spaceId ?? 'all'], queryFn: () => reportsApi.sprintFolders(spaceId ? { spaceId } : undefined) as Promise<SprintFolder[]>, enabled });
 }
-export function useSprintVelocity(folderId: string | undefined, limit = 12) {
-  return useQuery({ queryKey: ['sprint-velocity', folderId, limit], queryFn: () => reportsApi.sprintVelocity({ folderId: folderId!, limit }) as Promise<SprintVelocityPoint[]>, enabled: !!folderId });
+export function useSprintVelocity(folderId: string | undefined, limit = 12, enabled = true) {
+  return useQuery({ queryKey: ['sprint-velocity', folderId, limit], queryFn: () => reportsApi.sprintVelocity({ folderId: folderId!, limit }) as Promise<SprintVelocityPoint[]>, enabled: !!folderId && enabled });
 }
-export function useSprintDetail(listId: string | undefined) {
-  return useQuery({ queryKey: ['sprint-detail', listId], queryFn: () => reportsApi.sprintDetail(listId!) as Promise<SprintDetail>, enabled: !!listId });
+export function useSprintDetail(listId: string | undefined, enabled = true) {
+  return useQuery({ queryKey: ['sprint-detail', listId], queryFn: () => reportsApi.sprintDetail(listId!) as Promise<SprintDetail>, enabled: !!listId && enabled });
 }
 
 export interface TaskAssigneeChargeability {
@@ -629,12 +667,13 @@ export function useTaskAssigneeChargeability(taskId: string | null) {
   });
 }
 
-/** Every (task, assignee) rule — the rules admin screen's list. */
-export function useChargeabilityRules(params: { limit?: number; offset?: number } = {}) {
+/** Every (task, assignee) rule — the rules admin screen's list. Gate on `access.canEditChargeability`. */
+export function useChargeabilityRules(params: { limit?: number; offset?: number } = {}, enabled = true) {
   return useQuery({
     queryKey: ['chargeability-rules', params],
     queryFn: () => adminApi.chargeabilityRules(params),
     placeholderData: keepPreviousData,
+    enabled,
   });
 }
 

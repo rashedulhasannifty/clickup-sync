@@ -30,10 +30,10 @@ describe('assembleTimesheet', () => {
   // Range: Mon 2026-06-22 .. Sun 2026-06-28.
   // Entries on Mon (two tasks), Fri (one task), Sat (one task). Sun empty.
   const rows: TimesheetAggRow[] = [
-    { day: '2026-06-22', taskId: 'A', taskName: 'Alpha', hours: 2,   validCostCents: 8000,  entryCount: 1, missingRateCount: 0 },
-    { day: '2026-06-22', taskId: 'B', taskName: 'Beta',  hours: 1.5, validCostCents: 0,     entryCount: 1, missingRateCount: 1 },
-    { day: '2026-06-26', taskId: 'A', taskName: 'Alpha', hours: 3,   validCostCents: 12000, entryCount: 1, missingRateCount: 0 },
-    { day: '2026-06-27', taskId: 'C', taskName: 'Gamma', hours: 4,   validCostCents: 16000, entryCount: 1, missingRateCount: 0 },
+    { day: '2026-06-22', taskId: 'A', taskName: 'Alpha', hours: 2,   validCostCents: 8000,  entryCount: 1, missingRateCount: 0, scopeClientOptionId: 'acme' },
+    { day: '2026-06-22', taskId: 'B', taskName: 'Beta',  hours: 1.5, validCostCents: 0,     entryCount: 1, missingRateCount: 1, scopeClientOptionId: 'acme' },
+    { day: '2026-06-26', taskId: 'A', taskName: 'Alpha', hours: 3,   validCostCents: 12000, entryCount: 1, missingRateCount: 0, scopeClientOptionId: 'acme' },
+    { day: '2026-06-27', taskId: 'C', taskName: 'Gamma', hours: 4,   validCostCents: 16000, entryCount: 1, missingRateCount: 0, scopeClientOptionId: 'acme' },
   ];
   const ts = assembleTimesheet(rows, '2026-06-22', '2026-06-28');
 
@@ -77,5 +77,44 @@ describe('assembleTimesheet', () => {
     expect(ts.totalHours).toBe(10.5);   // 2 + 1.5 + 3 + 4
     expect(ts.totalCostAud).toBe(360);  // 80 + 0(valid for Beta) + 120 + 160
     expect(ts.missingRateCount).toBe(1);
+  });
+
+  it('costPartial is false when every row is visible', () => {
+    expect(ts.costPartial).toBe(false);
+  });
+
+  describe('with a masked (validCostCents: null) row', () => {
+    const maskedRows: TimesheetAggRow[] = [
+      { day: '2026-06-22', taskId: 'A', taskName: 'Alpha', hours: 2, validCostCents: 8000, entryCount: 1, missingRateCount: 0, scopeClientOptionId: 'acme' },
+      { day: '2026-06-22', taskId: 'B', taskName: 'Beta', hours: 1.5, validCostCents: null, entryCount: 1, missingRateCount: 0, scopeClientOptionId: 'zulu' },
+    ];
+    const masked = assembleTimesheet(maskedRows, '2026-06-22', '2026-06-22');
+    const mon = masked.days.find((d) => d.date === '2026-06-22')!;
+    const beta = mon.tasks.find((t) => t.taskId === 'B')!;
+
+    it('contributes its hours but not its cost', () => {
+      expect(mon.subtotalHours).toBe(3.5);
+      expect(masked.totalHours).toBe(3.5);
+      expect(beta.hours).toBe(1.5);
+      expect(beta.costAud).toBeNull();
+      // The visible task (Alpha) still contributes its own cost.
+      expect(mon.subtotalCostAud).toBe(80);
+      expect(masked.totalCostAud).toBe(80);
+    });
+
+    it('sets costPartial true at the top level', () => {
+      expect(masked.costPartial).toBe(true);
+    });
+
+    it('nulls the day/grand cost when EVERY row that day/range is hidden', () => {
+      const allHidden: TimesheetAggRow[] = [
+        { day: '2026-06-22', taskId: 'B', taskName: 'Beta', hours: 1.5, validCostCents: null, entryCount: 1, missingRateCount: 0, scopeClientOptionId: 'zulu' },
+      ];
+      const sheet = assembleTimesheet(allHidden, '2026-06-22', '2026-06-22');
+      const day = sheet.days.find((d) => d.date === '2026-06-22')!;
+      expect(day.subtotalCostAud).toBeNull();
+      expect(sheet.totalCostAud).toBeNull();
+      expect(sheet.costPartial).toBe(true);
+    });
   });
 });

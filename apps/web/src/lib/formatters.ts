@@ -1,5 +1,9 @@
 export const fmt = {
-  money(cents: number, currency = 'USD') {
+  money(cents: number | null | undefined, currency = 'USD') {
+    // Masked/missing cost (a scoped viewer who doesn't lead this client, or a
+    // genuinely absent rate) comes through as null — render an em dash rather
+    // than a misleading "$0.00".
+    if (cents == null) return '—';
     // Default currency is USD: the business operates in USD and every assignee
     // rate is USD, so cost columns (clickup_time_entries.cost_cents,
     // assignee_rates.hourly_rate_cents) are USD. The `*Aud` field/column names

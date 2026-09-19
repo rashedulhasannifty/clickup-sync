@@ -32,7 +32,8 @@ import { useQueryClient } from '@tanstack/react-query';
 
 // Backend returns dollars; fmt.money expects cents. USD is the project currency
 // (default in fmt.money), so no need to pass it explicitly.
-function moneyAud(dollars: number) {
+function moneyAud(dollars: number | null) {
+  if (dollars == null) return '—';
   return fmt.money(Math.round(dollars * 100));
 }
 
@@ -74,7 +75,7 @@ function HealthIndicator({ status, label, value, onClick }: { status: 'healthy' 
   return <div style={base}>{inner}</div>;
 }
 
-type UserTimeRow    = { userName: string; totalHours: number; totalCostAud: number };
+type UserTimeRow    = { userName: string; totalHours: number; totalCostAud: number | null; costPartial?: boolean };
 type WebhookRow     = { id: string; eventType: string; taskId: string | null; status: string; receivedAt: string };
 type Stats          = {
   failedJobsLast24h: number;
@@ -205,21 +206,25 @@ function BudgetAlertCard() {
 export function OverviewPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { hasRole } = useAuth();
+  const { hasRole, access } = useAuth();
+  // A missing `access` (still loading / an older cached session) is never
+  // treated as denied — these default to unrestricted so nothing flickers off.
+  const unrestricted = access?.unrestricted ?? true;
+  const canSeeCost = access?.canSeeCost ?? true;
   // `dateRangeLabel` mirrors the topbar selection ("last 24h", "last 30d", or
   // a custom-range pair). The time/cost cards' sublabels used to hardcode
   // "last 30d" regardless of what the user picked — values were correct but
   // the label lied. This drives them from the source of truth.
   const { dateRangeLabel, dateRange, customFrom, customTo } = useGlobalFilters();
 
-  const deltasQ = useOverviewDeltas();
+  const deltasQ = useOverviewDeltas(undefined, undefined, canSeeCost);
   const deltas = deltasQ.data;
 
-  const stats          = useStats();
+  const stats          = useStats(unrestricted);
   const tasksSummary   = useTasksSummary();
   const timeByUser     = useTimeEntriesByUser();
-  const webhookEvents  = useWebhookEvents({ limit: 7 });
-  const syncHealth     = useSyncHealth();
+  const webhookEvents  = useWebhookEvents({ limit: 7 }, unrestricted);
+  const syncHealth     = useSyncHealth(unrestricted);
 
   const sd      = stats.data as Stats | undefined;
   const summary = tasksSummary.data as TasksSummary | undefined;
@@ -239,7 +244,11 @@ export function OverviewPage() {
 
   const userRows = (timeByUser.data as UserTimeRow[] | undefined) ?? [];
   const totalHours = userRows.reduce((s, r) => s + r.totalHours, 0);
-  const totalCost  = userRows.reduce((s, r) => s + r.totalCostAud, 0);
+  const totalCost  = userRows.reduce((s, r) => s + (r.totalCostAud ?? 0), 0);
+  // True when any assignee's cost (or either delta window's cost) was masked —
+  // the totals above are a partial sum, not the whole window's cost.
+  const costPartial = userRows.some((r) => r.costPartial)
+    || !!deltas?.current.costPartial || !!deltas?.prior.costPartial;
 
   // Short range label for delta pills — derived from the topbar's dateRange.
   // For custom ranges, compute day count from the actual window.
@@ -427,27 +436,29 @@ export function OverviewPage() {
           label="Calculated cost"
           value={moneyAud(totalCost)}
           loading={timeByUser.isLoading}
-          caption={dateRangeLabel}
+          caption={costPartial ? 'Cost shown for your clients only' : dateRangeLabel}
           delta={deltas && <Delta current={deltas.current.totalCostAud} prior={deltas.prior.totalCostAud} rangeLabel={rangeShort} />}
           icon={<DollarSign size={14} strokeWidth={1.75} />}
         />
-        <MetricCard
-          label="Missing rates"
-          value={fmt.number(missingRates)}
-          loading={stats.isLoading}
-          sublabel={missingRates > 0 ? 'needs review' : undefined}
-          delta={missingRates > 0 ? 'needs review' : undefined}
-          deltaTone={missingRates > 0 ? 'down' : undefined}
-          icon={<AlertTriangle size={14} strokeWidth={1.75} />}
-          onClick={() => navigate('/missing-rates')}
-        />
+        {unrestricted && (
+          <MetricCard
+            label="Missing rates"
+            value={fmt.number(missingRates)}
+            loading={stats.isLoading}
+            sublabel={missingRates > 0 ? 'needs review' : undefined}
+            delta={missingRates > 0 ? 'needs review' : undefined}
+            deltaTone={missingRates > 0 ? 'down' : undefined}
+            icon={<AlertTriangle size={14} strokeWidth={1.75} />}
+            onClick={() => navigate('/missing-rates')}
+          />
+        )}
       </div>
 
-      {/* Budget alerts */}
-      <BudgetAlertCard />
+      {/* Budget alerts — /reports/budgets/status is lead-only. */}
+      {canSeeCost && <BudgetAlertCard />}
 
-      {/* Sync Health */}
-      <Card padding={0}>
+      {/* Sync Health — /reports/ops/* is requireUnrestricted server-side. */}
+      {unrestricted && <Card padding={0}>
         <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{
@@ -487,13 +498,13 @@ export function OverviewPage() {
           />
           <HealthIndicator status={lastSyncAt ? 'healthy' : 'warning'} label="Last task update" value={lastSyncAt ? fmt.relative(lastSyncAt) : '—'} />
         </div>
-      </Card>
+      </Card>}
 
 
       {/* Activity + Alerts */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 1fr)', gap: 12 }}>
-        {/* Recent webhook events */}
-        <Card
+      <div style={{ display: 'grid', gridTemplateColumns: unrestricted ? 'minmax(0, 1.6fr) minmax(0, 1fr)' : 'minmax(0, 1fr)', gap: 12 }}>
+        {/* Recent webhook events — /reports/ops/webhook-events is requireUnrestricted server-side. */}
+        {unrestricted && <Card
           padding={0}
           title="Recent webhook activity"
           subtitle="Latest events processed by the sync pipeline"
@@ -561,11 +572,13 @@ export function OverviewPage() {
               })}
             </tbody>
           </table>
-        </Card>
+        </Card>}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
-          {/* Alerts */}
-          <Card
+          {/* Alerts — every input (`stats`) is `requireUnrestricted`; a disabled
+              query's `.data` is `undefined`, not a real "nothing's wrong", so
+              this whole card is hidden rather than fabricating "All clear". */}
+          {unrestricted && <Card
             padding={0}
             title="Alerts"
             subtitle="Items needing operator attention"
@@ -616,7 +629,7 @@ export function OverviewPage() {
                 ))}
               </div>
             )}
-          </Card>
+          </Card>}
           <AnomaliesPanel />
         </div>
       </div>

@@ -10,7 +10,7 @@ export interface NormalizedTask {
   createdDate: Date | null; updatedDate: Date | null; closedDate: Date | null; dueDate: Date | null; startDate: Date | null;
   timeEstimate: bigint | null; timeSpent: bigint | null; spaceId: string | null; spaceName: string | null; folderId: string | null; folderName: string | null; listId: string | null; listName: string | null;
   assigneesNames: string | null; assigneesEmails: string | null; watchersNames: string | null; watchersEmails: string | null; creatorId: string | null; creatorName: string | null;
-  executiveName: string | null; department: string | null; client: string | null; subProjects: string[]; cost: number; estimation: number; sprintName: string | null; sprintPoints: number; tags: string | null; customTags: string | null; raw: unknown;
+  executiveName: string | null; department: string | null; client: string | null; clientOptionId: string | null; subProjects: string[]; cost: number; estimation: number; sprintName: string | null; sprintPoints: number; tags: string | null; customTags: string | null; raw: unknown;
 }
 
 export interface NormalizedTimeEntry {
@@ -51,7 +51,7 @@ export class ClickupNormalizer {
       spaceId: toStringOrNull(t.space?.id), spaceName: toStringOrNull(t.space?.name), folderId: toStringOrNull(t.folder?.id), folderName: toStringOrNull(t.folder?.name), listId: toStringOrNull(t.list?.id), listName: toStringOrNull(t.list?.name),
       assigneesNames: joinNames(t.assignees || [], 'username'), assigneesEmails: joinNames(t.assignees || [], 'email'), watchersNames: joinNames(t.watchers || [], 'username'), watchersEmails: joinNames(t.watchers || [], 'email'),
       creatorId: toStringOrNull(t.creator?.id), creatorName: toStringOrNull(t.creator?.username),
-      executiveName: cf.executiveName, department: cf.department, client: cf.client, subProjects: cf.subProjects, cost: cf.cost, estimation: cf.estimation, sprintName: cf.sprintName, sprintPoints: cf.sprintPoints,
+      executiveName: cf.executiveName, department: cf.department, client: cf.client, clientOptionId: cf.clientOptionId, subProjects: cf.subProjects, cost: cf.cost, estimation: cf.estimation, sprintName: cf.sprintName, sprintPoints: cf.sprintPoints,
       tags: joinNames(t.tags || [], 'name'), customTags: joinNames(t.tags || [], 'name'), raw: t,
     };
   }

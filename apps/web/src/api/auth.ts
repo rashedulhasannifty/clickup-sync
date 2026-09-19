@@ -1,9 +1,26 @@
 import { apiClient } from './client';
 
 export type Role = 'OWNER' | 'ADMIN' | 'MEMBER';
+
+export interface AccessSummary {
+  scopingEnabled: boolean;
+  unrestricted: boolean;
+  teams: { id: string; name: string; role: 'LEAD' | 'MEMBER' }[];
+  canSeeCost: boolean;
+  canSeeSprints: boolean;
+  canEditChargeability: boolean;
+  hasClickupLink: boolean;
+  timesheetUserIds: string[] | null;
+}
+
 export interface MeResponse {
   user: { id: string; email: string | null; role: Role; isMachine: boolean };
   org: { id: string; name: string };
+  // Optional: an older cached response (e.g. a stale service-worker cache, or
+  // a session predating this field) may not carry it. Every consumer already
+  // treats a missing `access` as unrestricted rather than denied — this makes
+  // the type honest about that possibility instead of lying with `access!`.
+  access?: AccessSummary;
 }
 
 export const authApi = {

@@ -99,7 +99,7 @@ describe('CustomFieldExtractor', () => {
     it('returns all-default extraction for a task with no custom fields', () => {
       const result = extractor.extract({ id: '1' } as any);
       expect(result).toEqual({
-        executiveName: null, department: null, client: null, subProjects: [],
+        executiveName: null, department: null, client: null, clientOptionId: null, subProjects: [],
         cost: 0, estimation: 0, sprintName: null, sprintPoints: 0,
       });
     });
