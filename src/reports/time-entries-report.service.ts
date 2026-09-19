@@ -83,6 +83,24 @@ export class TimeEntriesReportService {
    * from a client the viewer doesn't lead still appears with its hours, just
    * with its cost masked (`canSeeCost`).
    */
+  /**
+   * Two independent gates, both required:
+   *   1. WHOSE timesheet — `timesheetUserIds` (self, or a member of a team you lead).
+   *   2. WHICH ROWS — `taskScopeSql`, the same client filter every other list read uses.
+   *
+   * Gate 2 replaces the spec's original decision 10 ("a lead sees a member's
+   * other-team rows, hours only"). That carve-out made this the ONE surface that
+   * showed work the rest of the app hides: a viewer's own Time Entries page is
+   * filtered by `timeEntryScopeWhere`, so the same person's timesheet listing
+   * extra tasks was a contradiction, and it let any lead read a colleague's
+   * cross-client task names simply by adding them to a team they lead.
+   *
+   * The cost of closing it: a scoped viewer's OWN timesheet no longer shows their
+   * own hours on clients outside their teams — consistent with their Time Entries
+   * page, but a real reduction. Unrestricted viewers (Owner/Admin, or any MEMBER
+   * while the flag is off) are unaffected: `taskScopeSql` emits TRUE for them.
+   * A task-less entry has no client, so a scoped viewer never sees it.
+   */
   async timesheet(userId: string, fromParam: string | undefined, toParam: string | undefined, scope: AccessScope) {
     const allowed = timesheetUserIds(scope);
     if (allowed !== null && !allowed.includes(userId)) {
@@ -120,6 +138,7 @@ export class TimeEntriesReportService {
         AND e.start_time IS NOT NULL
         AND e.start_time >= ${from}
         AND e.start_time <= ${to}
+        AND ${taskScopeSql(scope, 't')}
       GROUP BY day, e.task_id
       ORDER BY day, task_name
     `);

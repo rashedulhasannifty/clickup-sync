@@ -531,16 +531,40 @@ describe('TimeEntriesReportService', () => {
       const prisma = { $queryRaw: jest.fn().mockResolvedValue([]) } as any;
       await expect(new TimeEntriesReportService(prisma).timesheet('anyone', undefined, undefined, UNRESTRICTED)).resolves.toBeDefined();
     });
-    it('the timesheet is NOT client-filtered (decision 10) — other-team rows come back with null cost', async () => {
+    // Supersedes the original spec decision 10 ("a lead sees a member's other-team
+    // rows, hours only"). That made the timesheet the one surface showing work the
+    // rest of the app hides — the same viewer's Time Entries page is client-filtered —
+    // and let any lead read a colleague's cross-client task names just by adding them
+    // to a team they lead. Rows are now filtered by the same client scope as every
+    // other list read; cost within those rows is still masked per client.
+    it('a scoped viewer’s timesheet is client-filtered, like every other list read', async () => {
+      const prisma = { $queryRaw: jest.fn().mockResolvedValue([]) } as any;
+      await new TimeEntriesReportService(prisma).timesheet('cu-x', '2026-09-14', '2026-09-14', lead);
+      const call = prisma.$queryRaw.mock.calls[0][0] as Prisma.Sql;
+      expect(call.sql).toContain('scope_client_option_id = ANY');
+      expect(call.values).toContainEqual(['acme']);
+    });
+
+    it('cost inside the surviving rows is still masked per client, not just per viewer', async () => {
+      // Both rows are in scope here (the viewer's team owns 'acme'), but only the
+      // LEAD relationship unlocks cost — a MEMBER-owned client stays null.
+      const memberAndLead = resolveScope({ role: 'MEMBER', scopingEnabled: true, selfClickupId: 'cu-lead',
+        memberships: [{ teamId: 'A', role: 'LEAD' }, { teamId: 'B', role: 'MEMBER' }],
+        teamClients: [{ teamId: 'A', optionId: 'acme' }, { teamId: 'B', optionId: 'zulu' }],
+        teamMembers: [{ teamId: 'A', clickupUserId: 'cu-x' }] });
       const prisma = { $queryRaw: jest.fn().mockResolvedValue([
         { day: '2026-09-14', task_id: 't1', task_name: 'Landing', client_option_id: 'acme', user_name: 'X', hours: 5, valid_cost_cents: 25000n, entry_count: 1, missing_rate_count: 0 },
         { day: '2026-09-14', task_id: 't2', task_name: 'Onboarding', client_option_id: 'zulu', user_name: 'X', hours: 3, valid_cost_cents: 15000n, entry_count: 1, missing_rate_count: 0 },
       ]) } as any;
-      const sheet = await new TimeEntriesReportService(prisma).timesheet('cu-x', '2026-09-14', '2026-09-14', lead);
-      const sql = (prisma.$queryRaw.mock.calls[0][0] as Prisma.Sql).sql;
-      expect(sql).not.toContain('scope_client_option_id = ANY');
+      const sheet = await new TimeEntriesReportService(prisma).timesheet('cu-x', '2026-09-14', '2026-09-14', memberAndLead);
       expect(JSON.stringify(sheet)).toContain('Onboarding');
       expect(sheet.costPartial).toBe(true);
+    });
+
+    it('an unrestricted viewer’s timesheet is not client-filtered at all', async () => {
+      const prisma = { $queryRaw: jest.fn().mockResolvedValue([]) } as any;
+      await new TimeEntriesReportService(prisma).timesheet('anyone', '2026-09-14', '2026-09-14', UNRESTRICTED);
+      expect((prisma.$queryRaw.mock.calls[0][0] as Prisma.Sql).sql).not.toContain('scope_client_option_id = ANY');
     });
   });
 
