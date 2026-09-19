@@ -2,6 +2,12 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
+/** Escape a value before it goes into an HTML email body. Every interpolated
+ *  string in an email must go through this — `orgName` is operator-set and task
+ *  names come from ClickUp, so neither is trusted markup. */
+const esc = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 export interface SpikeNoticeArgs {
   to: string;
   userName: string;
@@ -40,7 +46,7 @@ export class MailerService implements OnModuleInit {
     const base = this.config.get<string>('APP_BASE_URL', 'http://localhost:5173');
     const link = `${base}/invite/${token}`;
     const from = this.config.get<string>('MAIL_FROM', 'no-reply@example.com');
-    const html = `<p>You've been invited to join <strong>${orgName}</strong> as <strong>${role}</strong> on ClickUp Sync.</p>
+    const html = `<p>You've been invited to join <strong>${esc(orgName)}</strong> as <strong>${esc(role)}</strong> on ClickUp Sync.</p>
 <p><a href="${link}">Accept your invitation</a></p>
 <p>Or paste this link: ${link}</p>
 <p>This invite expires in 7 days.</p>`;
@@ -54,8 +60,6 @@ export class MailerService implements OnModuleInit {
 
   async sendSpikeNotice(args: SpikeNoticeArgs): Promise<void> {
     const from = this.config.get<string>('MAIL_FROM', 'no-reply@example.com');
-    const esc = (s: string) =>
-      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const rows = args.tasks
       .map(
         (t) =>
