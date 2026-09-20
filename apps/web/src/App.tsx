@@ -33,6 +33,9 @@ const HourSpikesPage = React.lazy(() =>
 const TasksPage = React.lazy(() =>
 	import('./pages/TasksPage').then((m) => ({ default: m.TasksPage })),
 );
+const ClientsPage = React.lazy(() =>
+	import('./pages/ClientsPage').then((m) => ({ default: m.ClientsPage })),
+);
 const SprintsPage = React.lazy(() =>
 	import('./pages/SprintsPage').then((m) => ({ default: m.SprintsPage })),
 );
@@ -282,6 +285,7 @@ export default function App() {
 												</RequireRole>
 											}
 										/>
+										<Route path="/clients" element={<SuspenseRoute><ClientsPage /></SuspenseRoute>} />
 										<Route path="/spaces" element={<SuspenseRoute><SpacesPage /></SuspenseRoute>} />
 										<Route
 											path="/sync-logs"

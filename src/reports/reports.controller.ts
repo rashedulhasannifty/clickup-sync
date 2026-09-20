@@ -12,6 +12,8 @@ import { AnomalyReportService } from './anomaly-report.service';
 import { OpsReportService } from './ops-report.service';
 import { SprintsReportService } from './sprints-report.service';
 import { WorkReportService, type WorkParams } from './work-report.service';
+import { ClientsReportService } from './clients-report.service';
+import type { ClientSort } from './clients.assemble';
 import { csvList } from './report-filter.util';
 import { MAX_CHARGEABLE_TASK_IDS } from '../tasks/task-chargeability.constants';
 
@@ -38,6 +40,7 @@ export class ReportsController {
     private readonly budgets: BudgetsService,
     private readonly sprintsReports: SprintsReportService,
     private readonly workReports: WorkReportService,
+    private readonly clientsReports: ClientsReportService,
   ) {}
 
   @Get('tasks/summary')
@@ -80,6 +83,20 @@ export class ReportsController {
     @Query('archived') archived?: string,
   ) {
     return this.tasksReports.tasksClients({ spaceId, from, to, archived }, scope);
+  }
+
+  // Distinct from `GET /reports/clients` above, which is the filter-dropdown
+  // facet the Tasks/Time Entries/Budgets pages depend on — its shape must not
+  // change. This is the Clients page: lifetime-wide, one card per client.
+  @Get('clients/overview')
+  @ApiOperation({ summary: 'One row per client for the Clients page: first and last task (with the space/folder/list/sprint each sat in), task counts, tracked hours and cost, spaces and folders touched, distinct sprint count, and top assignees by hours. Lifetime-wide on purpose — "first task" is a lifetime question, so there is deliberately no from/to. Optional `spaceId` and `archived` narrow it the same way `/reports/clients` does; `sort` is name|tasks|hours|recent (unrecognized values fall back to name). Scoped and cost-masked like `/reports/time-entries/by-client`: cost is null, never zero, for a client the caller does not lead.' })
+  clientsOverview(
+    @Scope() scope: AccessScope,
+    @Query('spaceId') spaceId?: string,
+    @Query('archived') archived?: string,
+    @Query('sort') sort?: string,
+  ) {
+    return this.clientsReports.overview({ spaceId, archived, sort: sort as ClientSort }, scope);
   }
 
   @Get('sub-projects')

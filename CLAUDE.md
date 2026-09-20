@@ -153,6 +153,8 @@ Team ID: `3450636`.
 | Team-scoped access (scope resolver, cost masking, route guardrail) | `src/access/*` |
 | Client-options catalog (the "Client" dropdown, per space) | `src/clients/*` |
 | Teams, memberships, readiness, My team | `src/teams/*` |
+| Clients page (first/last task per client) | `src/reports/clients-report.service.ts`, `src/reports/clients.assemble.ts`, `apps/web/src/pages/ClientsPage.tsx` |
+| ClickUp workspace directory + invite-from-ClickUp | `src/clickup/workspace-member*.ts`, `src/auth/workspace-directory*.ts`, `apps/web/src/components/team/ClickupMembersTable.tsx` |
 | One-off `scope_client_option_id` backfill | `src/scripts/backfill-client-option-ids.ts` |
 
 ## Data model rules

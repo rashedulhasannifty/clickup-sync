@@ -14,13 +14,14 @@ import { SettingsService } from '../src/settings/settings.service';
 import { BudgetsService } from '../src/budgets/budgets.service';
 import { SprintsReportService } from '../src/reports/sprints-report.service';
 import { WorkReportService } from '../src/reports/work-report.service';
+import { ClientsReportService } from '../src/reports/clients-report.service';
 
 describe('ReportsController', () => {
   // Build a controller wiring the report sub-services + settings + budgets.
   // Each `over` key replaces one collaborator; the rest are inert stubs. Keeps
   // call sites short and resilient to the constructor arg order.
   function makeCtrl(over: Partial<{
-    tasks: any; timeEntries: any; costTrend: any; cycleTime: any; anomaly: any; ops: any; settings: any; budgets: any; sprints: any; work: any;
+    tasks: any; timeEntries: any; costTrend: any; cycleTime: any; anomaly: any; ops: any; settings: any; budgets: any; sprints: any; work: any; clients: any;
   }> = {}) {
     return new ReportsController(
       over.tasks ?? {},
@@ -33,8 +34,27 @@ describe('ReportsController', () => {
       over.budgets ?? makeBudgets(),
       over.sprints ?? makeSprints(),
       over.work ?? {},
+      over.clients ?? {},
     );
   }
+
+  describe('clients/overview', () => {
+    const scope = { kind: 'unrestricted', canEdit: true } as any;
+
+    it('forwards the space, archived and sort filters to the service', async () => {
+      const overview = jest.fn().mockResolvedValue([]);
+      const ctrl = makeCtrl({ clients: { overview } });
+      await ctrl.clientsOverview(scope, '3577824', 'exclude', 'hours');
+      expect(overview).toHaveBeenCalledWith({ spaceId: '3577824', archived: 'exclude', sort: 'hours' }, scope);
+    });
+
+    it('passes an unknown sort through — the service falls back, it does not reject', async () => {
+      const overview = jest.fn().mockResolvedValue([]);
+      const ctrl = makeCtrl({ clients: { overview } });
+      await expect(ctrl.clientsOverview(scope, undefined, undefined, 'bogus')).resolves.toEqual([]);
+      expect(overview).toHaveBeenCalledWith({ spaceId: undefined, archived: undefined, sort: 'bogus' }, scope);
+    });
+  });
 
   function makeSprints() {
     return {
@@ -368,6 +388,7 @@ describe('ReportsController', () => {
           { provide: BudgetsService, useValue: makeBudgets() },
           { provide: SprintsReportService, useValue: sprints },
           { provide: WorkReportService, useValue: {} },
+          { provide: ClientsReportService, useValue: {} },
         ],
       }).compile();
       const app = moduleRef.createNestApplication();

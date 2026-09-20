@@ -9,7 +9,6 @@ import {
   MoreHorizontal,
   Eye,
   Trash2,
-  Check,
   ChevronDown,
   CircleCheck,
   Network,
@@ -26,15 +25,17 @@ import { Pill } from '../components/ui/Pill';
 import { Avatar } from '../components/ui/Avatar';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
-import { useOrgUsers, useInvites, useUserMutations } from '../hooks/useUsers';
+import { Checkbox } from '../components/ui/Checkbox';
+import { useOrgUsers, useInvites, useUserMutations, useClickupDirectory } from '../hooks/useUsers';
 import { useAuth } from '../hooks/useAuth';
 import { useClickupMembers } from '../hooks/useClickupMembers';
 import { fmt } from '../lib/formatters';
 import { onActivate } from '../lib/a11y';
-import type { OrgUser, Invite } from '../api/users';
+import type { OrgUser, Invite, ClickupDirectoryMember } from '../api/users';
 import type { Role } from '../api/auth';
 import { RoleSelect, ROLE_META, ALL_ROLES } from '../components/team/RoleSelect';
-import { InviteMembersModal, type InvitePayload } from '../components/team/InviteMembersModal';
+import { InviteMembersModal, type InvitePayload, type InvitePrefill } from '../components/team/InviteMembersModal';
+import { ClickupMembersTable } from '../components/team/ClickupMembersTable';
 import { MemberDrawer, type DrawerMember } from '../components/team/MemberDrawer';
 import { ConfirmRemove, type RemoveTarget } from '../components/team/ConfirmRemove';
 
@@ -120,7 +121,7 @@ function TeamChips({ teams }: { teams: OrgUser['teams'] }) {
   );
 }
 
-type Tab = 'active' | 'pending';
+type Tab = 'active' | 'pending' | 'clickup';
 
 const FIVE_MIN = 5 * 60 * 1000;
 
@@ -345,50 +346,6 @@ function BulkRoleButton({ roles, onPick }: { roles: Role[]; onPick: (r: Role) =>
   );
 }
 
-// ── Checkbox ────────────────────────────────────────────────────────────────────
-function Checkbox({
-  checked,
-  indeterminate,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  indeterminate?: boolean;
-  onChange: () => void;
-  label?: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={indeterminate ? 'mixed' : checked}
-      aria-label={label}
-      onClick={(e) => {
-        e.stopPropagation();
-        onChange();
-      }}
-      style={{
-        width: 17,
-        height: 17,
-        borderRadius: 5,
-        flexShrink: 0,
-        padding: 0,
-        border: `1.5px solid ${checked || indeterminate ? 'var(--accent)' : 'var(--border-strong)'}`,
-        background: checked || indeterminate ? 'var(--accent)' : 'transparent',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#fff',
-        cursor: 'pointer',
-        transition: 'all 100ms',
-      }}
-    >
-      {checked && <Check size={12} strokeWidth={3} />}
-      {indeterminate && !checked && <span style={{ width: 8, height: 2, background: '#fff', borderRadius: 1 }} />}
-    </button>
-  );
-}
-
 const TH: React.CSSProperties = { textAlign: 'left', padding: '10px 12px' };
 
 export function UsersPage() {
@@ -406,6 +363,8 @@ export function UsersPage() {
   const [roleFilter, setRoleFilter] = useState<'all' | Role>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [inviteOpen, setInviteOpen] = useState(false);
+  // Rows the invite modal opens with — set by the ClickUp tab's Invite action.
+  const [invitePrefill, setInvitePrefill] = useState<InvitePrefill[] | undefined>(undefined);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<RemoveTarget[] | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -428,13 +387,18 @@ export function UsersPage() {
     showToast(msg);
   };
 
+  // Fetched only once the tab is opened: it is an extra ClickUp-backed read
+  // that most visits to this page never need.
+  const directoryQuery = useClickupDirectory(tab === 'clickup');
+  const directory = useMemo(() => directoryQuery.data ?? [], [directoryQuery.data]);
+
   const users = useMemo(() => usersQuery.data ?? [], [usersQuery.data]);
   const pendingInvites = useMemo(
     () => (invitesQuery.data ?? []).filter((i) => i.status === 'PENDING'),
     [invitesQuery.data],
   );
 
-  const counts = { active: users.length, pending: pendingInvites.length };
+  const counts = { active: users.length, pending: pendingInvites.length, clickup: directoryQuery.data?.length };
   const adminCount = users.filter((u) => u.role === 'ADMIN' || u.role === 'OWNER').length;
 
   // selection resets when switching tabs
@@ -549,6 +513,20 @@ export function UsersPage() {
     }
   }
 
+  function inviteFromClickup(members: ClickupDirectoryMember[]) {
+    setInvitePrefill(
+      members
+        .filter((m) => m.email)
+        .map((m) => ({ email: m.email as string, clickupUserId: m.id, name: m.name })),
+    );
+    setInviteOpen(true);
+  }
+
+  function closeInvite() {
+    setInviteOpen(false);
+    setInvitePrefill(undefined);
+  }
+
   async function sendInvites(invites: InvitePayload[]) {
     let ok = 0;
     for (const inv of invites) {
@@ -559,9 +537,12 @@ export function UsersPage() {
         toastError(e);
       }
     }
-    setInviteOpen(false);
+    const fromClickupTab = tab === 'clickup';
+    closeInvite();
     if (ok > 0) {
-      setTab('pending');
+      // Invited from the ClickUp tab: stay there, where those rows now read
+      // "Invited". From anywhere else, the Pending tab is the result.
+      if (!fromClickupTab) setTab('pending');
       showToast(`${ok} invitation${ok > 1 ? 's' : ''} sent`);
     }
   }
@@ -614,6 +595,7 @@ export function UsersPage() {
           items={[
             { value: 'active', label: 'Active', count: counts.active },
             { value: 'pending', label: 'Pending', count: counts.pending },
+            { value: 'clickup', label: 'ClickUp', count: counts.clickup },
           ]}
         />
         <div style={{ flex: 1 }} />
@@ -625,6 +607,7 @@ export function UsersPage() {
             placeholder="Search name or email…"
           />
         </div>
+        {tab !== 'clickup' && (
         <Select
           size="md"
           icon={<Shield size={13} />}
@@ -632,8 +615,20 @@ export function UsersPage() {
           onChange={(v) => setRoleFilter(v as 'all' | Role)}
           options={[{ value: 'all', label: 'All roles' }, ...ALL_ROLES.map((r) => ({ value: r, label: ROLE_META[r].label }))]}
         />
+        )}
       </div>
 
+      {tab === 'clickup' ? (
+        <ClickupMembersTable
+          members={directory}
+          query={query}
+          loading={directoryQuery.isLoading}
+          isError={directoryQuery.isError}
+          refreshing={directoryQuery.isFetching}
+          onRefresh={() => void directoryQuery.refresh()}
+          onInvite={inviteFromClickup}
+        />
+      ) : (
       <Card padding={0} style={{ overflow: 'visible', position: 'relative' }}>
         {/* Bulk action bar (active tab only) */}
         {tab === 'active' && selected.size > 0 && (
@@ -946,6 +941,7 @@ export function UsersPage() {
           </div>
         )}
       </Card>
+      )}
 
       <p style={{ fontSize: 12, color: 'var(--text-faint)', margin: '0 2px' }}>
         {counts.active} active {counts.active === 1 ? 'member' : 'members'} · {counts.pending} pending{' '}
@@ -954,8 +950,12 @@ export function UsersPage() {
 
       {inviteOpen && (
         <InviteMembersModal
-          onClose={() => setInviteOpen(false)}
+          // Remount when the prefill changes, so the modal's initial rows are
+          // rebuilt rather than kept from a previous open.
+          key={invitePrefill ? invitePrefill.map((p) => p.email).join(',') : 'blank'}
+          onClose={closeInvite}
           onSend={(invs) => void sendInvites(invs)}
+          prefill={invitePrefill}
           existing={existingEmails}
           sending={m.invite.isPending}
         />

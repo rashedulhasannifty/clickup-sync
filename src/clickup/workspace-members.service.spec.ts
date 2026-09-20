@@ -78,4 +78,63 @@ describe('WorkspaceMembersService', () => {
     await svc.getMemberIds();
     expect(getTeamMembers).toHaveBeenCalledTimes(1);
   });
+
+  it('getFullDirectory carries the detail fields getDirectory projects away', async () => {
+    const { client } = makeClient([
+      {
+        user: {
+          id: 123,
+          username: 'Ada',
+          email: 'ada@x.com',
+          profilePicture: 'https://cdn/ada.png',
+          color: '#7B68EE',
+          initials: 'AD',
+          role: 2,
+          date_joined: '1741737600000',
+        },
+        invited_by: { username: 'Sayem' },
+      },
+    ]);
+    const svc = new WorkspaceMembersService(client, settings);
+    expect(await svc.getFullDirectory()).toEqual([
+      {
+        id: '123',
+        name: 'Ada',
+        email: 'ada@x.com',
+        profilePicture: 'https://cdn/ada.png',
+        color: '#7B68EE',
+        initials: 'AD',
+        role: 'admin',
+        lastActive: null,
+        dateJoined: '2025-03-12T00:00:00.000Z',
+        dateInvited: null,
+        invitedByName: 'Sayem',
+      },
+    ]);
+  });
+
+  it('getFullDirectory and getDirectory share a single ClickUp fetch within the TTL', async () => {
+    const { client, getTeamMembers } = makeClient([{ user: { id: 1, username: 'A' } }]);
+    const svc = new WorkspaceMembersService(client, settings);
+    await svc.getFullDirectory();
+    await svc.getDirectory();
+    expect(getTeamMembers).toHaveBeenCalledTimes(1);
+  });
+
+  it('refresh bypasses a warm cache and the fresh list is what later callers see', async () => {
+    const getTeamMembers = jest
+      .fn()
+      .mockResolvedValueOnce([{ user: { id: 1, username: 'A' } }])
+      .mockResolvedValueOnce([{ user: { id: 1, username: 'A' } }, { user: { id: 2, username: 'B' } }]);
+    const svc = new WorkspaceMembersService({ getTeamMembers } as any, settings);
+
+    await svc.getFullDirectory();
+    const refreshed = await svc.getFullDirectory({ refresh: true });
+
+    expect(getTeamMembers).toHaveBeenCalledTimes(2);
+    expect(refreshed.map((m) => m.id)).toEqual(['1', '2']);
+    // The refreshed list replaces the cache, so the avatar directory sees it too.
+    expect((await svc.getDirectory()).map((m) => m.id)).toEqual(['1', '2']);
+    expect(getTeamMembers).toHaveBeenCalledTimes(2);
+  });
 });

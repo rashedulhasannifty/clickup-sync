@@ -9,6 +9,7 @@ import { AnomalyReportService } from './anomaly-report.service';
 import { OpsReportService } from './ops-report.service';
 import { SprintsReportService } from './sprints-report.service';
 import { WorkReportService } from './work-report.service';
+import { ClientsReportService } from './clients-report.service';
 
 @Module({
   imports: [BudgetsModule],
@@ -21,6 +22,7 @@ import { WorkReportService } from './work-report.service';
     OpsReportService,
     SprintsReportService,
     WorkReportService,
+    ClientsReportService,
   ],
   controllers: [ReportsController],
 })
