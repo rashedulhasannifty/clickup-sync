@@ -22,6 +22,16 @@ interface InviteRow {
   teams: TeamAssignment[];
   /** undefined = untouched (server auto-matches by email); null = explicit "don't link". */
   clickupUserId: string | null | undefined;
+  /** Prefilled from the ClickUp members tab: the address came from ClickUp, so
+   *  it is shown read-only rather than retyped (and mistyped). */
+  locked?: boolean;
+}
+
+/** One row prefilled by a caller — the "Invite" action on the ClickUp tab. */
+export interface InvitePrefill {
+  email: string;
+  clickupUserId?: string | null;
+  name?: string | null;
 }
 
 /** Roles assignable on invite — no OWNER (ownership transfer is a separate flow). */
@@ -32,14 +42,21 @@ export function InviteMembersModal({
   onSend,
   existing = [],
   sending = false,
+  prefill,
 }: {
   onClose: () => void;
   onSend: (invites: InvitePayload[]) => void;
   /** Already-member or already-invited emails (lowercased comparison). */
   existing?: string[];
   sending?: boolean;
+  /** Rows to open with, instead of one blank row. */
+  prefill?: InvitePrefill[];
 }) {
-  const [rows, setRows] = useState<InviteRow[]>([{ email: '', role: 'MEMBER', teams: [], clickupUserId: undefined }]);
+  const [rows, setRows] = useState<InviteRow[]>(
+    prefill?.length
+      ? prefill.map((p) => ({ email: p.email, role: 'MEMBER' as Role, teams: [], clickupUserId: p.clickupUserId, locked: true }))
+      : [{ email: '', role: 'MEMBER', teams: [], clickupUserId: undefined }],
+  );
   const [touched, setTouched] = useState(false);
   const existLower = existing.map((e) => e.toLowerCase());
   const teamsQuery = useTeams();
@@ -141,7 +158,8 @@ export function InviteMembersModal({
                   <input
                     type="email"
                     value={r.email}
-                    autoFocus={i === 0}
+                    autoFocus={i === 0 && !r.locked}
+                    readOnly={r.locked}
                     aria-label={`Email address ${i + 1}`}
                     aria-invalid={err && err !== 'empty' ? true : undefined}
                     onChange={(e) => setRow(i, { email: e.target.value })}
@@ -152,7 +170,7 @@ export function InviteMembersModal({
                       height: 40,
                       padding: '0 12px 0 34px',
                       fontSize: 13.5,
-                      background: 'var(--surface)',
+                      background: r.locked ? 'var(--surface-2, var(--surface))' : 'var(--surface)',
                       color: 'var(--text)',
                       border: `1px solid ${err && err !== 'empty' ? 'var(--red)' : 'var(--border-strong)'}`,
                       borderRadius: 9,

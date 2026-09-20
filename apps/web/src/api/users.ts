@@ -15,6 +15,27 @@ export interface Invite {
   teams: { teamId: string; teamName: string | null; role: TeamMemberRoleValue }[];
 }
 
+/** A ClickUp workspace member, annotated with whether they already have an
+ *  account here. Owner/Admin only — richer than the avatar directory at
+ *  `/clickup/members`. */
+export interface ClickupDirectoryMember {
+  id: string;
+  name: string | null;
+  email: string | null;
+  profilePicture: string | null;
+  color: string | null;
+  initials: string | null;
+  role: 'owner' | 'admin' | 'member' | 'guest' | null;
+  lastActive: string | null;
+  dateJoined: string | null;
+  dateInvited: string | null;
+  invitedByName: string | null;
+  linkStatus: 'member' | 'invited' | 'none';
+  appUser: { id: string; name: string | null; email: string; role: Role; status: 'ACTIVE' | 'DISABLED' } | null;
+  invite: { id: string; email: string; role: Role } | null;
+  canInvite: boolean;
+}
+
 export interface InvitePayload {
   email: string;
   role: Role;
@@ -25,6 +46,10 @@ export interface InvitePayload {
 
 export const usersApi = {
   list: () => apiClient.get<OrgUser[]>('/users').then((r) => r.data),
+  listClickupMembers: (refresh = false) =>
+    apiClient
+      .get<ClickupDirectoryMember[]>('/users/clickup-members', { params: refresh ? { refresh: 'true' } : undefined })
+      .then((r) => r.data),
   changeRole: (id: string, role: Role) => apiClient.patch(`/users/${id}/role`, { role }).then((r) => r.data),
   setStatus: (id: string, status: 'ACTIVE' | 'DISABLED') => apiClient.patch(`/users/${id}/status`, { status }).then((r) => r.data),
   setClickupUser: (id: string, clickupUserId: string | null) =>

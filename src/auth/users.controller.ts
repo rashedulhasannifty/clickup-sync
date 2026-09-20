@@ -1,8 +1,9 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { UsersService } from './users.service';
 import { PasswordResetService } from './password-reset.service';
+import { WorkspaceDirectoryService } from './workspace-directory.service';
 import { ChangeRoleDto } from './dto/change-role.dto';
 import { SetStatusDto } from './dto/set-status.dto';
 import { TransferOwnershipDto } from './dto/transfer-ownership.dto';
@@ -18,12 +19,22 @@ export class UsersController {
   constructor(
     private readonly users: UsersService,
     private readonly resets: PasswordResetService,
+    private readonly directory: WorkspaceDirectoryService,
   ) {}
 
   @Roles(Role.OWNER, Role.ADMIN)
   @Get()
   list(@CurrentUser() user: AuthPrincipal) {
     return this.users.list(user.orgId);
+  }
+
+  // The ClickUp workspace directory, annotated with who already has an account
+  // here. Owner/Admin only: it carries detail (last active, joined, invited by)
+  // that the un-role-gated avatar directory at `GET /clickup/members` omits.
+  @Roles(Role.OWNER, Role.ADMIN)
+  @Get('clickup-members')
+  clickupMembers(@CurrentUser() user: AuthPrincipal, @Query('refresh') refresh?: string) {
+    return this.directory.list(user.orgId, { refresh: refresh === 'true' });
   }
 
   @Roles(Role.OWNER, Role.ADMIN)

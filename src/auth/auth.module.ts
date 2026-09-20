@@ -22,6 +22,7 @@ import { RolesGuard } from './roles.guard';
 import { AuthController } from './auth.controller';
 import { InvitationController } from './invitation.controller';
 import { UsersController } from './users.controller';
+import { WorkspaceDirectoryService } from './workspace-directory.service';
 import { isWorker } from '../config/role';
 import { AccessModule } from '../access/access.module';
 import { AccessScopeGuard } from '../access/access-scope.guard';
@@ -37,7 +38,7 @@ import { ClickupModule } from '../clickup/clickup.module';
   controllers: [AuthController, InvitationController, UsersController],
   providers: [
     PasswordService, TokenService, PermissionsService, SessionService,
-    AuthService, InvitationService, UsersService, PasswordResetService,
+    AuthService, InvitationService, UsersService, PasswordResetService, WorkspaceDirectoryService,
     OrgRepository, UserRepository, SessionRepository, InvitationRepository, PasswordResetRepository,
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
