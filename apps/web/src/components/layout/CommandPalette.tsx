@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Home, BarChart3, Activity, CheckSquare, Clock, AlertTriangle, DollarSign,
-  Layers, Webhook, Settings, Search, Wallet, Users, UserCog, ScrollText, Scale, ListTree, Landmark,
+  Building2, Layers, Webhook, Settings, Search, Wallet, Users, UserCog, ScrollText, Scale, ListTree, Landmark,
 } from 'lucide-react';
 import { Kbd } from '../ui/Kbd';
 import { useSearch } from '../../hooks/useSearch';
@@ -23,6 +23,7 @@ const NAV_ITEMS: { label: string; to: string; sub: string; icon: typeof Home; ad
   { label: 'Chargeability Rules', to: '/chargeability-rules', sub: '/chargeability-rules', icon: Scale, needs: 'canEditChargeability' },
   { label: 'Budgets', to: '/budgets', sub: '/budgets', icon: Wallet, needs: 'canSeeCost' },
   { label: 'Finance (beta)', to: '/finance', sub: '/finance', icon: Landmark, adminOnly: true },
+  { label: 'Clients', to: '/clients', sub: '/clients', icon: Building2 },
   { label: 'Spaces', to: '/spaces', sub: '/spaces', icon: Layers },
   { label: 'Sync Logs', to: '/sync-logs', sub: '/sync-logs', icon: Webhook, needs: 'unrestricted' },
   { label: 'Users', to: '/users', sub: '/users', icon: UserCog, adminOnly: true },
