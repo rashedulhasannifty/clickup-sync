@@ -14,6 +14,7 @@ import {
   CircleCheck,
   Network,
   Link2,
+  KeyRound,
 } from 'lucide-react';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Tabs } from '../components/ui/Tabs';
@@ -149,6 +150,7 @@ function RowMenu({
   canRemove,
   onView,
   onResend,
+  onSendReset,
   onRemove,
 }: {
   tab: Tab;
@@ -156,6 +158,8 @@ function RowMenu({
   canRemove: boolean;
   onView: () => void;
   onResend: () => void;
+  /** Absent when the actor may not manage this user (same rule the API enforces). */
+  onSendReset?: () => void;
   onRemove: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -251,6 +255,7 @@ function RowMenu({
           {tab === 'active'
             ? item(<Eye size={14} />, 'View profile', onView)
             : item(<Send size={14} />, 'Resend invite', onResend)}
+          {tab === 'active' && onSendReset && item(<KeyRound size={14} />, 'Send password reset', onSendReset)}
           {(canRemove || isSelf) && <div style={{ height: 1, background: 'var(--border-soft)', margin: '5px 6px' }} />}
           {canRemove && item(<Trash2 size={14} />, tab === 'pending' ? 'Revoke invite' : 'Remove member', onRemove, true)}
           {isSelf && <div style={{ padding: '7px 10px', fontSize: 11.5, color: 'var(--text-faint)' }}>This is you</div>}
@@ -524,6 +529,15 @@ export function UsersPage() {
     setSelected(new Set());
     setDetailId(null);
     setConfirm(null);
+  }
+
+  async function doSendReset(id: string) {
+    try {
+      await m.sendPasswordReset.mutateAsync(id);
+      showToast('Password reset link sent');
+    } catch (e) {
+      toastError(e);
+    }
   }
 
   async function doResend(id: string) {
@@ -867,6 +881,7 @@ export function UsersPage() {
                             canRemove={actable}
                             onView={() => setDetailId(u.id)}
                             onResend={() => undefined}
+                            onSendReset={actable ? () => void doSendReset(u.id) : undefined}
                             onRemove={() =>
                               setConfirm([{ id: u.id, label: u.name?.trim() || emailLabel(u.email), pending: false }])
                             }

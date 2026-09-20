@@ -76,6 +76,7 @@ const CONTROLLERS: ControllerClass[] = [
 const NON_DATA: Record<string, string> = {
   'AuthController.logout': 'session only',
   'AuthController.logoutAll': 'session only',
+  'AuthController.changePassword': "the caller's own credential — no ClickUp data, and the row is keyed on the session's own user id",
   // Brief names this route "ClickupMembersController.members"; the handler method is
   // actually named `list` (route path is `members`) — keyed by method name to match `routes()`.
   'ClickupMembersController.list':

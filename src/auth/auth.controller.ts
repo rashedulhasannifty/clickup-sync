@@ -1,13 +1,17 @@
-import { Body, Controller, Get, HttpCode, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { randomBytes } from 'node:crypto';
 import { AuthService } from './auth.service';
+import { PasswordResetService } from './password-reset.service';
 import { SessionService } from './session.service';
 import { OrgRepository } from './org.repository';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { Public, CurrentUser } from './decorators';
 import { SESSION_COOKIE } from './auth.guard';
 import { AuthPrincipal } from './auth.types';
@@ -20,6 +24,7 @@ import { AccessScope } from '../access/access-scope';
 export class AuthController {
   constructor(
     private readonly auth: AuthService,
+    private readonly resets: PasswordResetService,
     private readonly sessions: SessionService,
     private readonly orgs: OrgRepository,
     private readonly access: AccessScopeService,
@@ -53,6 +58,56 @@ export class AuthController {
     await this.setSession(res, req, user.id);
     const org = await this.orgs.get();
     return { user: this.publicUser(user), org: { id: org?.id, name: org?.name } };
+  }
+
+  @Public()
+  @UseGuards(ThrottlerGuard)
+  @HttpCode(200)
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto, @Req() req: Request) {
+    // Always { ok: true }: a different answer for a known address would make
+    // this endpoint an account enumerator.
+    return this.resets.request(dto.email, req.ip ?? null);
+  }
+
+  @Public()
+  @UseGuards(ThrottlerGuard)
+  @Get('reset-password/:token')
+  async previewReset(@Param('token') token: string) {
+    return this.resets.preview(token);
+  }
+
+  @Public()
+  @UseGuards(ThrottlerGuard)
+  @HttpCode(200)
+  @Post('reset-password/:token')
+  async resetPassword(
+    @Param('token') token: string,
+    @Body() dto: ResetPasswordDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const user = await this.resets.reset(token, dto.password);
+    // reset() revoked every session, including any this browser held; issue a
+    // fresh one so the person lands signed in rather than back at the login form.
+    await this.setSession(res, req, user.id);
+    const org = await this.orgs.get();
+    return { user: this.publicUser(user), org: { id: org?.id, name: org?.name } };
+  }
+
+  @UseGuards(ThrottlerGuard)
+  @HttpCode(200)
+  @Post('change-password')
+  async changePassword(
+    @CurrentUser() principal: AuthPrincipal,
+    @Body() dto: ChangePasswordDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    await this.resets.changePassword(principal.userId, dto.currentPassword, dto.newPassword);
+    // Same as reset: every session died, so re-issue this one.
+    await this.setSession(res, req, principal.userId);
+    return { ok: true };
   }
 
   @HttpCode(200)

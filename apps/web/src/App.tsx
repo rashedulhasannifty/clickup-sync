@@ -86,6 +86,19 @@ const NotFoundPage = React.lazy(() =>
 const SignupPage = React.lazy(() =>
 	import('./pages/SignupPage').then((m) => ({ default: m.SignupPage })),
 );
+const AccountPage = React.lazy(() =>
+	import('./pages/AccountPage').then((m) => ({ default: m.AccountPage })),
+);
+const ForgotPasswordPage = React.lazy(() =>
+	import('./pages/ForgotPasswordPage').then((m) => ({
+		default: m.ForgotPasswordPage,
+	})),
+);
+const ResetPasswordPage = React.lazy(() =>
+	import('./pages/ResetPasswordPage').then((m) => ({
+		default: m.ResetPasswordPage,
+	})),
+);
 const AcceptInvitePage = React.lazy(() =>
 	import('./pages/AcceptInvitePage').then((m) => ({
 		default: m.AcceptInvitePage,
@@ -170,6 +183,22 @@ export default function App() {
 									element={
 										<React.Suspense fallback={PublicFallback}>
 											<SignupPage />
+										</React.Suspense>
+									}
+								/>
+								<Route
+									path="/forgot"
+									element={
+										<React.Suspense fallback={PublicFallback}>
+											<ForgotPasswordPage />
+										</React.Suspense>
+									}
+								/>
+								<Route
+									path="/reset/:token"
+									element={
+										<React.Suspense fallback={PublicFallback}>
+											<ResetPasswordPage />
 										</React.Suspense>
 									}
 								/>
@@ -292,6 +321,9 @@ export default function App() {
 											}
 										/>
 										<Route path="/my-team" element={<SuspenseRoute><MyTeamPage /></SuspenseRoute>} />
+										{/* Open to every role: Settings is Admin-only, so this is where a
+										    member changes their own password. */}
+										<Route path="/account" element={<SuspenseRoute><AccountPage /></SuspenseRoute>} />
 										<Route
 											path="/audit-log"
 											element={

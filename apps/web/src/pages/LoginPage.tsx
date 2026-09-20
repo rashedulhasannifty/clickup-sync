@@ -62,7 +62,7 @@ export function LoginPage() {
             label="Password" type="password" name="password" icon={Lock} autoComplete="current-password"
             value={password} onChange={(e) => { setPassword(e.target.value); setError(''); }}
             placeholder="••••••••"
-            right={<span title="Password reset is coming soon" style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-faint)', cursor: 'default' }}>Forgot?</span>}
+            right={<button type="button" onClick={() => navigate('/forgot')} style={{ background: 'none', border: 0, padding: 0, fontSize: 12, fontWeight: 500, color: 'var(--accent-strong)', cursor: 'pointer' }}>Forgot?</button>}
           />
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
             <Switch checked={keep} onChange={setKeep} /> Keep me signed in

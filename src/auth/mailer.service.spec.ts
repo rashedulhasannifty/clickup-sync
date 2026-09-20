@@ -39,4 +39,17 @@ describe('MailerService', () => {
     expect(sent[0].html).toContain('Fix &amp; ship');          // task name escaped
     expect(sent[0].html).toContain('Please review &lt;these&gt;'); // note escaped
   });
+  it('builds a password-reset email with the tokenized link', async () => {
+    const sent: any[] = [];
+    const config = { get: (k: string, d?: any) => ({ APP_BASE_URL: 'https://app.test', MAIL_FROM: 'from@test', SMTP_HOST: '' }[k] ?? d) } as any;
+    const svc = new MailerService(config);
+    (svc as any).transport = { sendMail: async (m: any) => { sent.push(m); return { messageId: '3' }; } };
+
+    await svc.sendPasswordReset('member@test.com', 'tok456');
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].to).toBe('member@test.com');
+    expect(sent[0].html).toContain('https://app.test/reset/tok456');
+    expect(sent[0].html).toContain('1 hour');
+  });
 });

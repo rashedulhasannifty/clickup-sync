@@ -33,9 +33,10 @@ Access is per-user with RBAC under a single tenant **Organization**.
   - **Admin** — ops: rates/tag-mapping CRUD, recalc, sync/backfill, dead-letter & webhook retry, audit log, invite Members/Admins. No org secrets, no touching Owners.
   - **Member** — read-only dashboards and reports.
 - **Sessions** are HTTP-only, DB-backed cookies; tokens are stored hashed. Expired sessions are swept hourly by `SessionCleanupService`.
+- **Password reset:** "Forgot?" on the login page → `POST /auth/forgot-password` emails a single-use link to `/reset/:token` that expires in **1 hour** (`password_resets`, hashed like every other token). Requesting a new link invalidates the outstanding one. A completed reset **revokes every session** for that user and signs the browser that used the link back in. The endpoint answers identically for unknown and disabled addresses, so it can't be used to enumerate accounts — if someone says they got nothing, check the mail logs, don't infer from the response. Owner/Admin can also send the link for someone (Users page → row menu → *Send password reset*, `POST /users/:id/send-password-reset`, audited); an Admin cannot target an Owner. A signed-in user changes their own password at `/account` (`POST /auth/change-password`), which also signs out every other device.
 - **`ADMIN_API_KEY`** is now a machine/automation credential (authenticates as a synthetic Owner), not a shared human login.
 
-Auth-related env vars: `DEFAULT_ORG_NAME`, `SESSION_MAX_AGE_DAYS`, `SESSION_IDLE_TIMEOUT_DAYS`, `APP_BASE_URL` (invite links), `ALLOWED_ORIGINS` (CORS), and `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` (invitation email). With no SMTP configured, the dev mailer logs the invite link to the console.
+Auth-related env vars: `DEFAULT_ORG_NAME`, `SESSION_MAX_AGE_DAYS`, `SESSION_IDLE_TIMEOUT_DAYS`, `APP_BASE_URL` (invite links), `ALLOWED_ORIGINS` (CORS), and `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` (invitation and password-reset email). With no SMTP configured, the dev mailer logs the invite and reset links to the console.
 
 ## Manual backfill
 

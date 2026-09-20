@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, Users, ChevronDown } from 'lucide-react';
+import { LogOut, Users, ChevronDown, KeyRound } from 'lucide-react';
 import { Avatar } from '../ui/Avatar';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -59,6 +59,17 @@ export function UserMenu() {
               </div>
             </div>
           </div>
+
+          <button
+            type="button"
+            className="row-3d"
+            onClick={() => { setOpen(false); navigate('/account'); }}
+            style={menuItemStyle}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--hover)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            <KeyRound size={14} style={{ color: 'var(--text-muted)' }} /> Account & password
+          </button>
 
           {hasRole('ADMIN') && (
             <button

@@ -34,4 +34,12 @@ export const authApi = {
     apiClient.get(`/auth/invitations/${token}`).then((r) => r.data as { email: string; role: Role; orgName: string }),
   acceptInvite: (token: string, name: string, password: string) =>
     apiClient.post(`/auth/invitations/${token}/accept`, { name, password }).then((r) => r.data),
+  forgotPassword: (email: string) =>
+    apiClient.post('/auth/forgot-password', { email }).then((r) => r.data as { ok: true }),
+  previewReset: (token: string) =>
+    apiClient.get(`/auth/reset-password/${token}`).then((r) => r.data as { email: string }),
+  resetPassword: (token: string, password: string) =>
+    apiClient.post(`/auth/reset-password/${token}`, { password }).then((r) => r.data),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    apiClient.post('/auth/change-password', { currentPassword, newPassword }).then((r) => r.data as { ok: true }),
 };

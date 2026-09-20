@@ -29,6 +29,7 @@ export const usersApi = {
   setStatus: (id: string, status: 'ACTIVE' | 'DISABLED') => apiClient.patch(`/users/${id}/status`, { status }).then((r) => r.data),
   setClickupUser: (id: string, clickupUserId: string | null) =>
     apiClient.patch(`/users/${id}/clickup-user`, { clickupUserId }).then((r) => r.data),
+  sendPasswordReset: (id: string) => apiClient.post(`/users/${id}/send-password-reset`).then((r) => r.data as { ok: true }),
   remove: (id: string) => apiClient.delete(`/users/${id}`).then((r) => r.data),
   transferOwnership: (targetUserId: string) => apiClient.post('/users/transfer-ownership', { targetUserId }).then((r) => r.data),
   listInvites: () => apiClient.get<Invite[]>('/invitations').then((r) => r.data),
