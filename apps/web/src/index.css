@@ -11,7 +11,19 @@
   --muted-bg: #f5f5f4;
   --hover: rgba(15, 23, 42, 0.04);
   --sidebar-bg: #fafaf8;
-  --sidebar-active-bg: rgba(123, 104, 238, 0.10);
+  --sidebar-active-bg: #efeeeb;
+  /* One hue per nav section: the icon carries it, the label stays neutral.
+     Light-mode values are the 600-weight steps — the 500s look right but sit
+     near 2:1 on the sidebar ground, under the 3:1 wanted for meaningful
+     graphics. */
+  --nav-home: #7B68EE;
+  --nav-work: #3B82F6;
+  --nav-cost: #059669;
+  --nav-monitor: #F43F5E;
+  --nav-org: #0891B2;
+  --nav-pin: #D97706;
+  /* How much of a row's hue tints it when it is the current page. */
+  --nav-active-mix: 16%;
   --border: #e7e5e2;
   --border-soft: #efeeec;
   --border-strong: #d4d4d2;
@@ -94,7 +106,15 @@
   --muted-bg: #1c1c20;
   --hover: rgba(255, 255, 255, 0.04);
   --sidebar-bg: #0f0f11;
-  --sidebar-active-bg: rgba(123, 104, 238, 0.15);
+  --sidebar-active-bg: #1e1e22;
+  /* Lighter steps against the near-black rail. */
+  --nav-home: #A5B4FC;
+  --nav-work: #60A5FA;
+  --nav-cost: #34D399;
+  --nav-monitor: #FB7185;
+  --nav-org: #22D3EE;
+  --nav-pin: #FBBF24;
+  --nav-active-mix: 26%;
   --border: #27272a;
   --border-soft: #1f1f22;
   --border-strong: #3f3f46;
@@ -293,16 +313,39 @@ button { cursor: pointer; font-family: var(--font-sans); }
 .switch-3d { box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.28); }
 .switch-3d > span { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 2px 5px rgba(0, 0, 0, 0.22); }
 
-/* ── 3D · sidebar nav ─────────────────────────────────────────────────────────
-   Nav items lift a hair on hover; the active route sits on a soft raised shadow
-   (accent-tinted in light) so the current page reads as pressed forward. */
-.nav-3d { transition: transform 100ms ease, box-shadow 100ms ease, background 100ms; }
-.nav-3d:hover { transform: translateY(-1px); }
-.nav-3d[aria-current="page"] {
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 3px 9px rgba(123, 104, 238, 0.20);
+/* ── Sidebar nav ──────────────────────────────────────────────────────────────
+   Flat and neutral: hover and the active route share one subtle fill, and the
+   current page is told apart by weight and text colour rather than by a tint,
+   a shadow or a coloured bar. Deliberately no lift — a nav that moves under
+   the pointer fights the pointer. */
+/* State lives here, NOT in inline styles: an inline `background` beats a class
+   rule, so setting it per-row silently killed :hover. Each row passes only its
+   hue down as --row-tint and lets these rules decide when to use it. */
+.sidebar-item {
+  color: var(--text-muted);
+  transition: background 120ms ease, color 120ms ease;
 }
-[data-theme="dark"] .nav-3d[aria-current="page"] {
-  box-shadow: 0 2px 9px rgba(0, 0, 0, 0.55);
+.sidebar-item:hover { background: var(--sidebar-active-bg); color: var(--text); }
+.sidebar-item[aria-current="page"] {
+  background: color-mix(in srgb, var(--row-tint, var(--accent)) var(--nav-active-mix), transparent);
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* ── Sidebar pins ─────────────────────────────────────────────────────────────
+   The star keeps its width at all times and only fades in, so revealing it on
+   hover never reflows the label or shifts a badge. Touch devices have no hover
+   to reveal it with, so there it is always visible. */
+.nav-pin { opacity: 0; transition: opacity 120ms ease; }
+.nav-row:hover .nav-pin,
+.nav-pin:focus-visible,
+.nav-pin.is-pinned { opacity: 1; }
+.nav-pin:hover:not(:disabled) { color: var(--nav-pin); }
+.nav-pin:disabled { opacity: 0; }
+.nav-row:hover .nav-pin:disabled { opacity: 0.35; }
+@media (hover: none) {
+  .nav-pin { opacity: 1; }
+  .nav-pin:disabled { opacity: 0.35; }
 }
 
 input, select, textarea {
