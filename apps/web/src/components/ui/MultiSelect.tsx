@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ChevronDown, Search, Square, SquareCheck } from 'lucide-react';
+import { ChevronDown, Search } from 'lucide-react';
+import { CheckboxGlyph } from './Checkbox';
 
 interface MultiSelectOption {
   value: string;
@@ -403,11 +404,11 @@ export function MultiSelect({
                       fontFamily: 'inherit',
                     }}
                   >
-                    {/* A glyph, not just a background tint — selection state must
-                        not be conveyed by color alone. */}
-                    <span style={{ display: 'flex', flexShrink: 0, color: checked ? 'var(--accent)' : 'var(--text-faint)' }}>
-                      {checked ? <SquareCheck size={14} strokeWidth={2} /> : <Square size={14} strokeWidth={2} />}
-                    </span>
+                    {/* A box that fills and grows a tick — selection state must
+                        not be conveyed by color alone. Presentational: the row
+                        button above carries role="option" + aria-selected, so
+                        the glyph must not add a role of its own. */}
+                    <CheckboxGlyph state={checked ? 'on' : 'off'} />
                     {opt.icon}
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{opt.label}</span>
                   </button>
