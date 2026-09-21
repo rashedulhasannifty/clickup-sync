@@ -3,6 +3,7 @@ import { ClickupClient } from '../clickup/clickup.client';
 import { ClickupNormalizer, NormalizedTask } from '../clickup/clickup-normalizer';
 import { TasksRepository } from './tasks.repository';
 import { ListsRepository } from '../lists/lists.repository';
+import { ClientNameResolver } from '../clients/client-name.resolver';
 
 type MinimalListRow = {
   listId: string | null; listName: string | null;
@@ -26,7 +27,23 @@ export class TasksService {
     private readonly normalizer: ClickupNormalizer,
     private readonly repo: TasksRepository,
     private readonly lists: ListsRepository,
+    private readonly clientNames: ClientNameResolver,
   ) {}
+
+  /**
+   * Replace the payload's Client label with the catalog's current one.
+   *
+   * ClickUp embeds a snapshot of the Client field definition in every task, so
+   * a task untouched since an option was renamed reports the OLD name forever —
+   * re-syncing it does not help. Two names then share one `client_option_id`
+   * and every name-grouped report splits that client in two. Resolving through
+   * the catalog here is what stops it recurring; `repairClientNames` fixes rows
+   * already stored. Leaves `clientOptionId` alone — the id never changes.
+   */
+  private async canonicalizeClient(task: NormalizedTask): Promise<NormalizedTask> {
+    task.client = await this.clientNames.canonical(task.clientOptionId, task.client);
+    return task;
+  }
 
   /**
    * Best-effort catalog freshness: upsert the minimal list/folder/space fields
@@ -45,7 +62,7 @@ export class TasksService {
 
   async syncTask(taskId: string) {
     const task = await this.clickup.getTask(taskId);
-    const normalized = this.normalizer.normalizeTask(task);
+    const normalized = await this.canonicalizeClient(this.normalizer.normalizeTask(task));
     await this.repo.upsert(normalized);
     await this.upsertListsOpportunistically([toListRow(normalized)]);
     this.logger.log(`Synced ClickUp task ${taskId}`);
@@ -67,7 +84,7 @@ export class TasksService {
       // space backfill. Log and skip it, then keep going — same policy as
       // syncMissingParents. Failures are surfaced in the count/log, not silent.
       try {
-        const normalized = this.normalizer.normalizeTask(raw as any);
+        const normalized = await this.canonicalizeClient(this.normalizer.normalizeTask(raw as any));
         await this.repo.upsert(normalized);
         if (normalized.listId) listRows.set(normalized.listId, toListRow(normalized));
         count += 1;

@@ -3,6 +3,7 @@ import { ClickupClient } from '../clickup/clickup.client';
 import type { ClickUpCustomField } from '../clickup/clickup.types';
 import { SettingsService } from '../settings/settings.service';
 import { ClientOptionsRepository } from './client-options.repository';
+import { ClientNameResolver } from './client-name.resolver';
 
 /** Pure: the Client dropdown's options from ClickUp field definitions. */
 export function extractClientOptions(fields: ClickUpCustomField[]) {
@@ -24,6 +25,7 @@ export class ClientOptionsService {
     private readonly clickup: ClickupClient,
     private readonly repo: ClientOptionsRepository,
     private readonly settings: SettingsService,
+    private readonly names: ClientNameResolver,
   ) {}
 
   /** Refresh the catalog from workspace-level and this space's Client fields. */
@@ -48,6 +50,22 @@ export class ClientOptionsService {
       archived += r.archived;
     }
     this.logger.log(`Client options for space ${spaceId}: ${upserted} upserted, ${archived} archived`);
-    return { upserted, archived };
+
+    // The catalog is the only record of an option's current name, so the moment
+    // it is refreshed is the moment stale task rows can be corrected. Runs on
+    // every sync, not just when a rename is detected: a task synced from a
+    // cached ClickUp payload can reintroduce an old name at any time.
+    this.names.invalidate();
+    const repaired = await this.repo.repairClientNames();
+    if (repaired.tasks > 0) {
+      const moves = repaired.renames.map((r) => `"${r.from}" → "${r.to}"`).join(', ');
+      this.logger.log(`Renamed client on ${repaired.tasks} task(s) and ${repaired.budgets} budget(s): ${moves}`);
+    }
+    if (repaired.conflicts > 0) {
+      this.logger.warn(
+        `${repaired.conflicts} budget row(s) kept an outdated client name: a budget already exists for the new name in the same period`,
+      );
+    }
+    return { upserted, archived, repairedTasks: repaired.tasks };
   }
 }
