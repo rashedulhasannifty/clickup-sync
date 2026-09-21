@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { ArrowRightLeft, Search, Square, SquareCheck } from 'lucide-react';
+import { ArrowRightLeft, Search } from 'lucide-react';
 import type { ClientOption } from '../../api/teams';
+import { CheckboxGlyph } from '../ui/Checkbox';
 
 export interface ClientPickerResult {
   optionIds: string[];
@@ -140,9 +141,10 @@ export function ClientPicker({
                     cursor: foreignBlocked ? 'not-allowed' : 'pointer',
                   }}
                 >
-                  <span style={{ display: 'flex', flexShrink: 0, color: checked ? 'var(--accent)' : 'var(--text-faint)' }}>
-                    {checked ? <SquareCheck size={15} strokeWidth={2} /> : <Square size={15} strokeWidth={2} />}
-                  </span>
+                  {/* Presentational: the wrapping button already carries
+                      role="checkbox" + aria-checked, so the glyph must not
+                      add a role of its own. */}
+                  <CheckboxGlyph state={checked ? 'on' : 'off'} />
                   <span
                     style={{
                       fontSize: 13, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis',
