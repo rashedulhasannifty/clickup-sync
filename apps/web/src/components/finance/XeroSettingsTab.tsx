@@ -25,7 +25,7 @@ const REASONS: Record<string, string> = {
   state: 'That connect link expired or was already used. Start again from this page.',
   exchange: "Xero didn't finish the sign-in. Try again. If it keeps failing, check that the redirect URI on the Xero app matches exactly.",
   no_tenant: 'No Xero organisation was chosen. On the Xero screen, pick your organisation.',
-  multiple_tenants: 'More than one organisation was chosen. Clicksy supports one. Reconnect and pick just one.',
+  multiple_tenants: 'More than one organisation was chosen. Nifty Log supports one. Reconnect and pick just one.',
   different_org: "That's a different Xero organisation from the one already synced. Mixing two sets of books isn't allowed. To switch deliberately, use Erase Xero data below, then connect again.",
   xero_error: 'Xero returned an error. Try again in a minute.',
 };
@@ -127,7 +127,7 @@ export function XeroSettingsTab({ flash, onFlashShown }: { flash: XeroFlash; onF
             <div>
               <h2 style={{ margin: '0 0 6px', fontSize: 18, fontWeight: 600, letterSpacing: '-0.02em' }}>Connect your Xero organisation</h2>
               <p style={{ margin: '0 0 14px', color: 'var(--text-muted)', maxWidth: '60ch' }}>
-                Bring every client's invoices, supplier bills and bank spending into Clicksy. The data is copied on a schedule, so the Finance
+                Bring every client's invoices, supplier bills and bank spending into Nifty Log. The data is copied on a schedule, so the Finance
                 page loads instantly and Grafana can report on it.
               </p>
               <ul style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8, listStyle: 'none', padding: 0, margin: '0 0 18px' }}>
@@ -148,7 +148,7 @@ export function XeroSettingsTab({ flash, onFlashShown }: { flash: XeroFlash; onF
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>You'll sign in on Xero and choose the organisation.</span>
               </div>
               <p style={{ display: 'flex', gap: 8, fontSize: 12, color: 'var(--text-muted)', margin: '14px 0 0' }}>
-                <ShieldCheck size={14} /> <span><b style={{ color: 'var(--text)' }}>Read-only.</b> Clicksy can't create, edit or delete anything in Xero. The Xero sign-in is stored encrypted.</span>
+                <ShieldCheck size={14} /> <span><b style={{ color: 'var(--text)' }}>Read-only.</b> Nifty Log can't create, edit or delete anything in Xero. The Xero sign-in is stored encrypted.</span>
               </p>
               <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '18px 0 8px' }}>Permissions requested</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>

@@ -1,20 +1,28 @@
 import type { CSSProperties } from "react";
 
-// "clıcksy" wordmark — the dot of the (dotless) "ı" is a tiny mouse-cursor,
-// echoing the app icon. `depth` adds a soft 3D lift consistent with the rest
-// of the UI's pressable-depth system.
+// "Nifty Log" wordmark — plain type, two-tone, no inline glyph.
+//
+// The three-bar log mark deliberately lives on the tile (BrandIcon) only. It
+// was tried as the dot of a dotless "ı" here, echoing the cursor it replaced,
+// and it does not work: shrunk into the dot's slot it smears into one blob at
+// the 18px sidebar size, and scaled up far enough to resolve it detaches from
+// the word and reads as a stray mark. The tile sits immediately to the left in
+// every lockup, so the mark is already on screen — twice is noise.
 export function BrandWordmark({
   fontSize = 22,
-  color = "var(--accent)",
+  color = "var(--text)",
+  accentColor = "var(--accent)",
   depth = true,
   style,
 }: {
   fontSize?: number;
+  /** Colour of "Nifty". */
   color?: string;
+  /** Colour of "Log". */
+  accentColor?: string;
   depth?: boolean;
   style?: CSSProperties;
 }) {
-  const cur = fontSize * 0.5;
   return (
     <span
       style={{
@@ -30,35 +38,9 @@ export function BrandWordmark({
         ...style,
       }}
     >
-      <span>cl</span>
-      <span style={{ position: "relative", display: "inline-block" }}>
-        {"ı"}
-        <span
-          style={{
-            position: "absolute",
-            left: "46%",
-            top: "-0.46em",
-            transform: "rotate(-12deg)",
-            lineHeight: 0,
-          }}
-        >
-          <svg
-            width={cur}
-            height={cur * 1.18}
-            viewBox="0 0 24 28"
-            style={depth ? { filter: "drop-shadow(0 1px 1px rgba(91, 72, 201, 0.35))" } : undefined}
-          >
-            <path
-              d="M3 2 L3 23 L8.5 17.5 L12 26 L15.5 24.4 L12 16 L20 16 Z"
-              fill="currentColor"
-              stroke="var(--surface)"
-              strokeWidth="1.4"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </span>
-      </span>
-      <span>cksy</span>
+      <span>Nifty</span>
+      <span style={{ width: "0.26em" }} />
+      <span style={{ color: accentColor }}>Log</span>
     </span>
   );
 }

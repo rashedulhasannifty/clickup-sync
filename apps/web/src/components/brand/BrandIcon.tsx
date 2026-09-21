@@ -1,10 +1,11 @@
 import type { CSSProperties } from "react";
 
-// Clicksy brand mark: a white mouse-cursor on a purple→cyan rounded tile,
+// Nifty Log brand mark: three white "log" bars on a purple→cyan rounded tile,
 // rendered with the app's 3D "pressable" depth — a hard bottom edge + ambient
 // glow + top bevel highlight, matching .btn-3d. (Logo direction 02.)
 // Pass `flat` for a depthless version; the static favicon counterpart lives
-// at apps/web/public/favicon.svg.
+// at apps/web/public/favicon.svg, and the sibling Nifty Timer tile at
+// apps/web/public/nifty-timer.svg.
 export function BrandIcon({
   size = 28,
   flat = false,
@@ -16,8 +17,7 @@ export function BrandIcon({
 }) {
   const radius = Math.max(6, Math.round(size * 0.3));
   const edge = Math.max(2, Math.round(size * 0.1)); // thickness of the 3D side
-  const cursorH = Math.round(size * 0.56);
-  const cursorW = Math.round(cursorH * (24 / 28));
+  const glyph = Math.round(size * 0.62);
   return (
     <div
       style={{
@@ -41,12 +41,18 @@ export function BrandIcon({
       }}
     >
       <svg
-        width={cursorW}
-        height={cursorH}
-        viewBox="0 0 24 28"
+        width={glyph}
+        height={glyph}
+        viewBox="0 0 24 24"
         style={{ filter: "drop-shadow(0 1px 0.5px rgba(20, 10, 60, 0.45))" }}
       >
-        <path d="M3 2 L3 23 L8.5 17.5 L12 26 L15.5 24.4 L12 16 L20 16 Z" fill="#fff" />
+        {/* Long / short / medium: a list of logged entries, and a bar chart of
+            the hours on them. Widths stay uneven so it never reads as a menu. */}
+        <g fill="#fff">
+          <rect x="3.5" y="4.4" width="17" height="3.4" rx="1.7" />
+          <rect x="3.5" y="10.3" width="9.5" height="3.4" rx="1.7" />
+          <rect x="3.5" y="16.2" width="13.5" height="3.4" rx="1.7" />
+        </g>
       </svg>
     </div>
   );
