@@ -201,10 +201,16 @@ After deploying, backfill the new columns on the worker from each task's already
 npm run backfill:client-option-ids -- --dry-run   # list what would change
 npm run backfill:client-option-ids                # write
 
-# production host, in DEPLOY_PATH (the image ships dist/ only)
-docker compose -f docker-compose.prod.yml exec app-worker node dist/scripts/backfill-client-option-ids.js --dry-run
-docker compose -f docker-compose.prod.yml exec app-worker node dist/scripts/backfill-client-option-ids.js
+# production host, as the `deploy` user (the release ships dist/ only)
+cd /srv/clickup-sync/current
+node /srv/clickup-sync/shared/with-env.cjs /srv/clickup-sync/shared/.env \
+  node dist/scripts/backfill-client-option-ids.js --dry-run
+node /srv/clickup-sync/shared/with-env.cjs /srv/clickup-sync/shared/.env \
+  node dist/scripts/backfill-client-option-ids.js
 ```
+
+Production runs on PM2, not Docker — see the "Day-2 operations" section of `docs/DEPLOYMENT.md`
+for this one-off-script pattern. The `deploy` user has no Docker access on purpose.
 
 It is idempotent — safe to re-run. If it warns that the parent-to-subtask inheritance pass hit its cap, re-run it; a later pass finishes rows a prior run left unscoped.
 
