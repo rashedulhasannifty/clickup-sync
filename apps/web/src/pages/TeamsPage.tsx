@@ -535,7 +535,11 @@ function TeamDetail({
   const candidates = orgUsers.filter((u) => u.status === 'ACTIVE' && !memberIds.has(u.id));
 
   return (
-    <Card padding={0}>
+    // overflow visible: the Add-member Select drops its menu near the card's
+    // bottom edge, and Card's default `overflowY: auto` body would clip it —
+    // and spawn a scrollbar on an otherwise auto-height card. Same escape
+    // hatch UsersPage and ClickupMembersTable use for their row menus.
+    <Card padding={0} style={{ overflow: 'visible', position: 'relative' }}>
       <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
         {renaming ? (
           <>
