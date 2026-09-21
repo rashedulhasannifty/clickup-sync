@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { XeroClient } from './xero.client';
 import { XeroRepository, type AttachmentCursor, type SyncStateStatus } from './xero.repository';
+import { XeroTokenService } from './xero-token.service';
 import { XeroApiError, XeroRateBudgetExhaustedError, XeroReconnectRequiredError } from './xero-errors';
 import {
   ATTACHMENT_BATCH, ATTACHMENT_PARENTS, ATTACHMENT_RECONCILE_DAYS, ENTITY_ENDPOINTS, RECONCILE_ID_BATCH, XERO_ENTITIES, type XeroEntity,
@@ -39,6 +40,7 @@ export class XeroSyncService {
   constructor(
     private readonly client: XeroClient,
     private readonly repo: XeroRepository,
+    private readonly tokens: XeroTokenService,
   ) {}
 
   async runSync(opts: { full?: boolean } = {}): Promise<XeroSyncResult> {
@@ -260,9 +262,33 @@ export class XeroSyncService {
     let status: SyncStateStatus = 'FAILED';
     if (e instanceof XeroRateBudgetExhaustedError) status = 'RATE_LIMITED';
     else if (e instanceof XeroReconnectRequiredError) status = 'NEEDS_RECONNECT';
+    else if (e instanceof XeroApiError && e.status === 403) {
+      // 403 with a token Xero still refreshes means the grant is fine but this
+      // TENANT no longer accepts us — the app was removed in Xero, or the org
+      // went away. Retrying cannot help, and only a reconnect fixes it, so this
+      // is the same clean stop as a refresh failure rather than five doomed
+      // attempts an hour. Marking the connection is what surfaces it: the
+      // Finance and Settings pages both render NEEDS_RECONNECT, where a
+      // dead-letter row sat unread for three days in September 2026.
+      status = 'NEEDS_RECONNECT';
+      await this.markConnectionDead(e);
+    }
     await this.repo.failEntity(entity, status, (e as Error)?.message ?? String(e));
     if (status === 'RATE_LIMITED') return 'rate_limited';
     if (status === 'NEEDS_RECONNECT') return 'reconnect';
     throw e;
+  }
+
+  /**
+   * Best-effort, like every other write on a failure path: if marking the
+   * connection throws, the run must still report the Xero error that caused it
+   * rather than a database one on top.
+   */
+  private async markConnectionDead(e: XeroApiError): Promise<void> {
+    try {
+      await this.tokens.markReconnectRequired(e.message);
+    } catch (err: any) {
+      this.logger.warn(`Could not mark the Xero connection as needing reconnect: ${err?.message ?? err}`);
+    }
   }
 }

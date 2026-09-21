@@ -96,6 +96,23 @@ export class XeroTokenService {
     return { accessToken: tokens.access_token, tenantId: row.tenantId };
   }
 
+  /**
+   * Mark the connection dead after Xero rejected a call on the TENANT, not the
+   * token — a 403 while refreshes keep succeeding, which is what happens when
+   * the app is removed from the organisation or the org goes away. Nothing on
+   * the token path can notice that: `getAccessToken` keeps handing out valid
+   * tokens, so without this the UI reports CONNECTED while every sync fails.
+   *
+   * Compare-and-set on the same grant we read, exactly like `saveTokens` — a
+   * reconnect that landed in between must not be marked dead by a stale run.
+   * Returns false when there was nothing to mark.
+   */
+  async markReconnectRequired(reason: string): Promise<boolean> {
+    const row = await this.repo.get();
+    if (!row?.refreshTokenEnc || row.status !== 'CONNECTED') return false;
+    return this.repo.markNeedsReconnect(row.refreshTokenEnc, reason);
+  }
+
   private async waitForRefresh(before: Date | null): Promise<XeroAccess> {
     const deadline = Date.now() + this.waitTimeoutMs;
     while (Date.now() < deadline) {

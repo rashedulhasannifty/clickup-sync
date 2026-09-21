@@ -66,7 +66,8 @@ function setup(
     upsertPayments: jest.fn(), replaceAttachments: jest.fn(), openInvoiceIds: jest.fn().mockResolvedValue([]),
     attachmentFlagParentIds: jest.fn().mockResolvedValue({ invoices: [], creditNotes: [], bankTransactions: [] }),
   };
-  return { svc: new XeroSyncService(client as never, repo as never), client, repo, att };
+  const tokens = { markReconnectRequired: jest.fn().mockResolvedValue(true) };
+  return { svc: new XeroSyncService(client as never, repo as never, tokens as never), client, repo, att, tokens };
 }
 
 describe('XeroSyncService.runSync', () => {
@@ -181,6 +182,40 @@ describe('XeroSyncService.runSync', () => {
     const { svc, repo } = setup({ '/Payments': new XeroApiError(500, '/Payments', 'boom') });
     await expect(svc.runSync()).rejects.toBeInstanceOf(XeroApiError);
     expect(repo.failEntity).toHaveBeenCalledWith('payments', 'FAILED', expect.stringContaining('boom'));
+  });
+
+  // A 403 while the token still refreshes means the TENANT rejected us, not the
+  // token: the app was removed in Xero, or the org went away. In September 2026
+  // that state retried five times an hour for three days while the UI kept
+  // saying CONNECTED, because nothing on the token path can see it.
+  describe('a 403 on a data call', () => {
+    const forbidden = () => new XeroApiError(403, '/Contacts', 'AuthenticationUnsuccessful');
+
+    it('stops the run cleanly instead of burning retries', async () => {
+      const { svc, repo } = setup({ '/Contacts': forbidden() });
+      await expect(svc.runSync()).resolves.toMatchObject({ stopped: 'reconnect' });
+      expect(repo.failEntity).toHaveBeenCalledWith('contacts', 'NEEDS_RECONNECT', expect.any(String));
+    });
+
+    it('marks the connection so the Finance and Settings pages stop claiming CONNECTED', async () => {
+      const { svc, tokens } = setup({ '/Contacts': forbidden() });
+      await svc.runSync();
+      expect(tokens.markReconnectRequired).toHaveBeenCalledWith(expect.stringContaining('AuthenticationUnsuccessful'));
+    });
+
+    it('still reports the Xero error if marking the connection fails', async () => {
+      const { svc, tokens, repo } = setup({ '/Contacts': forbidden() });
+      tokens.markReconnectRequired.mockRejectedValue(new Error('db down'));
+      await expect(svc.runSync()).resolves.toMatchObject({ stopped: 'reconnect' });
+      expect(repo.failEntity).toHaveBeenCalledWith('contacts', 'NEEDS_RECONNECT', expect.stringContaining('AuthenticationUnsuccessful'));
+    });
+
+    it('leaves other 4xx alone: a 404 is not a dead grant', async () => {
+      const { svc, repo, tokens } = setup({ '/Payments': new XeroApiError(404, '/Payments', 'nope') });
+      await expect(svc.runSync()).rejects.toBeInstanceOf(XeroApiError);
+      expect(repo.failEntity).toHaveBeenCalledWith('payments', 'FAILED', expect.any(String));
+      expect(tokens.markReconnectRequired).not.toHaveBeenCalled();
+    });
   });
 });
 

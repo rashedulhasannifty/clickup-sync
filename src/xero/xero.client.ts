@@ -3,7 +3,7 @@ import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { QueueService } from '../queues/queue.service';
 import { XeroTokenService } from './xero-token.service';
-import { XeroApiError, XeroRateBudgetExhaustedError } from './xero-errors';
+import { XeroApiError, XeroRateBudgetExhaustedError, xeroErrorDetail } from './xero-errors';
 import {
   DAY_BUDGET_FLOOR, MAX_429_RETRIES, MAX_ATTACHMENT_BYTES, MAX_BACKOFF_MS, MAX_PAGES, MIN_CALL_INTERVAL_MS, PAGE_SIZE, XERO_API_BASE,
   XERO_REDIS,
@@ -38,7 +38,6 @@ type RawResponse<T> = { data: T; headers: Record<string, unknown> };
 /** How long a single Xero data GET is allowed to hang before we give up on it. */
 const REQUEST_TIMEOUT_MS = 30_000;
 /** Upper bound on how much of a third-party error message we let into logs/dead-letter rows. */
-const DETAIL_MAX_LEN = 200;
 
 /** Xero documents If-Modified-Since as a zone-less UTC ISO timestamp. */
 export function formatModifiedSince(d: Date): string {
@@ -144,8 +143,7 @@ export class XeroClient {
       // Never surface e.config (carries the bearer token) or e itself (as cause or
       // otherwise) — only status/path/a truncated message end up in XeroApiError,
       // matching the sanitizedError() rule in xero-identity.client.ts.
-      const rawDetail = typeof e?.response?.data?.Message === 'string' ? e.response.data.Message : (e?.message ?? '');
-      const detail = String(rawDetail).slice(0, DETAIL_MAX_LEN);
+      const detail = xeroErrorDetail(e?.response?.data, e?.message ?? '');
       this.logger.error(`Xero GET ${path} failed: ${status ?? 'network'} ${detail}`);
       throw new XeroApiError(status, path, detail);
     }
