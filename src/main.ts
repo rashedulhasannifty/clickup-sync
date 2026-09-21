@@ -70,7 +70,7 @@ async function bootstrap() {
     process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV !== 'production';
   if (swaggerEnabled) {
     const config = new DocumentBuilder()
-      .setTitle('ClickUp Sync API')
+      .setTitle('Nifty Log API')
       .setDescription('NestJS service for ClickUp webhook ingestion, backfills, time entries, and cost sync.')
       .setVersion('0.1.0')
       .addApiKey({ type: 'apiKey', name: 'x-admin-key', in: 'header' }, 'x-admin-key')

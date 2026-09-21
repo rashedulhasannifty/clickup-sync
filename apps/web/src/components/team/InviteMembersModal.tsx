@@ -285,7 +285,7 @@ export function InviteMembersModal({
         </div>
 
         <Callout tone="blue" icon={<Info size={13} />}>
-          Roles set permissions inside Clicksy — <strong>Admins</strong> manage members &amp; settings,{' '}
+          Roles set permissions inside Nifty Log — <strong>Admins</strong> manage members &amp; settings,{' '}
           <strong>Members</strong> have read-only access to dashboards and reports.
         </Callout>
       </div>

@@ -68,7 +68,7 @@ SMTP_HOST=
 SMTP_PORT=587
 SMTP_USER=
 SMTP_PASS=
-MAIL_FROM="ClickUp Sync <no-reply@example.com>"
+MAIL_FROM="Nifty Log <no-reply@example.com>"
 ```
 
 If SMTP is unconfigured, the dev mailer logs the invite link to the console.

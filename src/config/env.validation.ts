@@ -36,7 +36,7 @@ const schema = z.object({
   SMTP_PORT: z.coerce.number().default(587),
   SMTP_USER: z.string().optional().default(''),
   SMTP_PASS: z.string().optional().default(''),
-  MAIL_FROM: z.string().default('ClickUp Sync <no-reply@example.com>'),
+  MAIL_FROM: z.string().default('Nifty Log <no-reply@example.com>'),
   // Auto-heal suspended ClickUp webhooks on a 15-min cron. Enum+transform (not
   // z.coerce.boolean, which treats the string "false" as true) so it can be disabled.
   WEBHOOK_AUTOHEAL_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
