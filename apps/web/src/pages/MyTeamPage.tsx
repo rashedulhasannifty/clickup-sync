@@ -79,7 +79,14 @@ function LedTeamCard({
   const teamCandidates = candidates;
 
   return (
-    <Card title={team.name} subtitle={`${team.members.length} ${team.members.length === 1 ? 'member' : 'members'} · ${team.clients.length} ${team.clients.length === 1 ? 'client' : 'clients'}`}>
+    // overflow visible for the same reason as TeamsPage's detail panel: the
+    // Add-member Select's menu must escape the card body instead of being
+    // clipped by it.
+    <Card
+      title={team.name}
+      subtitle={`${team.members.length} ${team.members.length === 1 ? 'member' : 'members'} · ${team.clients.length} ${team.clients.length === 1 ? 'client' : 'clients'}`}
+      style={{ overflow: 'visible', position: 'relative' }}
+    >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         <div>
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
