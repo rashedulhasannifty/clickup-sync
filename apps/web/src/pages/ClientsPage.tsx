@@ -289,7 +289,13 @@ export function ClientsPage() {
         <>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {rows.map((row) => (
-              <ClientCard key={row.clientOptionId ?? row.client} row={row} />
+              // Keyed on the NAME, not `clientOptionId`: the overview groups by
+              // `t.client`, so the name is unique by construction while the
+              // option id is not — a renamed ClickUp option leaves its old
+              // label on tasks not touched since, producing two rows that share
+              // one id. That key collision made React keep a stale card on
+              // every filter change, so searching showed the same client twice.
+              <ClientCard key={row.client} row={row} />
             ))}
           </div>
           <p style={{ fontSize: 12, color: 'var(--text-faint)', margin: '0 2px' }}>

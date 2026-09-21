@@ -1,5 +1,11 @@
 import { TasksService } from '../src/tasks/tasks.service';
 
+/** A resolver that keeps whatever the payload said — the pre-canonicalization
+ *  behaviour every case below was written against. */
+function passthroughNames() {
+  return { canonical: jest.fn(async (_id: string | null, fallback: string | null) => fallback) } as any;
+}
+
 function makeDeps() {
   const getTask = jest.fn();
   const clickup = { getTask } as any;
@@ -11,7 +17,7 @@ function makeDeps() {
   const repo = { upsert, softDelete, findMissingParentIds } as any;
   const upsertMinimalFromTasks = jest.fn().mockResolvedValue(0);
   const lists = { upsertMinimalFromTasks } as any;
-  return { svc: new TasksService(clickup, normalizer, repo, lists), getTask, normalizeTask, upsert, softDelete, findMissingParentIds, upsertMinimalFromTasks };
+  return { svc: new TasksService(clickup, normalizer, repo, lists, passthroughNames()), getTask, normalizeTask, upsert, softDelete, findMissingParentIds, upsertMinimalFromTasks };
 }
 
 describe('TasksService', () => {
@@ -58,7 +64,7 @@ describe('TasksService', () => {
       const normalizer = { normalizeTask: (t: any) => ({ taskId: t.id, listId: t.list?.id ?? null, listName: t.list?.name ?? null, folderId: null, folderName: null, spaceId: null, spaceName: null, raw: t }) } as any;
       const repo = { upsert: jest.fn().mockResolvedValue({}) } as any;
       const lists = { upsertMinimalFromTasks: jest.fn().mockResolvedValue(1) } as any;
-      const svc = new TasksService(clickup, normalizer, repo, lists);
+      const svc = new TasksService(clickup, normalizer, repo, lists, passthroughNames());
       await svc.syncTasks([{ id: 't1', list: { id: 'l1', name: 'Sprint 1' } }, { id: 't2', list: { id: 'l1', name: 'Sprint 1' } }]);
       expect(lists.upsertMinimalFromTasks).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ listId: 'l1' })]));
     });
@@ -68,7 +74,7 @@ describe('TasksService', () => {
       const normalizer = { normalizeTask: (t: any) => ({ taskId: t.id, listId: t.list?.id ?? null, listName: t.list?.name ?? null, folderId: null, folderName: null, spaceId: null, spaceName: null, raw: t }) } as any;
       const repo = { upsert: jest.fn().mockResolvedValue({}) } as any;
       const lists = { upsertMinimalFromTasks: jest.fn().mockRejectedValue(new Error('db down')) } as any;
-      const svc = new TasksService(clickup, normalizer, repo, lists);
+      const svc = new TasksService(clickup, normalizer, repo, lists, passthroughNames());
 
       const count = await svc.syncTasks([{ id: 't1', list: { id: 'l1', name: 'Sprint 1' } }]);
 
@@ -82,7 +88,7 @@ describe('TasksService', () => {
       const normalizer = { normalizeTask: (t: any) => ({ taskId: t.id, listId: t.list?.id ?? null, listName: t.list?.name ?? null, folderId: null, folderName: null, spaceId: null, spaceName: null, raw: t }) } as any;
       const repo = { upsert: jest.fn().mockResolvedValue({}) } as any;
       const lists = { upsertMinimalFromTasks: jest.fn().mockResolvedValue(1) } as any;
-      const svc = new TasksService(clickup, normalizer, repo, lists);
+      const svc = new TasksService(clickup, normalizer, repo, lists, passthroughNames());
 
       await svc.syncTask('t1');
 
@@ -95,7 +101,7 @@ describe('TasksService', () => {
       const normalizer = { normalizeTask: (t: any) => ({ taskId: t.id, listId: t.list?.id ?? null, listName: t.list?.name ?? null, folderId: null, folderName: null, spaceId: null, spaceName: null, raw: t }) } as any;
       const repo = { upsert: jest.fn().mockResolvedValue({}) } as any;
       const lists = { upsertMinimalFromTasks: jest.fn().mockRejectedValue(new Error('db down')) } as any;
-      const svc = new TasksService(clickup, normalizer, repo, lists);
+      const svc = new TasksService(clickup, normalizer, repo, lists, passthroughNames());
 
       const res = await svc.syncTask('t1');
 
@@ -135,6 +141,50 @@ describe('TasksService', () => {
       const synced = await svc.syncMissingParents(['p1']);
       expect(getTask).not.toHaveBeenCalled();
       expect(synced).toBe(0);
+    });
+  });
+
+  // A ClickUp task payload embeds a snapshot of the Client field definition, so
+  // a task untouched since an option was renamed keeps reporting the OLD label
+  // no matter how often it is re-synced. Storing the catalog's name instead is
+  // what stops one client splitting into two rows in every name-grouped report.
+  describe('client name canonicalization', () => {
+    const deps = (canonical: jest.Mock) => {
+      const clickup = { getTask: jest.fn().mockResolvedValue({ id: 't1' }) } as any;
+      const normalizer = {
+        normalizeTask: (t: any) => ({ taskId: t.id, client: 'Platinum Lawyers', clientOptionId: 'opt-1', listId: null }),
+      } as any;
+      const repo = { upsert: jest.fn().mockResolvedValue({}) } as any;
+      const lists = { upsertMinimalFromTasks: jest.fn().mockResolvedValue(0) } as any;
+      return { svc: new TasksService(clickup, normalizer, repo, lists, { canonical } as any), repo };
+    };
+
+    it('stores the catalog name for the option id, not the stale payload label', async () => {
+      const canonical = jest.fn().mockResolvedValue('Douglas L McClelland');
+      const { svc, repo } = deps(canonical);
+
+      await svc.syncTask('t1');
+
+      expect(canonical).toHaveBeenCalledWith('opt-1', 'Platinum Lawyers');
+      expect(repo.upsert).toHaveBeenCalledWith(expect.objectContaining({ client: 'Douglas L McClelland' }));
+    });
+
+    it('canonicalizes batch-synced tasks too, so a backfill cannot reintroduce an old name', async () => {
+      const canonical = jest.fn().mockResolvedValue('Douglas L McClelland');
+      const { svc, repo } = deps(canonical);
+
+      await svc.syncTasks([{ id: 't1' }, { id: 't2' }]);
+
+      expect(repo.upsert).toHaveBeenCalledTimes(2);
+      expect(repo.upsert).toHaveBeenLastCalledWith(expect.objectContaining({ client: 'Douglas L McClelland' }));
+    });
+
+    it('leaves the option id untouched — only the label ever changes', async () => {
+      const { svc, repo } = deps(jest.fn().mockResolvedValue('Douglas L McClelland'));
+
+      await svc.syncTask('t1');
+
+      expect(repo.upsert).toHaveBeenCalledWith(expect.objectContaining({ clientOptionId: 'opt-1' }));
     });
   });
 });
