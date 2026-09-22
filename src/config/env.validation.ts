@@ -65,6 +65,18 @@ const schema = z.object({
         'APP_ENCRYPTION_KEY must be a valid 32-byte key (64 hex chars, or base64-encoded 32 bytes) when NODE_ENV=production',
     });
   }
+  // A real SMTP relay (SES) only sends from verified identities; the default
+  // MAIL_FROM is a placeholder no relay will ever accept. On 2026-09-21 the
+  // deploy secret was set to it and every invite and password reset 500'd with
+  // "Email address is not verified" until someone tried to invite a user. Fail
+  // the boot instead, so the deploy stops before cutover.
+  if (env.SMTP_HOST && /@example\.(com|org|net)\b/i.test(env.MAIL_FROM)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['MAIL_FROM'],
+      message: 'MAIL_FROM must be a verified sender, not an example.com placeholder, when SMTP_HOST is set in production',
+    });
+  }
   if (!env.ADMIN_API_KEY) {
     ctx.addIssue({
       code: 'custom',
