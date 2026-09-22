@@ -1,4 +1,4 @@
-# ClickUp Sync — Full Setup & Deployment Guide
+# Nifty Log — Full Setup & Deployment Guide
 
 End-to-end guide: local development → production deployment on an Ubuntu server → automated CI/CD. Everything is in this one file.
 
