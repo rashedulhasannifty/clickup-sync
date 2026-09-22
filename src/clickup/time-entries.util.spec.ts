@@ -1,4 +1,9 @@
-import { buildTimeEntriesQuery, resolveTimeEntriesWindow } from './time-entries.util';
+import {
+  buildTimeEntriesQuery,
+  resolveTimeEntriesWindow,
+  timeEntriesWindowEnd,
+  TIME_ENTRIES_FUTURE_MS,
+} from './time-entries.util';
 
 const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
@@ -7,10 +12,21 @@ describe('resolveTimeEntriesWindow', () => {
     expect(resolveTimeEntriesWindow({ startDate: 1000, endDate: 2000 })).toEqual({ startMs: 1000, endMs: 2000 });
   });
 
-  it('defaults the end to now and the start to a 365-day lookback', () => {
+  it('defaults the end to a day past now and the start to a 365-day lookback', () => {
+    const before = Date.now();
     const { startMs, endMs } = resolveTimeEntriesWindow({});
-    expect(endMs).toBeGreaterThan(0);
+    const after = Date.now();
+    expect(endMs).toBeGreaterThanOrEqual(before + TIME_ENTRIES_FUTURE_MS);
+    expect(endMs).toBeLessThanOrEqual(after + TIME_ENTRIES_FUTURE_MS);
+    // Exactly one year, so the client still fetches it in a single slice.
     expect(endMs - startMs).toBe(YEAR_MS);
+  });
+
+  it('covers a manual entry saved before its end time', () => {
+    // 15:15-16:00 logged at 15:55: the sync runs at 15:55, the entry ends at 16:00.
+    const savedAt = Date.UTC(2026, 8, 22, 9, 55);
+    const entryEnd = Date.UTC(2026, 8, 22, 10, 0);
+    expect(timeEntriesWindowEnd(savedAt)).toBeGreaterThan(entryEnd);
   });
 
   it('keeps the query string window in lock-step with the resolved window', () => {

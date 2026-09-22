@@ -79,7 +79,7 @@ export function useTimeEntriesByUser() {
   const { fromDate, toDate } = useGlobalFilters();
   return useQuery({
     queryKey: ['time-entries-by-user', fromDate, toDate],
-    queryFn: () => reportsApi.timeEntriesByUser({ from: fromDate, to: toDate }),
+    queryFn: () => reportsApi.timeEntriesByUser({ from: fromDate, to: toDate || undefined }),
   });
 }
 
@@ -158,7 +158,7 @@ export function useTimeEntriesByClient() {
   const { fromDate, toDate } = useGlobalFilters();
   return useQuery({
     queryKey: ['time-entries-by-client', fromDate, toDate],
-    queryFn: () => reportsApi.timeEntriesByClient({ from: fromDate, to: toDate }),
+    queryFn: () => reportsApi.timeEntriesByClient({ from: fromDate, to: toDate || undefined }),
   });
 }
 
@@ -166,7 +166,7 @@ export function useTimeEntriesByDepartment() {
   const { fromDate, toDate } = useGlobalFilters();
   return useQuery({
     queryKey: ['time-entries-by-dept', fromDate, toDate],
-    queryFn: () => reportsApi.timeEntriesByDepartment({ from: fromDate, to: toDate }),
+    queryFn: () => reportsApi.timeEntriesByDepartment({ from: fromDate, to: toDate || undefined }),
   });
 }
 
@@ -460,7 +460,7 @@ export function useHourSpikes(limit: number, includeResolved: boolean, enabled =
   const { fromDate, toDate } = useGlobalFilters();
   return useQuery<HourSpikes>({
     queryKey: ['hour-spikes', fromDate, toDate, limit, includeResolved],
-    queryFn: () => reportsApi.hourSpikes({ from: fromDate, to: toDate, limit, includeResolved }),
+    queryFn: () => reportsApi.hourSpikes({ from: fromDate, to: toDate || undefined, limit, includeResolved }),
     placeholderData: keepPreviousData,
     enabled,
   });
@@ -544,7 +544,7 @@ export interface OverviewDeltas {
 export function useOverviewDeltas(from?: string, to?: string, enabled = true) {
   const filters = useGlobalFilters();
   const effFrom = from ?? filters.fromDate;
-  const effTo = to ?? filters.toDate;
+  const effTo = to ?? (filters.toDate || undefined);
   return useQuery<OverviewDeltas>({
     queryKey: ['overview-deltas', effFrom, effTo],
     queryFn: () => reportsApi.overviewDeltas({ from: effFrom, to: effTo }),

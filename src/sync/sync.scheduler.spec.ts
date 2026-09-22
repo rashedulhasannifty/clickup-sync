@@ -7,6 +7,7 @@ import {
   ROLLING_SWEEP_TASKS_PER_NIGHT,
   ROLLING_SWEEP_WINDOW_PAD_DAYS,
 } from './sync.scheduler';
+import { TIME_ENTRIES_FUTURE_MS } from '../clickup/time-entries.util';
 import { JOBS, QUEUES, BULK_SWEEP_PRIORITY } from '../queues/queue.constants';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 
@@ -272,9 +273,13 @@ describe('SyncScheduler deletion-reconcile coverage guarantee', () => {
 
   it('scopes the enqueued window to exactly the configured lookback', async () => {
     const { scheduler, queue } = makeScheduler();
+    const now = Date.now();
     await scheduler.reconcileDeletions();
     const { startDate, endDate } = syncCalls(queue)[0][1] as { startDate: number; endDate: number };
-    expect((endDate - startDate) / DAY_MS).toBeCloseTo(DELETION_RECONCILE_DAYS, 1);
+    // The lookback is measured back from now; the end reaches a little past now
+    // so an entry saved before its end time is still fetched.
+    expect((now - startDate) / DAY_MS).toBeCloseTo(DELETION_RECONCILE_DAYS, 1);
+    expect(endDate - now).toBeCloseTo(TIME_ENTRIES_FUTURE_MS, -4);
   });
 
   it('runs every day — a longer period would reopen the hole', () => {

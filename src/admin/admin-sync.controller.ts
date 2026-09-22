@@ -16,6 +16,7 @@ import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
 import { TasksRepository } from '../tasks/tasks.repository';
 import { subtractDays } from '../common/utils/date-utils';
+import { timeEntriesWindowEnd } from '../clickup/time-entries.util';
 import { sliceReconcileWindow } from '../sync/reconcile-window.util';
 
 /** Redis key prefix (outside the `bull:` keyspace) for the per-space time-entry
@@ -327,7 +328,7 @@ export class AdminSyncController {
   @ApiOperation({ summary: 'Enqueue time-entry sync jobs for every task in the database' })
   async syncAllTimeEntries(@Query('lookbackDays') lookbackDaysParam?: string) {
     const tasks = await this.tasksRepo.findAllIds();
-    const endDate = Date.now();
+    const endDate = timeEntriesWindowEnd();
     const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES_BULK);
     // One job per task across the WHOLE table (50k+ tasks). At the default
     // priority those sit in the FIFO `wait` list ahead of every live
