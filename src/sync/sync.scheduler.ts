@@ -4,6 +4,7 @@ import { QueueService } from '../queues/queue.service';
 import { BULK_SWEEP_PRIORITY, JOBS, QUEUES } from '../queues/queue.constants';
 import { sliceReconcileWindow } from './reconcile-window.util';
 import { subtractDays } from '../common/utils/date-utils';
+import { timeEntriesWindowEnd } from '../clickup/time-entries.util';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { SettingsService } from '../settings/settings.service';
 import { TimeEntriesRepository } from '../time-entries/time-entries.repository';
@@ -418,7 +419,7 @@ export class SyncScheduler {
    */
   private async enqueueDeletionReconcile(lookbackDays: number): Promise<void> {
     const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES_BULK);
-    const endDate = Date.now();
+    const endDate = timeEntriesWindowEnd();
     const startDate = subtractDays(lookbackDays).getTime();
 
     const taskIds = await this.timeEntriesRepo.findTaskIdsWithEntriesInWindow(startDate, endDate);

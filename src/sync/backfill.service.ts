@@ -6,6 +6,7 @@ import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES, BULK_SWEEP_PRIORITY } from '../queues/queue.constants';
 import { CLICKUP_SPACES } from '../config/clickup-spaces.config';
 import { subtractDays } from '../common/utils/date-utils';
+import { timeEntriesWindowEnd } from '../clickup/time-entries.util';
 import { SettingsService } from '../settings/settings.service';
 import { ListCatalogService } from '../lists/list-catalog.service';
 
@@ -45,7 +46,7 @@ export class BackfillService {
     // or entries logged earlier would never be picked up — but a longer explicit
     // window is respected. The time-entry upsert is idempotent so re-scanning is
     // safe.
-    const endDate = Date.now();
+    const endDate = timeEntriesWindowEnd();
     const teLookbackDays = timeEntryLookbackDays ?? Math.max(days, space?.backfillLookbackDays ?? days);
     const teStartDate = subtractDays(teLookbackDays).getTime();
     const queue = this.queues.get(QUEUES.CLICKUP_TIME_ENTRIES_BULK);

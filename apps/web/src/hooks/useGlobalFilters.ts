@@ -69,7 +69,12 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   useEffect(() => { sessionStorage.setItem('customTo', customTo); }, [customTo]);
 
   const fromDate = dateRange === 'custom' ? (customFrom ? new Date(customFrom).toISOString() : '') : dateRangeToFrom(dateRange);
-  const toDate   = dateRange === 'custom' ? (customTo   ? new Date(customTo).toISOString()   : new Date().toISOString()) : new Date().toISOString();
+  // A rolling range ends "now", and "now" has to mean when the request is made,
+  // not when this provider last rendered. A timestamp taken here stays frozen
+  // for as long as the tab is open, so time logged afterwards silently fell
+  // outside the window. Send no `to` instead: every report endpoint defaults it
+  // to the server's current time. Only an explicit custom end date is sent.
+  const toDate   = dateRange === 'custom' && customTo ? new Date(customTo).toISOString() : '';
   const dateRangeLabel = buildDateRangeLabel(dateRange, customFrom, customTo);
 
   return createElement(FilterContext.Provider, {
