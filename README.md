@@ -1,4 +1,4 @@
-# ClickUp Sync NestJS Starter
+# Nifty Log
 
 A NestJS backend starter that replaces the current n8n ClickUp sync workflows with a code-based service using PostgreSQL, Redis, BullMQ, Prisma, and scheduled reconciliation.
 
