@@ -4,6 +4,10 @@ import { PrismaService } from '../database/prisma.service';
 import { assembleTimesheet, dhakaDate, type TimesheetAggRow } from './timesheet.assemble';
 import { defaultFrom, parseDate } from './report-date.util';
 import { buildTimeEntryWhere, NO_TASK_ID } from './report-filter.util';
+import {
+  parseSortDir, parseTaskGroupSort, sortTaskGroups, taskGroupSortNeedsTask,
+  timeEntryOrderBy, type TaskGroupSortAttrs,
+} from './report-sort.util';
 import { isPartiallyChargeable, resolveChargeability } from '../time-entries/chargeability';
 import { AccessScope, canSeeCost, isUnrestricted, leadClientIds, timesheetUserIds } from '../access/access-scope';
 import { maskCost } from '../access/cost-mask';
@@ -582,6 +586,8 @@ export class TimeEntriesReportService {
     sprintStatus?: string,
     taskId?: string,
     subProject?: string,
+    sort?: string,
+    dir?: string,
   ) {
     // Same rationale as `tasks()`: cap allows CSV export to fetch the entire
     // filtered set; normal pagination tops out at 100 rows/page.
@@ -595,7 +601,10 @@ export class TimeEntriesReportService {
     const [items, total] = await Promise.all([
       this.prisma.clickupTimeEntry.findMany({
         where,
-        orderBy: { startTime: 'desc' },
+        // Whitelisted column sort; an absent/unknown `sort` returns the page's
+        // original `start_time desc`. A cost/rate sort is honored only for a
+        // viewer who sees every row's cost — see `timeEntryOrderBy`.
+        orderBy: timeEntryOrderBy(sort, parseSortDir(dir), scope),
         take: safeLimit,
         skip: offset,
         select: {
@@ -694,6 +703,8 @@ export class TimeEntriesReportService {
     sprintStatus?: string;
     limit?: number;
     offset?: number;
+    sort?: string;
+    dir?: string;
     // Required, no default (Ruling R10): a default here would be fail-open —
     // a future caller that forgets it would silently see every client's cost.
     // Every HTTP path supplies a real one via the controller's `@Scope()`.
@@ -771,25 +782,34 @@ export class TimeEntriesReportService {
       b.currency ??= g.currency;
     }
 
-    const all = [...buckets.values()].sort(
-      (a, b) =>
-        b.hours - a.hours
-        // Stable tie-break so equal-hour tasks don't shuffle between pages.
-        || a.taskId.localeCompare(b.taskId),
-    );
-    const page = all.slice(offset, offset + safeLimit);
+    const all = [...buckets.values()];
+    const sort = parseTaskGroupSort(params.sort, scope);
+    const dir = parseSortDir(params.dir);
 
-    // Task columns are joined for the current page only — `all` can be every
-    // task in the window, and the name/client/list are needed just for the rows
-    // actually rendered.
-    const taskIds = page.map((b) => b.taskId).filter((id) => id !== NO_TASK_ID);
-    const tasks = taskIds.length
-      ? await this.prisma.clickupTask.findMany({
-          where: { taskId: { in: taskIds } },
+    // Task columns are normally joined for the current PAGE only — `all` can be
+    // every task in the window, and the name/client/list are needed just for the
+    // rows actually rendered. Sorting by one of those columns inverts the order:
+    // the page can't be chosen until every bucket knows its task's name/client/
+    // list, so that sort (and only that sort) joins the whole set first. Every
+    // other key reads the bucket, and keeps the cheaper page-only join.
+    const joinFirst = taskGroupSortNeedsTask(sort);
+    const realIds = (bs: typeof all) => bs.map((b) => b.taskId).filter((id) => id !== NO_TASK_ID);
+    const fetchTasks = (ids: string[]) => (ids.length
+      ? this.prisma.clickupTask.findMany({
+          where: { taskId: { in: ids } },
           select: { taskId: true, taskName: true, client: true, subProjects: true, listName: true, scopeClientOptionId: true },
         })
-      : [];
-    const taskById = new Map(tasks.map((t) => [t.taskId, t]));
+      : Promise.resolve([]));
+
+    type JoinedTask = Awaited<ReturnType<typeof fetchTasks>>[number];
+    const byId = (ts: JoinedTask[]) => new Map(ts.map((t) => [t.taskId, t]));
+    // Empty unless we joined first — `sortTaskGroups` only reads it for the
+    // three task-attribute keys, which are exactly the ones that join first.
+    const sortAttrs: ReadonlyMap<string, TaskGroupSortAttrs> =
+      joinFirst ? byId(await fetchTasks(realIds(all))) : new Map();
+    const page = sortTaskGroups(all, sort, dir, sortAttrs).slice(offset, offset + safeLimit);
+    const taskById: ReadonlyMap<string, JoinedTask> =
+      joinFirst ? (sortAttrs as ReadonlyMap<string, JoinedTask>) : byId(await fetchTasks(realIds(page)));
 
     return {
       items: page.map((b) => {

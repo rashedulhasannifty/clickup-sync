@@ -122,6 +122,14 @@ export function TimeEntriesPage() {
   const [sprintStatus, setSprintStatus] = useState('all');
   const [selectedEntry, setSelectedEntry] = useState<TimeEntryItem | null>(null);
   const [groupBy, setGroupBy] = useState('task');
+  // Server-side sort, one state per view. The list is server-paginated, so
+  // ordering has to happen server-side — a client-side sort would only reorder
+  // the rows on screen and misreport "longest first". The two views order
+  // different things (entries vs. per-task roll-ups) and share no column key,
+  // so each keeps its own, and switching views restores the other's. Both
+  // defaults reproduce what the endpoint does with no `sort` at all.
+  const [entrySort, setEntrySort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'startTime', dir: 'desc' });
+  const [groupSort, setGroupSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'totalHours', dir: 'desc' });
   // Task ids whose per-entry breakdown is open (grouped mode only), tagged with
   // the filter set they were opened under. An expanded panel belongs to one
   // filter set and one page of tasks: reading `ids` only when the tag still
@@ -334,6 +342,16 @@ export function TimeEntriesPage() {
   }), [pageSize, page, search, userId, clientFilter, subProjectFilter, listFilter, folderFilter, chargeable, status, missingOnly, archivedFilter, sprintStatus, deepLinkActive, bypassSpace, space, fromDate, toDate, linkFrom, linkTo]);
 
   const grouped = groupBy === 'task';
+  // Sort deliberately lives OUTSIDE `params`: that object is the FILTER set,
+  // and it keys the row selection, the open-row expansion and the aggregate
+  // query. Folding sort into it would clear a cross-page selection, collapse
+  // every expanded row and refetch the totals on each header click — none of
+  // which depend on row order.
+  const sort = grouped ? groupSort : entrySort;
+  const listParams = useMemo(
+    () => ({ ...params, sort: sort.key, dir: sort.dir }),
+    [params, sort],
+  );
   const paramsKey = useMemo(() => JSON.stringify(params), [params]);
   // Selection is scoped to the FILTERS, not the page: paging must not drop a
   // selection being built across pages, but a filter change must (its totals
@@ -345,6 +363,12 @@ export function TimeEntriesPage() {
   );
   const entrySelection = useRowSelection<TimeEntryItem>(selectionScope);
   const { access } = useAuth();
+  // A cost/rate sort ranks rows by a value `maskCost` may have nulled, which
+  // is why the server honors it only for a viewer who sees EVERY row's cost
+  // (see `mayRankByCost`). Mirror that here rather than leaving a header that
+  // flips its arrow and moves nothing. Missing `access` is never treated as
+  // denied, matching every other consumer's `?? true`.
+  const costSortable = access?.unrestricted ?? true;
   // Server gate is per-entry lead access (`ChargeabilityAccessService.assertEntries`)
   // — a lead may override entries on their own led clients, not just Owner/Admin.
   // Missing `access` (still loading / an older cached session) is never treated as denied.
@@ -372,8 +396,8 @@ export function TimeEntriesPage() {
   const expandedTasks = expanded.key === paramsKey ? expanded.ids : EMPTY_EXPANSION;
   // Only one of the two runs — `params` is identical for both, so the grouped
   // totals and the flat rows always describe the same filtered entry set.
-  const timeEntriesQuery = useTimeEntriesList(params, !grouped);
-  const byTaskQuery = useTimeEntriesByTask(params, grouped);
+  const timeEntriesQuery = useTimeEntriesList(listParams, !grouped);
+  const byTaskQuery = useTimeEntriesByTask(listParams, grouped);
   const { data, isLoading } = grouped ? byTaskQuery : timeEntriesQuery;
 
   const exportExcel = useMutation({
@@ -385,7 +409,7 @@ export function TimeEntriesPage() {
         // nothing to re-fetch and no risk of the export drifting from the table.
         const items = groupSelection.count > 0
           ? groupSelection.selectedRows
-          : (await reportsApi.timeEntriesByTask({ ...params, limit: 5000, offset: 0 })).items;
+          : (await reportsApi.timeEntriesByTask({ ...listParams, limit: 5000, offset: 0 })).items;
         const cols: XlsxColumn<TimeEntryTaskGroup>[] = [
           { header: 'Task ID',            value: 'taskId' },
           { header: 'Task name',          value: (r) => r.taskName ?? NO_TASK_LABEL, key: 'taskName', width: 42 },
@@ -411,7 +435,7 @@ export function TimeEntriesPage() {
       }
       const items = entrySelection.count > 0
         ? entrySelection.selectedRows
-        : (await reportsApi.timeEntriesList({ ...params, limit: 5000, offset: 0 })).items as TimeEntryItem[];
+        : (await reportsApi.timeEntriesList({ ...listParams, limit: 5000, offset: 0 })).items as TimeEntryItem[];
       // `key` ties a column to its DataTable column so columns hidden via the
       // table's "Columns" menu are dropped here too. Columns with no `key` are
       // export-only (not hideable in the table) and always export.
@@ -592,6 +616,7 @@ export function TimeEntriesPage() {
       header: 'Cost',
       width: 100,
       align: 'right',
+      sortable: costSortable,
       render: (row) => (
         row.costAud != null && row.costAud > 0
           ? <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.money(row.costAud * 100, row.currency)}</span>
@@ -659,7 +684,7 @@ export function TimeEntriesPage() {
           : <span style={{ color: 'var(--text-faint)' }}>—</span>
       ),
     },
-  ], []);
+  ], [costSortable]);
 
   const columns: Column<TimeEntryItem>[] = useMemo(() => [
     {
@@ -754,9 +779,10 @@ export function TimeEntriesPage() {
     },
     {
       key: 'chargeable',
+      // Sortable, unlike the grouped view's tri-state pill: a single entry's
+      // chargeability is one resolved boolean stored on the row.
       header: 'Charge',
       width: 110,
-      sortable: false,
       render: (row) => (
         row.chargeable
           ? <Pill tone="green" size="xs">chargeable</Pill>
@@ -768,6 +794,7 @@ export function TimeEntriesPage() {
       header: 'Rate',
       width: 80,
       align: 'right',
+      sortable: costSortable,
       render: (row) => {
         const cur = row.currency ?? 'USD';
         return row.hourlyRateCents != null && row.hourlyRateCents > 0 ? (
@@ -784,6 +811,7 @@ export function TimeEntriesPage() {
       header: 'Cost',
       width: 90,
       align: 'right',
+      sortable: costSortable,
       render: (row) => {
         const cur = row.currency ?? 'USD';
         if (row.status === 'COST_EXCLUDED') {
@@ -822,7 +850,7 @@ export function TimeEntriesPage() {
           : <span style={{ color: 'var(--text-faint)' }}>—</span>
       ),
     },
-  ], []);
+  ], [costSortable]);
 
   // Summed from the selected rows themselves — every row carries its own hours
   // and cost, so these are exact rather than a second opinion from the server.
@@ -1078,7 +1106,8 @@ export function TimeEntriesPage() {
           onPageChange={setPage}
           onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
           pageSizeOptions={[10, 25, 50, 100]}
-          initialSort={{ key: 'totalHours', dir: 'desc' }}
+          sort={groupSort}
+          onSortChange={(next) => { setGroupSort(next); setPage(1); }}
           hiddenColumns={hiddenGroupCols}
           onHiddenColumnsChange={setHiddenGroupCols}
           selectedKeys={groupSelection.selectedKeys}
@@ -1119,7 +1148,8 @@ export function TimeEntriesPage() {
         onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
         pageSizeOptions={[10, 25, 50, 100]}
         onRowClick={(row) => setSelectedEntry(row)}
-        initialSort={{ key: 'startTime', dir: 'desc' }}
+        sort={entrySort}
+        onSortChange={(next) => { setEntrySort(next); setPage(1); }}
         hiddenColumns={hiddenCols}
         onHiddenColumnsChange={setHiddenCols}
         selectedKeys={entrySelection.selectedKeys}
