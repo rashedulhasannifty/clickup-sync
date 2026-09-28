@@ -317,7 +317,16 @@ export class WorkReportService {
 
     const found = await this.prisma.clickupTask.findMany({
       where: { AND: and },
-      select: { taskId: true, taskName: true, updatedDate: true, isDeleted: true, isChargeable: true, scopeClientOptionId: true },
+      // The extra scalars past `isChargeable` are read ONLY so `sortRows` can
+      // order the whole candidate set by them before the page slice (a sort
+      // applied after paging would only reorder one page). What the page
+      // renders still comes from the TASK_LIST_SELECT join below.
+      select: {
+        taskId: true, taskName: true, updatedDate: true, isDeleted: true, isChargeable: true,
+        scopeClientOptionId: true,
+        status: true, client: true, listName: true, sprintName: true, sprintPoints: true,
+        timeEstimate: true, timeSpent: true,
+      },
     });
     const out: CandidateWithScope[] = found;
     // Entries with no task: one synthetic row, only when no task-only filter

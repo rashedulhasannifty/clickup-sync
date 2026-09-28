@@ -124,7 +124,7 @@ export class ReportsController {
   }
 
   @Get('tasks')
-  @ApiOperation({ summary: 'Paginated task list with filters. `status`, `priority`, `assigneeId`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `archived`: exclude (default, hide archived) | include | only (archived tasks). `sprintStatus=active|completed|all` (default `all`) scopes to tasks whose list (sprint) is/isn\'t archived. `chargeable=true|false|partial` filters on the task flag together with its (task, assignee) rules: `partial` means a rule disagrees with the flag, `true`/`false` mean the flag with no such rule. The three are mutually exclusive. Soft-deleted rows are always excluded.' })
+  @ApiOperation({ summary: 'Paginated task list with filters. `status`, `priority`, `assigneeId`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `archived`: exclude (default, hide archived) | include | only (archived tasks). `sprintStatus=active|completed|all` (default `all`) scopes to tasks whose list (sprint) is/isn\'t archived. `chargeable=true|false|partial` filters on the task flag together with its (task, assignee) rules: `partial` means a rule disagrees with the flag, `true`/`false` mean the flag with no such rule. The three are mutually exclusive. Soft-deleted rows are always excluded. `sort` is one of the table\'s column keys (`task_name`, `status`, `space_name`, `list_name`, `client`, `department`, `sprint_name`, `sprint_points`, `time_estimate`, `time_spent`, `updated_date`, `synced_at`) with `dir=asc|desc` (default desc); an absent or unrecognized `sort` keeps `updated_date desc`. Nulls sort last in both directions, and every sort carries a `task_id` tie-break so OFFSET paging can\'t duplicate or skip a row.' })
   tasks(
     @Scope() scope: AccessScope,
     @Query('spaceId') spaceId?: string,
@@ -145,8 +145,10 @@ export class ReportsController {
     @Query('sprintStatus') sprintStatus?: string,
     @Query('chargeable') chargeable?: string,
     @Query('subProject') subProject?: string,
+    @Query('sort') sort?: string,
+    @Query('dir') dir?: string,
   ) {
-    return this.tasksReports.tasks(scope, spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId, normalizeSprintStatus(sprintStatus, 'all'), chargeable, subProject);
+    return this.tasksReports.tasks(scope, spaceId, status, search, from, to, Number(limit) || 50, Number(offset) || 0, priority, assigneeId, type, archived, client, taskIds, listId, folderId, normalizeSprintStatus(sprintStatus, 'all'), chargeable, subProject, sort, dir);
   }
 
   @Get('tasks/:taskId/description')
@@ -303,7 +305,7 @@ export class ReportsController {
   }
 
   @Get('time-entries/by-task')
-  @ApiOperation({ summary: 'The time entry list grouped by task: one row per task with summed hours, valid cost, entry count and distinct assignees. Accepts exactly the same filters as /time-entries (same comma-separated multi-value support), so a row\'s total always equals the sum of the entries /time-entries returns for the same filters plus `taskId`. `total` is the number of TASKS, not entries. Entries with no task are grouped under the synthetic task id `__none__`. Cost sums only entries that have a rate — `missingRateCount` reports how many did not.' })
+  @ApiOperation({ summary: 'The time entry list grouped by task: one row per task with summed hours, valid cost, entry count and distinct assignees. Accepts exactly the same filters as /time-entries (same comma-separated multi-value support), so a row\'s total always equals the sum of the entries /time-entries returns for the same filters plus `taskId`. `total` is the number of TASKS, not entries. Entries with no task are grouped under the synthetic task id `__none__`. Cost sums only entries that have a rate — `missingRateCount` reports how many did not. `sort` is one of the grouped table\'s column keys (`taskName`, `client`, `listName`, `entryCount`, `totalHours`, `chargeable`, `chargeableHours`, `costAud`, `missingRateCount`, `lastActivity`) with `dir=asc|desc` (default desc); an absent or unrecognized `sort` keeps `totalHours desc`. `costAud` is gated like the flat list\'s. Sorting by a task attribute joins the task rows for the whole window rather than just the page, since the page can\'t be chosen before those values are known.' })
   timeEntriesByTask(
     @Scope() scope: AccessScope,
     @Query('userId') userId?: string,
@@ -322,17 +324,19 @@ export class ReportsController {
     @Query('archived') archived?: string,
     @Query('sprintStatus') sprintStatus?: string,
     @Query('subProject') subProject?: string,
+    @Query('sort') sort?: string,
+    @Query('dir') dir?: string,
   ) {
     return this.timeEntriesReports.timeEntriesByTask({
       userId, from, to, status, limit: Number(limit) || 50, offset: Number(offset) || 0,
-      chargeable, search, spaceId, missingOnly, client, subProject, listId, folderId, archived,
+      chargeable, search, spaceId, missingOnly, client, subProject, listId, folderId, archived, sort, dir,
       sprintStatus: normalizeSprintStatus(sprintStatus, 'all'),
       scope,
     });
   }
 
   @Get('time-entries')
-  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, sprintStatus). `userId`, `status`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `missingOnly=true` overrides `status`. `archived` filters by the joined task: `exclude` (hide archived-task entries + keep task-less entries), `only`, or `include`/omitted (no constraint). `sprintStatus=active|completed|all` (default `all`) scopes to entries whose task\'s list (sprint) is/isn\'t archived, dropping task-less entries. `taskId` matches one task exactly (use `__none__` for entries with no task) — this is how the grouped view expands a row. `chargeable=true|false` filters on each entry\'s own resolved chargeability; entries with no task default to chargeable.' })
+  @ApiOperation({ summary: 'Paginated time entry list (userId, from, to, status, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, sprintStatus). `userId`, `status`, `client`, `listId` and `folderId` each accept a comma-separated list of values (OR semantics); a single value behaves exactly as before. `missingOnly=true` overrides `status`. `archived` filters by the joined task: `exclude` (hide archived-task entries + keep task-less entries), `only`, or `include`/omitted (no constraint). `sprintStatus=active|completed|all` (default `all`) scopes to entries whose task\'s list (sprint) is/isn\'t archived, dropping task-less entries. `taskId` matches one task exactly (use `__none__` for entries with no task) — this is how the grouped view expands a row. `chargeable=true|false` filters on each entry\'s own resolved chargeability; entries with no task default to chargeable. `sort` is one of the table\'s column keys (`taskName`, `client`, `listName`, `timeEntryId`, `userName`, `startTime`, `durationHours`, `chargeable`, `hourlyRateCents`, `costAud`, `status`, `syncedAt`) with `dir=asc|desc` (default desc); an absent or unrecognized `sort` keeps `start_time desc`. Nulls sort last except under `sort=taskName` desc, where task-less entries lead (`task_name` is NOT NULL, so Prisma offers no nulls modifier on the relation). `costAud`/`hourlyRateCents` are honored only for a viewer who can see every row\'s cost — a scoped viewer falls back to the default order rather than being handed a ranking of masked values.' })
   timeEntriesList(
     @Scope() scope: AccessScope,
     @Query('userId') userId?: string,
@@ -352,9 +356,11 @@ export class ReportsController {
     @Query('sprintStatus') sprintStatus?: string,
     @Query('taskId') taskId?: string,
     @Query('subProject') subProject?: string,
+    @Query('sort') sort?: string,
+    @Query('dir') dir?: string,
   ) {
     return this.timeEntriesReports.timeEntriesList(
-      scope, userId, from, to, status, Number(limit) || 50, Number(offset) || 0, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), taskId, subProject,
+      scope, userId, from, to, status, Number(limit) || 50, Number(offset) || 0, chargeable, search, spaceId, missingOnly, client, listId, folderId, archived, normalizeSprintStatus(sprintStatus, 'all'), taskId, subProject, sort, dir,
     );
   }
 
@@ -511,7 +517,7 @@ export class ReportsController {
   }
 
   @Get('work')
-  @ApiOperation({ summary: 'The Tasks & time (/work) page: every task with activity in [from, to] — updated in range OR with time logged in range — each carrying the in-range time on it (`logged`, null when none). Task filters (status, priority, type, assignedTo=task assignee names, search) choose rows. Entry filters (loggedBy=entry userIds, costStatus, missingOnly) choose which entries are counted and hide tasks left with none. Task attributes (client, subProject, listId, folderId, archived — default include, sprintStatus) apply to both. `chargeable=true|false|partial` filters on the row pill before paging. `sort=logged|updated|name|cost|lastActivity` (default logged), `dir=asc|desc` (default desc). `totals` sums every matching row, not the page. Entries with no task appear as `__none__` only when no task filter is set.' })
+  @ApiOperation({ summary: 'The Tasks & time (/work) page: every task with activity in [from, to] — updated in range OR with time logged in range — each carrying the in-range time on it (`logged`, null when none). Task filters (status, priority, type, assignedTo=task assignee names, search) choose rows. Entry filters (loggedBy=entry userIds, costStatus, missingOnly) choose which entries are counted and hide tasks left with none. Task attributes (client, subProject, listId, folderId, archived — default include, sprintStatus) apply to both. `chargeable=true|false|partial` filters on the row pill before paging. `sort=logged|updated|name|cost|lastActivity|status|client|list|sprint|est|lifetime|points` (default logged), `dir=asc|desc` (default desc); text sorts put nulls last in both directions. `totals` sums every matching row, not the page. Entries with no task appear as `__none__` only when no task filter is set.' })
   work(
     @Scope() scope: AccessScope,
     @Query('from') from?: string, @Query('to') to?: string, @Query('spaceId') spaceId?: string,

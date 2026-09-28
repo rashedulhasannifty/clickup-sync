@@ -135,6 +135,12 @@ export function TasksPage() {
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  // Server-side sort. The list is server-paginated, so ordering has to happen
+  // in SQL — a client-side sort would only reorder the 50 rows on screen and
+  // silently misreport "oldest first". Keys are the `columns` keys below and
+  // the backend whitelists them (`taskOrderBy`); an unknown one falls back to
+  // `updated_date desc`, which is what this default reproduces.
+  const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'updated_date', dir: 'desc' });
   // Detail drawer selection is local state (like TimeEntriesPage), NOT a URL
   // route. Driving it through `/tasks/:taskId` remounted the page on row click
   // — wiping page/pageSize/filters and leaving the drawer unable to find the
@@ -315,7 +321,15 @@ export function TasksPage() {
     to: isDeepLink ? undefined : (toDate || undefined),
   }), [page, pageSize, isDeepLink, space, statusFilter, priorityFilter, typeFilter, search, assigneeFilter, clientFilter, subProjectFilter, listFilter, folderFilter, archivedFilter, sprintStatus, chargeableFilter, taskIdsFilter, fromDate, toDate]);
 
-  const tasksQuery = useTasks(taskParams as Record<string, string | number | undefined>);
+  // Sort deliberately lives OUTSIDE `taskParams`: that object is the FILTER
+  // set, and it keys the row selection below. Folding sort into it would clear
+  // a selection being built across pages every time a header was clicked.
+  const listParams = useMemo(
+    () => ({ ...taskParams, sort: sort.key, dir: sort.dir }),
+    [taskParams, sort],
+  );
+
+  const tasksQuery = useTasks(listParams as Record<string, string | number | undefined>);
   const { data, isLoading } = tasksQuery;
 
   const items: Task[] = (data?.items ?? []) as Task[];
@@ -387,7 +401,7 @@ export function TasksPage() {
       // nothing to re-fetch and no chance of the export drifting from the table.
       const items = selection.count > 0
         ? selection.selectedRows
-        : (await reportsApi.tasks({ ...taskParams, limit: 5000, offset: 0 })).items;
+        : (await reportsApi.tasks({ ...listParams, limit: 5000, offset: 0 })).items;
       // `key` ties a column to its DataTable column so columns hidden via the
       // table's "Columns" menu are dropped here too. Columns with no `key` are
       // export-only (not hideable in the table) and always export.
@@ -468,6 +482,11 @@ export function TasksPage() {
       key: 'chargeable',
       header: 'Charge',
       width: 120,
+      // Not sortable: the pill is tri-state and `partial` is derived from the
+      // task's (task, assignee) rules and its entries, not from any one column
+      // the server can ORDER BY. A clickable header here would flip the arrow
+      // and leave the rows where they were.
+      sortable: false,
       render: (row) => (
         // Partial wins over the raw flag: a task with a rule that disagrees
         // with it is neither wholly chargeable nor wholly not, and printing
@@ -762,7 +781,8 @@ export function TasksPage() {
         onPageSizeChange={n => { setPageSize(n); setPage(1); }}
         pageSizeOptions={[10, 25, 50, 100]}
         onRowClick={(r) => setSelectedTask(r)}
-        initialSort={{ key: 'updated_date', dir: 'desc' }}
+        sort={sort}
+        onSortChange={(next) => { setSort(next); setPage(1); }}
         hiddenColumns={hiddenCols}
         onHiddenColumnsChange={setHiddenCols}
         selectedKeys={selection.selectedKeys}

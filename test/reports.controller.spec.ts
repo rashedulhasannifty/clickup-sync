@@ -453,6 +453,21 @@ describe('ReportsController', () => {
       return { tasks, ctrl: makeCtrl({ tasks }) };
     }
 
+    // sort/dir trail subProject(18) — positions pinned for the same reason.
+    const SORT_ARG = 19;
+
+    it('threads sort and dir through to the service', async () => {
+      const { tasks, ctrl } = ctrlWithSpy();
+      await ctrl.tasks(
+        OWNER_SCOPE,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, 'task_name', 'asc',
+      );
+      expect(tasks.tasks.mock.calls[0][SORT_ARG]).toBe('task_name');
+      expect(tasks.tasks.mock.calls[0][SORT_ARG + 1]).toBe('asc');
+    });
+
     it('normalizes and threads sprintStatus="completed" through to the service', async () => {
       const { tasks, ctrl } = ctrlWithSpy();
       await callTasks(ctrl, 'completed');
@@ -559,6 +574,19 @@ describe('ReportsController', () => {
       );
       expect(timeEntries.timeEntriesList.mock.calls[0][SPRINT_STATUS_ARG + 1]).toBe('86abc123');
     });
+
+    it('threads sort and dir through, after taskId and subProject', async () => {
+      const timeEntries = { timeEntriesList: jest.fn().mockResolvedValue({ items: [], total: 0 }) } as any;
+      const ctrl = makeCtrl({ timeEntries });
+      await ctrl.timeEntriesList(
+        OWNER_SCOPE,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, 'durationHours', 'asc',
+      );
+      expect(timeEntries.timeEntriesList.mock.calls[0][SPRINT_STATUS_ARG + 3]).toBe('durationHours');
+      expect(timeEntries.timeEntriesList.mock.calls[0][SPRINT_STATUS_ARG + 4]).toBe('asc');
+    });
   });
 
   describe('timeEntriesByTask', () => {
@@ -592,6 +620,19 @@ describe('ReportsController', () => {
         undefined, undefined, 'nonsense',
       );
       expect(timeEntries.timeEntriesByTask.mock.calls[0][0].sprintStatus).toBe('all');
+    });
+
+    it('threads sort and dir into the grouped params object', async () => {
+      const timeEntries = makeGrouped();
+      const ctrl = makeCtrl({ timeEntries });
+      await ctrl.timeEntriesByTask(
+        OWNER_SCOPE,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, 'client', 'asc',
+      );
+      expect(timeEntries.timeEntriesByTask.mock.calls[0][0])
+        .toMatchObject({ sort: 'client', dir: 'asc' });
     });
 
     it('falls back to a 50-task page when limit/offset are absent', async () => {

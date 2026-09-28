@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { parseDate } from './report-date.util';
 import { buildTaskWhere, TASK_LIST_SELECT } from './task-filter.util';
+import { parseSortDir, taskOrderBy } from './report-sort.util';
 import { isPartiallyChargeable } from '../time-entries/chargeability';
 import { AccessScope, isUnrestricted, leadClientIds } from '../access/access-scope';
 import { maskCost } from '../access/cost-mask';
@@ -255,6 +256,8 @@ export class TasksReportService {
     sprintStatus?: string,
     chargeable?: string,
     subProject?: string,
+    sort?: string,
+    dir?: string,
   ) {
     // Cap kept generous so the dashboard's "Export CSV" can pull a complete
     // filtered set in one shot. The page UI never offers > 100 rows/page, so
@@ -268,7 +271,9 @@ export class TasksReportService {
     const [items, total] = await Promise.all([
       this.prisma.clickupTask.findMany({
         where,
-        orderBy: { updatedDate: 'desc' },
+        // Whitelisted column sort; an absent/unknown `sort` returns the
+        // page's original `updated_date desc`. See `taskOrderBy`.
+        orderBy: taskOrderBy(sort, parseSortDir(dir)),
         take: safeLimit,
         skip: offset,
         select: TASK_LIST_SELECT,

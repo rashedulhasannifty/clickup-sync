@@ -615,6 +615,52 @@ describe('TimeEntriesReportService', () => {
     });
   });
 
+  describe('timeEntriesList (sort)', () => {
+    /** `timeEntriesList()` takes sort/dir as its last two positional args. */
+    const list = (prisma: any, scope: AccessScope, sort?: string, dir?: string) =>
+      new TimeEntriesReportService(prisma).timeEntriesList(scope,
+        undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, sort, dir,
+      );
+    const orderBy = (prisma: any) => prisma.clickupTimeEntry.findMany.mock.calls[0][0].orderBy;
+
+    it('keeps start_time desc when no sort is asked for', async () => {
+      // What `TaskTimeEntriesPanel` and the exports rely on — they send no sort.
+      const prisma = makePrisma();
+      await list(prisma, UNRESTRICTED);
+      expect(orderBy(prisma)).toEqual([{ startTime: 'desc' }]);
+    });
+
+    it('sorts a task attribute through the relation', async () => {
+      const prisma = makePrisma();
+      await list(prisma, UNRESTRICTED, 'taskName', 'asc');
+      expect(orderBy(prisma)).toEqual([{ task: { taskName: 'asc' } }, { timeEntryId: 'asc' }]);
+    });
+
+    it('honors a cost sort for an unrestricted viewer', async () => {
+      const prisma = makePrisma();
+      await list(prisma, UNRESTRICTED, 'costAud', 'desc');
+      expect(orderBy(prisma)).toEqual([{ costCents: 'desc' }, { timeEntryId: 'asc' }]);
+    });
+
+    it('refuses a cost or rate sort for a scoped viewer', async () => {
+      // Position in a cost-sorted list is a comparison, and `maskCost` nulls
+      // that cost for rows outside the viewer's led clients.
+      for (const key of ['costAud', 'hourlyRateCents']) {
+        const prisma = makePrisma();
+        await list(prisma, NONE, key, 'desc');
+        expect(orderBy(prisma)).toEqual([{ startTime: 'desc' }]);
+      }
+    });
+
+    it('a scoped viewer keeps every non-cost sort', async () => {
+      const prisma = makePrisma();
+      await list(prisma, NONE, 'durationHours', 'asc');
+      expect(orderBy(prisma)).toEqual([{ durationHours: 'asc' }, { timeEntryId: 'asc' }]);
+    });
+  });
+
   describe('timeEntriesList (client filter + column)', () => {
     it('wraps a single client in an IN clause inside where.AND (the deep-link path)', async () => {
       const prisma = makePrisma();
@@ -1669,6 +1715,78 @@ describe('TimeEntriesReportService.timeEntriesByTask', () => {
     );
     expect(prisma.clickupTimeEntry.groupBy.mock.calls[0][0].where)
       .toEqual(listPrisma.clickupTimeEntry.findMany.mock.calls[0][0].where);
+  });
+
+  describe('sort', () => {
+    const hours = (h: number) => ({ durationHours: { toNumber: () => h }, costCents: BigInt(0) });
+
+    it('defaults to hours desc — an absent or unknown sort keeps the original order', async () => {
+      const rows = [
+        group({ taskId: 'a', _sum: hours(1) }),
+        group({ taskId: 'b', _sum: hours(9) }),
+      ];
+      for (const sort of [undefined, 'bogus', 'startTime']) {
+        const prisma = makePrisma(rows, []);
+        const { items } = await svc(prisma).timeEntriesByTask({ scope: UNRESTRICTED, sort });
+        expect(items.map((i) => i.taskId)).toEqual(['b', 'a']);
+      }
+    });
+
+    it('orders by a bucket column in the asked-for direction, joining tasks for the PAGE only', async () => {
+      const prisma = makePrisma(
+        [group({ taskId: 'a', _sum: hours(1) }), group({ taskId: 'b', _sum: hours(9) })],
+        [{ taskId: 'a', taskName: 'A', client: null, listName: null, subProjects: [] }],
+      );
+      const { items } = await svc(prisma).timeEntriesByTask({
+        scope: UNRESTRICTED, sort: 'totalHours', dir: 'asc', limit: 1,
+      });
+      expect(items.map((i) => i.taskId)).toEqual(['a']);
+      // The cheap path is preserved: only the sliced page's task is fetched.
+      expect(prisma.clickupTask.findMany.mock.calls[0][0].where).toEqual({ taskId: { in: ['a'] } });
+    });
+
+    it('a task-attribute sort joins EVERY bucket\'s task before slicing', async () => {
+      // The page can't be chosen until each bucket knows its task name, so the
+      // join has to widen — page-only would sort one arbitrary page's worth.
+      const prisma = makePrisma(
+        [group({ taskId: 'a', _sum: hours(9) }), group({ taskId: 'b', _sum: hours(1) })],
+        [
+          { taskId: 'a', taskName: 'Zebra', client: null, listName: null, subProjects: [] },
+          { taskId: 'b', taskName: 'Apple', client: null, listName: null, subProjects: [] },
+        ],
+      );
+      const { items } = await svc(prisma).timeEntriesByTask({
+        scope: UNRESTRICTED, sort: 'taskName', dir: 'asc', limit: 1,
+      });
+      expect(prisma.clickupTask.findMany).toHaveBeenCalledTimes(1);
+      expect(prisma.clickupTask.findMany.mock.calls[0][0].where).toEqual({ taskId: { in: ['a', 'b'] } });
+      // 'Apple' wins despite 'Zebra' holding 9x the hours.
+      expect(items.map((i) => i.taskId)).toEqual(['b']);
+    });
+
+    it('refuses a cost sort for a scoped viewer and falls back to hours desc', async () => {
+      // Ranking by a cost `maskCost` nulls would leak it — see `mayRankByCost`.
+      // `NONE` is scoped, so `parseTaskGroupSort` drops the key entirely.
+      const prisma = makePrisma([
+        group({ taskId: 'cheap', _sum: { durationHours: { toNumber: () => 9 }, costCents: BigInt(100) } }),
+        group({ taskId: 'dear', _sum: { durationHours: { toNumber: () => 1 }, costCents: BigInt(90000) } }),
+      ], []);
+      const { items } = await svc(prisma).timeEntriesByTask({
+        scope: NONE, sort: 'costAud', dir: 'desc',
+      });
+      expect(items.map((i) => i.taskId)).toEqual(['cheap', 'dear']);
+    });
+
+    it('honors a cost sort for an unrestricted viewer', async () => {
+      const prisma = makePrisma([
+        group({ taskId: 'cheap', _sum: { durationHours: { toNumber: () => 9 }, costCents: BigInt(100) } }),
+        group({ taskId: 'dear', _sum: { durationHours: { toNumber: () => 1 }, costCents: BigInt(90000) } }),
+      ], []);
+      const { items } = await svc(prisma).timeEntriesByTask({
+        scope: UNRESTRICTED, sort: 'costAud', dir: 'desc',
+      });
+      expect(items.map((i) => i.taskId)).toEqual(['dear', 'cheap']);
+    });
   });
 });
 

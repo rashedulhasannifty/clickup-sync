@@ -337,6 +337,10 @@ export function WorkPage() {
   });
 
   // ── Columns ───────────────────────────────────────────────────────────────
+  // `sortable: false` below marks the columns the server cannot ORDER BY: the
+  // tri-state charge pill and the rate summary are derived from a row's whole
+  // entry set, and assignees / sub-projects are multi-valued. Every other key
+  // here is a `WorkSort` value the backend whitelists.
   const columns: Column<WorkRow>[] = useMemo(() => [
     {
       key: 'name', header: 'Task', width: 340,
@@ -356,7 +360,7 @@ export function WorkPage() {
         );
       },
     },
-    { key: 'status', header: 'Status', width: 120, sortable: false, render: (r) => (r.status ? <StatusBadge status={r.status} color={r.statusColor ?? undefined} /> : blank(null)) },
+    { key: 'status', header: 'Status', width: 120, render: (r) => (r.status ? <StatusBadge status={r.status} color={r.statusColor ?? undefined} /> : blank(null)) },
     {
       key: 'charge', header: 'Charge', width: 120, sortable: false,
       render: (r) => {
@@ -374,9 +378,9 @@ export function WorkPage() {
       key: 'assignees', header: 'Assignees', width: 110, sortable: false,
       render: (r) => { const users = parseAssignees(r); return users.length ? <ClickupAvatarStack users={users} max={3} /> : blank(null); },
     },
-    { key: 'est', header: 'Est', width: 70, align: 'right', sortable: false, render: (r) => (r.timeEstimateHours != null ? <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{fmt.shortHours(r.timeEstimateHours)}</span> : blank(null)) },
+    { key: 'est', header: 'Est', width: 70, align: 'right', render: (r) => (r.timeEstimateHours != null ? <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{fmt.shortHours(r.timeEstimateHours)}</span> : blank(null)) },
     { key: 'logged', header: entryFiltersActive ? 'Logged (matching filters)' : 'Logged (in range)', width: 90, align: 'right', render: (r) => <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.duration(r.logged?.hours ?? 0)}</span> },
-    { key: 'lifetime', header: 'Lifetime (ClickUp, ignores range)', width: 130, align: 'right', sortable: false, render: (r) => (r.lifetimeSpentHours != null ? <span title="ClickUp's own total — ignores the date range" style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{fmt.shortHours(r.lifetimeSpentHours)}</span> : blank(null)) },
+    { key: 'lifetime', header: 'Lifetime (ClickUp, ignores range)', width: 130, align: 'right', render: (r) => (r.lifetimeSpentHours != null ? <span title="ClickUp's own total — ignores the date range" style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>{fmt.shortHours(r.lifetimeSpentHours)}</span> : blank(null)) },
     { key: 'cost', header: 'Cost', width: 100, align: 'right', render: (r) => (r.logged && r.logged.costCents != null && r.logged.costCents > 0 ? <span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{fmt.money(r.logged.costCents, r.logged.currency)}</span> : blank(null)) },
     {
       key: 'rates', header: 'Rates', width: 120, sortable: false,
@@ -391,11 +395,11 @@ export function WorkPage() {
       },
     },
     { key: 'lastActivity', header: 'Last logged', width: 100, align: 'right', render: (r) => (r.logged?.lastActivity ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmt.relative(r.logged.lastActivity)}</span> : blank(null)) },
-    { key: 'client', header: 'Client', width: 130, sortable: false, render: (r) => (r.client ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.client}</span> : blank(null)) },
+    { key: 'client', header: 'Client', width: 130, render: (r) => (r.client ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.client}</span> : blank(null)) },
     { key: 'sub_projects', header: 'Sub-project', width: 140, sortable: false, render: (r) => { const s = subProjectsOf(r); return s.length ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{s.join(', ')}</span> : blank(null); } },
-    { key: 'list', header: 'List', width: 120, sortable: false, render: (r) => (r.listName ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.listName}</span> : blank(null)) },
-    { key: 'sprint', header: 'Sprint', width: 100, sortable: false, render: (r) => (r.sprintName ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.sprintName}</span> : blank(null)) },
-    { key: 'points', header: 'Pts', width: 60, align: 'right', sortable: false, render: (r) => (r.sprintPoints ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.sprintPoints}</span> : blank(null)) },
+    { key: 'list', header: 'List', width: 120, render: (r) => (r.listName ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.listName}</span> : blank(null)) },
+    { key: 'sprint', header: 'Sprint', width: 100, render: (r) => (r.sprintName ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.sprintName}</span> : blank(null)) },
+    { key: 'points', header: 'Pts', width: 60, align: 'right', render: (r) => (r.sprintPoints ? <span style={{ fontVariantNumeric: 'tabular-nums' }}>{r.sprintPoints}</span> : blank(null)) },
     { key: 'updated', header: 'Updated', width: 100, align: 'right', render: (r) => (r.updatedDate ? <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmt.relative(r.updatedDate)}</span> : blank(null)) },
   ], [entryFiltersActive]);
 

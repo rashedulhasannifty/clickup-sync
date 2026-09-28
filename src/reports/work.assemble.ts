@@ -6,7 +6,21 @@ import { isPartiallyChargeable } from '../time-entries/chargeability';
  * tested directly. See docs/superpowers/specs/2026-09-14-tasks-and-time-one-table-design.md.
  */
 
-export type WorkSort = 'logged' | 'updated' | 'name' | 'cost' | 'lastActivity';
+/**
+ * Every column the /work table can order by. The values are that page's own
+ * DataTable column keys, so a header click sends the key it is labelled with.
+ *
+ * The four text keys (`name`, `status`, `client`, `list`, `sprint`) and the
+ * three numeric ones (`est`, `lifetime`, `points`) read the task; `logged`,
+ * `cost` and `lastActivity` read the in-range entry bucket. A column that has
+ * no single value to order by — the charge pill, the assignee stack, the rate
+ * summary, the multi-valued sub-project list — is deliberately absent and is
+ * marked `sortable: false` on the page instead, so no header offers a sort that
+ * wouldn't happen.
+ */
+export type WorkSort =
+  | 'logged' | 'updated' | 'name' | 'cost' | 'lastActivity'
+  | 'status' | 'client' | 'list' | 'sprint' | 'est' | 'lifetime' | 'points';
 export type RowChargeable = 'yes' | 'no' | 'partial';
 export type ChargeableSource = 'entries' | 'task';
 
@@ -116,6 +130,17 @@ export interface WorkCandidate {
   updatedDate: Date | null;
   isDeleted: boolean;
   isChargeable: boolean;
+  // Loaded for the whole candidate set purely so `sortRows` can order by them
+  // before the page slice — the rendered values come from the page-only
+  // TASK_LIST_SELECT join. Optional: the synthetic `(No task)` row has none of
+  // them, and neither do the assembly tests that don't sort by them.
+  status?: string | null;
+  client?: string | null;
+  listName?: string | null;
+  sprintName?: string | null;
+  sprintPoints?: number | null;
+  timeEstimate?: bigint | number | null;
+  timeSpent?: bigint | number | null;
 }
 
 export interface ResolvedRow extends WorkCandidate {
@@ -136,9 +161,26 @@ export function inRangeBecause(
   return logged ? 'logged' : 'updated';
 }
 
+const WORK_SORTS: readonly WorkSort[] = [
+  'logged', 'updated', 'name', 'cost', 'lastActivity',
+  'status', 'client', 'list', 'sprint', 'est', 'lifetime', 'points',
+];
+
 export function parseWorkSort(v: string | undefined): WorkSort {
-  return v === 'updated' || v === 'name' || v === 'cost' || v === 'lastActivity' ? v : 'logged';
+  return WORK_SORTS.includes(v as WorkSort) ? (v as WorkSort) : 'logged';
 }
+
+/**
+ * The keys whose value can be genuinely absent, and which therefore order
+ * missing rows LAST in both directions — matching the SQL-side list reports so
+ * the same data doesn't sort two ways on two pages. `name` is deliberately not
+ * here: it keeps its original `?? ''` behaviour.
+ *
+ * `points` is absent for a different reason: `sprint_points` is NOT NULL with a
+ * default of 0, so there is no "missing" to distinguish from a real zero.
+ */
+const NULLS_LAST_SORTS: readonly WorkSort[] = ['status', 'client', 'list', 'sprint', 'est', 'lifetime'];
+const TEXT_SORTS: readonly WorkSort[] = ['status', 'client', 'list', 'sprint'];
 
 /**
  * `canSeeCost` decides, per row, whether the viewer may see ITS cost. Under
@@ -173,19 +215,40 @@ export function sortRows<T extends ResolvedRow>(
     const sortedHidden = [...hidden].sort((a, b) => a.taskId.localeCompare(b.taskId));
     return [...sortedVisible, ...sortedHidden];
   }
-  const num = (r: T): number => {
+  // One value per row for the chosen key. `null` means "absent", which only the
+  // NULLS_LAST_SORTS keys can produce — every other key has a real zero.
+  const value = (r: T): string | number | null => {
     switch (sort) {
+      case 'status': return r.status ?? null;
+      case 'client': return r.client ?? null;
+      case 'list': return r.listName ?? null;
+      case 'sprint': return r.sprintName ?? null;
+      case 'est': return r.timeEstimate == null ? null : Number(r.timeEstimate);
+      case 'lifetime': return r.timeSpent == null ? null : Number(r.timeSpent);
+      case 'points': return Number(r.sprintPoints ?? 0);
       case 'lastActivity': return r.bucket?.lastActivity?.getTime() ?? 0;
       case 'updated': return r.updatedDate?.getTime() ?? 0;
+      case 'name': return r.taskName ?? '';
       default: return r.bucket?.hours ?? 0;
     }
   };
+  const isText = TEXT_SORTS.includes(sort) || sort === 'name';
+  const nullsLast = NULLS_LAST_SORTS.includes(sort);
   return [...rows].sort((a, b) => {
-    const cmp = sort === 'name'
-      ? (a.taskName ?? '').localeCompare(b.taskName ?? '', undefined, { sensitivity: 'base' })
-      : num(a) - num(b);
     // Stable tie-break so equal rows don't shuffle between pages.
-    return cmp * sign || a.taskId.localeCompare(b.taskId);
+    const tie = a.taskId.localeCompare(b.taskId);
+    const av = value(a);
+    const bv = value(b);
+    if (nullsLast && (av == null || bv == null)) {
+      // Last in BOTH directions: a descending sort must not open on a page of
+      // blanks, and a row's rank must not flip just because the value is absent.
+      if (av == null && bv == null) return tie;
+      return av == null ? 1 : -1;
+    }
+    const cmp = isText
+      ? String(av ?? '').localeCompare(String(bv ?? ''), undefined, { sensitivity: 'base' })
+      : Number(av ?? 0) - Number(bv ?? 0);
+    return cmp * sign || tie;
   });
 }
 

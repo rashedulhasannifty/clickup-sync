@@ -321,6 +321,37 @@ describe('TasksReportService', () => {
     });
   });
 
+  describe('tasks (sort)', () => {
+    /** `tasks()` takes sort/dir as its last two positional args. */
+    const list = (prisma: any, sort?: string, dir?: string) =>
+      new TasksReportService(prisma).tasks(UNRESTRICTED,
+        undefined, undefined, undefined, undefined, undefined, 50, 0,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, sort, dir,
+      );
+
+    it('keeps updated_date desc when no sort is asked for', async () => {
+      // The contract every non-UI caller depends on: exports, deep links, and
+      // any future consumer that never sends `sort`.
+      const prisma = makePrisma();
+      await list(prisma);
+      expect(prisma.clickupTask.findMany.mock.calls[0][0].orderBy).toEqual([{ updatedDate: 'desc' }]);
+    });
+
+    it('passes a whitelisted column and direction through to the query', async () => {
+      const prisma = makePrisma();
+      await list(prisma, 'task_name', 'asc');
+      expect(prisma.clickupTask.findMany.mock.calls[0][0].orderBy)
+        .toEqual([{ taskName: 'asc' }, { taskId: 'asc' }]);
+    });
+
+    it('ignores an unrecognized column rather than passing it to Prisma', async () => {
+      const prisma = makePrisma();
+      await list(prisma, 'raw', 'asc');
+      expect(prisma.clickupTask.findMany.mock.calls[0][0].orderBy).toEqual([{ updatedDate: 'desc' }]);
+    });
+  });
+
   describe('tasks (client filter)', () => {
     it('wraps a single client in an IN clause (the deep-link path)', async () => {
       const prisma = makePrisma();

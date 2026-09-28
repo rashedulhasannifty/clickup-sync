@@ -105,6 +105,64 @@ describe('sortRows / parseWorkSort / sumTotals', () => {
     expect(parseWorkSort('cost')).toBe('cost');
   });
 
+  it('every WorkSort value round-trips through parseWorkSort', () => {
+    // The page sends its DataTable column keys verbatim; a key the parser
+    // silently drops would leave a header that flips its arrow and moves nothing.
+    for (const k of ['logged', 'updated', 'name', 'cost', 'lastActivity',
+      'status', 'client', 'list', 'sprint', 'est', 'lifetime', 'points']) {
+      expect(parseWorkSort(k)).toBe(k);
+    }
+  });
+
+  describe('the task columns added alongside the original five', () => {
+    const attr = (taskId: string, over: Partial<ResolvedRow>): ResolvedRow => ({
+      ...row(taskId, 0, taskId.toUpperCase()), ...over,
+    });
+
+    it('numeric task columns sort by value, with a MISSING value last either way', () => {
+      // Matches the Tasks page's `time_estimate`/`time_spent` (nulls last in
+      // SQL), so the same data doesn't sort two ways on two pages. A null is
+      // "no estimate", not "an estimate of zero".
+      const rows = [
+        attr('a', { timeEstimate: 5n }),
+        attr('b', { timeEstimate: null }),
+        attr('c', { timeEstimate: 9n }),
+      ];
+      expect(sortRows(rows, 'est', 'desc').map((r) => r.taskId)).toEqual(['c', 'a', 'b']);
+      expect(sortRows(rows, 'est', 'asc').map((r) => r.taskId)).toEqual(['a', 'c', 'b']);
+    });
+
+    it('points has no "missing" — sprint_points is NOT NULL with a 0 default', () => {
+      const rows = [attr('a', { sprintPoints: 0 }), attr('b', { sprintPoints: 5 })];
+      expect(sortRows(rows, 'points', 'asc').map((r) => r.taskId)).toEqual(['a', 'b']);
+      expect(sortRows(rows, 'points', 'desc').map((r) => r.taskId)).toEqual(['b', 'a']);
+    });
+
+    it('points and lifetime read their own columns', () => {
+      const rows = [attr('a', { sprintPoints: 3, timeSpent: 1n }), attr('b', { sprintPoints: 8, timeSpent: 90n })];
+      expect(sortRows(rows, 'points', 'desc').map((r) => r.taskId)).toEqual(['b', 'a']);
+      expect(sortRows(rows, 'lifetime', 'asc').map((r) => r.taskId)).toEqual(['a', 'b']);
+    });
+
+    it('text task columns are case-insensitive', () => {
+      const rows = [attr('1', { client: 'beta' }), attr('2', { client: 'Alpha' })];
+      expect(sortRows(rows, 'client', 'asc').map((r) => r.taskId)).toEqual(['2', '1']);
+    });
+
+    it('a null text column sorts last in BOTH directions', () => {
+      // A descending sort must not open on a page of blanks — the `(No task)`
+      // row has none of these columns at all.
+      const rows = [attr('a', { status: 'open' }), attr('b', { status: 'done' }), attr('z', { status: null })];
+      expect(sortRows(rows, 'status', 'asc').map((r) => r.taskId)).toEqual(['b', 'a', 'z']);
+      expect(sortRows(rows, 'status', 'desc').map((r) => r.taskId)).toEqual(['a', 'b', 'z']);
+    });
+
+    it('equal text values still fall back to the taskId tie-break', () => {
+      const rows = [attr('b', { listName: 'Same' }), attr('a', { listName: 'Same' })];
+      expect(sortRows(rows, 'list', 'desc').map((r) => r.taskId)).toEqual(['a', 'b']);
+    });
+  });
+
   it('totals sum every row given (no-entry rows count as tasks with 0h)', () => {
     const t = sumTotals([row('a', 2, 'A'), row('b', 0, 'B'), row('c', 3, 'C')]);
     expect(t).toEqual({ tasks: 3, entries: 2, hours: 5, chargeableHours: 5, costCents: 500, missingRateCount: 0 });
