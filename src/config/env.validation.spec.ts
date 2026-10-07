@@ -94,3 +94,38 @@ describe('validateEnv — ATTENDANCE_PROVIDER', () => {
     expect(() => validateEnv({ ...base, ATTENDANCE_PROVIDER: 'nifty' })).toThrow(/ATTENDANCE_PROVIDER/);
   });
 });
+
+describe('validateEnv — documents storage (MinIO)', () => {
+  const all = {
+    DOCUMENTS_S3_ENDPOINT: 'http://localhost:9000',
+    DOCUMENTS_S3_REGION: 'us-east-1',
+    DOCUMENTS_S3_BUCKET: 'clickup-sync-documents',
+    DOCUMENTS_S3_ACCESS_KEY_ID: 'app',
+    DOCUMENTS_S3_SECRET_ACCESS_KEY: 'not-a-real-secret',
+  };
+
+  it('defaults to off, with path-style addressing on', () => {
+    const env = validateEnv({ ...base });
+    expect(env.DOCUMENTS_S3_ENDPOINT).toBe('');
+    expect(env.DOCUMENTS_S3_FORCE_PATH_STYLE).toBe(true);
+  });
+
+  it('accepts the full set and parses the path-style flag', () => {
+    expect(validateEnv({ ...base, ...all }).DOCUMENTS_S3_BUCKET).toBe('clickup-sync-documents');
+    expect(validateEnv({ ...base, ...all, DOCUMENTS_S3_FORCE_PATH_STYLE: 'false' }).DOCUMENTS_S3_FORCE_PATH_STYLE).toBe(false);
+    expect(validateEnv({ ...base, ...all, DOCUMENTS_S3_FORCE_PATH_STYLE: '' }).DOCUMENTS_S3_FORCE_PATH_STYLE).toBe(true);
+  });
+
+  it('rejects a partial set, naming each missing key', () => {
+    for (const k of Object.keys(all) as (keyof typeof all)[]) {
+      const { [k]: _omitted, ...rest } = all;
+      void _omitted;
+      expect(() => validateEnv({ ...base, ...rest })).toThrow(new RegExp(k));
+    }
+    expect(() => validateEnv({ ...base, DOCUMENTS_S3_BUCKET: 'b' })).toThrow(/DOCUMENTS_S3_ENDPOINT/);
+  });
+
+  it('rejects an endpoint that is not an http(s) URL', () => {
+    expect(() => validateEnv({ ...base, ...all, DOCUMENTS_S3_ENDPOINT: 'localhost:9000' })).toThrow(/http\(s\) URL/);
+  });
+});

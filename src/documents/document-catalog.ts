@@ -1,0 +1,82 @@
+/**
+ * The document vocabulary: categories, the document types that live in each, and the
+ * required checklist. Pure constants — the one place the checklist is defined.
+ *
+ * `docType` is stored as the KEY below, never a free label, so the checklist can match it.
+ */
+
+export const DOCUMENT_CATEGORIES = ['IDENTITY', 'EMPLOYMENT', 'EDUCATION', 'APPRAISAL', 'EXIT', 'PERSONAL', 'OTHER'] as const;
+export type DocumentCategoryName = (typeof DOCUMENT_CATEGORIES)[number];
+
+export const DOCUMENT_VISIBILITIES = ['HR_ONLY', 'HR_AND_EMPLOYEE', 'EVERYONE'] as const;
+export type DocumentVisibilityName = (typeof DOCUMENT_VISIBILITIES)[number];
+
+export interface DocTypeOption {
+  key: string;
+  label: string;
+}
+
+/** `OTHER` is valid in every category, so an unusual file never has to be mislabelled. */
+export const OTHER_DOC_TYPE: DocTypeOption = { key: 'OTHER', label: 'Other' };
+
+export const DOCUMENT_TYPES: Record<DocumentCategoryName, DocTypeOption[]> = {
+  IDENTITY: [
+    { key: 'NATIONAL_ID', label: 'National ID (NID)' },
+    { key: 'PASSPORT', label: 'Passport' },
+    { key: 'WORK_PERMIT', label: 'Work permit' },
+    { key: 'PROFILE_PHOTO', label: 'Profile photo' },
+    OTHER_DOC_TYPE,
+  ],
+  EMPLOYMENT: [
+    { key: 'OFFER_LETTER', label: 'Offer letter' },
+    { key: 'SIGNED_CONTRACT', label: 'Employment contract (signed)' },
+    { key: 'CONFIRMATION_LETTER', label: 'Confirmation letter' },
+    { key: 'PROMOTION_LETTER', label: 'Promotion letter' },
+    { key: 'EXPERIENCE_LETTER', label: 'Experience letter' },
+    OTHER_DOC_TYPE,
+  ],
+  EDUCATION: [{ key: 'EDUCATION_CERTIFICATE', label: 'Education certificate' }, { key: 'TRANSCRIPT', label: 'Transcript' }, OTHER_DOC_TYPE],
+  APPRAISAL: [{ key: 'SIGNED_APPRAISAL', label: 'Appraisal (signed)' }, OTHER_DOC_TYPE],
+  EXIT: [
+    { key: 'RESIGNATION_LETTER', label: 'Resignation letter' },
+    { key: 'CLEARANCE_FORM', label: 'Clearance form' },
+    { key: 'RELEASE_LETTER', label: 'Release letter' },
+    OTHER_DOC_TYPE,
+  ],
+  PERSONAL: [{ key: 'EMERGENCY_CONTACT_FORM', label: 'Emergency contact form' }, OTHER_DOC_TYPE],
+  OTHER: [OTHER_DOC_TYPE],
+};
+
+export function isValidDocType(category: DocumentCategoryName, docType: string): boolean {
+  return DOCUMENT_TYPES[category].some((t) => t.key === docType);
+}
+
+export function docTypeLabel(docType: string): string {
+  for (const options of Object.values(DOCUMENT_TYPES)) {
+    const hit = options.find((t) => t.key === docType);
+    if (hit) return hit.label;
+  }
+  return docType;
+}
+
+export interface RequiredDocument {
+  key: string;
+  label: string;
+  /** Any ONE of these doc types satisfies the requirement. */
+  satisfiedBy: string[];
+  /** Where the missing row is filed in the company-wide list. */
+  category: DocumentCategoryName;
+}
+
+/** Required for every employee that has not exited (constant for now, per the spec). */
+export const REQUIRED_DOCUMENTS: RequiredDocument[] = [
+  { key: 'IDENTITY_PROOF', label: 'NID / Passport', satisfiedBy: ['NATIONAL_ID', 'PASSPORT'], category: 'IDENTITY' },
+  { key: 'SIGNED_CONTRACT', label: 'Signed contract', satisfiedBy: ['SIGNED_CONTRACT'], category: 'EMPLOYMENT' },
+  { key: 'EDUCATION_CERTIFICATE', label: 'Education certificate', satisfiedBy: ['EDUCATION_CERTIFICATE'], category: 'EDUCATION' },
+  { key: 'EMERGENCY_CONTACT_FORM', label: 'Emergency contact form', satisfiedBy: ['EMERGENCY_CONTACT_FORM'], category: 'PERSONAL' },
+];
+
+/** The multipart parser enforces this while reading (413); the service re-checks the buffer it gets. */
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+/** A document is "expiring" when it expires within this many days (inclusive of today and of day 30). */
+export const EXPIRING_WITHIN_DAYS = 30;
