@@ -14,7 +14,7 @@ glance" with KPIs. The end goal is tracking KPIs for every employee.
 | Slice | Contents | Status |
 |---|---|---|
 | **1 (this spec)** | Employee records, employment events, attendance + leave from a **dummy provider**, directory, employee summary, attendance & leave page | building |
-| 2 | Documents (needs file storage — S3/MinIO vs local disk is undecided) | blocked on decision |
+| 2 | Documents, stored in MinIO (see "Slice 2 — documents" below) | next |
 | 3 | Appraisal cycle (self review → lead review → calibration → outcome) | later |
 | 4 | Exit: exit interview, clearance checklist, letters | later |
 | 5 | Nifty Timer sync (activity %, timer hours, idle) | later; Nifty Timer has no API key auth today |
@@ -214,3 +214,43 @@ Unit: `kpi-math` (every KPI, null/not-linked paths, leave subtraction, bands),
 dummy provider determinism and employment-window clipping, event side-effects,
 sync idempotency + manual-decision preservation, env guard for dummy-in-prod.
 Guardrail spec covers the new controllers.
+
+## Slice 2 — documents (MinIO)
+
+Decided 2026-10-07: documents live in **MinIO**, reached through the S3 API
+(`@aws-sdk/client-s3`), so any S3-compatible store works later.
+
+- **Dev:** add a `minio` service (`quay.io/minio/minio`) to the dev compose
+  file, plus a bucket-creation step. **Prod:** either a dedicated bucket and
+  access key on the existing `timetrack-minio-1` container, or a separate
+  container — a deploy-time choice; the code only sees env vars.
+- **Env** (all-or-none, like Xero): `DOCUMENTS_S3_ENDPOINT`,
+  `DOCUMENTS_S3_REGION`, `DOCUMENTS_S3_BUCKET`, `DOCUMENTS_S3_ACCESS_KEY_ID`,
+  `DOCUMENTS_S3_SECRET_ACCESS_KEY`, `DOCUMENTS_S3_FORCE_PATH_STYLE=true`.
+  Unset → the documents feature is disabled (API 503, UI notice).
+- **The bucket stays private.** Uploads stream through the backend
+  (multipart, 20 MB cap) and downloads stream back through it — no presigned
+  URLs — so every access is authenticated by the app and writes are audited.
+- **Delivery headers reuse `xero-attachment-delivery.ts`'s policy:** only PDF
+  and raster images are `inline`; everything else downloads. Don't widen it.
+- **Type allowlist, verified by magic bytes** (not the client's
+  `Content-Type`): PDF, JPEG, PNG, WebP, DOCX. Filenames are sanitised for
+  `Content-Disposition`.
+- **Model `EmployeeDocument`** (`employee_documents`): id, employeeId,
+  category (`IDENTITY | EMPLOYMENT | EDUCATION | APPRAISAL | EXIT | PERSONAL |
+  OTHER`), docType, fileName, contentType, sizeBytes, sha256, storageKey
+  (`employees/<employeeId>/<documentId>`), version, replacedById (replace
+  keeps the old version), expiresOn (date, optional), visibility
+  (`HR_ONLY | HR_AND_EMPLOYEE | EVERYONE` — stored now, enforced when
+  employee/lead access lands in slice 6), uploadedBy, createdAt, deletedAt.
+- **Delete** is Owner-only and soft (row `deletedAt`, object kept) — the
+  object is purged only by an explicit purge.
+- **Required checklist** (constant for now): NID or passport, signed contract,
+  education certificate, emergency contact form.
+- **Endpoints:** `GET/POST /people/employees/:id/documents`,
+  `GET /people/documents/:id/content`, `PATCH /people/documents/:id`,
+  `POST /people/documents/:id/replace`, `DELETE /people/documents/:id`,
+  `GET /people/documents?status=expiring|expired|missing&category&employeeId`
+  (company-wide list + counts; expiring = within 30 days).
+- **UI:** the Documents tab on the employee page and People → Documents, as
+  in the mockup.
