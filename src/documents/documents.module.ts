@@ -35,5 +35,7 @@ import { DisabledDocumentStorage, S3DocumentStorage } from './s3-document-storag
       },
     },
   ],
+  // DocumentsService: the offboarding flow (src/exits) stores generated letters through it.
+  exports: [DocumentsService],
 })
 export class DocumentsModule {}

@@ -225,6 +225,34 @@ export class DocumentsService {
     await this.repo.softDeleteChain(id, new Date());
   }
 
+  /**
+   * Files a server-generated document (e.g. an exit letter). If the employee already has a CURRENT
+   * document of this category and type, the bytes become its next version (a regenerate replaces,
+   * never duplicates); otherwise it is a first upload. Goes through `upload`/`replace`, so the same
+   * type check, size limit, magic-byte sniff and storage path apply as for a person's upload.
+   */
+  async storeGenerated(
+    actor: AuthPrincipal,
+    employeeId: string,
+    input: { category: DocumentCategoryName; docType: string; fileName: string; buffer: Buffer },
+  ): Promise<DocumentView> {
+    await this.requireEmployee(actor.orgId, employeeId);
+    const file: UploadedFileLike = { originalname: input.fileName, buffer: input.buffer, size: input.buffer.length };
+    const live = await this.repo.liveForEmployee(employeeId);
+    const current = live.find((d) => d.replacedById === null && d.category === input.category && d.docType === input.docType);
+    if (current) return this.replace(actor, current.id, file, {});
+    return this.upload(actor, employeeId, file, { category: input.category, docType: input.docType });
+  }
+
+  /** An employee's CURRENT documents in one category, newest first; the exit view lists these. */
+  async currentInCategory(orgId: string, employeeId: string, category: DocumentCategoryName): Promise<DocumentView[]> {
+    await this.requireEmployee(orgId, employeeId);
+    const today = todayIsoDhaka(new Date());
+    return (await this.repo.liveForEmployee(employeeId))
+      .filter((d) => d.replacedById === null && d.category === category)
+      .map((d) => this.toView(d, today, []));
+  }
+
   // ── helpers ────────────────────────────────────────────────────────────────
 
   private async requireEmployee(orgId: string, employeeId: string): Promise<void> {
