@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { Check, CalendarDays, RefreshCw, X } from 'lucide-react';
 import type { LeaveRecordView, LeaveStatusValue, TodayRow } from '../api/people';
 import { useDecideLeave, useLeaves, useSyncAttendance, useTodayAttendance } from '../hooks/usePeople';
-import { useMediaQuery } from '../hooks/useMediaQuery';
 import {
   formatClock,
   formatDate,
@@ -98,7 +97,6 @@ function dateRange(l: LeaveRecordView): string {
 
 export function AttendancePage() {
   const toast = useToast();
-  const narrow = useMediaQuery('(max-width: 900px)');
   const [status, setStatus] = useState<string>('PENDING');
   const today = useTodayAttendance();
   const leaves = useLeaves({ status: (status || undefined) as LeaveStatusValue | undefined });
@@ -235,7 +233,9 @@ export function AttendancePage() {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1.25fr)',
+          // Stacked at every width: side by side, each table scrolled sideways and
+          // hid its last column — Approve/Reject on the leave table.
+          gridTemplateColumns: 'minmax(0, 1fr)',
           gap: 12,
           alignItems: 'start',
         }}
