@@ -202,6 +202,29 @@ export class EmployeesService {
   }
 
   /**
+   * Puts an employee back on PROBATION/ACTIVE with a NOTE event in the same transaction. Used when
+   * an offboarding is cancelled: no event type restores a status, and NOTE alone changes nothing.
+   */
+  async restoreStatus(
+    principal: AuthPrincipal,
+    id: string,
+    status: 'PROBATION' | 'ACTIVE',
+    notes: string,
+  ): Promise<void> {
+    const employee = await this.require(principal.orgId, id);
+    await this.repo.addEvent({
+      employeeId: id,
+      type: 'NOTE',
+      effectiveDate: dhakaDateOf(new Date()),
+      fromValue: employee.status,
+      toValue: status,
+      notes,
+      createdBy: actorId(principal),
+      patch: { status },
+    });
+  }
+
+  /**
    * One employee per ACTIVE login that has none (designation `Unassigned`, join
    * date = when the account was created, status ACTIVE since these people are
    * already working here). Also links existing employees that have no login to

@@ -56,6 +56,7 @@ import { ClickupModule } from '../clickup/clickup.module';
   // every other module) can inject AccessScopeService directly once
   // AccessModule is anywhere in the graph (it's imported here and in
   // app.module.ts).
-  exports: [SessionService, OrgRepository],
+  // UsersService: the offboarding flow (src/exits) disables a leaver's login through it.
+  exports: [SessionService, OrgRepository, UsersService],
 })
 export class AuthModule {}

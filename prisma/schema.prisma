@@ -850,6 +850,7 @@ model Employee {
   documents   EmployeeDocument[]
   appraisals  Appraisal[]        @relation("AppraisalEmployee")
   reviewing   Appraisal[]        @relation("AppraisalReviewer")
+  exits       EmployeeExit[]
 
   @@index([orgId, status])
   @@index([teamId])
@@ -1068,4 +1069,103 @@ model Appraisal {
   @@index([employeeId])
   @@index([reviewerId])
   @@map("appraisals")
+}
+
+// ---------------------------------------------------------------------------
+// People slice 4: exit / offboarding (migration 0028_employee_exits)
+// ---------------------------------------------------------------------------
+
+enum ExitType {
+  RESIGNATION
+  TERMINATION
+  CONTRACT_END
+  OTHER
+}
+
+/// NOTICE -> INTERVIEW -> CLEARANCE -> COMPLETED, or CANCELLED from any of the first three.
+enum ExitStatus {
+  NOTICE
+  INTERVIEW
+  CLEARANCE
+  COMPLETED
+  CANCELLED
+}
+
+enum ExitInterviewReason {
+  CAREER_GROWTH
+  COMPENSATION
+  MANAGEMENT
+  WORK_LIFE_BALANCE
+  RELOCATION
+  STUDIES
+  OTHER
+}
+
+enum ExitAnswer {
+  YES
+  MAYBE
+  NO
+}
+
+/// One offboarding. At most ONE active (NOTICE/INTERVIEW/CLEARANCE) per employee: a partial unique
+/// index in the migration enforces it (Prisma cannot express a partial index). The exit interview
+/// lives on this row. Org scoping goes through the employee, as it does for documents.
+model EmployeeExit {
+  id                 String               @id @default(cuid())
+  employeeId         String               @map("employee_id")
+  type               ExitType
+  status             ExitStatus           @default(NOTICE)
+  noticeDate         DateTime             @map("notice_date") @db.Date
+  lastWorkingDay     DateTime             @map("last_working_day") @db.Date
+  reason             String?
+  /// The employee's status before NOTICE_GIVEN, so a cancel can put it back.
+  previousStatus     EmployeeStatus       @map("previous_status")
+  interviewReason    ExitInterviewReason? @map("interview_reason")
+  ratingRole         Int?                 @map("rating_role")
+  ratingLead         Int?                 @map("rating_lead")
+  ratingCompensation Int?                 @map("rating_compensation")
+  ratingGrowth       Int?                 @map("rating_growth")
+  ratingEnvironment  Int?                 @map("rating_environment")
+  interviewFeedback  String?              @map("interview_feedback")
+  wouldRecommend     ExitAnswer?          @map("would_recommend")
+  wouldRejoin        ExitAnswer?          @map("would_rejoin")
+  /// HR only.
+  interviewNotes     String?              @map("interview_notes")
+  /// User ids of actors; null for a machine credential. Deliberately no FK.
+  interviewBy        String?              @map("interview_by")
+  interviewAt        DateTime?            @map("interview_at")
+  /// Why the exit was completed with clearance items still open.
+  overrideNote       String?              @map("override_note")
+  loginDisabled      Boolean              @default(false) @map("login_disabled")
+  completedAt        DateTime?            @map("completed_at")
+  completedBy        String?              @map("completed_by")
+  cancelledAt        DateTime?            @map("cancelled_at")
+  cancelledBy        String?              @map("cancelled_by")
+  cancelNote         String?              @map("cancel_note")
+  createdBy          String?              @map("created_by")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @default(now()) @updatedAt @map("updated_at")
+
+  employee Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  items    ExitClearanceItem[]
+
+  @@index([employeeId, status])
+  @@index([status, createdAt])
+  @@map("employee_exits")
+}
+
+model ExitClearanceItem {
+  id       String    @id @default(cuid())
+  exitId   String    @map("exit_id")
+  label    String
+  position Int
+  done     Boolean   @default(false)
+  doneBy   String?   @map("done_by")
+  doneAt   DateTime? @map("done_at")
+  note     String?
+
+  exit EmployeeExit @relation(fields: [exitId], references: [id], onDelete: Cascade)
+
+  @@index([exitId, position])
+  @@map("exit_clearance_items")
 }

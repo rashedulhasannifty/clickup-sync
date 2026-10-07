@@ -32,6 +32,7 @@ import { TeamsModule } from './teams/teams.module';
 import { PeopleModule } from './people/people.module';
 import { DocumentsModule } from './documents/documents.module';
 import { AppraisalsModule } from './appraisals/appraisals.module';
+import { ExitsModule } from './exits/exits.module';
 
 // Background work (BullMQ processors + cron) only runs in the worker role. In
 // the web role these are omitted so blue-green's warm old web color can't
@@ -79,6 +80,7 @@ const worker = isWorker();
     PeopleModule,
     DocumentsModule,
     AppraisalsModule,
+    ExitsModule,
     HealthModule,
   ],
 })

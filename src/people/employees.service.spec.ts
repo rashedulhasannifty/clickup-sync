@@ -288,3 +288,27 @@ describe('EmployeesService.importFromUsers', () => {
     expect(repo.linkIdentity).toHaveBeenCalledWith('eDup', { userId: 'u2' });
   });
 });
+
+describe('EmployeesService.restoreStatus', () => {
+  it('writes a NOTE event that carries the status back, in one repository call', async () => {
+    const { svc, repo } = make({
+      findById: jest.fn().mockResolvedValue(row({ status: 'NOTICE' })),
+    });
+    await svc.restoreStatus(admin, 'e1', 'ACTIVE', 'Offboarding cancelled: stayed');
+    expect(repo.addEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        employeeId: 'e1',
+        type: 'NOTE',
+        fromValue: 'NOTICE',
+        toValue: 'ACTIVE',
+        notes: 'Offboarding cancelled: stayed',
+        createdBy: 'u-admin',
+        patch: { status: 'ACTIVE' },
+      }),
+    );
+  });
+  it('is a 404 for an employee in another org', async () => {
+    const { svc } = make({ findById: jest.fn().mockResolvedValue(null) });
+    await expect(svc.restoreStatus(admin, 'nope', 'ACTIVE', 'n')).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
