@@ -1,0 +1,216 @@
+# People, attendance & employee KPIs — slice 1
+
+Status: building on `feat/people-attendance`.
+Mockup: `.superpowers/brainstorm/*/content/people-flow-v2.html` (local only).
+
+## Goal
+
+A company-management area inside the app: one record per employee, their
+employment history, office in/out and leave, and a one-page "employee at a
+glance" with KPIs. The end goal is tracking KPIs for every employee.
+
+## The full roadmap, and what this slice covers
+
+| Slice | Contents | Status |
+|---|---|---|
+| **1 (this spec)** | Employee records, employment events, attendance + leave from a **dummy provider**, directory, employee summary, attendance & leave page | building |
+| 2 | Documents (needs file storage — S3/MinIO vs local disk is undecided) | blocked on decision |
+| 3 | Appraisal cycle (self review → lead review → calibration → outcome) | later |
+| 4 | Exit: exit interview, clearance checklist, letters | later |
+| 5 | Nifty Timer sync (activity %, timer hours, idle) | later; Nifty Timer has no API key auth today |
+| 6 | Configurable KPI targets/weights per designation; lead visibility | later |
+
+The real office entry/exit + leave API does not exist yet (Nifty Timer has no
+attendance or leave model). Slice 1 ships a provider interface and a dummy
+implementation so the UI and KPIs can be built now.
+
+## Decisions
+
+1. **An employee is not a user.** `employees` is its own table. `user_id` and
+   `clickup_user_id` are nullable and unique. Some employees never log in; some
+   users (machine/admin accounts) are not employees. Linking is by email.
+2. **Owner/Admin only.** Every route is class-level `@Roles(OWNER, ADMIN)`.
+   Lead/member visibility is slice 6.
+3. **Provider interface, not schema, absorbs the real API.** `AttendanceProvider`
+   returns attendance days and leave records keyed by employee **email**. The
+   real API becomes a second provider; tables don't change.
+4. **Every provider row carries `source`.** Dummy rows are `source = 'dummy'`
+   so they can be purged with one `DELETE` when the real API lands. Leave
+   upserts on `(source, external_id)`; attendance on `(employee_id, date)`.
+5. **The dummy never runs in production by accident.** `ATTENDANCE_PROVIDER`
+   is `dummy | none`. Default: `dummy` outside production, `none` in
+   production. `dummy` in production is refused at boot unless
+   `ATTENDANCE_DUMMY_ALLOW_IN_PROD=true`. The UI shows a "Demo data" badge
+   whenever the summary's attendance source is `dummy`.
+6. **The dummy is deterministic** — seeded from `email + date`, so re-syncs are
+   idempotent and tests are stable.
+7. **Own queue.** `people-sync` with `PeopleSyncProcessor`. Not `maintenance`:
+   `CostRecalcProcessor` owns that queue and does not dispatch on job name, so
+   any other job there would run as a cost recalc.
+8. **Calendar:** Dhaka (UTC+6, no DST), Mon–Fri, office start 09:00, grace 30
+   min (late = first entry after 09:30 Dhaka), 8 h working day. Reuse
+   `dhakaTodayParts` / `countBusinessDays` from `src/budgets/budget-forecast.ts`.
+   Public holidays are not modelled in slice 1.
+9. **Leave entitlement** (constants for now): casual 10 / year, sick 14 / year,
+   calendar-year reset.
+10. **No PII beyond work identity** in slice 1: no NID, address, phone, salary.
+
+## Data model (migration `0025_people_attendance`)
+
+```prisma
+enum EmployeeStatus { PROBATION ACTIVE NOTICE EXITED }
+enum EmploymentEventType { JOINED CONFIRMED PROMOTED DESIGNATION_CHANGED TRANSFERRED NOTICE_GIVEN EXITED NOTE }
+enum LeaveType { SICK CASUAL ANNUAL UNPAID OTHER }
+enum LeaveStatus { PENDING APPROVED REJECTED CANCELLED }
+
+model Employee {            // employees
+  id               String   @id @default(cuid())
+  orgId            String   // FK organizations
+  fullName         String
+  email            String   @unique     // stored lower-cased
+  employeeCode     String?  @unique
+  userId           String?  @unique     // FK users, onDelete SetNull
+  clickupUserId    String?  @unique
+  designation      String
+  grade            String?
+  department       String?
+  teamId           String?              // FK teams, onDelete SetNull
+  managerId        String?              // self FK, onDelete SetNull
+  joinDate         DateTime @db.Date
+  confirmationDate DateTime? @db.Date
+  exitDate         DateTime? @db.Date
+  status           EmployeeStatus @default(PROBATION)
+  createdAt / updatedAt
+}
+
+model EmploymentEvent {     // employment_events
+  id            BigInt @id @default(autoincrement())
+  employeeId    String  // FK, onDelete Cascade
+  type          EmploymentEventType
+  effectiveDate DateTime @db.Date
+  fromValue     String?
+  toValue       String?
+  notes         String?
+  createdBy     String?  // user id of actor
+  createdAt
+  @@index([employeeId, effectiveDate])
+}
+
+model AttendanceDay {       // attendance_days
+  employeeId      String  // FK, onDelete Cascade
+  date            DateTime @db.Date      // Dhaka calendar date
+  firstIn         DateTime? @db.Timestamptz(6)
+  lastOut         DateTime? @db.Timestamptz(6)
+  minutesInOffice Int?
+  source          String
+  syncedAt        DateTime @updatedAt
+  @@id([employeeId, date])
+  @@index([date])
+}
+
+model LeaveRecord {         // leave_records
+  id         String @id @default(cuid())
+  employeeId String  // FK, onDelete Cascade
+  type       LeaveType
+  startDate  DateTime @db.Date
+  endDate    DateTime @db.Date            // inclusive
+  days       Decimal  @db.Decimal(5, 1)
+  status     LeaveStatus @default(PENDING)
+  reason     String?
+  source     String                      // 'dummy' | 'manual' | later the real API
+  externalId String?
+  decidedBy  String?
+  decidedAt  DateTime?
+  syncedAt / createdAt
+  @@unique([source, externalId])
+  @@index([employeeId, startDate])
+}
+```
+
+Event side-effects (applied in one transaction with the event insert):
+`PROMOTED`/`DESIGNATION_CHANGED` → `designation = toValue`;
+`CONFIRMED` → `confirmationDate = effectiveDate`, `status = ACTIVE`;
+`NOTICE_GIVEN` → `status = NOTICE`; `EXITED` → `exitDate`, `status = EXITED`;
+`TRANSFERRED` → `teamId = toValue` (team id) when it resolves.
+Creating an employee writes a `JOINED` event on `joinDate`.
+
+## Provider
+
+```ts
+interface AttendanceProvider {
+  readonly source: string;                       // 'dummy'
+  fetch(people: { email: string; joinDate: string; exitDate: string | null }[],
+        from: string, to: string): Promise<{
+    attendance: { email: string; date: string; firstIn: Date | null; lastOut: Date | null }[];
+    leaves: { email: string; externalId: string; type: LeaveType; startDate: string;
+              endDate: string; days: number; status: LeaveStatus; reason?: string }[];
+  }>;
+}
+```
+
+Dummy behaviour per (email, business day within employment, ≤ today): ~4 %
+sick, ~4 % casual (one-day leave records, `APPROVED`), otherwise present;
+~12 % of present days late (first in 09:31–10:40), else 08:40–09:30; last out
+17:30–19:30; today has `lastOut = null` if before 17:30 Dhaka. Plus one
+`PENDING` casual request in the next 14 days for ~30 % of people.
+
+Sync: daily cron 00:30 Dhaka for the last 7 days (worker role only) and
+`POST /api/people/attendance/sync { lookbackDays = 90, max 400 }` enqueuing a
+`sync-attendance` job. Manual leave decisions (`APPROVED`/`REJECTED`) are not
+overwritten by a later sync of the same `(source, externalId)`.
+
+## KPIs (pure module `src/people/kpi-math.ts`)
+
+Default period: the 90 days ending today (Dhaka). Each KPI is
+`{ value: number | null, target: number, numerator, denominator, status, reason? }`
+with `reason: 'not-linked' | 'no-data'` when `value` is null. An employee with
+no `clickupUserId` gets `not-linked` for ClickUp KPIs — never 0 %.
+
+| KPI | Formula | Target |
+|---|---|---|
+| Utilisation | ClickUp hours ÷ (business days in period ∩ employment − approved leave business days) × 8 | 85 % |
+| Chargeable | chargeable ClickUp hours (`is_chargeable`) ÷ ClickUp hours | 70 % |
+| On-time delivery | tasks the employee is assigned to, closed in period with a due date, closed on/before the due day (Dhaka) ÷ those tasks | 85 % |
+| Punctuality | attendance days with `firstIn` ≤ 09:30 Dhaka ÷ attendance days with a `firstIn` | 90 % |
+| Leave used | approved sick / casual days this calendar year vs entitlement | info only |
+
+Score per KPI = `min(value / target, 1) × 100`. Overall = equal-weighted mean of
+the non-null scored KPIs (utilisation, chargeable, on-time, punctuality),
+rounded. Bands: ≥ 80 `on-track`, 60–79 `watch`, < 60 `at-risk`, no KPIs →
+`no-data`.
+
+## API (all `/api/people/*`, Owner/Admin, writes audited)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/people/employees?search&status&teamId` | Directory rows: profile, team name, tenure, today's attendance state, 90-day overall score + band, `linked: { clickup, user }` |
+| POST | `/people/employees` | Create (+ `JOINED` event) |
+| POST | `/people/employees/import-from-users` | Create an employee for each active user without one (designation `Unassigned`, join date = user created date); returns `{ created }` |
+| GET | `/people/employees/:id` | Profile |
+| PATCH | `/people/employees/:id` | Edit profile fields (not status — status moves via events) |
+| GET | `/people/employees/:id/events` | Timeline, newest first |
+| POST | `/people/employees/:id/events` | Add event (side-effects above) |
+| GET | `/people/employees/:id/summary?from&to` | KPIs, overall, 6-month trend, last 30 business days of attendance, leave balance, timeline, `attendanceSource` |
+| GET | `/people/attendance/today` | Door log for today + counts (in office, late, on leave, pending requests) |
+| GET | `/people/leaves?status&from&to&employeeId` | Leave records |
+| PATCH | `/people/leaves/:id` | `{ status: APPROVED | REJECTED }` — PENDING only |
+| POST | `/people/attendance/sync` | Enqueue attendance sync |
+
+Every controller is listed in `CONTROLLERS` in
+`src/access/report-scope.guardrail.spec.ts`.
+
+## Frontend
+
+New "People" sidebar section (Owner/Admin): **Employees** (`/people`) and
+**Attendance & leave** (`/people/attendance`). Employee detail at
+`/people/:id`. Layout follows the mockup: header with tenure + overall score,
+KPI tiles labelled by source, 6-month trend, 30-day attendance strip, career
+timeline with "Add event", leave balance. "Demo data" badge when
+`attendanceSource === 'dummy'`.
+
+## Testing
+
+Unit: `kpi-math` (every KPI, null/not-linked paths, leave subtraction, bands),
+dummy provider determinism and employment-window clipping, event side-effects,
+sync idempotency + manual-decision preservation, env guard for dummy-in-prod.
+Guardrail spec covers the new controllers.
