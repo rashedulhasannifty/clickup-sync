@@ -22,6 +22,7 @@ import { ClickupWebhookController } from '../webhooks/clickup-webhook.controller
 import { FinanceReportsController } from '../xero/finance-reports.controller';
 import { XeroAuthController } from '../xero/xero-auth.controller';
 import { MyTeamsController } from '../teams/my-teams.controller';
+import { DocumentsController } from '../documents/documents.controller';
 import { TeamsController } from '../teams/teams.controller';
 import { PeopleAttendanceController } from '../people/people-attendance.controller';
 import { PeopleEmployeesController } from '../people/people-employees.controller';
@@ -71,6 +72,7 @@ const CONTROLLERS: ControllerClass[] = [
   MyTeamsController,
   PeopleEmployeesController,
   PeopleAttendanceController,
+  DocumentsController,
 ];
 
 /**
@@ -138,6 +140,11 @@ describe('report scope guardrail', () => {
       });
     }
   }
+
+  it('DocumentsController.remove is Owner-only, not merely Owner/Admin', () => {
+    expect(Reflect.getMetadata(ROLES_KEY, DocumentsController.prototype.remove)).toEqual([Role.OWNER]);
+    expect(Reflect.getMetadata(ROLES_KEY, DocumentsController)).toEqual([Role.OWNER, Role.ADMIN]);
+  });
 
   it('PENDING is empty', () => {
     expect(PENDING.size).toBe(0);

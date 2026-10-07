@@ -846,6 +846,7 @@ model Employee {
   events      EmploymentEvent[]
   attendances AttendanceDay[]
   leaves      LeaveRecord[]
+  documents   EmployeeDocument[]
 
   @@index([orgId, status])
   @@index([teamId])
@@ -913,4 +914,58 @@ model LeaveRecord {
   @@unique([source, externalId])
   @@index([employeeId, startDate])
   @@map("leave_records")
+}
+
+enum DocumentCategory {
+  IDENTITY
+  EMPLOYMENT
+  EDUCATION
+  APPRAISAL
+  EXIT
+  PERSONAL
+  OTHER
+}
+
+/// Stored now, enforced when employee/lead access lands (people slice 6).
+enum DocumentVisibility {
+  HR_ONLY
+  HR_AND_EMPLOYEE
+  EVERYONE
+}
+
+/// An employee's file, stored in a private S3-compatible bucket (MinIO) and streamed through
+/// the backend. A replace inserts a new row and points the OLD row's `replacedById` at it, so
+/// the current version of a document is the row with `replacedById IS NULL AND deletedAt IS NULL`.
+/// Delete is soft (the object stays in the bucket).
+model EmployeeDocument {
+  id           String             @id
+  employeeId   String             @map("employee_id")
+  category     DocumentCategory
+  /// A key from the document-type vocabulary (e.g. NATIONAL_ID) so the required checklist can match it.
+  docType      String             @map("doc_type")
+  fileName     String             @map("file_name")
+  /// Sniffed from the file's magic bytes, never the client's Content-Type.
+  contentType  String             @map("content_type")
+  sizeBytes    Int                @map("size_bytes")
+  sha256       String
+  /// `employees/<employeeId>/<documentId>`.
+  storageKey   String             @unique @map("storage_key")
+  version      Int                @default(1)
+  /// The newer version that superseded this row; null on the current version.
+  replacedById String?            @unique @map("replaced_by_id")
+  expiresOn    DateTime?          @map("expires_on") @db.Date
+  visibility   DocumentVisibility @default(HR_ONLY)
+  /// User id of the actor; null for a machine credential. Deliberately no FK.
+  uploadedBy   String?            @map("uploaded_by")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  deletedAt    DateTime?          @map("deleted_at")
+
+  /// Restrict, not Cascade: deleting an employee row must not orphan objects in the bucket.
+  employee   Employee          @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  replacedBy EmployeeDocument? @relation("DocumentVersions", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces   EmployeeDocument? @relation("DocumentVersions")
+
+  @@index([employeeId, deletedAt])
+  @@index([expiresOn])
+  @@map("employee_documents")
 }

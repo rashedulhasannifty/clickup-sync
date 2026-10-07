@@ -32,7 +32,7 @@ import { LineChart } from '../components/charts/LineChart';
 import { AddEventModal } from '../components/people/AddEventModal';
 import { AttendanceStrip } from '../components/people/AttendanceStrip';
 import { CareerTimeline } from '../components/people/CareerTimeline';
-import { EmployeeDocumentsSlot } from '../components/people/EmployeeDocumentsSlot';
+import { EmployeeDocumentsTab } from '../components/people/EmployeeDocumentsTab';
 import { EmployeeFormModal } from '../components/people/EmployeeFormModal';
 import { HeaderActions } from '../components/people/FormBits';
 import { KpiTile } from '../components/people/KpiTile';
@@ -265,7 +265,7 @@ export function EmployeeDetailPage() {
       />
 
       {tab === 'documents' ? (
-        <EmployeeDocumentsSlot employeeId={e.id} />
+        <EmployeeDocumentsTab employeeId={e.id} />
       ) : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 230px), 1fr))', gap: 12 }}>

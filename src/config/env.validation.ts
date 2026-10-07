@@ -64,6 +64,16 @@ const schema = z.object({
   ATTENDANCE_PROVIDER: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['dummy', 'none']).optional()),
   // Same enum+transform pattern as WEBHOOK_AUTOHEAL_ENABLED (z.coerce.boolean treats "false" as true).
   ATTENDANCE_DUMMY_ALLOW_IN_PROD: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  // Employee documents live in a private S3-compatible bucket (MinIO). All five of the
+  // values below or none: unset = the documents feature is off (API 503, UI notice).
+  // The secret key is only ever read by S3DocumentStorage; never log it.
+  DOCUMENTS_S3_ENDPOINT: z.string().optional().default(''),
+  DOCUMENTS_S3_REGION: z.string().optional().default(''),
+  DOCUMENTS_S3_BUCKET: z.string().optional().default(''),
+  DOCUMENTS_S3_ACCESS_KEY_ID: z.string().optional().default(''),
+  DOCUMENTS_S3_SECRET_ACCESS_KEY: z.string().optional().default(''),
+  // MinIO needs path-style addressing. Same enum+transform pattern as the flags above.
+  DOCUMENTS_S3_FORCE_PATH_STYLE: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['true', 'false']).default('true')).transform((v) => v === 'true'),
 // Production requires non-empty secrets; dev/test allows empty values for convenience
 }).superRefine((env, ctx) => {
   // Half-configured Xero is always a mistake, in every environment.
@@ -72,6 +82,23 @@ const schema = z.object({
   }
   if (env.XERO_CLIENT_SECRET && !env.XERO_CLIENT_ID) {
     ctx.addIssue({ code: 'custom', path: ['XERO_CLIENT_ID'], message: 'XERO_CLIENT_ID is required when XERO_CLIENT_SECRET is set' });
+  }
+  // Half-configured document storage is always a mistake, in every environment.
+  const documentsKeys = [
+    'DOCUMENTS_S3_ENDPOINT',
+    'DOCUMENTS_S3_REGION',
+    'DOCUMENTS_S3_BUCKET',
+    'DOCUMENTS_S3_ACCESS_KEY_ID',
+    'DOCUMENTS_S3_SECRET_ACCESS_KEY',
+  ] as const;
+  const documentsSet = documentsKeys.filter((k) => env[k]);
+  if (documentsSet.length > 0 && documentsSet.length < documentsKeys.length) {
+    for (const k of documentsKeys) {
+      if (!env[k]) ctx.addIssue({ code: 'custom', path: [k], message: `${k} is required when any other DOCUMENTS_S3_* value is set` });
+    }
+  }
+  if (env.DOCUMENTS_S3_ENDPOINT && !/^https?:\/\/[^\s/]+/i.test(env.DOCUMENTS_S3_ENDPOINT)) {
+    ctx.addIssue({ code: 'custom', path: ['DOCUMENTS_S3_ENDPOINT'], message: 'DOCUMENTS_S3_ENDPOINT must be an http(s) URL' });
   }
   if (env.NODE_ENV !== 'production') return;
   // The ClickUp webhook secret is no longer required from env — it can be stored

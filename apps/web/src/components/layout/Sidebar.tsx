@@ -37,6 +37,7 @@ import {
   Briefcase,
   Contact,
   CalendarCheck,
+  FileText,
 } from "lucide-react";
 import { useStats } from "../../hooks/useReports";
 import { useAuth } from "../../hooks/useAuth";
@@ -472,9 +473,12 @@ export function Sidebar({
               label: "Employees",
               icon: Contact,
               isActive: (pathname: string) =>
-                pathname.startsWith("/people") && !pathname.startsWith("/people/attendance"),
+                pathname.startsWith("/people") &&
+                !pathname.startsWith("/people/attendance") &&
+                !pathname.startsWith("/people/documents"),
             },
             { to: "/people/attendance", label: "Attendance & leave", icon: CalendarCheck },
+            { to: "/people/documents", label: "Documents", icon: FileText },
           ]
         : [],
     },

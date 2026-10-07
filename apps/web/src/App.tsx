@@ -124,6 +124,9 @@ const EmployeeDetailPage = React.lazy(() =>
 const AttendancePage = React.lazy(() =>
 	import('./pages/AttendancePage').then((m) => ({ default: m.AttendancePage })),
 );
+const DocumentsPage = React.lazy(() =>
+	import('./pages/DocumentsPage').then((m) => ({ default: m.DocumentsPage })),
+);
 const MyTeamPage = React.lazy(() =>
 	import('./pages/MyTeamPage').then((m) => ({ default: m.MyTeamPage })),
 );
@@ -348,6 +351,15 @@ export default function App() {
 											element={
 												<RequireRole min="ADMIN" redirect="/overview">
 													<SuspenseRoute><AttendancePage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										{/* Before /people/:id, or "documents" is read as an employee id. */}
+										<Route
+											path="/people/documents"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><DocumentsPage /></SuspenseRoute>
 												</RequireRole>
 											}
 										/>
