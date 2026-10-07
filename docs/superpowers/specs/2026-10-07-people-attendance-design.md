@@ -220,8 +220,9 @@ Guardrail spec covers the new controllers.
 Decided 2026-10-07: documents live in **MinIO**, reached through the S3 API
 (`@aws-sdk/client-s3`), so any S3-compatible store works later.
 
-- **Dev:** add a `minio` service (`quay.io/minio/minio`) to the dev compose
-  file, plus a bucket-creation step. **Prod:** either a dedicated bucket and
+- **Dev:** the existing local MinIO (`infra-minio-1`, `localhost:9000`, from
+  the timetrack repo) with its own bucket `clickup-sync-documents` and a
+  scoped user `clickup-sync-app` whose policy covers only that bucket. **Prod:** either a dedicated bucket and
   access key on the existing `timetrack-minio-1` container, or a separate
   container — a deploy-time choice; the code only sees env vars.
 - **Env** (all-or-none, like Xero): `DOCUMENTS_S3_ENDPOINT`,
