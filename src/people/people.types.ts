@@ -71,6 +71,8 @@ export interface DirectoryRow extends EmployeeProfile {
   /** 90-day overall score (0-100), null when no KPI has data. */
   score: number | null;
   band: Band;
+  /** See `OverallScore.partial`. */
+  partial: boolean;
 }
 
 export type KpiReason = 'not-linked' | 'no-data';
@@ -97,10 +99,20 @@ export interface Kpis {
   punctuality: KpiResult;
 }
 
+export type ScoredKpi = keyof Kpis;
+
 export interface OverallScore {
   /** Equal-weighted mean of the non-null KPI scores, rounded; null when there are none. */
   score: number | null;
   band: Band;
+  /**
+   * True when the employee is not linked to ClickUp, so the ClickUp KPIs are
+   * missing and the score rests on attendance alone. The UI must label it
+   * "Partial" rather than present it as a full score.
+   */
+  partial: boolean;
+  /** The KPIs that actually contributed to `score`. */
+  basedOn: ScoredKpi[];
 }
 
 export interface TrendPoint {

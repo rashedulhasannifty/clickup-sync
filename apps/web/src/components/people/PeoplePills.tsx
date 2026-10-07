@@ -22,8 +22,21 @@ import {
   todayTone,
 } from '../../lib/people';
 
-/** Overall score with its band colour: "86 · On track", or "No data" when there is no score. */
-export function ScoreBandPill({ score, band }: { score: number | null; band: Band }) {
+/**
+ * Overall score with its band colour: "86 · On track", or "No data" when there
+ * is no score. A partial score (not linked to ClickUp, so attendance only) is
+ * neutral grey and says "Partial" — never a green "On track" it hasn't earned.
+ */
+export function ScoreBandPill({ score, band, partial = false }: { score: number | null; band: Band; partial?: boolean }) {
+  if (partial) {
+    return (
+      <span title="Not linked to ClickUp — this score covers attendance only.">
+        <Pill tone="gray" size="xs">
+          {score == null ? 'Partial' : `${score} · Partial`}
+        </Pill>
+      </span>
+    );
+  }
   if (score == null) {
     return (
       <Pill tone="gray" size="xs">

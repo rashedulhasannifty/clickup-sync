@@ -81,7 +81,7 @@ const COLUMNS: Column<DirectoryRow>[] = [
   },
   { key: 'status', header: 'Status', width: 120, render: (r) => <EmployeeStatusPill status={r.status} /> },
   { key: 'today', header: 'Today', width: 100, sortable: false, render: (r) => <TodayStatePill state={r.today} /> },
-  { key: 'score', header: 'Score (90d)', width: 150, render: (r) => <ScoreBandPill score={r.score} band={r.band} /> },
+  { key: 'score', header: 'Score (90d)', width: 150, render: (r) => <ScoreBandPill score={r.score} band={r.band} partial={r.partial} /> },
   { key: 'linked', header: 'Linked', width: 170, sortable: false, render: (r) => <LinkedIndicators linked={r.linked} /> },
 ];
 

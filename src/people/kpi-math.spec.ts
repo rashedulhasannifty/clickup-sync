@@ -188,7 +188,9 @@ describe('computeKpis', () => {
       });
     }
     expect(r.kpis.punctuality.value).toBe(100);
-    expect(r.overall).toEqual({ score: 100, band: 'on-track' });
+    // Punctuality alone gives 100, but it must be flagged partial so it is
+    // never shown as a full score.
+    expect(r.overall).toEqual({ score: 100, band: 'on-track', partial: true, basedOn: ['punctuality'] });
   });
 
   it('no-data when nothing was recorded, and utilisation is no-data when never employed in the period', () => {
@@ -197,7 +199,7 @@ describe('computeKpis', () => {
       value: null,
       reason: 'no-data',
     });
-    expect(r.overall).toEqual({ score: null, band: 'no-data' });
+    expect(r.overall).toEqual({ score: null, band: 'no-data', partial: true, basedOn: [] });
     const future = computeKpis({
       ...base,
       employment: { joinDate: '2027-01-01', exitDate: null },
@@ -224,7 +226,35 @@ describe('overallOf', () => {
       onTimeDelivery: k(null, 85),
       punctuality: k(95, 90),
     });
-    expect(o).toEqual({ score: 83, band: 'on-track' });
+    expect(o).toEqual({
+      score: 83,
+      band: 'on-track',
+      partial: false,
+      basedOn: ['utilisation', 'chargeable', 'punctuality'],
+    });
+  });
+
+  it('is partial when the employee is not linked to ClickUp', () => {
+    const notLinked = { ...k(null, 85), reason: 'not-linked' as const };
+    const o = overallOf({
+      utilisation: notLinked,
+      chargeable: { ...notLinked, target: 70 },
+      onTimeDelivery: notLinked,
+      punctuality: k(95, 90),
+    });
+    // The score still reflects the one KPI that has data, but it is flagged
+    // so the UI never presents it as a full 100.
+    expect(o).toEqual({ score: 100, band: 'on-track', partial: true, basedOn: ['punctuality'] });
+  });
+
+  it('is not partial when a KPI is null only for lack of data', () => {
+    const o = overallOf({
+      utilisation: k(90, 85),
+      chargeable: k(80, 70),
+      onTimeDelivery: { ...k(null, 85), reason: 'no-data' as const },
+      punctuality: k(95, 90),
+    });
+    expect(o.partial).toBe(false);
   });
 
   it('bands: 79 watch, 59 at-risk', () => {

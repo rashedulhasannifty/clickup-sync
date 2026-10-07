@@ -12,7 +12,7 @@ import {
   intersect,
   type DateRange,
 } from './people-dates';
-import type { Band, KpiResult, Kpis, OverallScore } from './people.types';
+import type { Band, KpiResult, Kpis, OverallScore, ScoredKpi } from './people.types';
 
 /**
  * Pure KPI maths for the employee summary and directory. No I/O, no clock:
@@ -204,16 +204,19 @@ export function computeKpis(input: KpiInput): KpiComputation {
 
 /** Equal-weighted mean of the non-null KPI scores, rounded. Scores are rederived from the 1-dp KPI values, not from the already-rounded per-KPI scores. */
 export function overallOf(kpis: Kpis): OverallScore {
+  const keys: ScoredKpi[] = ['utilisation', 'chargeable', 'onTimeDelivery', 'punctuality'];
   const scores: number[] = [];
-  for (const k of [
-    kpis.utilisation,
-    kpis.chargeable,
-    kpis.onTimeDelivery,
-    kpis.punctuality,
-  ]) {
-    if (k.value !== null) scores.push(rawScore(k.value, k.target));
+  const basedOn: ScoredKpi[] = [];
+  for (const key of keys) {
+    const k = kpis[key];
+    if (k.value === null) continue;
+    scores.push(rawScore(k.value, k.target));
+    basedOn.push(key);
   }
-  if (scores.length === 0) return { score: null, band: 'no-data' };
+  // Only "not linked" makes a score partial. A KPI that is null for lack of
+  // data (no tasks with a due date this period) is a real, complete answer.
+  const partial = keys.some((key) => kpis[key].reason === 'not-linked');
+  if (scores.length === 0) return { score: null, band: 'no-data', partial, basedOn };
   const score = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-  return { score, band: bandOf(score) };
+  return { score, band: bandOf(score), partial, basedOn };
 }

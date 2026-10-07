@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, CalendarPlus, Pencil, UserX } from 'lucide-react';
-import type { EmployeeSummary } from '../api/people';
+import type { EmployeeSummary, ScoredKpi } from '../api/people';
 import {
   useAddEmploymentEvent,
   useEmployees,
@@ -58,9 +58,16 @@ function Chip({ children }: { children: ReactNode }) {
   );
 }
 
-/** The big overall number in the header, coloured by its band. */
+const KPI_NAME: Record<ScoredKpi, string> = {
+  utilisation: 'utilisation',
+  chargeable: 'chargeable',
+  onTimeDelivery: 'on-time delivery',
+  punctuality: 'punctuality',
+};
+
+/** The big overall number in the header, coloured by its band — or marked Partial. */
 function OverallScore({ summary }: { summary: EmployeeSummary }) {
-  const { score, band } = summary.overall;
+  const { score, band, partial, basedOn } = summary.overall;
   return (
     <div style={{ textAlign: 'right', minWidth: 130 }}>
       <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -74,7 +81,14 @@ function OverallScore({ summary }: { summary: EmployeeSummary }) {
             {score}
             <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-muted)' }}>/100</span>
           </div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: bandColor(band) }}>{BAND_LABEL[band]}</div>
+          {partial ? (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 220, marginLeft: 'auto' }}>
+              <span style={{ fontWeight: 600 }}>Partial</span> — based on {basedOn.map((k) => KPI_NAME[k]).join(', ')} only.
+              Link ClickUp to include work KPIs.
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, fontWeight: 600, color: bandColor(band) }}>{BAND_LABEL[band]}</div>
+          )}
         </>
       )}
     </div>

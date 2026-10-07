@@ -192,6 +192,7 @@ export class PeopleSummaryService {
         }),
         score: c.overall.score,
         band: c.overall.band,
+        partial: c.overall.partial,
       };
     });
   }

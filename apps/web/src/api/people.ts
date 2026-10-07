@@ -66,6 +66,8 @@ export type DirectoryRow = EmployeeProfile & {
   /** 90-day overall score (0-100), null when no KPI has data. */
   score: number | null;
   band: Band;
+  /** Not linked to ClickUp: the score rests on attendance alone. Show it as "Partial". */
+  partial: boolean;
 };
 
 export type KpiResult = {
@@ -88,7 +90,16 @@ export type Kpis = {
   punctuality: KpiResult;
 };
 
-export type OverallScore = { score: number | null; band: Band };
+export type ScoredKpi = keyof Kpis;
+
+export type OverallScore = {
+  score: number | null;
+  band: Band;
+  /** Not linked to ClickUp: the score rests on attendance alone. Show it as "Partial". */
+  partial: boolean;
+  /** The KPIs that contributed to `score`. */
+  basedOn: ScoredKpi[];
+};
 
 export type TrendPoint = {
   /** Calendar month, `YYYY-MM`. */
