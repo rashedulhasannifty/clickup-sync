@@ -111,12 +111,15 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {competencies.map((c, i) => (
               <div key={i} style={{ display: 'flex', gap: 6 }}>
-                <Input
-                  aria-label={`Competency ${i + 1}`}
-                  value={c.label}
-                  maxLength={120}
-                  onChange={(e) => setCompetencies(competencies.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
-                />
+                {/* Input's own wrapper doesn't grow in a flex row; without this the label is cut off. */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Input
+                    aria-label={`Competency ${i + 1}`}
+                    value={c.label}
+                    maxLength={120}
+                    onChange={(e) => setCompetencies(competencies.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+                  />
+                </div>
                 <Button
                   type="button"
                   variant="ghost"
