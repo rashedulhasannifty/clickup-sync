@@ -390,6 +390,7 @@ model Organization {
   users       User[]
   invitations Invitation[]
   teams       Team[]
+  employees   Employee[]
 
   @@map("organizations")
 }
@@ -411,6 +412,7 @@ model User {
   sessions        Session[]
   passwordResets  PasswordReset[]
   teamMemberships TeamMember[]
+  employee        Employee?
 
   @@index([orgId])
   @@map("users")
@@ -728,6 +730,7 @@ model Team {
   clients     TeamClient[]
   members     TeamMember[]
   invitations InvitationTeam[]
+  employees   Employee[]
 
   @@unique([orgId, name])
   @@map("teams")
@@ -773,4 +776,141 @@ model InvitationTeam {
 
   @@id([invitationId, teamId])
   @@map("invitation_teams")
+}
+
+// ── People: employee records, attendance and leave (slice 1) ───────────────
+// Spec: docs/superpowers/specs/2026-10-07-people-attendance-design.md
+
+enum EmployeeStatus {
+  PROBATION
+  ACTIVE
+  NOTICE
+  EXITED
+}
+
+enum EmploymentEventType {
+  JOINED
+  CONFIRMED
+  PROMOTED
+  DESIGNATION_CHANGED
+  TRANSFERRED
+  NOTICE_GIVEN
+  EXITED
+  NOTE
+}
+
+enum LeaveType {
+  SICK
+  CASUAL
+  ANNUAL
+  UNPAID
+  OTHER
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// An employee is NOT a user: `userId` / `clickupUserId` are nullable links, made by email.
+/// Work identity only — no NID, address, phone or salary in slice 1.
+model Employee {
+  id               String         @id @default(cuid())
+  orgId            String         @map("org_id")
+  fullName         String         @map("full_name")
+  /// Stored lower-cased; attendance providers key their rows on it.
+  email            String         @unique
+  employeeCode     String?        @unique @map("employee_code")
+  userId           String?        @unique @map("user_id")
+  clickupUserId    String?        @unique @map("clickup_user_id")
+  designation      String
+  grade            String?
+  department       String?
+  teamId           String?        @map("team_id")
+  managerId        String?        @map("manager_id")
+  joinDate         DateTime       @map("join_date") @db.Date
+  confirmationDate DateTime?      @map("confirmation_date") @db.Date
+  exitDate         DateTime?      @map("exit_date") @db.Date
+  status           EmployeeStatus @default(PROBATION)
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at")
+
+  org     Organization @relation(fields: [orgId], references: [id])
+  user    User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  team    Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  manager Employee?    @relation("EmployeeManager", fields: [managerId], references: [id], onDelete: SetNull)
+  reports Employee[]   @relation("EmployeeManager")
+
+  events      EmploymentEvent[]
+  attendances AttendanceDay[]
+  leaves      LeaveRecord[]
+
+  @@index([orgId, status])
+  @@index([teamId])
+  @@index([managerId])
+  @@map("employees")
+}
+
+model EmploymentEvent {
+  id            BigInt              @id @default(autoincrement())
+  employeeId    String              @map("employee_id")
+  type          EmploymentEventType
+  effectiveDate DateTime            @map("effective_date") @db.Date
+  fromValue     String?             @map("from_value")
+  toValue       String?             @map("to_value")
+  notes         String?
+  /// User id of the actor; null for a machine credential. Deliberately no FK.
+  createdBy     String?             @map("created_by")
+  createdAt     DateTime            @default(now()) @map("created_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, effectiveDate])
+  @@map("employment_events")
+}
+
+/// One row per employee per Dhaka calendar date, written by the attendance provider sync.
+model AttendanceDay {
+  employeeId      String    @map("employee_id")
+  date            DateTime  @db.Date
+  firstIn         DateTime? @map("first_in") @db.Timestamptz(6)
+  lastOut         DateTime? @map("last_out") @db.Timestamptz(6)
+  minutesInOffice Int?      @map("minutes_in_office")
+  /// Provider that wrote the row ('dummy' rows can be purged with one DELETE).
+  source          String
+  syncedAt        DateTime  @default(now()) @updatedAt @map("synced_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@id([employeeId, date])
+  @@index([date])
+  @@map("attendance_days")
+}
+
+model LeaveRecord {
+  id         String      @id @default(cuid())
+  employeeId String      @map("employee_id")
+  type       LeaveType
+  startDate  DateTime    @map("start_date") @db.Date
+  /// Inclusive.
+  endDate    DateTime    @map("end_date") @db.Date
+  days       Decimal     @db.Decimal(5, 1)
+  status     LeaveStatus @default(PENDING)
+  reason     String?
+  /// 'dummy' | 'manual' | later the real API.
+  source     String
+  externalId String?     @map("external_id")
+  /// A manual APPROVED/REJECTED decision. Set => a later provider sync must not touch the row.
+  decidedBy  String?     @map("decided_by")
+  decidedAt  DateTime?   @map("decided_at")
+  syncedAt   DateTime    @default(now()) @updatedAt @map("synced_at")
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([source, externalId])
+  @@index([employeeId, startDate])
+  @@map("leave_records")
 }

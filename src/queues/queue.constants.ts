@@ -19,6 +19,8 @@ export const QUEUES = {
   CLICKUP_ASSIGNEE_REPLACEMENT: 'clickup-assignee-replacement',
   /** All Xero work: sync runs, nightly reconcile, token keep-alive. Worker concurrency 1. */
   XERO_SYNC: 'xero-sync',
+  /** People module: attendance/leave provider sync. Own queue — `maintenance` is owned by CostRecalcProcessor, which runs every job there as a cost recalc. */
+  PEOPLE_SYNC: 'people-sync',
 } as const;
 
 /**
@@ -73,6 +75,7 @@ export const JOBS = {
   XERO_SYNC: 'xero-sync-run',
   XERO_RECONCILE_OPEN: 'xero-reconcile-open',
   XERO_TOKEN_KEEPALIVE: 'xero-token-keepalive',
+  SYNC_ATTENDANCE: 'sync-attendance',
 } as const;
 
 /**

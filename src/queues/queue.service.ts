@@ -16,6 +16,7 @@ export class QueueService {
     @InjectQueue(QUEUES.MAINTENANCE) private readonly maintenance: Queue,
     @InjectQueue(QUEUES.CLICKUP_ASSIGNEE_REPLACEMENT) private readonly assigneeReplacement: Queue,
     @InjectQueue(QUEUES.XERO_SYNC) private readonly xeroSync: Queue,
+    @InjectQueue(QUEUES.PEOPLE_SYNC) private readonly peopleSync: Queue,
     private readonly settings: SettingsService,
   ) {}
 
@@ -29,6 +30,7 @@ export class QueueService {
       [QUEUES.MAINTENANCE]: this.maintenance,
       [QUEUES.CLICKUP_ASSIGNEE_REPLACEMENT]: this.assigneeReplacement,
       [QUEUES.XERO_SYNC]: this.xeroSync,
+      [QUEUES.PEOPLE_SYNC]: this.peopleSync,
     };
     const queue = map[name];
     if (!queue) throw new Error(`Unknown queue: ${name}`);

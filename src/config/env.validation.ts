@@ -1,6 +1,18 @@
 import { z } from 'zod';
 import { isValidEncryptionKey } from '../settings/crypto.service';
 
+export type AttendanceProviderName = 'dummy' | 'none';
+
+/**
+ * The attendance provider that is actually in effect. Unset means `dummy` outside
+ * production and `none` in production, so the demo data can never reach a real
+ * deployment by omission. Single source of truth for `superRefine` and the DI
+ * factory in PeopleModule.
+ */
+export function resolveAttendanceProvider(raw: AttendanceProviderName | undefined, nodeEnv: string): AttendanceProviderName {
+  return raw ?? (nodeEnv === 'production' ? 'none' : 'dummy');
+}
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().default(3000),
@@ -44,6 +56,14 @@ const schema = z.object({
   // The secret is only ever read by XeroIdentityClient; never log it.
   XERO_CLIENT_ID: z.string().optional().default(''),
   XERO_CLIENT_SECRET: z.string().optional().default(''),
+  // Where People attendance/leave comes from. `dummy` is deterministic demo data;
+  // the real office-entry API will be a third value. Left unset, the effective
+  // value is resolved by `resolveAttendanceProvider` (dummy outside production,
+  // none in production) rather than defaulted here, so the refine below can tell
+  // an explicit `dummy` in production from an omitted one.
+  ATTENDANCE_PROVIDER: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['dummy', 'none']).optional()),
+  // Same enum+transform pattern as WEBHOOK_AUTOHEAL_ENABLED (z.coerce.boolean treats "false" as true).
+  ATTENDANCE_DUMMY_ALLOW_IN_PROD: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
 // Production requires non-empty secrets; dev/test allows empty values for convenience
 }).superRefine((env, ctx) => {
   // Half-configured Xero is always a mistake, in every environment.
@@ -77,6 +97,15 @@ const schema = z.object({
       message: 'MAIL_FROM must be a verified sender, not an example.com placeholder, when SMTP_HOST is set in production',
     });
   }
+  // Fake attendance next to real payroll-adjacent KPIs is worse than none. An
+  // explicit opt-in is the only way the dummy provider boots in production.
+  if (env.ATTENDANCE_PROVIDER === 'dummy' && !env.ATTENDANCE_DUMMY_ALLOW_IN_PROD) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['ATTENDANCE_PROVIDER'],
+      message: 'ATTENDANCE_PROVIDER=dummy is refused when NODE_ENV=production unless ATTENDANCE_DUMMY_ALLOW_IN_PROD=true',
+    });
+  }
   if (!env.ADMIN_API_KEY) {
     ctx.addIssue({
       code: 'custom',
@@ -90,7 +119,10 @@ const schema = z.object({
       message: 'ADMIN_API_KEY must be at least 32 characters when NODE_ENV=production',
     });
   }
-});
+}).transform((env) => ({
+  ...env,
+  ATTENDANCE_PROVIDER: resolveAttendanceProvider(env.ATTENDANCE_PROVIDER, env.NODE_ENV),
+}));
 
 export type Env = z.infer<typeof schema>;
 export function validateEnv(config: Record<string, unknown>) {

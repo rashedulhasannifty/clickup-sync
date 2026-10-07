@@ -6,7 +6,7 @@
  * apps/web/src/lib/budget-status.ts — keep the thresholds in sync.
  */
 
-const DHAKA_OFFSET_MS = 6 * 60 * 60 * 1000;
+export const DHAKA_OFFSET_MS = 6 * 60 * 60 * 1000;
 
 export interface DateParts { year: number; month0: number; day: number }
 
