@@ -15,8 +15,8 @@ glance" with KPIs. The end goal is tracking KPIs for every employee.
 |---|---|---|
 | **1 (this spec)** | Employee records, employment events, attendance + leave from a **dummy provider**, directory, employee summary, attendance & leave page | building |
 | 2 | Documents, stored in MinIO (see "Slice 2 — documents" below) | next |
-| 3 | Appraisal cycle (self review → lead review → calibration → outcome) | later |
-| 4 | Exit: exit interview, clearance checklist, letters | later |
+| 3 | Appraisal cycle (see "Slice 3 — appraisals") | building |
+| 4 | Exit (see "Slice 4 — exit") | building |
 | 5 | Nifty Timer sync (activity %, timer hours, idle) | later; Nifty Timer has no API key auth today |
 | 6 | Configurable KPI targets/weights per designation; lead visibility | later |
 
@@ -274,3 +274,73 @@ Decided 2026-10-07: documents live in **MinIO**, reached through the S3 API
   also proposes unrelated changes (e.g. `clickup_tasks` timestamptz columns,
   `idx_clickup_time_entries_start_time_status`). Migration 0025 deliberately
   contains only People objects. Don't accept a `migrate dev` diff blindly.
+
+## Slice 3 — appraisals
+
+Owner/Admin only, like every People route. Until slice 6, an Owner/Admin
+fills in every step, including the self review on the employee's behalf.
+
+- **Cycle** (`appraisal_cycles`): name, periodStart, periodEnd (dates),
+  status `DRAFT | OPEN | CLOSED`, `kpiWeight` (0–100, default 70; the rest is
+  competencies), competencies (JSON list of `{ key, label }`; default
+  technical skill, communication & collaboration, ownership & initiative,
+  mentoring). Launching an OPEN cycle creates one appraisal per selected
+  employee (default: every non-EXITED employee who joined before periodEnd).
+- **Appraisal** (`appraisals`, unique `(cycle_id, employee_id)`): reviewer
+  (defaults to the employee's manager), status
+  `SELF_REVIEW → LEAD_REVIEW → CALIBRATION → SIGNED_OFF`, forward only one
+  step at a time, with a "send back" one step for corrections before
+  sign-off. Fields: self ratings + self comments, lead ratings, strengths,
+  improvements, goals, recommendation
+  `PROMOTE | RAISE | NO_CHANGE | IMPROVEMENT_PLAN`, `newDesignation`
+  (required for PROMOTE), calibration note, optional calibrated score.
+- **KPI section is computed, never typed.** On entering LEAD_REVIEW the
+  cycle period's KPIs are computed with the slice-1 KPI code and stored as a
+  snapshot; it can be refreshed until SIGNED_OFF, then it is frozen.
+- **Score (0–5):** `kpiPart = overallKpiScore / 20` (0–100 → 0–5);
+  `competencyPart` = mean of lead ratings;
+  `final = kpiPart × kpiWeight% + competencyPart × (100 − kpiWeight)%`, 1 dp.
+  If the KPI score is partial or null, the final score is flagged partial
+  (same rule as the overall score). A calibrated score, when set, wins.
+- **Sign-off applies the outcome once** (idempotent): PROMOTE writes a
+  `PROMOTED` employment event (which updates designation); RAISE writes a
+  `NOTE` event ("Salary increase recommended — appraisal <cycle>");
+  IMPROVEMENT_PLAN writes a `NOTE` event. Signed-off appraisals are
+  read-only.
+- **UI:** `/people/appraisals` (cycles list, create cycle, launch, per-cycle
+  progress by status), `/people/appraisals/:appraisalId` (the form, stepper
+  as in mockup tab 5, previous appraisals sidebar), and an Appraisals tab on
+  the employee page (history: cycle, score, recommendation, status).
+
+## Slice 4 — exit
+
+- **Exit record** (`employee_exits`, one active per employee): type
+  `RESIGNATION | TERMINATION | CONTRACT_END | OTHER`, noticeDate,
+  lastWorkingDay, reason, status `NOTICE → INTERVIEW → CLEARANCE → COMPLETED`
+  (or `CANCELLED`, which restores the previous employee status with a `NOTE`
+  event). Starting it writes `NOTICE_GIVEN` (status → NOTICE).
+- **Exit interview** (on the exit row or its own table): primary reason
+  (`CAREER_GROWTH | COMPENSATION | MANAGEMENT | WORK_LIFE_BALANCE |
+  RELOCATION | STUDIES | OTHER`), 1–5 ratings for role, team lead,
+  compensation, growth, environment; "what could we have done", would
+  recommend / rejoin (`YES | MAYBE | NO`), interviewer notes (HR only),
+  conductedBy/at.
+- **Clearance checklist** (`exit_clearance_items`): seeded from a default
+  list (laptop & charger returned, ClickUp access removed, Nifty Timer
+  account disabled, handover of open tasks, final settlement / leave
+  encashment), editable (add/remove custom items). Each: done, doneBy,
+  doneAt, note.
+- **Letters:** experience letter and release letter generated server-side as
+  PDF (company name from the org, employee name, designation, join date,
+  last working day) and stored through the slice-2 documents module as
+  `EXIT / EXPERIENCE_LETTER` and `EXIT / RELEASE_LETTER`. Regenerating
+  replaces (new version), never duplicates.
+- **Complete exit** requires all clearance items done (or an explicit
+  override with a note). It writes `EXITED` (exitDate = lastWorkingDay,
+  status EXITED) and, when `disableLogin` (default true) and the employee is
+  linked to a user, disables that user and revokes their sessions through
+  the existing users service. Exited employees are read-only and drop out of
+  attendance sync, KPIs and the documents "missing" counts.
+- **UI:** "Start offboarding" on the employee page → `/people/:id/exit`
+  (stepper as in mockup tab 6), plus `/people/exits` listing in-progress and
+  recent exits.
