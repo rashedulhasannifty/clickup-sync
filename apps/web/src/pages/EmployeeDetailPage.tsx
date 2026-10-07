@@ -33,13 +33,15 @@ import { AddEventModal } from '../components/people/AddEventModal';
 import { AttendanceStrip } from '../components/people/AttendanceStrip';
 import { CareerTimeline } from '../components/people/CareerTimeline';
 import { EmployeeDocumentsTab } from '../components/people/EmployeeDocumentsTab';
+import { EmployeeAppraisalsTab } from '../components/people/EmployeeAppraisalsTab';
 import { EmployeeFormModal } from '../components/people/EmployeeFormModal';
 import { HeaderActions } from '../components/people/FormBits';
 import { KpiTile } from '../components/people/KpiTile';
 import { LeaveBalanceCard } from '../components/people/LeaveBalanceCard';
 import { DemoDataBadge, EmployeeStatusPill, LinkedIndicators } from '../components/people/PeoplePills';
 
-type TabValue = 'overview' | 'documents';
+type TabValue = 'overview' | 'documents' | 'appraisals';
+const TABS: TabValue[] = ['overview', 'documents', 'appraisals'];
 
 function Chip({ children }: { children: ReactNode }) {
   return (
@@ -148,7 +150,8 @@ export function EmployeeDetailPage() {
   const [params, setParams] = useSearchParams();
   const toast = useToast();
   const narrow = useMediaQuery('(max-width: 900px)');
-  const tab: TabValue = params.get('tab') === 'documents' ? 'documents' : 'overview';
+  const requestedTab = params.get('tab') as TabValue | null;
+  const tab: TabValue = requestedTab && TABS.includes(requestedTab) ? requestedTab : 'overview';
   const [editing, setEditing] = useState(false);
   const [addingEvent, setAddingEvent] = useState(false);
 
@@ -275,11 +278,14 @@ export function EmployeeDetailPage() {
         items={[
           { value: 'overview', label: 'Overview' },
           { value: 'documents', label: 'Documents' },
+          { value: 'appraisals', label: 'Appraisals' },
         ]}
       />
 
       {tab === 'documents' ? (
         <EmployeeDocumentsTab employeeId={e.id} />
+      ) : tab === 'appraisals' ? (
+        <EmployeeAppraisalsTab employeeId={e.id} />
       ) : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 230px), 1fr))', gap: 12 }}>

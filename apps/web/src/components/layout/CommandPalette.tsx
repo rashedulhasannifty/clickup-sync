@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Home, BarChart3, Activity, CheckSquare, Clock, AlertTriangle, DollarSign,
-  Building2, Layers, Webhook, Settings, Search, Wallet, Users, UserCog, ScrollText, Scale, ListTree, Landmark, Contact, CalendarCheck, FileText,
+  Building2, Layers, Webhook, Settings, Search, Wallet, Users, UserCog, ScrollText, Scale, ListTree, Landmark, Contact, CalendarCheck, FileText, ClipboardCheck,
 } from 'lucide-react';
 import { Kbd } from '../ui/Kbd';
 import { useSearch } from '../../hooks/useSearch';
@@ -29,6 +29,7 @@ const NAV_ITEMS: { label: string; to: string; sub: string; icon: typeof Home; ad
   { label: 'Employees', to: '/people', sub: '/people', icon: Contact, adminOnly: true },
   { label: 'Attendance & leave', to: '/people/attendance', sub: '/people/attendance', icon: CalendarCheck, adminOnly: true },
   { label: 'Documents', to: '/people/documents', sub: '/people/documents', icon: FileText, adminOnly: true },
+  { label: 'Appraisals', to: '/people/appraisals', sub: '/people/appraisals', icon: ClipboardCheck, adminOnly: true },
   { label: 'Users', to: '/users', sub: '/users', icon: UserCog, adminOnly: true },
   { label: 'Teams', to: '/teams', sub: '/teams', icon: Users, adminOnly: true },
   { label: 'Audit Log', to: '/audit-log', sub: '/audit-log', icon: ScrollText, adminOnly: true },

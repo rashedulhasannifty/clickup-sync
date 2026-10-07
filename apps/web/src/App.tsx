@@ -127,6 +127,12 @@ const AttendancePage = React.lazy(() =>
 const DocumentsPage = React.lazy(() =>
 	import('./pages/DocumentsPage').then((m) => ({ default: m.DocumentsPage })),
 );
+const AppraisalsPage = React.lazy(() =>
+	import('./pages/AppraisalsPage').then((m) => ({ default: m.AppraisalsPage })),
+);
+const AppraisalFormPage = React.lazy(() =>
+	import('./pages/AppraisalFormPage').then((m) => ({ default: m.AppraisalFormPage })),
+);
 const MyTeamPage = React.lazy(() =>
 	import('./pages/MyTeamPage').then((m) => ({ default: m.MyTeamPage })),
 );
@@ -354,7 +360,23 @@ export default function App() {
 												</RequireRole>
 											}
 										/>
-										{/* Before /people/:id, or "documents" is read as an employee id. */}
+										{/* Static /people/* paths before /people/:id, so e.g. "documents" is never read as an employee id. */}
+										<Route
+											path="/people/appraisals"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><AppraisalsPage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										<Route
+											path="/people/appraisals/:appraisalId"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><AppraisalFormPage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
 										<Route
 											path="/people/documents"
 											element={
