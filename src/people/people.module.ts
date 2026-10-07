@@ -55,6 +55,6 @@ import { PeopleSyncService } from './people-sync.service';
     // a plain provider here would make the web process consume jobs and double-fire the cron.
     ...(isWorker() ? [PeopleSyncProcessor, PeopleScheduler] : []),
   ],
-  exports: [EmployeesService],
+  exports: [EmployeesService, PeopleSummaryService],
 })
 export class PeopleModule {}

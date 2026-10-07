@@ -387,10 +387,11 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
-  users       User[]
-  invitations Invitation[]
-  teams       Team[]
-  employees   Employee[]
+  users           User[]
+  invitations     Invitation[]
+  teams           Team[]
+  employees       Employee[]
+  appraisalCycles AppraisalCycle[]
 
   @@map("organizations")
 }
@@ -847,6 +848,8 @@ model Employee {
   attendances AttendanceDay[]
   leaves      LeaveRecord[]
   documents   EmployeeDocument[]
+  appraisals  Appraisal[]        @relation("AppraisalEmployee")
+  reviewing   Appraisal[]        @relation("AppraisalReviewer")
 
   @@index([orgId, status])
   @@index([teamId])
@@ -968,4 +971,101 @@ model EmployeeDocument {
   @@index([employeeId, deletedAt])
   @@index([expiresOn])
   @@map("employee_documents")
+}
+
+// ---------------------------------------------------------------------------
+// People slice 3: appraisals. Spec: docs/superpowers/specs/2026-10-07-people-attendance-design.md
+// ---------------------------------------------------------------------------
+
+enum AppraisalCycleStatus {
+  DRAFT
+  OPEN
+  CLOSED
+}
+
+enum AppraisalStatus {
+  SELF_REVIEW
+  LEAD_REVIEW
+  CALIBRATION
+  SIGNED_OFF
+}
+
+enum AppraisalRecommendation {
+  PROMOTE
+  RAISE
+  NO_CHANGE
+  IMPROVEMENT_PLAN
+}
+
+model AppraisalCycle {
+  id           String               @id @default(cuid())
+  orgId        String               @map("org_id")
+  name         String
+  periodStart  DateTime             @map("period_start") @db.Date
+  periodEnd    DateTime             @map("period_end") @db.Date
+  status       AppraisalCycleStatus @default(DRAFT)
+  /// 0-100: share of the final score that comes from the KPIs; the rest is competencies.
+  kpiWeight    Int                  @default(70) @map("kpi_weight")
+  /// `[{ key, label }]`. Ratings on an appraisal are keyed by `key`.
+  competencies Json
+  /// User id of the actor; null for a machine credential. Deliberately no FK.
+  createdBy    String?              @map("created_by")
+  createdAt    DateTime             @default(now()) @map("created_at")
+  updatedAt    DateTime             @default(now()) @updatedAt @map("updated_at")
+
+  org        Organization @relation(fields: [orgId], references: [id])
+  appraisals Appraisal[]
+
+  @@index([orgId, status])
+  @@map("appraisal_cycles")
+}
+
+model Appraisal {
+  id         String          @id @default(cuid())
+  cycleId    String          @map("cycle_id")
+  employeeId String          @map("employee_id")
+  /// Another employee (defaults to the employee's manager at launch).
+  reviewerId String?         @map("reviewer_id")
+  status     AppraisalStatus @default(SELF_REVIEW)
+
+  /// `{ [competencyKey]: 1-5 }`. A missing key is unrated.
+  selfRatings     Json                     @default("{}") @map("self_ratings")
+  selfComment     String?                  @map("self_comment")
+  leadRatings     Json                     @default("{}") @map("lead_ratings")
+  leadComment     String?                  @map("lead_comment")
+  strengths       String?
+  improvements    String?
+  goals           String?
+  recommendation  AppraisalRecommendation?
+  /// Required when `recommendation` is PROMOTE.
+  newDesignation  String?                  @map("new_designation")
+  calibrationNote String?                  @map("calibration_note")
+  /// 0-5, 1 dp. When set it replaces the computed score.
+  calibratedScore Float?                   @map("calibrated_score")
+
+  /// Computed KPIs for the cycle period (never typed); frozen at sign-off.
+  kpiSnapshot   Json?     @map("kpi_snapshot")
+  kpiSnapshotAt DateTime? @map("kpi_snapshot_at")
+
+  /// The score as it stood at sign-off, so history never moves if the maths is later tuned.
+  finalScore   Float?   @map("final_score")
+  finalPartial Boolean? @map("final_partial")
+
+  signedOffAt      DateTime? @map("signed_off_at")
+  /// User id of the actor; null for a machine credential. Deliberately no FK.
+  signedOffBy      String?   @map("signed_off_by")
+  /// Set once the recommendation's employment event has been written; makes sign-off idempotent.
+  outcomeAppliedAt DateTime? @map("outcome_applied_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  cycle    AppraisalCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  employee Employee       @relation("AppraisalEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  reviewer Employee?      @relation("AppraisalReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@unique([cycleId, employeeId])
+  @@index([employeeId])
+  @@index([reviewerId])
+  @@map("appraisals")
 }
