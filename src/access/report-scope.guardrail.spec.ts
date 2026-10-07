@@ -23,6 +23,8 @@ import { FinanceReportsController } from '../xero/finance-reports.controller';
 import { XeroAuthController } from '../xero/xero-auth.controller';
 import { MyTeamsController } from '../teams/my-teams.controller';
 import { TeamsController } from '../teams/teams.controller';
+import { PeopleAttendanceController } from '../people/people-attendance.controller';
+import { PeopleEmployeesController } from '../people/people-employees.controller';
 import { scopeFactory } from './scope.decorator';
 
 /** A controller class, used only as a reflection-metadata target — not instantiated here. */
@@ -67,6 +69,8 @@ const CONTROLLERS: ControllerClass[] = [
   XeroAuthController,
   TeamsController,
   MyTeamsController,
+  PeopleEmployeesController,
+  PeopleAttendanceController,
 ];
 
 /**
