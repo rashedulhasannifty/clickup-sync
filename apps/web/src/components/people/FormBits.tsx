@@ -33,3 +33,24 @@ export function FormRow({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
+/**
+ * Button group for `PageHeader`'s `actions` slot. That slot does not shrink,
+ * so on a phone three buttons would push the page sideways; capping the width
+ * at the viewport lets the group wrap onto a second row instead.
+ */
+export function HeaderActions({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        flexWrap: 'wrap',
+        maxWidth: 'calc(100vw - 40px)',
+      }}
+    >
+      {children}
+    </div>
+  );
+}

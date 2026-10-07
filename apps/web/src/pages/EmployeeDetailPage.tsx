@@ -1,0 +1,392 @@
+import { useMemo, useState, type ReactNode } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, CalendarPlus, Pencil, UserX } from 'lucide-react';
+import type { EmployeeSummary } from '../api/people';
+import {
+  useAddEmploymentEvent,
+  useEmployees,
+  useEmployeeSummary,
+  useUpdateEmployee,
+} from '../hooks/usePeople';
+import { useTeams } from '../hooks/useTeams';
+import { useMediaQuery } from '../hooks/useMediaQuery';
+import {
+  BAND_LABEL,
+  bandColor,
+  formatDate,
+  formatMonth,
+  formatShortDate,
+  formatTenure,
+} from '../lib/people';
+import { PageHeader } from '../components/ui/PageHeader';
+import { QueryError } from '../components/ui/QueryError';
+import { PageSkeleton } from '../components/ui/PageSkeleton';
+import { Button } from '../components/ui/Button';
+import { Card } from '../components/ui/Card';
+import { EmptyState } from '../components/ui/EmptyState';
+import { Pill } from '../components/ui/Pill';
+import { Avatar } from '../components/ui/Avatar';
+import { Tabs } from '../components/ui/Tabs';
+import { useToast } from '../components/ui/Toast';
+import { LineChart } from '../components/charts/LineChart';
+import { AddEventModal } from '../components/people/AddEventModal';
+import { AttendanceStrip } from '../components/people/AttendanceStrip';
+import { CareerTimeline } from '../components/people/CareerTimeline';
+import { EmployeeDocumentsSlot } from '../components/people/EmployeeDocumentsSlot';
+import { EmployeeFormModal } from '../components/people/EmployeeFormModal';
+import { HeaderActions } from '../components/people/FormBits';
+import { KpiTile } from '../components/people/KpiTile';
+import { LeaveBalanceCard } from '../components/people/LeaveBalanceCard';
+import { DemoDataBadge, EmployeeStatusPill, LinkedIndicators } from '../components/people/PeoplePills';
+
+type TabValue = 'overview' | 'documents';
+
+function Chip({ children }: { children: ReactNode }) {
+  return (
+    <span
+      style={{
+        fontSize: 12,
+        color: 'var(--text-muted)',
+        background: 'var(--muted-bg)',
+        borderRadius: 6,
+        padding: '2px 8px',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** The big overall number in the header, coloured by its band. */
+function OverallScore({ summary }: { summary: EmployeeSummary }) {
+  const { score, band } = summary.overall;
+  return (
+    <div style={{ textAlign: 'right', minWidth: 130 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        Overall score · 90 days
+      </div>
+      {score == null ? (
+        <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-muted)', marginTop: 4 }}>No data</div>
+      ) : (
+        <>
+          <div style={{ fontSize: 34, fontWeight: 600, letterSpacing: '-0.02em', lineHeight: 1.1, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
+            {score}
+            <span style={{ fontSize: 14, fontWeight: 400, color: 'var(--text-muted)' }}>/100</span>
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: bandColor(band) }}>{BAND_LABEL[band]}</div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function TrendCard({ summary }: { summary: EmployeeSummary }) {
+  const points = summary.trend.filter((t) => t.overall != null);
+  const data = points.map((t) => ({ label: formatMonth(t.month), key: t.month, value: t.overall as number }));
+  return (
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>Overall score by month</div>
+      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>Last 6 months · 0–100, equal-weighted across the KPIs that have data</div>
+      {data.length < 2 ? (
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '24px 0' }}>
+          Not enough history to draw a trend yet. It needs at least two months with KPI data.
+        </div>
+      ) : (
+        <LineChart
+          data={data}
+          height={150}
+          formatMax={(v) => String(Math.round(v))}
+          renderTooltip={(d) => {
+            const t = summary.trend.find((x) => x.month === d.key);
+            return (
+              <>
+                <div style={{ fontWeight: 600 }}>{d.label}</div>
+                <div style={{ color: 'var(--text-muted)' }}>Overall {d.value}</div>
+                {t && (
+                  <div style={{ color: 'var(--text-muted)', fontSize: 10 }}>
+                    {[
+                      t.utilisation != null ? `Util ${t.utilisation}%` : null,
+                      t.chargeable != null ? `Charge ${t.chargeable}%` : null,
+                      t.onTimeDelivery != null ? `On-time ${t.onTimeDelivery}%` : null,
+                      t.punctuality != null ? `Punct ${t.punctuality}%` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </div>
+                )}
+              </>
+            );
+          }}
+        />
+      )}
+      {data.length < summary.trend.length && data.length >= 2 && (
+        <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 4 }}>
+          Months with no KPI data are skipped.
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function EmployeeDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const [params, setParams] = useSearchParams();
+  const toast = useToast();
+  const narrow = useMediaQuery('(max-width: 900px)');
+  const tab: TabValue = params.get('tab') === 'documents' ? 'documents' : 'overview';
+  const [editing, setEditing] = useState(false);
+  const [addingEvent, setAddingEvent] = useState(false);
+
+  const summaryQuery = useEmployeeSummary(id);
+  const teams = useTeams();
+  const directory = useEmployees({});
+  const update = useUpdateEmployee(id ?? '');
+  const addEvent = useAddEmploymentEvent(id ?? '');
+
+  const teamOptions = useMemo(
+    () => (teams.data ?? []).map((t) => ({ value: t.id, label: t.name })),
+    [teams.data],
+  );
+  const managerOptions = useMemo(
+    () =>
+      (directory.data ?? [])
+        .filter((e) => e.status !== 'EXITED')
+        .map((e) => ({ value: e.id, label: `${e.fullName} · ${e.designation}` })),
+    [directory.data],
+  );
+
+  const backLink = (
+    <Link to="/people" style={{ color: 'var(--text-muted)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <ArrowLeft size={13} /> Employees
+    </Link>
+  );
+
+  if (summaryQuery.isLoading) return <PageSkeleton />;
+
+  if (summaryQuery.isError || !summaryQuery.data) {
+    const status = (summaryQuery.error as { response?: { status?: number } } | null)?.response?.status;
+    if (status === 404) {
+      return (
+        <div>
+          <PageHeader title="Employee not found" breadcrumb={backLink} />
+          <Card>
+            <EmptyState
+              icon={<UserX size={20} strokeWidth={1.5} />}
+              title="No such employee"
+              body="This record may have been removed, or the link is wrong."
+              action={
+                <Link to="/people">
+                  <Button variant="accent">Back to employees</Button>
+                </Link>
+              }
+            />
+          </Card>
+        </div>
+      );
+    }
+    return (
+      <div>
+        <PageHeader title="Employee" breadcrumb={backLink} />
+        <QueryError query={summaryQuery} what="this employee" />
+      </div>
+    );
+  }
+
+  const summary = summaryQuery.data;
+  const e = summary.employee;
+  const sub = [e.designation, e.teamName, e.managerName ? `reports to ${e.managerName}` : null].filter(Boolean).join(' · ');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <PageHeader
+        breadcrumb={backLink}
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+            <Avatar name={e.fullName} size={44} />
+            <span style={{ overflowWrap: 'anywhere' }}>{e.fullName}</span>
+          </span>
+        }
+        badge={
+          <>
+            <EmployeeStatusPill status={e.status} />
+            <DemoDataBadge source={summary.attendanceSource} />
+          </>
+        }
+        description={sub}
+        actions={
+          <HeaderActions>
+            <Button size="md" variant="subtle" icon={<Pencil size={13} />} onClick={() => setEditing(true)}>
+              Edit profile
+            </Button>
+            <Button size="md" variant="accent" icon={<CalendarPlus size={13} />} onClick={() => setAddingEvent(true)}>
+              Add event
+            </Button>
+          </HeaderActions>
+        }
+      />
+
+      {/* Identity strip + overall score */}
+      <Card>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', minWidth: 0 }}>
+            <Chip>
+              Joined {formatDate(e.joinDate)} · {formatTenure(e.tenureMonths)}
+            </Chip>
+            {e.exitDate && <Chip>Exit {formatDate(e.exitDate)}</Chip>}
+            {e.confirmationDate && <Chip>Confirmed {formatDate(e.confirmationDate)}</Chip>}
+            {e.grade && <Chip>Grade {e.grade}</Chip>}
+            {e.department && <Chip>{e.department}</Chip>}
+            {e.employeeCode && <Chip>#{e.employeeCode}</Chip>}
+            <Chip>{e.email}</Chip>
+            <LinkedIndicators linked={e.linked} />
+          </div>
+          <OverallScore summary={summary} />
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-faint)', marginTop: 10 }}>
+          KPI period {formatShortDate(summary.period.from)} – {formatDate(summary.period.to)} (Dhaka time). Tiles show each KPI against its target.
+        </div>
+      </Card>
+
+      <Tabs
+        variant="underline"
+        ariaLabel="Employee sections"
+        value={tab}
+        onChange={(v) => {
+          const next = new URLSearchParams(params);
+          if (v === 'overview') next.delete('tab');
+          else next.set('tab', v);
+          setParams(next, { replace: true });
+        }}
+        items={[
+          { value: 'overview', label: 'Overview' },
+          { value: 'documents', label: 'Documents' },
+        ]}
+      />
+
+      {tab === 'documents' ? (
+        <EmployeeDocumentsSlot employeeId={e.id} />
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 230px), 1fr))', gap: 12 }}>
+            <KpiTile
+              label="Utilisation"
+              source="ClickUp"
+              kpi={summary.kpis.utilisation}
+              unit="hours"
+              detail={(n, d) => `${n} logged of ${d} available`}
+            />
+            <KpiTile
+              label="Chargeable"
+              source="ClickUp"
+              kpi={summary.kpis.chargeable}
+              unit="hours"
+              detail={(n, d) => `${n} chargeable of ${d} tracked`}
+            />
+            <KpiTile
+              label="On-time delivery"
+              source="ClickUp"
+              kpi={summary.kpis.onTimeDelivery}
+              unit="tasks"
+              detail={(n, d) => `${n} of ${d} tasks closed by their due date`}
+            />
+            <KpiTile
+              label="Punctuality"
+              source="Office"
+              kpi={summary.kpis.punctuality}
+              unit="days"
+              detail={(n, d) => `${n} of ${d} office days on time`}
+            />
+            <LeaveBalanceCard balance={summary.leaveBalance} />
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : 'minmax(0, 1.6fr) minmax(0, 1fr)',
+              gap: 12,
+              alignItems: 'start',
+            }}
+          >
+            <Card>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+                <TrendCard summary={summary} />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>
+                    Attendance · last {summary.attendance.length || 30} working days
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+                    Hover a day for the in and out times. Late means first entry after 09:30.
+                  </div>
+                  <AttendanceStrip days={summary.attendance} />
+                </div>
+              </div>
+            </Card>
+
+            <Card
+              title="Career timeline"
+              action={
+                <Button size="sm" variant="ghost" icon={<CalendarPlus size={12} />} onClick={() => setAddingEvent(true)}>
+                  Add event
+                </Button>
+              }
+            >
+              <CareerTimeline events={summary.events} />
+            </Card>
+          </div>
+
+          {summary.attendanceSource === 'none' && (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              <Pill tone="gray" size="xs">
+                No attendance source
+              </Pill>{' '}
+              Punctuality and the attendance strip stay empty until an attendance provider is configured.
+            </div>
+          )}
+        </>
+      )}
+
+      {editing && (
+        <EmployeeFormModal
+          employee={e}
+          teams={teamOptions}
+          managers={managerOptions}
+          pending={update.isPending}
+          error={update.isError ? (update.error as Error).message : null}
+          onClose={() => {
+            setEditing(false);
+            update.reset();
+          }}
+          onUpdate={(body) =>
+            update.mutate(body, {
+              onSuccess: () => {
+                setEditing(false);
+                toast.success('Profile updated.');
+              },
+            })
+          }
+        />
+      )}
+      {addingEvent && (
+        <AddEventModal
+          employee={e}
+          teams={teamOptions}
+          pending={addEvent.isPending}
+          error={addEvent.isError ? (addEvent.error as Error).message : null}
+          onClose={() => {
+            setAddingEvent(false);
+            addEvent.reset();
+          }}
+          onSubmit={(body) =>
+            addEvent.mutate(body, {
+              onSuccess: () => {
+                setAddingEvent(false);
+                toast.success('Event added to the timeline.');
+              },
+            })
+          }
+        />
+      )}
+    </div>
+  );
+}
