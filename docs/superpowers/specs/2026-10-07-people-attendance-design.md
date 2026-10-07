@@ -13,10 +13,10 @@ glance" with KPIs. The end goal is tracking KPIs for every employee.
 
 | Slice | Contents | Status |
 |---|---|---|
-| **1 (this spec)** | Employee records, employment events, attendance + leave from a **dummy provider**, directory, employee summary, attendance & leave page | building |
-| 2 | Documents, stored in MinIO (see "Slice 2 — documents" below) | next |
-| 3 | Appraisal cycle (see "Slice 3 — appraisals") | building |
-| 4 | Exit (see "Slice 4 — exit") | building |
+| **1** | Employee records, employment events, attendance + leave from a **dummy provider**, directory, employee summary, attendance & leave page | done |
+| 2 | Documents, stored in MinIO (see "Slice 2 — documents" below) | done |
+| 3 | Appraisal cycle (see "Slice 3 — appraisals") | done |
+| 4 | Exit (see "Slice 4 — exit") | done |
 | 5 | Nifty Timer sync (activity %, timer hours, idle) | later; Nifty Timer has no API key auth today |
 | 6 | Configurable KPI targets/weights per designation; lead visibility | later |
 
@@ -344,3 +344,16 @@ fills in every step, including the self review on the employee's behalf.
 - **UI:** "Start offboarding" on the employee page → `/people/:id/exit`
   (stepper as in mockup tab 6), plus `/people/exits` listing in-progress and
   recent exits.
+
+### Known limitations (slices 3–4)
+
+- Exited employees are not enforced read-only in the People and Documents
+  modules, and a manual `NOTICE_GIVEN` / `EXITED` event on the employee page
+  bypasses the exit flow (no exit row, no clearance). Follow-up: route those
+  two event types through the exit flow or hide them from "Add event".
+- Letters use the PDF built-in Helvetica font, so names in a non-Latin script
+  (e.g. Bengali) won't render. Follow-up: embed a Unicode font.
+- Appraisal sign-off asks via the browser's confirm dialog, matching Budgets
+  and Settings.
+- On the appraisal form, "Refresh KPIs" discards unsaved edits; Save and
+  Advance don't.
