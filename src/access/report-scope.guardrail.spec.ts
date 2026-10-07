@@ -23,6 +23,7 @@ import { FinanceReportsController } from '../xero/finance-reports.controller';
 import { XeroAuthController } from '../xero/xero-auth.controller';
 import { MyTeamsController } from '../teams/my-teams.controller';
 import { DocumentsController } from '../documents/documents.controller';
+import { ExitsController } from '../exits/exits.controller';
 import { TeamsController } from '../teams/teams.controller';
 import { PeopleAttendanceController } from '../people/people-attendance.controller';
 import { PeopleEmployeesController } from '../people/people-employees.controller';
@@ -73,6 +74,7 @@ const CONTROLLERS: ControllerClass[] = [
   PeopleEmployeesController,
   PeopleAttendanceController,
   DocumentsController,
+  ExitsController,
 ];
 
 /**

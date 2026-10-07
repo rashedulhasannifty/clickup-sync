@@ -74,7 +74,7 @@ export function formatLongDate(iso: string): string {
 /** A file name without path separators or other characters that Content-Disposition dislikes. */
 function safeName(s: string): string {
   const cleaned = s
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ')
+    .replace(/[\\/:*?"<>|]|\p{Cc}/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return cleaned || 'Employee';

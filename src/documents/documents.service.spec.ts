@@ -243,3 +243,33 @@ describe('DocumentsService lists', () => {
     expect((await service.listCompany('org1', { status: 'expired' })).rows).toHaveLength(1);
   });
 });
+
+describe('DocumentsService.storeGenerated (exit letters)', () => {
+  const letter = { category: 'EXIT' as const, docType: 'EXPERIENCE_LETTER', fileName: 'Experience letter - Ayesha Khan.pdf' };
+
+  it('files the first letter as an EXIT document, version 1', async () => {
+    const { service, storage } = setup();
+    const doc = await service.storeGenerated(actor, 'e1', { ...letter, buffer: pdfBytes() });
+    expect(doc).toMatchObject({ employeeId: 'e1', category: 'EXIT', docType: 'EXPERIENCE_LETTER', version: 1, contentType: 'application/pdf' });
+    expect(storage.objects.size).toBe(1);
+  });
+
+  it('regenerating replaces the current one with a new version instead of adding a second', async () => {
+    const { service } = setup();
+    const first = await service.storeGenerated(actor, 'e1', { ...letter, buffer: pdfBytes() });
+    const second = await service.storeGenerated(actor, 'e1', { ...letter, buffer: Buffer.concat([pdfBytes(), Buffer.from('\n% v2')]) });
+    expect(second.version).toBe(2);
+    expect(second.previousVersions.map((p) => p.id)).toEqual([first.id]);
+    const current = await service.currentInCategory('org1', 'e1', 'EXIT');
+    expect(current).toHaveLength(1);
+    expect(current[0].id).toBe(second.id);
+  });
+
+  it('keeps the two letter types apart and refuses another org employee', async () => {
+    const { service } = setup();
+    await service.storeGenerated(actor, 'e1', { ...letter, buffer: pdfBytes() });
+    await service.storeGenerated(actor, 'e1', { ...letter, docType: 'RELEASE_LETTER', fileName: 'Release letter.pdf', buffer: pdfBytes() });
+    expect(await service.currentInCategory('org1', 'e1', 'EXIT')).toHaveLength(2);
+    await expect(service.storeGenerated(actor, 'x1', { ...letter, buffer: pdfBytes() })).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
