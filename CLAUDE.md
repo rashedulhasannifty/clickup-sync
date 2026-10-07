@@ -156,6 +156,8 @@ Team ID: `3450636`.
 | Clients page (first/last task per client) | `src/reports/clients-report.service.ts`, `src/reports/clients.assemble.ts`, `apps/web/src/pages/ClientsPage.tsx` |
 | ClickUp workspace directory + invite-from-ClickUp | `src/clickup/workspace-member*.ts`, `src/auth/workspace-directory*.ts`, `apps/web/src/components/team/ClickupMembersTable.tsx` |
 | One-off `scope_client_option_id` backfill | `src/scripts/backfill-client-option-ids.ts` |
+| People: employees, employment events, attendance/leave provider + sync, employee KPIs | `src/people/*`, `src/workers` not used (own `people-sync` processor in `src/people/people-sync.processor.ts`), `apps/web/src/pages/{Employees,EmployeeDetail,Attendance}Page.tsx`, `apps/web/src/components/people/*` |
+| Employee documents (MinIO/S3, streamed through the backend) | `src/documents/*`, `apps/web/src/pages/DocumentsPage.tsx`, `apps/web/src/components/people/EmployeeDocumentsTab.tsx` |
 
 ## Data model rules
 
@@ -301,6 +303,7 @@ Expected queues:
 - `clickup-backfills`
 - `maintenance`
 - `xero-sync`
+- `people-sync` (attendance/leave provider sync; its own processor — never put other jobs on it, and never put it on `maintenance`, whose processor treats every job as a cost recalc)
 
 When adding workers:
 
