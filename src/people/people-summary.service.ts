@@ -155,6 +155,30 @@ export class PeopleSummaryService {
     };
   }
 
+  /**
+   * KPIs for one employee over any period, from the same inputs and maths as
+   * the summary. Used by appraisals to snapshot the cycle period; the caller
+   * decides the period (no default, no length cap beyond what it passes).
+   */
+  async kpisForPeriod(
+    orgId: string,
+    id: string,
+    period: DateRange,
+  ): Promise<KpiComputation> {
+    const row = await this.employeesRepo.findById(orgId, id);
+    if (!row) throw new NotFoundException('Employee not found');
+    const profile = toProfile(row, dhakaDateOf(new Date()));
+    const data = await this.loadOne(row, period.from, period.to);
+    return computeKpis(
+      this.input(
+        period,
+        { joinDate: profile.joinDate, exitDate: profile.exitDate },
+        row,
+        data,
+      ),
+    );
+  }
+
   /** Directory rows with today's state and the 90-day overall score, in a fixed number of queries. */
   async directory(
     orgId: string,
