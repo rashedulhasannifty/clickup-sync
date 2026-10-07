@@ -113,6 +113,17 @@ const FinancePage = React.lazy(() =>
 const TeamsPage = React.lazy(() =>
 	import('./pages/TeamsPage').then((m) => ({ default: m.TeamsPage })),
 );
+const EmployeesPage = React.lazy(() =>
+	import('./pages/EmployeesPage').then((m) => ({ default: m.EmployeesPage })),
+);
+const EmployeeDetailPage = React.lazy(() =>
+	import('./pages/EmployeeDetailPage').then((m) => ({
+		default: m.EmployeeDetailPage,
+	})),
+);
+const AttendancePage = React.lazy(() =>
+	import('./pages/AttendancePage').then((m) => ({ default: m.AttendancePage })),
+);
 const MyTeamPage = React.lazy(() =>
 	import('./pages/MyTeamPage').then((m) => ({ default: m.MyTeamPage })),
 );
@@ -321,6 +332,30 @@ export default function App() {
 											element={
 												<RequireRole min="ADMIN" redirect="/overview">
 													<SuspenseRoute><TeamsPage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										<Route
+											path="/people"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><EmployeesPage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										<Route
+											path="/people/attendance"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><AttendancePage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										<Route
+											path="/people/:id"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><EmployeeDetailPage /></SuspenseRoute>
 												</RequireRole>
 											}
 										/>

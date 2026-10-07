@@ -21,6 +21,7 @@
   --nav-cost: #059669;
   --nav-monitor: #F43F5E;
   --nav-org: #0891B2;
+  --nav-people: #C026D3;
   --nav-pin: #D97706;
   /* How much of a row's hue tints it when it is the current page. */
   --nav-active-mix: 16%;
@@ -113,6 +114,7 @@
   --nav-cost: #34D399;
   --nav-monitor: #FB7185;
   --nav-org: #22D3EE;
+  --nav-people: #E879F9;
   --nav-pin: #FBBF24;
   --nav-active-mix: 26%;
   --border: #27272a;

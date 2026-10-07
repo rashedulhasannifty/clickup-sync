@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { NavLink } from "react-router-dom";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import { BrandIcon } from "../brand/BrandIcon";
 import { BrandWordmark } from "../brand/BrandWordmark";
 import {
@@ -35,6 +35,8 @@ import {
   Receipt,
   Gauge,
   Briefcase,
+  Contact,
+  CalendarCheck,
 } from "lucide-react";
 import { useStats } from "../../hooks/useReports";
 import { useAuth } from "../../hooks/useAuth";
@@ -49,6 +51,9 @@ interface NavItem {
   /** The section hue, applied to this row's icon. Inherited from the group,
    *  so a pinned row keeps the colour of the section it really belongs to. */
   color?: string;
+  /** Overrides NavLink's prefix matching when two items share a path prefix
+   *  (People: `/people` is also the prefix of `/people/attendance`). */
+  isActive?: (pathname: string) => boolean;
 }
 
 /** A labelled run of nav items. An empty label is the landing pair, which
@@ -94,6 +99,37 @@ function writeStringList(key: string, value: string[]): void {
   }
 }
 
+/** A nav link that normally defers to NavLink's own active matching, but lets
+ *  an item supply its own rule (see `NavItem.isActive`). */
+function RowLink({
+  item,
+  style,
+  children,
+}: {
+  item: NavItem;
+  style: CSSProperties;
+  children: ReactNode;
+}) {
+  const { pathname } = useLocation();
+  if (item.isActive) {
+    return (
+      <Link
+        to={item.to}
+        className="sidebar-item"
+        style={style}
+        aria-current={item.isActive(pathname) ? "page" : undefined}
+      >
+        {children}
+      </Link>
+    );
+  }
+  return (
+    <NavLink to={item.to} className="sidebar-item" style={style}>
+      {children}
+    </NavLink>
+  );
+}
+
 /**
  * One nav row. The pin control is a SIBLING of the NavLink, never a child —
  * a <button> inside an <a> is invalid markup and the anchor swallows its
@@ -121,9 +157,8 @@ function NavRow({
   const Icon = item.icon;
   return (
     <div className="nav-row" style={{ display: "flex", alignItems: "center" }}>
-      <NavLink
-        to={item.to}
-        className="sidebar-item"
+      <RowLink
+        item={item}
         style={
           {
             display: "flex",
@@ -196,7 +231,7 @@ function NavRow({
               </span>
             )}
         </>
-      </NavLink>
+      </RowLink>
       {!collapsed && (
         <button
           type="button"
@@ -419,6 +454,27 @@ export function Sidebar({
               badge: stats?.missingRateEntries,
             },
             { to: "/sync-logs", label: "Sync Logs", icon: Webhook },
+          ]
+        : [],
+    },
+    {
+      // People is Owner/Admin-only server-side (class-level @Roles on every
+      // /people controller), so the whole group appears and disappears with
+      // `isAdmin`. `/people` is a path prefix of `/people/attendance`, hence
+      // the explicit rule on Employees (which also owns `/people/:id`).
+      label: "People",
+      color: "var(--nav-people)",
+      icon: Contact,
+      items: isAdmin
+        ? [
+            {
+              to: "/people",
+              label: "Employees",
+              icon: Contact,
+              isActive: (pathname: string) =>
+                pathname.startsWith("/people") && !pathname.startsWith("/people/attendance"),
+            },
+            { to: "/people/attendance", label: "Attendance & leave", icon: CalendarCheck },
           ]
         : [],
     },
