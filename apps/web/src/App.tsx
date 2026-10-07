@@ -127,6 +127,12 @@ const AttendancePage = React.lazy(() =>
 const DocumentsPage = React.lazy(() =>
 	import('./pages/DocumentsPage').then((m) => ({ default: m.DocumentsPage })),
 );
+const ExitsPage = React.lazy(() =>
+	import('./pages/ExitsPage').then((m) => ({ default: m.ExitsPage })),
+);
+const ExitPage = React.lazy(() =>
+	import('./pages/ExitPage').then((m) => ({ default: m.ExitPage })),
+);
 const AppraisalsPage = React.lazy(() =>
 	import('./pages/AppraisalsPage').then((m) => ({ default: m.AppraisalsPage })),
 );
@@ -362,6 +368,14 @@ export default function App() {
 										/>
 										{/* Static /people/* paths before /people/:id, so e.g. "documents" is never read as an employee id. */}
 										<Route
+											path="/people/exits"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><ExitsPage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										<Route
 											path="/people/appraisals"
 											element={
 												<RequireRole min="ADMIN" redirect="/overview">
@@ -382,6 +396,14 @@ export default function App() {
 											element={
 												<RequireRole min="ADMIN" redirect="/overview">
 													<SuspenseRoute><DocumentsPage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										<Route
+											path="/people/:id/exit"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><ExitPage /></SuspenseRoute>
 												</RequireRole>
 											}
 										/>

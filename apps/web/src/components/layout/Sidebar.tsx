@@ -39,6 +39,7 @@ import {
   CalendarCheck,
   FileText,
   ClipboardCheck,
+  DoorOpen,
 } from "lucide-react";
 import { useStats } from "../../hooks/useReports";
 import { useAuth } from "../../hooks/useAuth";
@@ -477,11 +478,13 @@ export function Sidebar({
                 pathname.startsWith("/people") &&
                 !pathname.startsWith("/people/attendance") &&
                 !pathname.startsWith("/people/documents") &&
-                !pathname.startsWith("/people/appraisals"),
+                !pathname.startsWith("/people/appraisals") &&
+                !pathname.startsWith("/people/exits"),
             },
             { to: "/people/attendance", label: "Attendance & leave", icon: CalendarCheck },
             { to: "/people/documents", label: "Documents", icon: FileText },
             { to: "/people/appraisals", label: "Appraisals", icon: ClipboardCheck },
+            { to: "/people/exits", label: "Exits", icon: DoorOpen },
           ]
         : [],
     },

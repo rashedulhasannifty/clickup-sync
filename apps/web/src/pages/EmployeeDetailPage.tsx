@@ -34,6 +34,7 @@ import { AttendanceStrip } from '../components/people/AttendanceStrip';
 import { CareerTimeline } from '../components/people/CareerTimeline';
 import { EmployeeDocumentsTab } from '../components/people/EmployeeDocumentsTab';
 import { EmployeeAppraisalsTab } from '../components/people/EmployeeAppraisalsTab';
+import { StartOffboardingButton } from '../components/people/StartOffboardingButton';
 import { EmployeeFormModal } from '../components/people/EmployeeFormModal';
 import { HeaderActions } from '../components/people/FormBits';
 import { KpiTile } from '../components/people/KpiTile';
@@ -233,6 +234,7 @@ export function EmployeeDetailPage() {
         description={sub}
         actions={
           <HeaderActions>
+            <StartOffboardingButton employeeId={e.id} status={e.status} />
             <Button size="md" variant="subtle" icon={<Pencil size={13} />} onClick={() => setEditing(true)}>
               Edit profile
             </Button>
