@@ -1,28 +1,28 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
-import { QueueService } from "../queues/queue.service";
-import { JOBS, QUEUES } from "../queues/queue.constants";
-import { minutesBetween } from "./attendance-math";
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { QueueService } from '../queues/queue.service';
+import { JOBS, QUEUES } from '../queues/queue.constants';
+import { minutesBetween } from './attendance-math';
 import {
   ATTENDANCE_PROVIDER,
   type AttendanceProvider,
-} from "./attendance-provider";
+} from './attendance-provider';
 import {
   AttendanceRepository,
   type AttendanceUpsert,
   type LeaveUpsert,
-} from "./attendance.repository";
-import { EmployeesRepository } from "./employees.repository";
+} from './attendance.repository';
+import { EmployeesRepository } from './employees.repository';
 import {
   SYNC_CRON_LOOKBACK_DAYS,
   SYNC_DEFAULT_LOOKBACK_DAYS,
-} from "./people.constants";
-import { addDays, dateColumnToIso, dhakaDateOf } from "./people-dates";
-import type { AttendanceSyncResult, SyncEnqueued } from "./people.types";
+} from './people.constants';
+import { addDays, dateColumnToIso, dhakaDateOf } from './people-dates';
+import type { AttendanceSyncResult, SyncEnqueued } from './people.types';
 
 export interface PeopleSyncJobData {
-  entity: "attendance";
+  entity: 'attendance';
   lookbackDays: number;
-  trigger: "cron" | "manual";
+  trigger: 'cron' | 'manual';
 }
 
 /**
@@ -47,10 +47,10 @@ export class PeopleSyncService {
 
   async enqueue(
     lookbackDays = SYNC_DEFAULT_LOOKBACK_DAYS,
-    trigger: PeopleSyncJobData["trigger"] = "manual",
+    trigger: PeopleSyncJobData['trigger'] = 'manual',
   ): Promise<SyncEnqueued> {
     const data: PeopleSyncJobData = {
-      entity: "attendance",
+      entity: 'attendance',
       lookbackDays,
       trigger,
     };
@@ -62,14 +62,14 @@ export class PeopleSyncService {
 
   /** Cron entry point: enqueue the short window, unless one is already queued/running. */
   async enqueueDaily(): Promise<boolean> {
-    if (this.provider.source === "none") return false;
+    if (this.provider.source === 'none') return false;
     const queue = this.queues.get(QUEUES.PEOPLE_SYNC);
     // Name-filtered busy check, as in XeroScheduler: jobId dedup cannot work for crons.
     const live = await queue.getJobs([
-      "active",
-      "waiting",
-      "delayed",
-      "prioritized",
+      'active',
+      'waiting',
+      'delayed',
+      'prioritized',
     ]);
     if (live.some((j) => j?.name === JOBS.SYNC_ATTENDANCE)) {
       this.logger.warn(
@@ -77,7 +77,7 @@ export class PeopleSyncService {
       );
       return false;
     }
-    await this.enqueue(SYNC_CRON_LOOKBACK_DAYS, "cron");
+    await this.enqueue(SYNC_CRON_LOOKBACK_DAYS, 'cron');
     return true;
   }
 

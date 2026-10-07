@@ -1,6 +1,6 @@
-import type { EmployeeRow } from "./employees.repository";
-import { dateColumnToIso, tenureMonths } from "./people-dates";
-import type { EmployeeProfile } from "./people.types";
+import type { EmployeeRow } from './employees.repository';
+import { dateColumnToIso, tenureMonths } from './people-dates';
+import type { EmployeeProfile } from './people.types';
 
 /** Row -> API profile. `today` is the Dhaka date, so tenure is computable without a clock in here. */
 export function toProfile(row: EmployeeRow, today: string): EmployeeProfile {

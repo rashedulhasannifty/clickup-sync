@@ -3,17 +3,17 @@ import {
   Inject,
   Injectable,
   NotFoundException,
-} from "@nestjs/common";
-import { AuthPrincipal } from "../auth/auth.types";
-import { classifyToday, type TypedLeave } from "./attendance-math";
+} from '@nestjs/common';
+import { AuthPrincipal } from '../auth/auth.types';
+import { classifyToday, type TypedLeave } from './attendance-math';
 import {
   ATTENDANCE_PROVIDER,
   type AttendanceProvider,
-} from "./attendance-provider";
-import { AttendanceRepository } from "./attendance.repository";
-import { EmployeesRepository } from "./employees.repository";
-import { LEAVE_LIST_LIMIT } from "./people.constants";
-import { dateColumnToIso, dhakaDateOf, isBusinessDay } from "./people-dates";
+} from './attendance-provider';
+import { AttendanceRepository } from './attendance.repository';
+import { EmployeesRepository } from './employees.repository';
+import { LEAVE_LIST_LIMIT } from './people.constants';
+import { dateColumnToIso, dhakaDateOf, isBusinessDay } from './people-dates';
 import type {
   LeaveRecordView,
   LeaveStatusValue,
@@ -21,7 +21,7 @@ import type {
   TodayAttendance,
   TodayCounts,
   TodayRow,
-} from "./people.types";
+} from './people.types';
 
 interface LeaveRow {
   id: string;
@@ -118,13 +118,13 @@ export class PeopleAttendanceService {
         row,
         leaves: leaves.get(e.id) ?? [],
       });
-      if (state === "non-working") continue;
+      if (state === 'non-working') continue;
       const inOffice = !!row?.firstIn && !row.lastOut;
       counts.total++;
       if (inOffice) counts.inOffice++;
-      if (state === "late") counts.late++;
-      if (state === "leave") counts.onLeave++;
-      if (state === "not-in") counts.notIn++;
+      if (state === 'late') counts.late++;
+      if (state === 'leave') counts.onLeave++;
+      if (state === 'not-in') counts.notIn++;
       out.push({
         employeeId: e.id,
         fullName: e.fullName,
@@ -174,18 +174,18 @@ export class PeopleAttendanceService {
   async decide(
     principal: AuthPrincipal,
     id: string,
-    status: "APPROVED" | "REJECTED",
+    status: 'APPROVED' | 'REJECTED',
   ): Promise<LeaveRecordView> {
     const existing = await this.attendance.findLeave(principal.orgId, id);
-    if (!existing) throw new NotFoundException("Leave record not found");
-    if (existing.status !== "PENDING")
+    if (!existing) throw new NotFoundException('Leave record not found');
+    if (existing.status !== 'PENDING')
       throw new ConflictException(`Leave is already ${existing.status}`);
     const won = await this.attendance.decide(
       id,
       status,
       principal.isMachine ? null : principal.userId,
     );
-    if (!won) throw new ConflictException("Leave was decided by someone else");
+    if (!won) throw new ConflictException('Leave was decided by someone else');
     const fresh = await this.attendance.findLeave(principal.orgId, id);
     return toLeaveView(fresh as NonNullable<typeof fresh>);
   }

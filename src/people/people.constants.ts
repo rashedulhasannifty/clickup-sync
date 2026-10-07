@@ -32,7 +32,7 @@ export const SYNC_MAX_LOOKBACK_DAYS = 400;
 export const SYNC_CRON_LOOKBACK_DAYS = 7;
 
 /** Source stamped on rows created by the manual leave path. */
-export const MANUAL_SOURCE = "manual";
+export const MANUAL_SOURCE = 'manual';
 
 /** Used by the people controllers' listing endpoints; keeps one response bounded. */
 export const LEAVE_LIST_LIMIT = 1000;

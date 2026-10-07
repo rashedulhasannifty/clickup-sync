@@ -4,13 +4,13 @@ import type {
   ProviderAttendanceRow,
   ProviderLeaveRow,
   ProviderPerson,
-} from "./attendance-provider";
+} from './attendance-provider';
 import {
   addDays,
   businessDaysIn,
   dhakaDateOf,
   dhakaInstant,
-} from "./people-dates";
+} from './people-dates';
 
 /** Share of business days that are a sick / casual day (approved, one-day). */
 const SICK_RATE = 0.04;
@@ -57,7 +57,7 @@ const between = (u: number, lo: number, hi: number): number =>
  * lands. It never invents attendance after `now`.
  */
 export class DummyAttendanceProvider implements AttendanceProvider {
-  readonly source = "dummy";
+  readonly source = 'dummy';
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
@@ -83,14 +83,14 @@ export class DummyAttendanceProvider implements AttendanceProvider {
           leaves.push({
             email,
             externalId: `dummy:${email}:${date}`,
-            type: sick ? "SICK" : "CASUAL",
+            type: sick ? 'SICK' : 'CASUAL',
             startDate: date,
             endDate: date,
             days: 1,
-            status: "APPROVED",
+            status: 'APPROVED',
             reason: sick
-              ? "Sick leave (demo data)"
-              : "Casual leave (demo data)",
+              ? 'Sick leave (demo data)'
+              : 'Casual leave (demo data)',
           });
           continue;
         }
@@ -125,12 +125,12 @@ export class DummyAttendanceProvider implements AttendanceProvider {
         leaves.push({
           email,
           externalId: `dummy:pending:${email}:${date}`,
-          type: "CASUAL",
+          type: 'CASUAL',
           startDate: date,
           endDate: date,
           days: 1,
-          status: "PENDING",
-          reason: "Casual leave request (demo data)",
+          status: 'PENDING',
+          reason: 'Casual leave request (demo data)',
         });
       }
     }

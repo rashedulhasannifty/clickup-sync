@@ -1,12 +1,12 @@
-import { Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
-import { PrismaService } from "../database/prisma.service";
-import { isoToDateColumn } from "./people-dates";
-import type { EmployeePatch } from "./employment-events";
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../database/prisma.service';
+import { isoToDateColumn } from './people-dates';
+import type { EmployeePatch } from './employment-events';
 import type {
   EmployeeStatusValue,
   EmploymentEventTypeValue,
-} from "./people.types";
+} from './people.types';
 
 /** The relations every profile needs: team and manager names. */
 const PROFILE_INCLUDE = {
@@ -71,16 +71,16 @@ export class EmployeesRepository {
         ...(search
           ? {
               OR: [
-                { fullName: { contains: search, mode: "insensitive" } },
-                { email: { contains: search, mode: "insensitive" } },
-                { employeeCode: { contains: search, mode: "insensitive" } },
-                { designation: { contains: search, mode: "insensitive" } },
+                { fullName: { contains: search, mode: 'insensitive' } },
+                { email: { contains: search, mode: 'insensitive' } },
+                { employeeCode: { contains: search, mode: 'insensitive' } },
+                { designation: { contains: search, mode: 'insensitive' } },
               ],
             }
           : {}),
       },
       include: PROFILE_INCLUDE,
-      orderBy: { fullName: "asc" },
+      orderBy: { fullName: 'asc' },
     });
   }
 
@@ -126,7 +126,7 @@ export class EmployeesRepository {
         ...(data.status ? { status: data.status } : {}),
         events: {
           create: {
-            type: "JOINED",
+            type: 'JOINED',
             effectiveDate: isoToDateColumn(data.joinDate),
             createdBy: data.createdBy,
           },
@@ -209,7 +209,7 @@ export class EmployeesRepository {
   listEvents(employeeId: string) {
     return this.prisma.employmentEvent.findMany({
       where: { employeeId },
-      orderBy: [{ effectiveDate: "desc" }, { id: "desc" }],
+      orderBy: [{ effectiveDate: 'desc' }, { id: 'desc' }],
     });
   }
 
@@ -241,7 +241,7 @@ export class EmployeesRepository {
   /** A login in this org with this email (case-insensitive), for email-based linking. */
   findUserByEmail(orgId: string, email: string) {
     return this.prisma.user.findFirst({
-      where: { orgId, email: { equals: email, mode: "insensitive" } },
+      where: { orgId, email: { equals: email, mode: 'insensitive' } },
       select: {
         id: true,
         clickupUserId: true,
@@ -253,7 +253,7 @@ export class EmployeesRepository {
   /** ACTIVE users in the org with no employee row yet. */
   usersWithoutEmployee(orgId: string) {
     return this.prisma.user.findMany({
-      where: { orgId, status: "ACTIVE", employee: null },
+      where: { orgId, status: 'ACTIVE', employee: null },
       select: {
         id: true,
         email: true,
@@ -261,7 +261,7 @@ export class EmployeesRepository {
         clickupUserId: true,
         createdAt: true,
       },
-      orderBy: { createdAt: "asc" },
+      orderBy: { createdAt: 'asc' },
     });
   }
 

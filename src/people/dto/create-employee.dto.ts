@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEmail,
   IsISO8601,
@@ -7,7 +7,7 @@ import {
   IsString,
   Matches,
   MaxLength,
-} from "class-validator";
+} from 'class-validator';
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -16,7 +16,7 @@ export class CreateEmployeeDto {
 
   @ApiProperty({
     description:
-      "Work email. Stored lower-cased; links the employee to a login of the same email.",
+      'Work email. Stored lower-cased; links the employee to a login of the same email.',
   })
   @IsEmail()
   @MaxLength(254)
@@ -42,18 +42,18 @@ export class CreateEmployeeDto {
   @ApiPropertyOptional() @IsOptional() @IsString() teamId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() managerId?: string;
 
-  @ApiProperty({ example: "2026-01-15" })
-  @Matches(DATE_ONLY, { message: "joinDate must be a YYYY-MM-DD date" })
+  @ApiProperty({ example: '2026-01-15' })
+  @Matches(DATE_ONLY, { message: 'joinDate must be a YYYY-MM-DD date' })
   @IsISO8601({ strict: true })
   joinDate!: string;
 
   @ApiPropertyOptional({
     description:
-      "ClickUp user id. Defaults to the linked login’s ClickUp id when there is one.",
+      'ClickUp user id. Defaults to the linked login’s ClickUp id when there is one.',
   })
   @IsOptional()
   @Matches(/^\d+$/, {
-    message: "clickupUserId must be a numeric ClickUp user id",
+    message: 'clickupUserId must be a numeric ClickUp user id',
   })
   clickupUserId?: string;
 }

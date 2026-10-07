@@ -2,7 +2,7 @@ import {
   DHAKA_OFFSET_MS,
   dhakaTodayParts,
   type DateParts,
-} from "../budgets/budget-forecast";
+} from '../budgets/budget-forecast';
 
 /**
  * Pure Dhaka-calendar helpers for the People module. Dates are `YYYY-MM-DD`
@@ -14,7 +14,7 @@ import {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function formatParts(p: DateParts): string {
-  return `${p.year}-${String(p.month0 + 1).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+  return `${p.year}-${String(p.month0 + 1).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
 }
 
 /** The Dhaka calendar date of an instant. */

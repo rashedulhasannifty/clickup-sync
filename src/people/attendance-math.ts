@@ -1,19 +1,19 @@
-import { countBusinessDays } from "../budgets/budget-forecast";
-import { LEAVE_ENTITLEMENT, STRIP_BUSINESS_DAYS } from "./people.constants";
+import { countBusinessDays } from '../budgets/budget-forecast';
+import { LEAVE_ENTITLEMENT, STRIP_BUSINESS_DAYS } from './people.constants';
 import {
   addDays,
   intersect,
   isBusinessDay,
   type DateRange,
-} from "./people-dates";
-import { isOnTimeArrival, type LeaveSpan } from "./kpi-math";
+} from './people-dates';
+import { isOnTimeArrival, type LeaveSpan } from './kpi-math';
 import type {
   AttendanceDayState,
   AttendanceDayView,
   LeaveBalance,
   LeaveTypeValue,
   TodayState,
-} from "./people.types";
+} from './people.types';
 
 /**
  * Pure attendance classification: the 30-day strip, today's state, and the
@@ -35,10 +35,10 @@ export interface TypedLeave extends LeaveSpan {
 /** The strip state a given approved leave type shows as. */
 export function leaveStateOf(
   type: LeaveTypeValue,
-): "sick" | "casual" | "leave" {
-  if (type === "SICK") return "sick";
-  if (type === "CASUAL") return "casual";
-  return "leave";
+): 'sick' | 'casual' | 'leave' {
+  if (type === 'SICK') return 'sick';
+  if (type === 'CASUAL') return 'casual';
+  return 'leave';
 }
 
 export function leaveCovering(
@@ -62,11 +62,11 @@ export function classifyDay(args: {
   leaves: TypedLeave[];
 }): AttendanceDayState {
   const { date, today, row, leaves } = args;
-  if (date > today) return "future";
-  if (row?.firstIn) return isOnTimeArrival(row.firstIn) ? "on-time" : "late";
+  if (date > today) return 'future';
+  if (row?.firstIn) return isOnTimeArrival(row.firstIn) ? 'on-time' : 'late';
   const leave = leaveCovering(date, leaves);
   if (leave) return leaveStateOf(leave.type);
-  return date === today ? "future" : "absent";
+  return date === today ? 'future' : 'absent';
 }
 
 /**
@@ -119,15 +119,15 @@ export function classifyToday(args: {
   leaves: TypedLeave[];
 }): TodayState {
   const { today, employment, row, leaves } = args;
-  if (!isBusinessDay(today)) return "non-working";
+  if (!isBusinessDay(today)) return 'non-working';
   if (
     today < employment.joinDate ||
     (employment.exitDate !== null && today > employment.exitDate)
   )
-    return "non-working";
-  if (row?.firstIn) return isOnTimeArrival(row.firstIn) ? "on-time" : "late";
-  if (leaveCovering(today, leaves)) return "leave";
-  return "not-in";
+    return 'non-working';
+  if (row?.firstIn) return isOnTimeArrival(row.firstIn) ? 'on-time' : 'late';
+  if (leaveCovering(today, leaves)) return 'leave';
+  return 'not-in';
 }
 
 /** Whole minutes between first-in and last-out, or null when either is missing. */
@@ -158,8 +158,8 @@ export function computeLeaveBalance(
     if (span === 0) continue;
     const inYear = countBusinessDays(clipped.from, clipped.to);
     const days = (Math.min(l.days, span) / span) * inYear;
-    if (l.type === "CASUAL") used.casual += days;
-    else if (l.type === "SICK") used.sick += days;
+    if (l.type === 'CASUAL') used.casual += days;
+    else if (l.type === 'SICK') used.sick += days;
     else used.other += days;
   }
   const r = (n: number) => Math.round(n * 10) / 10;

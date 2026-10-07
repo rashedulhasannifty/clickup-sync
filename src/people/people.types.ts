@@ -5,28 +5,28 @@
  * BigInt/Decimal), and nullable means "not known" not "zero".
  */
 
-export type EmployeeStatusValue = "PROBATION" | "ACTIVE" | "NOTICE" | "EXITED";
+export type EmployeeStatusValue = 'PROBATION' | 'ACTIVE' | 'NOTICE' | 'EXITED';
 export type EmploymentEventTypeValue =
-  | "JOINED"
-  | "CONFIRMED"
-  | "PROMOTED"
-  | "DESIGNATION_CHANGED"
-  | "TRANSFERRED"
-  | "NOTICE_GIVEN"
-  | "EXITED"
-  | "NOTE";
-export type LeaveTypeValue = "SICK" | "CASUAL" | "ANNUAL" | "UNPAID" | "OTHER";
+  | 'JOINED'
+  | 'CONFIRMED'
+  | 'PROMOTED'
+  | 'DESIGNATION_CHANGED'
+  | 'TRANSFERRED'
+  | 'NOTICE_GIVEN'
+  | 'EXITED'
+  | 'NOTE';
+export type LeaveTypeValue = 'SICK' | 'CASUAL' | 'ANNUAL' | 'UNPAID' | 'OTHER';
 export type LeaveStatusValue =
-  | "PENDING"
-  | "APPROVED"
-  | "REJECTED"
-  | "CANCELLED";
+  | 'PENDING'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'CANCELLED';
 
 /** Where attendance rows came from: the provider that wrote the latest one, else the configured one. */
-export type AttendanceSource = "dummy" | "none" | (string & {});
+export type AttendanceSource = 'dummy' | 'none' | (string & {});
 
 /** KPI score band. Also used as a KPI's own `status` (derived from that KPI's score). */
-export type Band = "on-track" | "watch" | "at-risk" | "no-data";
+export type Band = 'on-track' | 'watch' | 'at-risk' | 'no-data';
 
 export interface EmployeeLinks {
   /** `clickupUserId` is set, so ClickUp KPIs can be computed. */
@@ -60,11 +60,11 @@ export interface EmployeeProfile {
 
 /** State of an employee today, as shown in the directory and the door log. */
 export type TodayState =
-  | "on-time"
-  | "late"
-  | "leave"
-  | "not-in"
-  | "non-working";
+  | 'on-time'
+  | 'late'
+  | 'leave'
+  | 'not-in'
+  | 'non-working';
 
 export interface DirectoryRow extends EmployeeProfile {
   today: TodayState;
@@ -73,7 +73,7 @@ export interface DirectoryRow extends EmployeeProfile {
   band: Band;
 }
 
-export type KpiReason = "not-linked" | "no-data";
+export type KpiReason = 'not-linked' | 'no-data';
 
 export interface KpiResult {
   /** Percentage, 1 decimal (e.g. 78.4). null when it cannot be computed; see `reason`. */
@@ -115,13 +115,13 @@ export interface TrendPoint {
 }
 
 export type AttendanceDayState =
-  | "on-time"
-  | "late"
-  | "absent"
-  | "sick"
-  | "casual"
-  | "leave"
-  | "future";
+  | 'on-time'
+  | 'late'
+  | 'absent'
+  | 'sick'
+  | 'casual'
+  | 'leave'
+  | 'future';
 
 export interface AttendanceDayView {
   date: string;

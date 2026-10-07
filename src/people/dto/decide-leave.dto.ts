@@ -1,8 +1,8 @@
-import { ApiProperty } from "@nestjs/swagger";
-import { IsIn } from "class-validator";
+import { ApiProperty } from '@nestjs/swagger';
+import { IsIn } from 'class-validator';
 
 export class DecideLeaveDto {
-  @ApiProperty({ enum: ["APPROVED", "REJECTED"] })
-  @IsIn(["APPROVED", "REJECTED"])
-  status!: "APPROVED" | "REJECTED";
+  @ApiProperty({ enum: ['APPROVED', 'REJECTED'] })
+  @IsIn(['APPROVED', 'REJECTED'])
+  status!: 'APPROVED' | 'REJECTED';
 }

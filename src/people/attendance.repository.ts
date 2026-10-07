@@ -1,9 +1,9 @@
-import { Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
-import { PrismaService } from "../database/prisma.service";
-import { dateColumnToIso, isoToDateColumn } from "./people-dates";
-import type { ProviderLeaveRow } from "./attendance-provider";
-import type { LeaveStatusValue } from "./people.types";
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../database/prisma.service';
+import { dateColumnToIso, isoToDateColumn } from './people-dates';
+import type { ProviderLeaveRow } from './attendance-provider';
+import type { LeaveStatusValue } from './people.types';
 
 export interface AttendanceUpsert {
   employeeId: string;
@@ -15,7 +15,7 @@ export interface AttendanceUpsert {
   source: string;
 }
 
-export interface LeaveUpsert extends Omit<ProviderLeaveRow, "email"> {
+export interface LeaveUpsert extends Omit<ProviderLeaveRow, 'email'> {
   employeeId: string;
 }
 
@@ -68,7 +68,7 @@ export class AttendanceRepository {
   ): Promise<string | null> {
     const row = await this.prisma.attendanceDay.findFirst({
       where: { employee: { orgId }, ...(employeeId ? { employeeId } : {}) },
-      orderBy: { date: "desc" },
+      orderBy: { date: 'desc' },
       select: { source: true },
     });
     return row?.source ?? null;
@@ -80,7 +80,7 @@ export class AttendanceRepository {
     return this.prisma.leaveRecord.findMany({
       where: {
         employeeId: { in: employeeIds },
-        status: "APPROVED",
+        status: 'APPROVED',
         startDate: { lte: isoToDateColumn(to) },
         endDate: { gte: isoToDateColumn(from) },
       },
@@ -104,7 +104,7 @@ export class AttendanceRepository {
         ...(f.to ? { startDate: { lte: isoToDateColumn(f.to) } } : {}),
       },
       include: { employee: { select: { fullName: true } } },
-      orderBy: [{ startDate: "desc" }, { id: "asc" }],
+      orderBy: [{ startDate: 'desc' }, { id: 'asc' }],
       take: f.limit,
     });
   }
@@ -113,7 +113,7 @@ export class AttendanceRepository {
     return this.prisma.leaveRecord.count({
       where: {
         employee: { orgId },
-        status: "PENDING",
+        status: 'PENDING',
         endDate: { gte: isoToDateColumn(fromDate) },
       },
     });
@@ -133,11 +133,11 @@ export class AttendanceRepository {
    */
   async decide(
     id: string,
-    status: "APPROVED" | "REJECTED",
+    status: 'APPROVED' | 'REJECTED',
     decidedBy: string | null,
   ): Promise<boolean> {
     const res = await this.prisma.leaveRecord.updateMany({
-      where: { id, status: "PENDING" },
+      where: { id, status: 'PENDING' },
       data: { status, decidedBy, decidedAt: new Date() },
     });
     return res.count === 1;

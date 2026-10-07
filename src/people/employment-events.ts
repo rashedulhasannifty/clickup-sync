@@ -1,7 +1,7 @@
 import type {
   EmployeeStatusValue,
   EmploymentEventTypeValue,
-} from "./people.types";
+} from './people.types';
 
 /**
  * What an employment event does to the employee row. Pure so the table of
@@ -20,7 +20,7 @@ export interface EmployeePatch {
 
 /** Events whose `toValue` is the new value and is therefore required. */
 export const EVENT_REQUIRES_TO_VALUE: ReadonlySet<EmploymentEventTypeValue> =
-  new Set(["PROMOTED", "DESIGNATION_CHANGED", "TRANSFERRED"]);
+  new Set(['PROMOTED', 'DESIGNATION_CHANGED', 'TRANSFERRED']);
 
 export function eventEffects(args: {
   type: EmploymentEventTypeValue;
@@ -31,19 +31,19 @@ export function eventEffects(args: {
 }): EmployeePatch {
   const { type, effectiveDate, toValue, teamResolves } = args;
   switch (type) {
-    case "PROMOTED":
-    case "DESIGNATION_CHANGED":
+    case 'PROMOTED':
+    case 'DESIGNATION_CHANGED':
       return toValue ? { designation: toValue } : {};
-    case "CONFIRMED":
-      return { confirmationDate: effectiveDate, status: "ACTIVE" };
-    case "NOTICE_GIVEN":
-      return { status: "NOTICE" };
-    case "EXITED":
-      return { exitDate: effectiveDate, status: "EXITED" };
-    case "TRANSFERRED":
+    case 'CONFIRMED':
+      return { confirmationDate: effectiveDate, status: 'ACTIVE' };
+    case 'NOTICE_GIVEN':
+      return { status: 'NOTICE' };
+    case 'EXITED':
+      return { exitDate: effectiveDate, status: 'EXITED' };
+    case 'TRANSFERRED':
       return toValue && teamResolves ? { teamId: toValue } : {};
-    case "JOINED":
-    case "NOTE":
+    case 'JOINED':
+    case 'NOTE':
       return {};
   }
 }

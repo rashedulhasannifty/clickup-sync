@@ -1,21 +1,21 @@
-import { PeopleSyncService } from "./people-sync.service";
-import { DummyAttendanceProvider } from "./dummy-attendance.provider";
-import { dhakaInstant } from "./people-dates";
+import { PeopleSyncService } from './people-sync.service';
+import { DummyAttendanceProvider } from './dummy-attendance.provider';
+import { dhakaInstant } from './people-dates';
 
-const NOW = dhakaInstant("2026-10-07", 18 * 60);
+const NOW = dhakaInstant('2026-10-07', 18 * 60);
 
 function make(provider = new DummyAttendanceProvider(() => NOW)) {
   const emps = [
     {
-      id: "e1",
-      email: "a@x.test",
-      joinDate: new Date("2026-01-01T00:00:00Z"),
+      id: 'e1',
+      email: 'a@x.test',
+      joinDate: new Date('2026-01-01T00:00:00Z'),
       exitDate: null,
     },
     {
-      id: "e2",
-      email: "b@x.test",
-      joinDate: new Date("2026-01-01T00:00:00Z"),
+      id: 'e2',
+      email: 'b@x.test',
+      joinDate: new Date('2026-01-01T00:00:00Z'),
       exitDate: null,
     },
   ];
@@ -79,14 +79,14 @@ function make(provider = new DummyAttendanceProvider(() => NOW)) {
 
 afterEach(() => jest.useRealTimers());
 
-describe("PeopleSyncService.run", () => {
-  it("writes provider rows keyed by employee id, stamped with the provider source, and computes minutes in office", async () => {
+describe('PeopleSyncService.run', () => {
+  it('writes provider rows keyed by employee id, stamped with the provider source, and computes minutes in office', async () => {
     const { svc, attendance } = make();
     const r = await svc.run(30);
     expect(r).toMatchObject({
-      source: "dummy",
-      from: "2026-09-08",
-      to: "2026-10-07",
+      source: 'dummy',
+      from: '2026-09-08',
+      to: '2026-10-07',
       employees: 2,
     });
     const rows = attendance.upsertAttendance.mock.calls[0][0];
@@ -94,7 +94,7 @@ describe("PeopleSyncService.run", () => {
     expect(
       rows.every(
         (x: { source: string; employeeId: string }) =>
-          x.source === "dummy" && ["e1", "e2"].includes(x.employeeId),
+          x.source === 'dummy' && ['e1', 'e2'].includes(x.employeeId),
       ),
     ).toBe(true);
     const full = rows.find((x: { lastOut: Date | null }) => x.lastOut);
@@ -102,12 +102,12 @@ describe("PeopleSyncService.run", () => {
       Math.round((full.lastOut.getTime() - full.firstIn.getTime()) / 60000),
     );
     expect(attendance.upsertProviderLeaves).toHaveBeenCalledWith(
-      "dummy",
+      'dummy',
       expect.any(Array),
     );
   });
 
-  it("is idempotent: a second run writes the same attendance keys and no new leave", async () => {
+  it('is idempotent: a second run writes the same attendance keys and no new leave', async () => {
     const { svc, stores } = make();
     const first = await svc.run(30);
     const keys = new Set(stores.attendance.keys());
@@ -118,31 +118,31 @@ describe("PeopleSyncService.run", () => {
     expect(second.leavesUpdated).toBe(0);
   });
 
-  it("a decided leave survives a re-sync", async () => {
+  it('a decided leave survives a re-sync', async () => {
     const provider = {
-      source: "dummy",
+      source: 'dummy',
       fetch: jest.fn().mockResolvedValue({
         attendance: [],
         leaves: [
           {
-            email: "a@x.test",
-            externalId: "dummy:pending:a@x.test:2026-10-12",
-            type: "CASUAL",
-            startDate: "2026-10-12",
-            endDate: "2026-10-12",
+            email: 'a@x.test',
+            externalId: 'dummy:pending:a@x.test:2026-10-12',
+            type: 'CASUAL',
+            startDate: '2026-10-12',
+            endDate: '2026-10-12',
             days: 1,
-            status: "PENDING",
+            status: 'PENDING',
           },
         ],
       }),
     };
     const { svc, stores } = make(provider as never);
     expect((await svc.run(30)).leavesCreated).toBe(1);
-    const row = stores.leaves.get("dummy:pending:a@x.test:2026-10-12")!;
+    const row = stores.leaves.get('dummy:pending:a@x.test:2026-10-12')!;
     row.decided = true;
-    row.status = "REJECTED";
+    row.status = 'REJECTED';
     const again = await svc.run(30);
-    expect(row.status).toBe("REJECTED");
+    expect(row.status).toBe('REJECTED');
     expect(again).toMatchObject({
       leavesCreated: 0,
       leavesUpdated: 0,
@@ -150,14 +150,14 @@ describe("PeopleSyncService.run", () => {
     });
   });
 
-  it("skips provider rows for emails it does not know and no-ops with no employees", async () => {
+  it('skips provider rows for emails it does not know and no-ops with no employees', async () => {
     const provider = {
-      source: "dummy",
+      source: 'dummy',
       fetch: jest.fn().mockResolvedValue({
         attendance: [
           {
-            email: "ghost@x.test",
-            date: "2026-10-06",
+            email: 'ghost@x.test',
+            date: '2026-10-06',
             firstIn: NOW,
             lastOut: null,
           },
@@ -169,13 +169,13 @@ describe("PeopleSyncService.run", () => {
     expect((await svc.run(7)).attendanceRows).toBe(0);
   });
 
-  it("with the none provider a run changes nothing", async () => {
+  it('with the none provider a run changes nothing', async () => {
     const { NoneAttendanceProvider } =
-      await import("./none-attendance.provider");
+      await import('./none-attendance.provider');
     const { svc, attendance } = make(new NoneAttendanceProvider() as never);
     const r = await svc.run(7);
     expect(r).toMatchObject({
-      source: "none",
+      source: 'none',
       attendanceRows: 0,
       leavesCreated: 0,
     });
@@ -183,30 +183,30 @@ describe("PeopleSyncService.run", () => {
   });
 });
 
-describe("PeopleSyncService.enqueueDaily", () => {
-  it("enqueues the 7-day job on the people-sync queue, not maintenance, and skips when one is live", async () => {
+describe('PeopleSyncService.enqueueDaily', () => {
+  it('enqueues the 7-day job on the people-sync queue, not maintenance, and skips when one is live', async () => {
     const { svc, queues } = make();
     const queue = {
-      add: jest.fn().mockResolvedValue({ id: "1" }),
+      add: jest.fn().mockResolvedValue({ id: '1' }),
       getJobs: jest.fn().mockResolvedValue([]),
     };
     queues.get.mockReturnValue(queue);
     expect(await svc.enqueueDaily()).toBe(true);
-    expect(queues.get).toHaveBeenCalledWith("people-sync");
+    expect(queues.get).toHaveBeenCalledWith('people-sync');
     expect(queue.add).toHaveBeenCalledWith(
-      "sync-attendance",
-      { entity: "attendance", lookbackDays: 7, trigger: "cron" },
+      'sync-attendance',
+      { entity: 'attendance', lookbackDays: 7, trigger: 'cron' },
       {},
     );
-    queue.getJobs.mockResolvedValue([{ name: "sync-attendance" }]);
+    queue.getJobs.mockResolvedValue([{ name: 'sync-attendance' }]);
     queue.add.mockClear();
     expect(await svc.enqueueDaily()).toBe(false);
     expect(queue.add).not.toHaveBeenCalled();
   });
 
-  it("does not enqueue at all when no provider is configured", async () => {
+  it('does not enqueue at all when no provider is configured', async () => {
     const { NoneAttendanceProvider } =
-      await import("./none-attendance.provider");
+      await import('./none-attendance.provider');
     const { svc, queues } = make(new NoneAttendanceProvider() as never);
     expect(await svc.enqueueDaily()).toBe(false);
     expect(queues.get).not.toHaveBeenCalled();

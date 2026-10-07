@@ -1,17 +1,17 @@
-import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
-import { Injectable } from "@nestjs/common";
-import { UnrecoverableError, type Job } from "bullmq";
-import { DeadLetterService } from "../jobs/dead-letter.service";
-import { JobLogsRepository } from "../jobs/job-logs.repository";
-import { JOBS, QUEUES } from "../queues/queue.constants";
+import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
+import { Injectable } from '@nestjs/common';
+import { UnrecoverableError, type Job } from 'bullmq';
+import { DeadLetterService } from '../jobs/dead-letter.service';
+import { JobLogsRepository } from '../jobs/job-logs.repository';
+import { JOBS, QUEUES } from '../queues/queue.constants';
 import {
   SYNC_CRON_LOOKBACK_DAYS,
   SYNC_MAX_LOOKBACK_DAYS,
-} from "./people.constants";
+} from './people.constants';
 import {
   PeopleSyncService,
   type PeopleSyncJobData,
-} from "./people-sync.service";
+} from './people-sync.service';
 
 /**
  * Sole consumer of the `people-sync` queue. Its own queue and processor, not
@@ -30,7 +30,7 @@ export class PeopleSyncProcessor extends WorkerHost {
     super();
   }
 
-  @OnWorkerEvent("failed")
+  @OnWorkerEvent('failed')
   async onFailed(job: Job, err: Error) {
     await this.deadLetters.recordIfExhausted(job, err);
   }
@@ -54,9 +54,9 @@ export class PeopleSyncProcessor extends WorkerHost {
       jobId: job.id?.toString(),
       queueName: QUEUES.PEOPLE_SYNC,
       jobName: job.name,
-      entityType: "attendance",
-      entityId: "all",
-      payload: { lookbackDays, trigger: job.data?.trigger ?? "manual" },
+      entityType: 'attendance',
+      entityId: 'all',
+      payload: { lookbackDays, trigger: job.data?.trigger ?? 'manual' },
     });
     try {
       const result = await this.sync.run(lookbackDays);

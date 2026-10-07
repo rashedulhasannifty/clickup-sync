@@ -3,37 +3,37 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
-} from "@nestjs/common";
-import { AuthPrincipal } from "../auth/auth.types";
-import { AddEmploymentEventDto } from "./dto/add-employment-event.dto";
-import { CreateEmployeeDto } from "./dto/create-employee.dto";
-import { UpdateEmployeeDto } from "./dto/update-employee.dto";
-import { toProfile } from "./employee-mapper";
-import { EVENT_REQUIRES_TO_VALUE, eventEffects } from "./employment-events";
+} from '@nestjs/common';
+import { AuthPrincipal } from '../auth/auth.types';
+import { AddEmploymentEventDto } from './dto/add-employment-event.dto';
+import { CreateEmployeeDto } from './dto/create-employee.dto';
+import { UpdateEmployeeDto } from './dto/update-employee.dto';
+import { toProfile } from './employee-mapper';
+import { EVENT_REQUIRES_TO_VALUE, eventEffects } from './employment-events';
 import {
   EmployeesRepository,
   type EmployeeListFilter,
   type EmployeeProfileUpdate,
   type EmployeeRow,
-} from "./employees.repository";
-import { dateColumnToIso, dhakaDateOf } from "./people-dates";
+} from './employees.repository';
+import { dateColumnToIso, dhakaDateOf } from './people-dates';
 import type {
   EmployeeProfile,
   EmploymentEventTypeValue,
   EmploymentEventView,
   ImportFromUsersResult,
-} from "./people.types";
+} from './people.types';
 
 /** Imported users have no HR data yet; this is what a lead/admin then edits. */
-export const UNASSIGNED_DESIGNATION = "Unassigned";
+export const UNASSIGNED_DESIGNATION = 'Unassigned';
 
 const normaliseEmail = (e: string) => e.trim().toLowerCase();
 
 function isUniqueViolation(e: unknown): boolean {
   return (
-    typeof e === "object" &&
+    typeof e === 'object' &&
     e !== null &&
-    (e as { code?: string }).code === "P2002"
+    (e as { code?: string }).code === 'P2002'
   );
 }
 
@@ -165,14 +165,14 @@ export class EmployeesService {
     const toValue = dto.toValue?.trim() || null;
     if (EVENT_REQUIRES_TO_VALUE.has(type) && !toValue) {
       throw new BadRequestException(
-        `${type} needs a toValue (${type === "TRANSFERRED" ? "the team id" : "the new designation"})`,
+        `${type} needs a toValue (${type === 'TRANSFERRED' ? 'the team id' : 'the new designation'})`,
       );
     }
 
     // TRANSFERRED carries a team id; if it does not resolve to a team in this org
     // the event is still recorded (history is not lost) but the employee keeps their team.
     const team =
-      type === "TRANSFERRED" && toValue
+      type === 'TRANSFERRED' && toValue
         ? await this.repo.findTeamInOrg(principal.orgId, toValue)
         : null;
     const patch = eventEffects({
@@ -183,9 +183,9 @@ export class EmployeesService {
     });
 
     const defaultFrom =
-      type === "PROMOTED" || type === "DESIGNATION_CHANGED"
+      type === 'PROMOTED' || type === 'DESIGNATION_CHANGED'
         ? employee.designation
-        : type === "TRANSFERRED"
+        : type === 'TRANSFERRED'
           ? employee.teamId
           : null;
     const event = await this.repo.addEvent({
@@ -230,7 +230,7 @@ export class EmployeesService {
       try {
         await this.repo.create({
           orgId,
-          fullName: u.name?.trim() || email.split("@")[0],
+          fullName: u.name?.trim() || email.split('@')[0],
           email,
           employeeCode: null,
           userId: u.id,
@@ -244,7 +244,7 @@ export class EmployeesService {
           teamId: null,
           managerId: null,
           joinDate: dhakaDateOf(u.createdAt),
-          status: "ACTIVE",
+          status: 'ACTIVE',
           createdBy: actorId(principal),
         });
         created++;
@@ -293,7 +293,7 @@ export class EmployeesService {
     const teamIds = new Set<string>();
     const userIds = new Set<string>();
     for (const e of events) {
-      if (e.type === "TRANSFERRED") {
+      if (e.type === 'TRANSFERRED') {
         if (e.fromValue) teamIds.add(e.fromValue);
         if (e.toValue) teamIds.add(e.toValue);
       }
@@ -308,7 +308,7 @@ export class EmployeesService {
       users.map((u) => [u.id, u.name?.trim() || u.email]),
     );
     const label = (type: EmploymentEventTypeValue, v: string | null) =>
-      v === null ? null : type === "TRANSFERRED" ? (teamName.get(v) ?? v) : v;
+      v === null ? null : type === 'TRANSFERRED' ? (teamName.get(v) ?? v) : v;
     return events.map((e) => ({
       id: e.id.toString(),
       type: e.type,
@@ -325,13 +325,13 @@ export class EmployeesService {
 
   private async require(orgId: string, id: string): Promise<EmployeeRow> {
     const row = await this.repo.findById(orgId, id);
-    if (!row) throw new NotFoundException("Employee not found");
+    if (!row) throw new NotFoundException('Employee not found');
     return row;
   }
 
   private async requireTeam(orgId: string, teamId: string): Promise<void> {
     if (!(await this.repo.findTeamInOrg(orgId, teamId)))
-      throw new BadRequestException("Unknown team");
+      throw new BadRequestException('Unknown team');
   }
 
   private async requireManager(
@@ -340,25 +340,25 @@ export class EmployeesService {
     selfId: string | null,
   ): Promise<void> {
     if (selfId && managerId === selfId)
-      throw new BadRequestException("An employee cannot be their own manager");
+      throw new BadRequestException('An employee cannot be their own manager');
     if (!(await this.repo.existsInOrg(orgId, managerId)))
-      throw new BadRequestException("Unknown manager");
+      throw new BadRequestException('Unknown manager');
   }
 
   private translate(e: unknown): Error {
     if (isUniqueViolation(e)) {
       const target = String(
-        (e as { meta?: { target?: unknown } }).meta?.target ?? "",
+        (e as { meta?: { target?: unknown } }).meta?.target ?? '',
       );
       const field = /email/.test(target)
-        ? "email"
+        ? 'email'
         : /employee_code/.test(target)
-          ? "employee code"
+          ? 'employee code'
           : /clickup/.test(target)
-            ? "ClickUp user"
+            ? 'ClickUp user'
             : /user_id/.test(target)
-              ? "login"
-              : "value";
+              ? 'login'
+              : 'value';
       return new ConflictException(
         `An employee with this ${field} already exists`,
       );

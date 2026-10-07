@@ -1,7 +1,7 @@
-import { Injectable } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
-import { PrismaService } from "../database/prisma.service";
-import { addDays, dhakaInstant } from "./people-dates";
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { PrismaService } from '../database/prisma.service';
+import { addDays, dhakaInstant } from './people-dates';
 
 export interface HoursRow {
   clickupUserId: string;

@@ -1,18 +1,18 @@
-import { countBusinessDays } from "../budgets/budget-forecast";
+import { countBusinessDays } from '../budgets/budget-forecast';
 import {
   BAND_ON_TRACK_MIN,
   BAND_WATCH_MIN,
   KPI_TARGETS,
   LATE_AFTER_MINUTES,
   WORKING_DAY_HOURS,
-} from "./people.constants";
+} from './people.constants';
 import {
   businessDaysIn,
   dhakaMinutesOfDay,
   intersect,
   type DateRange,
-} from "./people-dates";
-import type { Band, KpiResult, Kpis, OverallScore } from "./people.types";
+} from './people-dates';
+import type { Band, KpiResult, Kpis, OverallScore } from './people.types';
 
 /**
  * Pure KPI maths for the employee summary and directory. No I/O, no clock:
@@ -54,10 +54,10 @@ const round = (n: number, dp: number): number => {
 };
 
 export function bandOf(score: number | null): Band {
-  if (score === null) return "no-data";
-  if (score >= BAND_ON_TRACK_MIN) return "on-track";
-  if (score >= BAND_WATCH_MIN) return "watch";
-  return "at-risk";
+  if (score === null) return 'no-data';
+  if (score >= BAND_ON_TRACK_MIN) return 'on-track';
+  if (score >= BAND_WATCH_MIN) return 'watch';
+  return 'at-risk';
 }
 
 /** min(value / target, 1) * 100, unrounded. */
@@ -109,7 +109,7 @@ export function leaveBusinessDays(
 
 /** Business days in the period, within employment, minus approved leave. 0 when never employed in the period. */
 export function availableBusinessDays(
-  input: Pick<KpiInput, "period" | "employment" | "approvedLeave">,
+  input: Pick<KpiInput, 'period' | 'employment' | 'approvedLeave'>,
 ): number {
   const window = employmentWindow(input.period, input.employment);
   if (!window) return 0;
@@ -121,17 +121,17 @@ function kpi(
   numerator: number,
   denominator: number,
   target: number,
-  reason?: "not-linked" | "no-data",
+  reason?: 'not-linked' | 'no-data',
 ): KpiResult {
   if (reason || denominator <= 0) {
     return {
       value: null,
       target,
-      numerator: reason === "not-linked" ? 0 : round(numerator, 2),
-      denominator: reason === "not-linked" ? 0 : round(denominator, 2),
+      numerator: reason === 'not-linked' ? 0 : round(numerator, 2),
+      denominator: reason === 'not-linked' ? 0 : round(denominator, 2),
       score: null,
-      status: "no-data",
-      reason: reason ?? "no-data",
+      status: 'no-data',
+      reason: reason ?? 'no-data',
     };
   }
   const value = (numerator / denominator) * 100;
@@ -181,13 +181,13 @@ export function computeKpis(input: KpiInput): KpiComputation {
   const kpis: Kpis = {
     utilisation: linked
       ? kpi(clickupHours, availableHours, KPI_TARGETS.utilisation)
-      : kpi(0, 0, KPI_TARGETS.utilisation, "not-linked"),
+      : kpi(0, 0, KPI_TARGETS.utilisation, 'not-linked'),
     chargeable: linked
       ? kpi(chargeableHours, clickupHours, KPI_TARGETS.chargeable)
-      : kpi(0, 0, KPI_TARGETS.chargeable, "not-linked"),
+      : kpi(0, 0, KPI_TARGETS.chargeable, 'not-linked'),
     onTimeDelivery: linked
       ? kpi(onTimeTasks, dueTasks, KPI_TARGETS.onTimeDelivery)
-      : kpi(0, 0, KPI_TARGETS.onTimeDelivery, "not-linked"),
+      : kpi(0, 0, KPI_TARGETS.onTimeDelivery, 'not-linked'),
     punctuality: kpi(onTimeArrivals, arrivals, KPI_TARGETS.punctuality),
   };
 
@@ -213,7 +213,7 @@ export function overallOf(kpis: Kpis): OverallScore {
   ]) {
     if (k.value !== null) scores.push(rawScore(k.value, k.target));
   }
-  if (scores.length === 0) return { score: null, band: "no-data" };
+  if (scores.length === 0) return { score: null, band: 'no-data' };
   const score = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
   return { score, band: bandOf(score) };
 }

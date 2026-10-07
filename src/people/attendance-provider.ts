@@ -1,7 +1,7 @@
-import type { LeaveStatusValue, LeaveTypeValue } from "./people.types";
+import type { LeaveStatusValue, LeaveTypeValue } from './people.types';
 
 /** DI token for the configured `AttendanceProvider` (see PeopleModule). */
-export const ATTENDANCE_PROVIDER = "ATTENDANCE_PROVIDER";
+export const ATTENDANCE_PROVIDER = 'ATTENDANCE_PROVIDER';
 
 /** Who to fetch for. Providers key everything on the employee's email. */
 export interface ProviderPerson {

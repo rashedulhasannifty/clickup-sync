@@ -3,42 +3,42 @@ import {
   Inject,
   Injectable,
   NotFoundException,
-} from "@nestjs/common";
-import { monthBounds } from "../budgets/budget-forecast";
+} from '@nestjs/common';
+import { monthBounds } from '../budgets/budget-forecast';
 import {
   buildAttendanceStrip,
   classifyToday,
   computeLeaveBalance,
   type AttendanceRow,
   type TypedLeave,
-} from "./attendance-math";
+} from './attendance-math';
 import {
   ATTENDANCE_PROVIDER,
   type AttendanceProvider,
-} from "./attendance-provider";
-import { AttendanceRepository } from "./attendance.repository";
-import { toProfile } from "./employee-mapper";
+} from './attendance-provider';
+import { AttendanceRepository } from './attendance.repository';
+import { toProfile } from './employee-mapper';
 import {
   EmployeesRepository,
   type EmployeeListFilter,
   type EmployeeRow,
-} from "./employees.repository";
-import { EmployeesService } from "./employees.service";
-import { computeKpis, type KpiComputation, type KpiInput } from "./kpi-math";
-import { DEFAULT_PERIOD_DAYS, TREND_MONTHS } from "./people.constants";
+} from './employees.repository';
+import { EmployeesService } from './employees.service';
+import { computeKpis, type KpiComputation, type KpiInput } from './kpi-math';
+import { DEFAULT_PERIOD_DAYS, TREND_MONTHS } from './people.constants';
 import {
   addDays,
   dateColumnToIso,
   dhakaDateOf,
   lastMonths,
   type DateRange,
-} from "./people-dates";
+} from './people-dates';
 import {
   PeopleMetricsRepository,
   type DeliveryRow,
   type HoursRow,
-} from "./people-metrics.repository";
-import type { DirectoryRow, EmployeeSummary, TrendPoint } from "./people.types";
+} from './people-metrics.repository';
+import type { DirectoryRow, EmployeeSummary, TrendPoint } from './people.types';
 
 /** Longest period the summary will compute; bounds the per-day row fetch. */
 const MAX_PERIOD_DAYS = 731;
@@ -86,7 +86,7 @@ export class PeopleSummaryService {
     const to = q.to ?? today;
     const from = q.from ?? addDays(to, -(DEFAULT_PERIOD_DAYS - 1));
     if (from > to)
-      throw new BadRequestException("`from` must be on or before `to`");
+      throw new BadRequestException('`from` must be on or before `to`');
     if ((Date.parse(to) - Date.parse(from)) / 86_400_000 > MAX_PERIOD_DAYS) {
       throw new BadRequestException(
         `The period cannot exceed ${MAX_PERIOD_DAYS} days`,
@@ -94,7 +94,7 @@ export class PeopleSummaryService {
     }
 
     const row = await this.employeesRepo.findById(orgId, id);
-    if (!row) throw new NotFoundException("Employee not found");
+    if (!row) throw new NotFoundException('Employee not found');
     const profile = toProfile(row, today);
 
     // One fetch window wide enough for the period, the 6-month trend, the 30-day
