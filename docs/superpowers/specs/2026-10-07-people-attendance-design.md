@@ -255,3 +255,22 @@ Decided 2026-10-07: documents live in **MinIO**, reached through the S3 API
   (company-wide list + counts; expiring = within 30 days).
 - **UI:** the Documents tab on the employee page and People → Documents, as
   in the mockup.
+
+## Known limitations (slice 1)
+
+- **ClickUp metrics are not org-scoped.** The People tables carry `org_id` and
+  every employee/team/manager lookup filters on it, but `clickup_tasks` and
+  `clickup_time_entries` have no `org_id` yet (Spec 2). The KPI queries read
+  them by `clickup_user_id` exactly like every other report. When Spec 2 adds
+  `org_id` to ClickUp tables, these queries must filter on it too, and
+  `clickupUserId` on create/update should be validated against the org's
+  ClickUp members.
+- **Today's attendance appears only after a sync.** The cron runs once at
+  00:30 Dhaka for the previous 7 days; until a manual sync, today shows
+  `not-in`. The real provider will likely want an intraday schedule.
+- **Dummy past PENDING leaves stay PENDING** unless someone decides them.
+- **Manager cycles** longer than one hop (A → B → A) are not detected.
+- **Pre-existing schema drift:** `prisma migrate dev` against the local DB
+  also proposes unrelated changes (e.g. `clickup_tasks` timestamptz columns,
+  `idx_clickup_time_entries_start_time_status`). Migration 0025 deliberately
+  contains only People objects. Don't accept a `migrate dev` diff blindly.
