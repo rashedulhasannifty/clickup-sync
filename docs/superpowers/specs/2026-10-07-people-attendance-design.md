@@ -347,10 +347,13 @@ fills in every step, including the self review on the employee's behalf.
 
 ### Known limitations (slices 3–4)
 
-- Exited employees are not enforced read-only in the People and Documents
-  modules, and a manual `NOTICE_GIVEN` / `EXITED` event on the employee page
-  bypasses the exit flow (no exit row, no clearance). Follow-up: route those
-  two event types through the exit flow or hide them from "Add event".
+- Fixed: `NOTICE_GIVEN` / `EXITED` are refused on `POST /people/employees/:id/events`
+  (400, "Use Start offboarding"); only the exit flow writes them, through
+  `EmployeesService.recordExitEvent`. An `EXITED` employee is read-only (409) for profile
+  edits, every employment event, and document upload/replace/patch/delete; exit letters
+  (`DocumentsService.storeGenerated`), reads and the exit module's own writes still work, and
+  import-from-users skips exited employees. Other People writes that name an exited
+  employee (leave decisions, appraisal sign-off outcome events) are not guarded.
 - Letters use the PDF built-in Helvetica font, so names in a non-Latin script
   (e.g. Bengali) won't render. Follow-up: embed a Unicode font.
 - Appraisal sign-off asks via the browser's confirm dialog, matching Budgets
