@@ -204,6 +204,25 @@ describe('PeopleSyncService.enqueueDaily', () => {
     expect(queue.add).not.toHaveBeenCalled();
   });
 
+  it('intraday enqueues a today-only job, with the same in-flight skip', async () => {
+    const { svc, queues } = make();
+    const queue = {
+      add: jest.fn().mockResolvedValue({ id: '2' }),
+      getJobs: jest.fn().mockResolvedValue([]),
+    };
+    queues.get.mockReturnValue(queue);
+    expect(await svc.enqueueIntraday()).toBe(true);
+    expect(queue.add).toHaveBeenCalledWith(
+      'sync-attendance',
+      { entity: 'attendance', lookbackDays: 1, trigger: 'cron-intraday' },
+      {},
+    );
+    queue.getJobs.mockResolvedValue([{ name: 'sync-attendance' }]);
+    queue.add.mockClear();
+    expect(await svc.enqueueIntraday()).toBe(false);
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+
   it('does not enqueue at all when no provider is configured', async () => {
     const { NoneAttendanceProvider } =
       await import('./none-attendance.provider');

@@ -30,6 +30,8 @@ export const SYNC_DEFAULT_LOOKBACK_DAYS = 90;
 export const SYNC_MAX_LOOKBACK_DAYS = 400;
 /** What the daily cron re-syncs: matches the spec's "last 7 days". */
 export const SYNC_CRON_LOOKBACK_DAYS = 7;
+/** What the hourly office-hours cron re-syncs: today only, so the door log is live during the day. */
+export const SYNC_INTRADAY_LOOKBACK_DAYS = 1;
 
 /** Source stamped on rows created by the manual leave path. */
 export const MANUAL_SOURCE = 'manual';

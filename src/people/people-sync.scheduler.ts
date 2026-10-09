@@ -18,4 +18,14 @@ export class PeopleScheduler {
   dailyAttendanceSync() {
     return this.sync.enqueueDaily();
   }
+
+  /**
+   * :05 past each hour 09:00-20:00 Dhaka, Mon-Fri: re-sync today only, so the
+   * door log and "late today" are live instead of appearing the next morning.
+   * One day of rows is cheap enough for office hours.
+   */
+  @Cron('0 5 9-20 * * 1-5', { name: 'people-attendance-intraday', timeZone: DHAKA })
+  intradayAttendanceSync() {
+    return this.sync.enqueueIntraday();
+  }
 }

@@ -14,6 +14,7 @@ import {
 import { EmployeesRepository } from './employees.repository';
 import {
   SYNC_CRON_LOOKBACK_DAYS,
+  SYNC_INTRADAY_LOOKBACK_DAYS,
   SYNC_DEFAULT_LOOKBACK_DAYS,
 } from './people.constants';
 import { addDays, dateColumnToIso, dhakaDateOf } from './people-dates';
@@ -22,7 +23,7 @@ import type { AttendanceSyncResult, SyncEnqueued } from './people.types';
 export interface PeopleSyncJobData {
   entity: 'attendance';
   lookbackDays: number;
-  trigger: 'cron' | 'manual';
+  trigger: 'cron' | 'cron-intraday' | 'manual';
 }
 
 /**
@@ -60,8 +61,21 @@ export class PeopleSyncService {
     return { queued: true, jobId: job.id ?? null, lookbackDays };
   }
 
-  /** Cron entry point: enqueue the short window, unless one is already queued/running. */
-  async enqueueDaily(): Promise<boolean> {
+  /** Nightly cron: the last 7 days, so yesterday's door log is complete. */
+  enqueueDaily(): Promise<boolean> {
+    return this.enqueueScheduled(SYNC_CRON_LOOKBACK_DAYS, 'cron');
+  }
+
+  /** Hourly office-hours cron: today only, so today's in/out shows up during the day. */
+  enqueueIntraday(): Promise<boolean> {
+    return this.enqueueScheduled(SYNC_INTRADAY_LOOKBACK_DAYS, 'cron-intraday');
+  }
+
+  /** Enqueue a scheduled window, unless a sync is already queued/running. */
+  private async enqueueScheduled(
+    lookbackDays: number,
+    trigger: PeopleSyncJobData['trigger'],
+  ): Promise<boolean> {
     if (this.provider.source === 'none') return false;
     const queue = this.queues.get(QUEUES.PEOPLE_SYNC);
     // Name-filtered busy check, as in XeroScheduler: jobId dedup cannot work for crons.
@@ -77,7 +91,7 @@ export class PeopleSyncService {
       );
       return false;
     }
-    await this.enqueue(SYNC_CRON_LOOKBACK_DAYS, 'cron');
+    await this.enqueue(lookbackDays, trigger);
     return true;
   }
 
