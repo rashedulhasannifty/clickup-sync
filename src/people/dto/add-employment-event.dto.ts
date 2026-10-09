@@ -8,14 +8,15 @@ import {
   MaxLength,
 } from 'class-validator';
 
-/** JOINED is written by creating the employee, never added by hand. */
+/**
+ * JOINED is written by creating the employee; NOTICE_GIVEN and EXITED by the offboarding flow
+ * (`EmployeesService.recordExitEvent`). None of them can be added by hand.
+ */
 export const MANUAL_EVENT_TYPES = [
   'CONFIRMED',
   'PROMOTED',
   'DESIGNATION_CHANGED',
   'TRANSFERRED',
-  'NOTICE_GIVEN',
-  'EXITED',
   'NOTE',
 ] as const;
 
@@ -23,7 +24,9 @@ export type ManualEventType = (typeof MANUAL_EVENT_TYPES)[number];
 
 export class AddEmploymentEventDto {
   @ApiProperty({ enum: MANUAL_EVENT_TYPES })
-  @IsIn(MANUAL_EVENT_TYPES)
+  @IsIn(MANUAL_EVENT_TYPES, {
+    message: `type must be one of: ${MANUAL_EVENT_TYPES.join(', ')}. To give notice or record an exit, use Start offboarding on the employee page.`,
+  })
   type!: ManualEventType;
 
   @ApiProperty({ example: '2026-04-01' })

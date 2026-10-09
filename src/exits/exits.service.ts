@@ -159,7 +159,7 @@ export class ExitsService {
     }
 
     try {
-      await this.employees.addEvent(principal, employeeId, {
+      await this.employees.recordExitEvent(principal, employeeId, {
         type: 'NOTICE_GIVEN',
         effectiveDate: dto.noticeDate,
         notes: `${TYPE_LABEL[dto.type]}${reason ? `: ${reason}` : ''}`,
@@ -364,7 +364,7 @@ export class ExitsService {
       // retry after a later failure is safe.
       if (disableLogin && userId)
         await this.users.setStatus(principal, userId, 'DISABLED');
-      await this.employees.addEvent(principal, row.employeeId, {
+      await this.employees.recordExitEvent(principal, row.employeeId, {
         type: 'EXITED',
         effectiveDate: dateColumnToIso(row.lastWorkingDay),
         notes: verdict.overridden

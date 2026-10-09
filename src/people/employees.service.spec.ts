@@ -101,16 +101,22 @@ describe('EmployeesService.addEvent side-effects', () => {
     );
   });
 
-  it('CONFIRMED -> confirmation date + ACTIVE; NOTICE_GIVEN -> NOTICE; EXITED -> exit date + EXITED', async () => {
+  it('CONFIRMED -> confirmation date + ACTIVE; the exit flow writes NOTICE_GIVEN -> NOTICE and EXITED -> exit date + EXITED', async () => {
     const { svc, repo } = make();
     await svc.addEvent(admin, 'e1', ev('CONFIRMED'));
     expect(repo.addEvent.mock.calls[0][0].patch).toEqual({
       confirmationDate: '2026-04-01',
       status: 'ACTIVE',
     });
-    await svc.addEvent(admin, 'e1', ev('NOTICE_GIVEN'));
+    await svc.recordExitEvent(admin, 'e1', {
+      type: 'NOTICE_GIVEN',
+      effectiveDate: '2026-04-01',
+    });
     expect(repo.addEvent.mock.calls[1][0].patch).toEqual({ status: 'NOTICE' });
-    await svc.addEvent(admin, 'e1', ev('EXITED'));
+    await svc.recordExitEvent(admin, 'e1', {
+      type: 'EXITED',
+      effectiveDate: '2026-04-01',
+    });
     expect(repo.addEvent.mock.calls[2][0].patch).toEqual({
       exitDate: '2026-04-01',
       status: 'EXITED',
@@ -324,5 +330,86 @@ describe('EmployeesService.restoreStatus', () => {
   it('is a 404 for an employee in another org', async () => {
     const { svc } = make({ findById: jest.fn().mockResolvedValue(null) });
     await expect(svc.restoreStatus(admin, 'nope', 'ACTIVE', 'n')).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('EmployeesService: notice/exit events belong to the exit flow', () => {
+  const ev = (type: string) =>
+    ({ type, effectiveDate: '2026-04-01' }) as never;
+
+  it.each(['NOTICE_GIVEN', 'EXITED'])(
+    'the public addEvent rejects %s with a pointer to offboarding and writes nothing',
+    async (type) => {
+      const { svc, repo } = make();
+      const err = await svc.addEvent(admin, 'e1', ev(type)).catch((e) => e);
+      expect(err).toBeInstanceOf(BadRequestException);
+      expect(err.message).toContain('Start offboarding');
+      expect(repo.addEvent).not.toHaveBeenCalled();
+    },
+  );
+
+  it('recordExitEvent still writes both, even while the employee is on NOTICE', async () => {
+    const { svc, repo } = make({
+      findById: jest.fn().mockResolvedValue(row({ status: 'NOTICE' })),
+    });
+    await svc.recordExitEvent(admin, 'e1', {
+      type: 'EXITED',
+      effectiveDate: '2026-04-01',
+      notes: 'done',
+    });
+    expect(repo.addEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'EXITED', notes: 'done' }),
+    );
+  });
+
+  it('recordExitEvent 404s an employee outside the org', async () => {
+    const { svc } = make({ findById: jest.fn().mockResolvedValue(null) });
+    await expect(
+      svc.recordExitEvent(admin, 'x', ev('EXITED') as never),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('EmployeesService: an exited employee is read-only', () => {
+  const exited = () => ({
+    findById: jest.fn().mockResolvedValue(row({ status: 'EXITED' })),
+  });
+  const MESSAGE = 'This employee has exited; their record is read-only.';
+
+  it('rejects a profile PATCH with 409 and writes nothing', async () => {
+    const { svc, repo } = make(exited());
+    const err = await svc
+      .update('org', 'e1', { designation: 'Boss' } as never)
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(err.message).toBe(MESSAGE);
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it.each(['CONFIRMED', 'PROMOTED', 'TRANSFERRED', 'DESIGNATION_CHANGED', 'NOTE'])(
+    'rejects a %s event with 409 and writes nothing',
+    async (type) => {
+      const { svc, repo } = make(exited());
+      const err = await svc
+        .addEvent(admin, 'e1', {
+          type,
+          effectiveDate: '2026-04-01',
+          toValue: 'x',
+        } as never)
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.message).toBe(MESSAGE);
+      expect(repo.addEvent).not.toHaveBeenCalled();
+    },
+  );
+
+  it('still serves reads and the exit flow\'s own writes', async () => {
+    const { svc, repo } = make(exited());
+    await expect(svc.getProfile('org', 'e1')).resolves.toMatchObject({
+      status: 'EXITED',
+    });
+    await svc.listEvents('org', 'e1');
+    await svc.restoreStatus(admin, 'e1', 'ACTIVE', 'n');
+    expect(repo.addEvent).toHaveBeenCalledTimes(1);
   });
 });

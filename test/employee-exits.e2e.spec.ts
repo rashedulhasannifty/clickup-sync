@@ -7,6 +7,7 @@ import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/database/prisma.service';
 import { ExitsRepository } from '../src/exits/exits.repository';
+import { EmployeesService } from '../src/people/employees.service';
 
 /**
  * What only a real database can answer for offboarding: migration 0028 applies, and its partial
@@ -59,6 +60,7 @@ describe('Employee exits (e2e)', () => {
 
   afterAll(async () => {
     await prisma?.employee.deleteMany({ where: { orgId } }); // exits and items cascade
+    await prisma?.user.deleteMany({ where: { orgId } });
     await prisma?.organization.deleteMany({ where: { id: orgId } });
     await app?.close();
   });
@@ -85,5 +87,32 @@ describe('Employee exits (e2e)', () => {
     const second = await start();
     expect(second.id).not.toBe(first.id);
     expect((await repo.findForEmployee(orgId, employeeId))?.id).toBe(second.id);
+  });
+
+  it('import-from-users leaves an exited employee unlinked but links an active one', async () => {
+    const stamp = Date.now();
+    const mk = (tag: string, status: 'EXITED' | 'ACTIVE') =>
+      prisma.employee.create({
+        data: {
+          orgId,
+          fullName: `Import ${tag}`,
+          email: `import-${tag}-${stamp}@example.test`,
+          designation: 'Engineer',
+          joinDate: new Date('2024-01-01T00:00:00Z'),
+          status,
+        },
+      });
+    const [gone, here] = [await mk('gone', 'EXITED'), await mk('here', 'ACTIVE')];
+    for (const e of [gone, here])
+      await prisma.user.create({
+        data: { orgId, email: e.email, passwordHash: 'x', status: 'ACTIVE' },
+      });
+
+    const principal = { userId: 'u', orgId, role: 'OWNER', email: null, isMachine: true } as never;
+    const res = await app.get(EmployeesService).importFromUsers(principal);
+
+    expect(res.linked).toBe(1);
+    expect((await prisma.employee.findUnique({ where: { id: gone.id } }))?.userId).toBeNull();
+    expect((await prisma.employee.findUnique({ where: { id: here.id } }))?.userId).not.toBeNull();
   });
 });

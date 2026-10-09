@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { AuthPrincipal } from '../auth/auth.types';
 import { AddEmploymentEventDto } from './dto/add-employment-event.dto';
+import { assertNotExited } from './employee-readonly';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { toProfile } from './employee-mapper';
@@ -36,6 +37,20 @@ function isUniqueViolation(e: unknown): boolean {
     (e as { code?: string }).code === 'P2002'
   );
 }
+
+/** The two events only the offboarding flow may write; the public `addEvent` refuses them. */
+export type ExitLifecycleEventType = 'NOTICE_GIVEN' | 'EXITED';
+
+export interface ExitLifecycleEvent {
+  type: ExitLifecycleEventType;
+  effectiveDate: string;
+  notes?: string;
+}
+
+const EXIT_LIFECYCLE_TYPES: ReadonlySet<string> = new Set([
+  'NOTICE_GIVEN',
+  'EXITED',
+]);
 
 /** A machine credential is not a user row; never store its synthetic id as an actor. */
 const actorId = (p: AuthPrincipal): string | null =>
@@ -102,6 +117,7 @@ export class EmployeesService {
     dto: UpdateEmployeeDto,
   ): Promise<EmployeeProfile> {
     const current = await this.require(orgId, id);
+    assertNotExited(current);
     const data: EmployeeProfileUpdate = {};
     if (dto.fullName !== undefined) data.fullName = dto.fullName.trim();
     if (dto.designation !== undefined)
@@ -155,12 +171,50 @@ export class EmployeesService {
     return this.eventViews(orgId, await this.repo.listEvents(id));
   }
 
+  /**
+   * The public path (controller, appraisals). Refuses NOTICE_GIVEN / EXITED, which only the exit
+   * flow may write (`recordExitEvent`), and refuses everything for an exited employee.
+   */
   async addEvent(
     principal: AuthPrincipal,
     id: string,
     dto: AddEmploymentEventDto,
   ): Promise<EmploymentEventView> {
+    if (EXIT_LIFECYCLE_TYPES.has(dto.type))
+      throw new BadRequestException(
+        'Notice and exit events are written by the offboarding flow. Use Start offboarding on the employee page.',
+      );
     const employee = await this.require(principal.orgId, id);
+    assertNotExited(employee);
+    return this.writeEvent(principal, employee, dto);
+  }
+
+  /**
+   * Internal path for `ExitsService`, the only caller allowed to write NOTICE_GIVEN / EXITED. It
+   * is a separate method, not a flag on the DTO, so nothing a client sends can reach it. No
+   * exited check: completing an exit is what makes the employee exited.
+   */
+  async recordExitEvent(
+    principal: AuthPrincipal,
+    id: string,
+    event: ExitLifecycleEvent,
+  ): Promise<EmploymentEventView> {
+    const employee = await this.require(principal.orgId, id);
+    return this.writeEvent(principal, employee, event);
+  }
+
+  private async writeEvent(
+    principal: AuthPrincipal,
+    employee: EmployeeRow,
+    dto: {
+      type: string;
+      effectiveDate: string;
+      fromValue?: string;
+      toValue?: string;
+      notes?: string;
+    },
+  ): Promise<EmploymentEventView> {
+    const id = employee.id;
     const type = dto.type as EmploymentEventTypeValue;
     const toValue = dto.toValue?.trim() || null;
     if (EVENT_REQUIRES_TO_VALUE.has(type) && !toValue) {

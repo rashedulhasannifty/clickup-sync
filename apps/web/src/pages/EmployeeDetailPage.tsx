@@ -22,6 +22,7 @@ import { PageHeader } from '../components/ui/PageHeader';
 import { QueryError } from '../components/ui/QueryError';
 import { PageSkeleton } from '../components/ui/PageSkeleton';
 import { Button } from '../components/ui/Button';
+import { Callout } from '../components/ui/Callout';
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Pill } from '../components/ui/Pill';
@@ -213,6 +214,8 @@ export function EmployeeDetailPage() {
 
   const summary = summaryQuery.data;
   const e = summary.employee;
+  // A former employee's record is read-only: the API refuses every write, so don't offer them.
+  const readOnly = e.status === 'EXITED';
   const sub = [e.designation, e.teamName, e.managerName ? `reports to ${e.managerName}` : null].filter(Boolean).join(' · ');
 
   return (
@@ -235,15 +238,27 @@ export function EmployeeDetailPage() {
         actions={
           <HeaderActions>
             <StartOffboardingButton employeeId={e.id} status={e.status} />
-            <Button size="md" variant="subtle" icon={<Pencil size={13} />} onClick={() => setEditing(true)}>
-              Edit profile
-            </Button>
-            <Button size="md" variant="accent" icon={<CalendarPlus size={13} />} onClick={() => setAddingEvent(true)}>
-              Add event
-            </Button>
+            {!readOnly && (
+              <>
+                <Button size="md" variant="subtle" icon={<Pencil size={13} />} onClick={() => setEditing(true)}>
+                  Edit profile
+                </Button>
+                <Button size="md" variant="accent" icon={<CalendarPlus size={13} />} onClick={() => setAddingEvent(true)}>
+                  Add event
+                </Button>
+              </>
+            )}
           </HeaderActions>
         }
       />
+
+      {readOnly && (
+        <Callout tone="neutral" icon={<UserX size={15} />}>
+          <strong>Former employee — read-only.</strong>{' '}
+          {e.exitDate ? `Exited ${formatDate(e.exitDate)}. ` : ''}
+          The profile, timeline and documents can be viewed but not changed.
+        </Callout>
+      )}
 
       {/* Identity strip + overall score */}
       <Card>
@@ -285,7 +300,7 @@ export function EmployeeDetailPage() {
       />
 
       {tab === 'documents' ? (
-        <EmployeeDocumentsTab employeeId={e.id} />
+        <EmployeeDocumentsTab employeeId={e.id} readOnly={readOnly} />
       ) : tab === 'appraisals' ? (
         <EmployeeAppraisalsTab employeeId={e.id} />
       ) : (
@@ -348,9 +363,11 @@ export function EmployeeDetailPage() {
             <Card
               title="Career timeline"
               action={
-                <Button size="sm" variant="ghost" icon={<CalendarPlus size={12} />} onClick={() => setAddingEvent(true)}>
-                  Add event
-                </Button>
+                readOnly ? undefined : (
+                  <Button size="sm" variant="ghost" icon={<CalendarPlus size={12} />} onClick={() => setAddingEvent(true)}>
+                    Add event
+                  </Button>
+                )
               }
             >
               <CareerTimeline events={summary.events} />
@@ -368,7 +385,7 @@ export function EmployeeDetailPage() {
         </>
       )}
 
-      {editing && (
+      {editing && !readOnly && (
         <EmployeeFormModal
           employee={e}
           teams={teamOptions}
@@ -389,7 +406,7 @@ export function EmployeeDetailPage() {
           }
         />
       )}
-      {addingEvent && (
+      {addingEvent && !readOnly && (
         <AddEventModal
           employee={e}
           teams={teamOptions}

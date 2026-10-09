@@ -286,7 +286,8 @@ export class EmployeesRepository {
   /** Employees without a login, for email-based relinking during import. */
   unlinkedEmployees(orgId: string) {
     return this.prisma.employee.findMany({
-      where: { orgId, userId: null },
+      // An exited employee's record is read-only, so a late login match must not relink it.
+      where: { orgId, userId: null, status: { not: 'EXITED' } },
       select: { id: true, email: true, clickupUserId: true },
     });
   }

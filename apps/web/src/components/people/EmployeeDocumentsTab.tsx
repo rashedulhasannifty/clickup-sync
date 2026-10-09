@@ -31,8 +31,11 @@ type Modal =
   | { kind: 'upload' }
   | { kind: 'replace' | 'edit' | 'delete'; doc: EmployeeDocument };
 
-/** The Documents tab on an employee's page: files, a preview pane and the required checklist. */
-export function EmployeeDocumentsTab({ employeeId }: { employeeId: string }) {
+/**
+ * The Documents tab on an employee's page: files, a preview pane and the required checklist.
+ * `readOnly` (a former employee) keeps view, download and preview and hides every write control.
+ */
+export function EmployeeDocumentsTab({ employeeId, readOnly = false }: { employeeId: string; readOnly?: boolean }) {
   const { hasRole } = useAuth();
   const toast = useToast();
   const query = useEmployeeDocuments(employeeId);
@@ -82,13 +85,13 @@ export function EmployeeDocumentsTab({ employeeId }: { employeeId: string }) {
               );
             })}
           </div>
-          <Button variant="primary" size="sm" icon={<Upload size={14} />} onClick={() => setModal({ kind: 'upload' })}>Upload</Button>
+          {!readOnly && <Button variant="primary" size="sm" icon={<Upload size={14} />} onClick={() => setModal({ kind: 'upload' })}>Upload</Button>}
         </div>
 
         {visible.length === 0 ? (
           <EmptyState
             title={items.length === 0 ? 'No documents yet' : 'No documents in this category'}
-            body={items.length === 0 ? 'Upload an ID, contract or certificate to start this employee’s file.' : undefined}
+            body={items.length === 0 && !readOnly ? 'Upload an ID, contract or certificate to start this employee’s file.' : undefined}
           />
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -118,9 +121,13 @@ export function EmployeeDocumentsTab({ employeeId }: { employeeId: string }) {
                       <td style={{ ...td, whiteSpace: 'nowrap' }}>{VISIBILITY_LABELS[d.visibility]}</td>
                       <td style={{ ...td, whiteSpace: 'nowrap', textAlign: 'right' }}>
                         <Button variant="ghost" size="iconSm" aria-label={`View ${d.fileName}`} title="View" onClick={() => setSelectedId(d.id)}><Eye size={14} /></Button>
-                        <Button variant="ghost" size="iconSm" aria-label={`Replace ${d.fileName}`} title="Replace with a new version" onClick={() => setModal({ kind: 'replace', doc: d })}><RefreshCw size={14} /></Button>
-                        <Button variant="ghost" size="iconSm" aria-label={`Edit ${d.fileName}`} title="Edit details" onClick={() => setModal({ kind: 'edit', doc: d })}><Pencil size={14} /></Button>
-                        {canDelete && (
+                        {!readOnly && (
+                          <>
+                            <Button variant="ghost" size="iconSm" aria-label={`Replace ${d.fileName}`} title="Replace with a new version" onClick={() => setModal({ kind: 'replace', doc: d })}><RefreshCw size={14} /></Button>
+                            <Button variant="ghost" size="iconSm" aria-label={`Edit ${d.fileName}`} title="Edit details" onClick={() => setModal({ kind: 'edit', doc: d })}><Pencil size={14} /></Button>
+                          </>
+                        )}
+                        {!readOnly && canDelete && (
                           <Button variant="ghost" size="iconSm" aria-label={`Delete ${d.fileName}`} title="Delete (Owner only)" onClick={() => setModal({ kind: 'delete', doc: d })}><Trash2 size={14} /></Button>
                         )}
                       </td>
@@ -132,7 +139,9 @@ export function EmployeeDocumentsTab({ employeeId }: { employeeId: string }) {
           </div>
         )}
         <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '10px 0 0' }}>
-          Replacing keeps the old version. Deleting is Owner-only and recorded in the audit log.
+          {readOnly
+            ? 'This is a former employee’s file: documents can be viewed and downloaded, not changed.'
+            : 'Replacing keeps the old version. Deleting is Owner-only and recorded in the audit log.'}
         </p>
       </Card>
       </div>

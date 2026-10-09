@@ -31,7 +31,7 @@ export interface EmployeeRef {
   status: EmployeeStatus;
 }
 
-export type DocumentWithEmployee = EmployeeDocument & { employee: { orgId: string } };
+export type DocumentWithEmployee = EmployeeDocument & { employee: { orgId: string; status: EmployeeStatus } };
 
 export interface EmployeeWithDocuments extends EmployeeRef {
   documents: EmployeeDocument[];
@@ -61,7 +61,7 @@ export class DocumentsRepository {
   findLive(orgId: string, id: string): Promise<DocumentWithEmployee | null> {
     return this.prisma.employeeDocument.findFirst({
       where: { id, deletedAt: null, employee: { orgId } },
-      include: { employee: { select: { orgId: true } } },
+      include: { employee: { select: { orgId: true, status: true } } },
     });
   }
 

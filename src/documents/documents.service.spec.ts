@@ -273,3 +273,50 @@ describe('DocumentsService.storeGenerated (exit letters)', () => {
     await expect(service.storeGenerated(actor, 'x1', { ...letter, buffer: pdfBytes() })).rejects.toBeInstanceOf(NotFoundException);
   });
 });
+
+describe('DocumentsService: an exited employee is read-only', () => {
+  const MESSAGE = 'This employee has exited; their record is read-only.';
+  const letter = { category: 'EXIT' as const, docType: 'EXPERIENCE_LETTER', fileName: 'Experience letter.pdf' };
+
+  /** One document uploaded while the employee was still active, then the employee exits. */
+  async function exitedWithDocument() {
+    const ctx = setup();
+    const doc = await ctx.service.upload(actor, 'e1', file('id.pdf', pdfBytes()), dto());
+    ctx.repo.employees.find((e) => e.id === 'e1')!.status = 'EXITED';
+    return { ...ctx, doc };
+  }
+
+  it('rejects upload, replace, patch and delete with 409 and changes nothing', async () => {
+    const { service, repo, storage, doc } = await exitedWithDocument();
+    const objects = storage.objects.size;
+    for (const attempt of [
+      () => service.upload(actor, 'e1', file('b.pdf', pdfBytes()), dto()),
+      () => service.replace(actor, doc.id, file('b.pdf', pdfBytes()), {}),
+      () => service.update('org1', doc.id, { visibility: 'EMPLOYEE_VISIBLE' } as never),
+      () => service.remove('org1', doc.id),
+    ]) {
+      const err = await attempt().catch((e) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.message).toBe(MESSAGE);
+    }
+    expect(storage.objects.size).toBe(objects);
+    expect(repo.docs).toHaveLength(1);
+    expect(repo.docs[0].deletedAt).toBeNull();
+  });
+
+  it('still lets people read: list, company report and content', async () => {
+    const { service, doc } = await exitedWithDocument();
+    expect((await service.listForEmployee('org1', 'e1')).items).toHaveLength(1);
+    await expect(service.content('org1', doc.id, false)).resolves.toBeDefined();
+    await expect(service.currentInCategory('org1', 'e1', 'IDENTITY')).resolves.toHaveLength(1);
+  });
+
+  it('storeGenerated still files exit letters, first time and as a new version', async () => {
+    const { service, repo } = await exitedWithDocument();
+    const first = await service.storeGenerated(actor, 'e1', { ...letter, buffer: pdfBytes() });
+    expect(first.version).toBe(1);
+    const second = await service.storeGenerated(actor, 'e1', { ...letter, buffer: Buffer.concat([pdfBytes(), Buffer.from('\n% v2')]) });
+    expect(second.version).toBe(2);
+    expect(repo.docs.filter((d) => d.docType === 'EXPERIENCE_LETTER')).toHaveLength(2);
+  });
+});

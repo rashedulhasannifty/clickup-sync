@@ -213,14 +213,12 @@ export const EVENT_LABEL: Record<EmploymentEventTypeValue, string> = {
   NOTE: 'Note',
 };
 
-/** Order shown in the "Add event" picker. `JOINED` is not hand-addable. */
+/** Order shown in the "Add event" picker. `JOINED`, `NOTICE_GIVEN` and `EXITED` are not hand-addable. */
 export const MANUAL_EVENT_TYPES: ManualEventType[] = [
   'CONFIRMED',
   'PROMOTED',
   'DESIGNATION_CHANGED',
   'TRANSFERRED',
-  'NOTICE_GIVEN',
-  'EXITED',
   'NOTE',
 ];
 
@@ -272,7 +270,5 @@ export const EVENT_EFFECT: Record<ManualEventType, string> = {
   PROMOTED: 'Changes the employee’s designation.',
   DESIGNATION_CHANGED: 'Changes the employee’s designation.',
   TRANSFERRED: 'Moves the employee to another team.',
-  NOTICE_GIVEN: 'Moves the employee to Notice period.',
-  EXITED: 'Sets the exit date and moves the employee to Exited.',
   NOTE: 'Adds a note to the timeline. Nothing else changes.',
 };
