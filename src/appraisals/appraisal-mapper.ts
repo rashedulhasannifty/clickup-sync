@@ -138,7 +138,10 @@ export function toAppraisalView(
 ): AppraisalView {
   const keys = competenciesOf(row.cycle).map((c) => c.key);
   const status: AppraisalStatusValue = row.status;
-  const open = row.cycle.status === 'OPEN';
+  // Mirrors the service's assertOpen: an exited employee's appraisal is as
+  // read-only as one in a closed cycle, so the form offers no controls.
+  const exited = row.employee.status === 'EXITED';
+  const open = row.cycle.status === 'OPEN' && !exited;
   return {
     id: row.id,
     cycle: toCycleView(row.cycle, counts),
@@ -168,7 +171,9 @@ export function toAppraisalView(
     score: scoreOf(row),
     // A closed (or draft) cycle is read-only until it is reopened.
     editableFields: open ? editableFields(status) : [],
-    advanceBlockers: open ? blockersOf(row) : ['This cycle is not open'],
+    advanceBlockers: open
+      ? blockersOf(row)
+      : [exited ? 'This employee has exited' : 'This cycle is not open'],
     canSendBack: open && previousStatus(status) !== null,
     signedOffAt: row.signedOffAt?.toISOString() ?? null,
     outcomeApplied: row.outcomeAppliedAt !== null,

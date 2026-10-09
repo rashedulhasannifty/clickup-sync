@@ -12,6 +12,7 @@ import {
 } from './attendance-provider';
 import { AttendanceRepository } from './attendance.repository';
 import { EmployeesRepository } from './employees.repository';
+import { assertNotExited } from './employee-readonly';
 import { LEAVE_LIST_LIMIT } from './people.constants';
 import { dateColumnToIso, dhakaDateOf, isBusinessDay } from './people-dates';
 import type {
@@ -178,6 +179,7 @@ export class PeopleAttendanceService {
   ): Promise<LeaveRecordView> {
     const existing = await this.attendance.findLeave(principal.orgId, id);
     if (!existing) throw new NotFoundException('Leave record not found');
+    assertNotExited(existing.employee);
     if (existing.status !== 'PENDING')
       throw new ConflictException(`Leave is already ${existing.status}`);
     const won = await this.attendance.decide(

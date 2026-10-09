@@ -7,6 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { AuthPrincipal } from '../auth/auth.types';
 import { EmployeesService } from '../people/employees.service';
+import { assertNotExited } from '../people/employee-readonly';
 import { addDays, dateColumnToIso, dhakaDateOf } from '../people/people-dates';
 import { PeopleSummaryService } from '../people/people-summary.service';
 import {
@@ -443,7 +444,9 @@ export class AppraisalsService {
     return row;
   }
 
+  /** Every appraisal write goes through here: the cycle must be open and the employee still here. */
   private assertOpen(row: AppraisalRow): void {
+    assertNotExited(row.employee);
     if (row.cycle.status !== 'OPEN')
       throw new ConflictException(
         'This cycle is not open; reopen it to make changes',

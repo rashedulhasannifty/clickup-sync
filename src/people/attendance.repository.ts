@@ -122,7 +122,7 @@ export class AttendanceRepository {
   findLeave(orgId: string, id: string) {
     return this.prisma.leaveRecord.findFirst({
       where: { id, employee: { orgId } },
-      include: { employee: { select: { fullName: true } } },
+      include: { employee: { select: { fullName: true, status: true } } },
     });
   }
 

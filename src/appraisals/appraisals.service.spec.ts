@@ -75,6 +75,7 @@ const appraisal = (over: Record<string, unknown> = {}): Row => ({
     designation: 'Developer',
     employeeCode: null,
     clickupUserId: 'cu1',
+    status: 'ACTIVE',
     team: { name: 'Core' },
   },
   reviewer: { id: 'm1', fullName: 'Grace' },
@@ -331,6 +332,20 @@ describe('AppraisalsService.update', () => {
     await expect(
       svc.update('org', 'a1', { selfComment: 'x' }),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('is read-only once the employee has exited: save, advance, send back and refresh all refuse', async () => {
+    const exited = appraisal({
+      status: 'LEAD_REVIEW',
+      ...completeLead,
+      employee: { ...appraisal().employee, status: 'EXITED' },
+    });
+    const { svc } = make({ current: exited });
+    const principal = { orgId: 'org', userId: 'u1', isMachine: false } as never;
+    await expect(svc.update('org', 'a1', { goals: 'x' })).rejects.toThrow(/exited/);
+    await expect(svc.advance(principal, 'a1')).rejects.toThrow(/exited/);
+    await expect(svc.sendBack('org', 'a1')).rejects.toThrow(/exited/);
+    await expect(svc.refreshKpis('org', 'a1')).rejects.toThrow(/exited/);
   });
 
   it('is a 404 for another org’s appraisal', async () => {
