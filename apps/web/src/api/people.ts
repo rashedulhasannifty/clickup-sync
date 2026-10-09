@@ -19,8 +19,11 @@ export type EmploymentEventTypeValue =
   | 'NOTICE_GIVEN'
   | 'EXITED'
   | 'NOTE';
-/** `JOINED` is written by creating the employee, never added by hand. */
-export type ManualEventType = Exclude<EmploymentEventTypeValue, 'JOINED'>;
+/**
+ * `JOINED` is written by creating the employee; `NOTICE_GIVEN` and `EXITED` by the offboarding
+ * flow. None of them can be added by hand (the API rejects the last two).
+ */
+export type ManualEventType = Exclude<EmploymentEventTypeValue, 'JOINED' | 'NOTICE_GIVEN' | 'EXITED'>;
 export type LeaveTypeValue = 'SICK' | 'CASUAL' | 'ANNUAL' | 'UNPAID' | 'OTHER';
 export type LeaveStatusValue = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 

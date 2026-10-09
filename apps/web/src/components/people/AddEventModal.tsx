@@ -100,6 +100,10 @@ export function AddEventModal({
           </Field>
         </FormRow>
 
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: -6 }}>
+          To give notice or record an exit, use Start offboarding on the employee page.
+        </div>
+
         {needsDesignation && (
           <Field label="New designation" required hint={`Currently ${employee.designation}.`}>
             <Input
