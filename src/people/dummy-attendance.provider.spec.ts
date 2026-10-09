@@ -136,5 +136,21 @@ describe('DummyAttendanceProvider', () => {
     );
   });
 
+  it('a request that was PENDING becomes APPROVED (same externalId) once its day arrives, and that day has no attendance', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({
+      email: `p${i}@x.test`,
+      joinDate: '2025-01-01',
+      exitDate: null,
+    }));
+    const before = await make(dhakaInstant('2026-10-05', 12 * 60)).fetch(many, '2026-10-05', '2026-10-05');
+    const req = before.leaves.find((l) => l.status === 'PENDING')!;
+    expect(req).toBeDefined();
+    const day = req.startDate;
+    const onTheDay = await make(dhakaInstant(day, 20 * 60)).fetch(many, day, day);
+    const same = onTheDay.leaves.find((l) => l.externalId === req.externalId);
+    expect(same).toMatchObject({ status: 'APPROVED', startDate: day, type: 'CASUAL' });
+    expect(onTheDay.attendance.some((a) => a.email === req.email && a.date === day)).toBe(false);
+  });
+
   it('source is dummy', () => expect(make().source).toBe('dummy'));
 });

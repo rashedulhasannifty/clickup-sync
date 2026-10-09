@@ -18,10 +18,13 @@ const CASUAL_RATE = 0.04;
 /** Share of PRESENT days that start late. */
 const LATE_RATE = 0.12;
 /**
- * Chance that any given future business day carries a pending casual request.
- * Decided per (email, day) rather than per run so the same request keeps the
- * same externalId on every daily sync; ~3.5% over a 10-business-day window is
- * about 30% of people having one.
+ * Chance that any given business day carries a casual-leave request. Decided per
+ * (email, day) rather than per run so the same request keeps the same
+ * externalId on every sync; ~3.5% over a 10-business-day window is about 30% of
+ * people having one open. While the day is in the future the request is
+ * PENDING; once the day arrives it is reported APPROVED (and the person is on
+ * leave that day), so undecided demo requests don't sit PENDING forever. The
+ * sync never overwrites a request somebody decided by hand.
  */
 const PENDING_DAY_RATE = 0.035;
 const PENDING_WINDOW_DAYS = 14;
@@ -77,6 +80,10 @@ export class DummyAttendanceProvider implements AttendanceProvider {
       const first = p.joinDate > from ? p.joinDate : from;
 
       for (const date of businessDaysIn(first, last)) {
+        if (isRequestDay(email, date)) {
+          leaves.push(requestRow(email, date, 'APPROVED'));
+          continue;
+        }
         const kind = unit(`${email}|${date}|kind`);
         if (kind < SICK_RATE + CASUAL_RATE) {
           const sick = kind < SICK_RATE;
@@ -121,21 +128,34 @@ export class DummyAttendanceProvider implements AttendanceProvider {
           : addDays(today, PENDING_WINDOW_DAYS);
       for (const date of businessDaysIn(addDays(today, 1), windowEnd)) {
         if (date < p.joinDate) continue;
-        if (unit(`${email}|${date}|pending`) >= PENDING_DAY_RATE) continue;
-        leaves.push({
-          email,
-          externalId: `dummy:pending:${email}:${date}`,
-          type: 'CASUAL',
-          startDate: date,
-          endDate: date,
-          days: 1,
-          status: 'PENDING',
-          reason: 'Casual leave request (demo data)',
-        });
+        if (!isRequestDay(email, date)) continue;
+        leaves.push(requestRow(email, date, 'PENDING'));
       }
     }
     return Promise.resolve({ attendance, leaves });
   }
+}
+
+function isRequestDay(email: string, date: string): boolean {
+  return unit(`${email}|${date}|pending`) < PENDING_DAY_RATE;
+}
+
+/** Same externalId whether PENDING (future) or APPROVED (arrived), so the sync updates one row. */
+function requestRow(
+  email: string,
+  date: string,
+  status: 'PENDING' | 'APPROVED',
+): ProviderLeaveRow {
+  return {
+    email,
+    externalId: `dummy:pending:${email}:${date}`,
+    type: 'CASUAL',
+    startDate: date,
+    endDate: date,
+    days: 1,
+    status,
+    reason: 'Casual leave request (demo data)',
+  };
 }
 
 function minDate(a: string, b: string, c: string | null): string {
