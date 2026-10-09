@@ -120,7 +120,7 @@ function make(
   };
   const employees = {
     getProfile: jest.fn().mockResolvedValue(profile()),
-    addEvent: jest.fn().mockResolvedValue({}),
+    recordExitEvent: jest.fn().mockResolvedValue({}),
     restoreStatus: jest.fn().mockResolvedValue(undefined),
     ...over.employees,
   };
@@ -163,7 +163,7 @@ describe('start', () => {
       previousStatus: 'ACTIVE',
     });
     expect(created.clearanceLabels).toHaveLength(5);
-    expect(employees.addEvent).toHaveBeenCalledWith(admin, 'e1', {
+    expect(employees.recordExitEvent).toHaveBeenCalledWith(admin, 'e1', {
       type: 'NOTICE_GIVEN',
       effectiveDate: '2026-10-01',
       notes: 'Resignation: Moving abroad',
@@ -213,7 +213,7 @@ describe('start', () => {
 
   it('removes the exit again if the NOTICE_GIVEN event cannot be written', async () => {
     const { svc, repo } = make(exitRow(), {
-      employees: { addEvent: jest.fn().mockRejectedValue(new Error('db')) },
+      employees: { recordExitEvent: jest.fn().mockRejectedValue(new Error('db')) },
     });
     await expect(svc.start(admin, 'e1', dto)).rejects.toThrow('db');
     expect(repo.deleteById).toHaveBeenCalledWith('x1');
@@ -237,7 +237,7 @@ describe('complete', () => {
       expect.objectContaining({ status: 'COMPLETED', loginDisabled: true, overrideNote: null }),
     );
     expect(users.setStatus).toHaveBeenCalledWith(admin, 'user-1', 'DISABLED');
-    expect(employees.addEvent).toHaveBeenCalledWith(admin, 'e1', {
+    expect(employees.recordExitEvent).toHaveBeenCalledWith(admin, 'e1', {
       type: 'EXITED',
       effectiveDate: '2026-10-31',
       notes: 'Offboarding completed',
@@ -265,7 +265,7 @@ describe('complete', () => {
     );
     await expect(svc.complete(admin, 'x1', {})).rejects.toBeInstanceOf(BadRequestException);
     expect(repo.claim).not.toHaveBeenCalled();
-    expect(employees.addEvent).not.toHaveBeenCalled();
+    expect(employees.recordExitEvent).not.toHaveBeenCalled();
   });
 
   it('completes with open items when an override note is given, and keeps the note', async () => {
@@ -274,7 +274,7 @@ describe('complete', () => {
     );
     await svc.complete(admin, 'x1', { overrideNote: 'Laptop is in transit' });
     expect(repo.claim.mock.calls[0][2].overrideNote).toBe('Laptop is in transit');
-    expect(employees.addEvent.mock.calls[0][2].notes).toContain('1 open clearance item: Laptop is in transit');
+    expect(employees.recordExitEvent.mock.calls[0][2].notes).toContain('1 open clearance item: Laptop is in transit');
   });
 
   it('only completes from CLEARANCE', async () => {
@@ -287,7 +287,7 @@ describe('complete', () => {
       users: { setStatus: jest.fn().mockRejectedValue(new ForbiddenException()) },
     });
     await expect(svc.complete(admin, 'x1', {})).rejects.toBeInstanceOf(ForbiddenException);
-    expect(employees.addEvent).not.toHaveBeenCalled();
+    expect(employees.recordExitEvent).not.toHaveBeenCalled();
     expect(repo.claim).toHaveBeenLastCalledWith(
       'x1',
       ['COMPLETED'],

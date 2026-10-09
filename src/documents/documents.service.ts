@@ -5,6 +5,7 @@ import {
 import type { Readable } from 'node:stream';
 import { createHash, randomUUID } from 'node:crypto';
 import type { DocumentCategory, DocumentVisibility, EmployeeDocument } from '@prisma/client';
+import { assertNotExited } from '../people/employee-readonly';
 import { attachmentDelivery } from '../xero/xero-attachment-delivery';
 import type { AuthPrincipal } from '../auth/auth.types';
 import { DOCUMENT_TYPES, isValidDocType, MAX_UPLOAD_BYTES, type DocumentCategoryName } from './document-catalog';
@@ -13,7 +14,7 @@ import {
   type ExpiryInfo, type ReportEmployee,
 } from './document-report';
 import { DOCUMENT_STORAGE, type DocumentStorage } from './document-storage';
-import { DocumentsRepository, ReplaceConflictError, type NewDocumentRow } from './documents.repository';
+import { DocumentsRepository, ReplaceConflictError, type EmployeeRef, type NewDocumentRow } from './documents.repository';
 import { sanitizeFileName, sniffFileType, type SniffedType } from './file-sniff';
 import type { CompanyDocumentsQueryDto, ReplaceDocumentDto, UpdateDocumentDto, UploadDocumentDto } from './dto/documents.dto';
 
@@ -154,7 +155,11 @@ export class DocumentsService {
   // ── writes ─────────────────────────────────────────────────────────────────
 
   async upload(actor: AuthPrincipal, employeeId: string, file: UploadedFileLike | undefined, dto: UploadDocumentDto): Promise<DocumentView> {
-    await this.requireEmployee(actor.orgId, employeeId);
+    assertNotExited(await this.requireEmployee(actor.orgId, employeeId));
+    return this.putNew(actor, employeeId, file, dto);
+  }
+
+  private async putNew(actor: AuthPrincipal, employeeId: string, file: UploadedFileLike | undefined, dto: UploadDocumentDto): Promise<DocumentView> {
     const sniffed = this.inspect(file);
     if (!isValidDocType(dto.category, dto.docType)) throw new BadRequestException('docType does not belong to that category.');
     const expiresOn = dto.expiresOn ? parseExpiry(dto.expiresOn) : null;
@@ -177,6 +182,11 @@ export class DocumentsService {
 
   async replace(actor: AuthPrincipal, id: string, file: UploadedFileLike | undefined, dto: ReplaceDocumentDto): Promise<DocumentView> {
     const old = await this.requireDocument(actor.orgId, id);
+    assertNotExited(old.employee);
+    return this.putNextVersion(actor, old, file, dto);
+  }
+
+  private async putNextVersion(actor: AuthPrincipal, old: EmployeeDocument, file: UploadedFileLike | undefined, dto: ReplaceDocumentDto): Promise<DocumentView> {
     if (old.replacedById) throw new ConflictException('A newer version of this document exists. Replace that one instead.');
     const sniffed = this.inspect(file);
     const expiresOn = dto.expiresOn ? parseExpiry(dto.expiresOn) : old.expiresOn;
@@ -203,6 +213,7 @@ export class DocumentsService {
 
   async update(orgId: string, id: string, dto: UpdateDocumentDto): Promise<DocumentView> {
     const doc = await this.requireDocument(orgId, id);
+    assertNotExited(doc.employee);
     if (doc.replacedById) throw new ConflictException('This is an older version and cannot be edited.');
     const category = (dto.category ?? doc.category) as DocumentCategoryName;
     const docType = dto.docType ?? doc.docType;
@@ -221,6 +232,7 @@ export class DocumentsService {
   /** Soft delete of the document and its older versions; the objects stay in the bucket. */
   async remove(orgId: string, id: string): Promise<void> {
     const doc = await this.requireDocument(orgId, id);
+    assertNotExited(doc.employee);
     if (doc.replacedById) throw new ConflictException('This is an older version. Delete the current version instead.');
     await this.repo.softDeleteChain(id, new Date());
   }
@@ -228,8 +240,9 @@ export class DocumentsService {
   /**
    * Files a server-generated document (e.g. an exit letter). If the employee already has a CURRENT
    * document of this category and type, the bytes become its next version (a regenerate replaces,
-   * never duplicates); otherwise it is a first upload. Goes through `upload`/`replace`, so the same
-   * type check, size limit, magic-byte sniff and storage path apply as for a person's upload.
+   * never duplicates); otherwise it is a first upload. Goes through the same type check, size limit,
+   * magic-byte sniff and storage path as a person's upload. Deliberately NOT subject to the
+   * exited-employee read-only rule: exit letters are issued after the exit completes.
    */
   async storeGenerated(
     actor: AuthPrincipal,
@@ -240,8 +253,8 @@ export class DocumentsService {
     const file: UploadedFileLike = { originalname: input.fileName, buffer: input.buffer, size: input.buffer.length };
     const live = await this.repo.liveForEmployee(employeeId);
     const current = live.find((d) => d.replacedById === null && d.category === input.category && d.docType === input.docType);
-    if (current) return this.replace(actor, current.id, file, {});
-    return this.upload(actor, employeeId, file, { category: input.category, docType: input.docType });
+    if (current) return this.putNextVersion(actor, current, file, {});
+    return this.putNew(actor, employeeId, file, { category: input.category, docType: input.docType });
   }
 
   /** An employee's CURRENT documents in one category, newest first; the exit view lists these. */
@@ -255,8 +268,10 @@ export class DocumentsService {
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
-  private async requireEmployee(orgId: string, employeeId: string): Promise<void> {
-    if (!(await this.repo.findEmployee(orgId, employeeId))) throw new NotFoundException('Employee not found.');
+  private async requireEmployee(orgId: string, employeeId: string): Promise<EmployeeRef> {
+    const employee = await this.repo.findEmployee(orgId, employeeId);
+    if (!employee) throw new NotFoundException('Employee not found.');
+    return employee;
   }
 
   private async requireDocument(orgId: string, id: string) {

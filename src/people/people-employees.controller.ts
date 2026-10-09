@@ -108,7 +108,7 @@ export class PeopleEmployeesController {
   @HttpCode(201)
   @ApiOperation({
     summary:
-      'Add an employment event; promotions, confirmation, notice, exit and transfer update the employee',
+      'Add an employment event; promotions, confirmation and transfers update the employee. Notice and exit go through offboarding; an exited employee is read-only',
   })
   addEvent(
     @CurrentUser() user: AuthPrincipal,

@@ -24,7 +24,7 @@ export class FakeDocumentsRepository {
   async findLive(orgId: string, id: string): Promise<DocumentWithEmployee | null> {
     const d = this.docs.find((x) => x.id === id && !x.deletedAt);
     const e = d && this.employees.find((x) => x.id === d.employeeId && x.orgId === orgId);
-    return d && e ? { ...d, employee: { orgId } } : null;
+    return d && e ? { ...d, employee: { orgId, status: e.status } } : null;
   }
 
   private materialise(row: NewDocumentRow): EmployeeDocument {
