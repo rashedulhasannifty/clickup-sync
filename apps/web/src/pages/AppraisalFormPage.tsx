@@ -188,6 +188,18 @@ function AppraisalForm({ view }: { view: AppraisalView }) {
     if (await save()) toast.success('Saved');
   }
 
+  // Refreshing remounts the form with the server's view (its key includes
+  // updatedAt), which would throw away unsaved edits — so save them first,
+  // exactly as Advance does.
+  async function onRefreshKpis() {
+    if (!(await save())) return;
+    try {
+      await m.refreshKpis.mutateAsync();
+    } catch {
+      // surfaced through `error` above
+    }
+  }
+
   async function onAdvance() {
     if (view.status === 'CALIBRATION' && !window.confirm('Sign off this appraisal? It becomes read-only and the recommendation is applied to the employee’s record.')) return;
     if (!(await save())) return;
@@ -281,7 +293,7 @@ function AppraisalForm({ view }: { view: AppraisalView }) {
             }
             action={
               view.kpiSnapshot && !signedOff && cycleOpen ? (
-                <Button size="sm" icon={<RefreshCw size={12} />} loading={m.refreshKpis.isPending} disabled={busy} onClick={() => m.refreshKpis.mutate()}>
+                <Button size="sm" icon={<RefreshCw size={12} />} loading={m.refreshKpis.isPending} disabled={busy} onClick={onRefreshKpis}>
                   Refresh
                 </Button>
               ) : undefined
