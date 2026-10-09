@@ -96,6 +96,24 @@ export class EmployeesRepository {
     return (await this.prisma.employee.count({ where: { id, orgId } })) > 0;
   }
 
+  /**
+   * `startId` and everyone above it: its manager, that manager's manager, ...
+   * `UNION` (not `UNION ALL`) makes the walk terminate even if a loop already
+   * exists in the data.
+   */
+  async managerChain(orgId: string, startId: string): Promise<string[]> {
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+      WITH RECURSIVE chain(id, manager_id) AS (
+        SELECT id, manager_id FROM employees WHERE id = ${startId} AND org_id = ${orgId}
+        UNION
+        SELECT e.id, e.manager_id FROM employees e
+        JOIN chain c ON e.id = c.manager_id
+        WHERE e.org_id = ${orgId}
+      )
+      SELECT id FROM chain`;
+    return rows.map((r) => r.id);
+  }
+
   /** Employees an attendance sync should cover: employed at any point in [from, to]. */
   listForSync(from: string, to: string) {
     return this.prisma.employee.findMany({

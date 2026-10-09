@@ -366,6 +366,12 @@ export class EmployeesService {
       throw new BadRequestException('An employee cannot be their own manager');
     if (!(await this.repo.existsInOrg(orgId, managerId)))
       throw new BadRequestException('Unknown manager');
+    // A -> B -> ... -> A at any depth, not just A -> A: if the new manager
+    // already reports up to this employee, the change would close a loop.
+    if (selfId && (await this.repo.managerChain(orgId, managerId)).includes(selfId))
+      throw new BadRequestException(
+        'That would create a reporting loop: the chosen manager already reports to this employee',
+      );
   }
 
   private translate(e: unknown): Error {

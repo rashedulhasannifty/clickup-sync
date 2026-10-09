@@ -47,6 +47,7 @@ function make(over: Record<string, jest.Mock> = {}) {
     findById: jest.fn().mockResolvedValue(row()),
     findTeamInOrg: jest.fn().mockResolvedValue({ id: 't1', name: 'New' }),
     existsInOrg: jest.fn().mockResolvedValue(true),
+    managerChain: jest.fn().mockResolvedValue([]),
     findUserByEmail: jest.fn().mockResolvedValue(null),
     create: jest.fn().mockImplementation(async (d) =>
       row({
@@ -232,6 +233,19 @@ describe('EmployeesService.create / update', () => {
     await expect(
       self.svc.update('org', 'e1', { managerId: 'e1' } as never),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('refuses a manager who already reports up to this employee (a loop at any depth)', async () => {
+    // e1 is being given manager m3; m3 reports to m2, who reports to e1.
+    const { svc, repo } = make({ managerChain: jest.fn().mockResolvedValue(['m3', 'm2', 'e1']) });
+    await expect(svc.update('org', 'e1', { managerId: 'm3' } as never)).rejects.toThrow(/reporting loop/);
+    expect(repo.update).not.toHaveBeenCalled();
+  });
+
+  it('accepts a manager whose chain does not reach this employee', async () => {
+    const { svc, repo } = make({ managerChain: jest.fn().mockResolvedValue(['m3', 'm2']) });
+    await svc.update('org', 'e1', { managerId: 'm3' } as never);
+    expect(repo.update).toHaveBeenCalledWith('e1', { managerId: 'm3' });
   });
 
   it('null clears a nullable field; omitted leaves it alone', async () => {
