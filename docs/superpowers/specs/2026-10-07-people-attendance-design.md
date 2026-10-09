@@ -265,11 +265,15 @@ Decided 2026-10-07: documents live in **MinIO**, reached through the S3 API
   `org_id` to ClickUp tables, these queries must filter on it too, and
   `clickupUserId` on create/update should be validated against the org's
   ClickUp members.
-- **Today's attendance appears only after a sync.** The cron runs once at
-  00:30 Dhaka for the previous 7 days; until a manual sync, today shows
-  `not-in`. The real provider will likely want an intraday schedule.
-- **Dummy past PENDING leaves stay PENDING** unless someone decides them.
-- **Manager cycles** longer than one hop (A → B → A) are not detected.
+- ~~Today's attendance appears only after a sync.~~ Fixed: besides the
+  00:30 nightly 7-day sync, an hourly cron (:05, 09:00–20:00 Dhaka, Mon–Fri)
+  re-syncs today only.
+- ~~Dummy past PENDING leaves stay PENDING.~~ Fixed: a dummy request is
+  reported PENDING while its day is ahead and APPROVED (same externalId) once
+  it arrives; a request someone decided by hand is never overwritten.
+- ~~Manager cycles longer than one hop are not detected.~~ Fixed: a manager
+  change is refused if the new manager already reports up to the employee, at
+  any depth.
 - **Pre-existing schema drift:** `prisma migrate dev` against the local DB
   also proposes unrelated changes (e.g. `clickup_tasks` timestamptz columns,
   `idx_clickup_time_entries_start_time_status`). Migration 0025 deliberately
@@ -349,14 +353,15 @@ fills in every step, including the self review on the employee's behalf.
 
 - Fixed: `NOTICE_GIVEN` / `EXITED` are refused on `POST /people/employees/:id/events`
   (400, "Use Start offboarding"); only the exit flow writes them, through
-  `EmployeesService.recordExitEvent`. An `EXITED` employee is read-only (409) for profile
-  edits, every employment event, and document upload/replace/patch/delete; exit letters
-  (`DocumentsService.storeGenerated`), reads and the exit module's own writes still work, and
-  import-from-users skips exited employees. Other People writes that name an exited
-  employee (leave decisions, appraisal sign-off outcome events) are not guarded.
-- Letters use the PDF built-in Helvetica font, so names in a non-Latin script
-  (e.g. Bengali) won't render. Follow-up: embed a Unicode font.
+  `EmployeesService.recordExitEvent`. An `EXITED` employee is read-only (409)
+  for profile edits, every employment event, document upload/replace/patch/
+  delete, leave decisions, and every appraisal write (save, advance, send back,
+  refresh KPIs — the form shows no controls). Exit letters
+  (`DocumentsService.storeGenerated`), reads and the exit module's own writes
+  still work, and import-from-users skips exited employees.
+- Fixed: letters embed Hind Siliguri (SIL OFL, `src/exits/fonts/`), which
+  covers Latin and Bengali; generation fails loudly if the font is missing.
+  Other scripts (Arabic, Devanagari, …) would still need another font.
+- Fixed: "Refresh KPIs" on the appraisal form saves unsaved edits first.
 - Appraisal sign-off asks via the browser's confirm dialog, matching Budgets
-  and Settings.
-- On the appraisal form, "Refresh KPIs" discards unsaved edits; Save and
-  Advance don't.
+  and Settings (deliberate, not a gap).
