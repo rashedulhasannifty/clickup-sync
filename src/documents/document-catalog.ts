@@ -5,7 +5,7 @@
  * `docType` is stored as the KEY below, never a free label, so the checklist can match it.
  */
 
-export const DOCUMENT_CATEGORIES = ['IDENTITY', 'EMPLOYMENT', 'EDUCATION', 'APPRAISAL', 'EXIT', 'PERSONAL', 'OTHER'] as const;
+export const DOCUMENT_CATEGORIES = ['IDENTITY', 'EMPLOYMENT', 'EDUCATION', 'APPRAISAL', 'EXIT', 'PERSONAL', 'NOMINEE', 'OTHER'] as const;
 export type DocumentCategoryName = (typeof DOCUMENT_CATEGORIES)[number];
 
 export const DOCUMENT_VISIBILITIES = ['HR_ONLY', 'HR_AND_EMPLOYEE', 'EVERYONE'] as const;
@@ -33,6 +33,11 @@ export const DOCUMENT_TYPES: Record<DocumentCategoryName, DocTypeOption[]> = {
     { key: 'CONFIRMATION_LETTER', label: 'Confirmation letter' },
     { key: 'PROMOTION_LETTER', label: 'Promotion letter' },
     { key: 'EXPERIENCE_LETTER', label: 'Experience letter' },
+    // Collected at joining (the onboarding checklist suggests these).
+    { key: 'RESUME', label: 'Resume (signed)' },
+    { key: 'JOB_APPLICATION', label: 'Job application' },
+    { key: 'PREVIOUS_RELEASE_LETTER', label: 'Release / clearance letter (previous employer)' },
+    { key: 'SALARY_CERTIFICATE', label: 'Salary certificate / pay slip (previous employer)' },
     OTHER_DOC_TYPE,
   ],
   EDUCATION: [{ key: 'EDUCATION_CERTIFICATE', label: 'Education certificate' }, { key: 'TRANSCRIPT', label: 'Transcript' }, OTHER_DOC_TYPE],
@@ -45,7 +50,8 @@ export const DOCUMENT_TYPES: Record<DocumentCategoryName, DocTypeOption[]> = {
     { key: 'EXPERIENCE_LETTER', label: 'Experience letter' },
     OTHER_DOC_TYPE,
   ],
-  PERSONAL: [{ key: 'EMERGENCY_CONTACT_FORM', label: 'Emergency contact form' }, OTHER_DOC_TYPE],
+  PERSONAL: [{ key: 'EMERGENCY_CONTACT_FORM', label: 'Emergency contact form' }, { key: 'PASSPORT_PHOTO', label: 'Passport-size photographs' }, OTHER_DOC_TYPE],
+  NOMINEE: [{ key: 'NOMINEE_NID', label: 'Nominee National ID' }, { key: 'NOMINEE_PHOTO', label: 'Nominee photographs' }, OTHER_DOC_TYPE],
   OTHER: [OTHER_DOC_TYPE],
 };
 

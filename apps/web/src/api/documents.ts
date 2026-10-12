@@ -1,6 +1,6 @@
 import { apiClient } from './client';
 
-export type DocumentCategory = 'IDENTITY' | 'EMPLOYMENT' | 'EDUCATION' | 'APPRAISAL' | 'EXIT' | 'PERSONAL' | 'OTHER';
+export type DocumentCategory = 'IDENTITY' | 'EMPLOYMENT' | 'EDUCATION' | 'APPRAISAL' | 'EXIT' | 'PERSONAL' | 'NOMINEE' | 'OTHER';
 export type DocumentVisibility = 'HR_ONLY' | 'HR_AND_EMPLOYEE' | 'EVERYONE';
 export type ExpiryStatus = 'none' | 'valid' | 'expiring' | 'expired';
 export type CompanyStatusFilter = 'expiring' | 'expired' | 'missing';

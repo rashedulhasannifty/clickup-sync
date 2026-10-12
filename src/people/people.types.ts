@@ -73,6 +73,8 @@ export interface DirectoryRow extends EmployeeProfile {
   band: Band;
   /** See `OverallScore.partial`. */
   partial: boolean;
+  /** Joining checklist progress (resolved = done or N/A); null when no checklist was started. */
+  onboarding: { resolved: number; total: number } | null;
 }
 
 export type KpiReason = 'not-linked' | 'no-data';

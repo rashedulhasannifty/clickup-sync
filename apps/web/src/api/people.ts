@@ -71,6 +71,8 @@ export type DirectoryRow = EmployeeProfile & {
   band: Band;
   /** Not linked to ClickUp: the score rests on attendance alone. Show it as "Partial". */
   partial: boolean;
+  /** Joining checklist progress (resolved = done or N/A); null when no checklist was started. */
+  onboarding: { resolved: number; total: number } | null;
 };
 
 export type KpiResult = {

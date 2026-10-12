@@ -395,3 +395,79 @@ fills in every step, including the self review on the employee's behalf.
 - Fixed: "Refresh KPIs" on the appraisal form saves unsaved edits first.
 - Appraisal sign-off asks via the browser's confirm dialog, matching Budgets
   and Settings (deliberate, not a gap).
+
+## Onboarding (joining) checklist
+
+This follows the company's paper form "Check List of Joining (New Employees)".
+It is created by migration `0030_employee_onboarding`. The code is in `src/people/onboarding*.ts` and
+`people-onboarding.controller.ts`. In the UI, the employee page has an **Onboarding** tab, and the directory
+shows an "Onboarding 12/28" badge while the checklist is incomplete.
+
+- **Model `OnboardingItem`** (`onboarding_items`):
+  - `employeeId`, with cascade delete.
+  - `group`: `DOCUMENTS | EQUIPMENT | ACCOUNTS | WELCOME`.
+  - `key`: a stable key for seeded items, e.g. `doc_resume`, `eq_laptop`, `acc_clickup`. It is null for custom items.
+  - `label` and `position`.
+  - `done` / `doneBy` / `doneAt`, and `notApplicable` / `notApplicableBy` / `notApplicableAt`.
+  - `note`, and `detail` (laptop serial, SIM number, email address, ...).
+  - `documentId`: a foreign key to `employee_documents`, `SET NULL` on delete.
+
+  `(employee_id, key)` is unique. NULL keys are distinct, so this only stops the same seeded line being added twice.
+  A CHECK constraint ensures an item is never both done and N/A. `DocumentCategory` gains `NOMINEE`.
+- **Default list (28 lines):**
+  - 10 documents: resume, job application, release letter from the previous employer, experience certificates,
+    education certificates, NID/passport, 4 photos, nominee NID, 2 nominee photos, salary certificate.
+  - 7 equipment: laptop, stand, keyboard, mouse, headphone, SIM, stationery.
+  - 8 accounts: email, Time Doctor, face lock, Teams, Outlook, Bitwarden, ClickUp, Slack (R&D only).
+  - 3 welcome: offer letter (hard copy), flowers, chocolate.
+
+  The list is defined once, in `onboarding-checklist.ts`. Never rename a key.
+- **Seeding:** `EmployeesRepository.create` seeds the list in the same nested write. Both
+  `POST /people/employees` and import-from-users therefore get it. Employees created before this feature get it
+  from `POST .../onboarding/start`. That endpoint inserts every missing default with `skipDuplicates`, so it is
+  idempotent and also backfills any default added to the list later.
+- **Suggested document per DOCUMENTS line:** a code-side map, keyed by item key.
+  - Categories:
+    - resume, application, release letter, experience and salary → `EMPLOYMENT`
+    - education → `EDUCATION`
+    - NID/passport → `IDENTITY`
+    - photos → `PERSONAL`
+    - nominee lines → `NOMINEE`
+  - Each line also gets a doc type that the catalog accepts. New types: RESUME, JOB_APPLICATION,
+    PREVIOUS_RELEASE_LETTER, SALARY_CERTIFICATE, PASSPORT_PHOTO, NOMINEE_NID, NOMINEE_PHOTO.
+  - A test keeps the map valid.
+- **Rules** (`resolveItemChange`, a pure function):
+  - Done and N/A are mutually exclusive. Sending both in one request returns 400; setting one clears the other.
+  - A linked document implies done. Linking a document marks the item done and clears N/A.
+  - Un-ticking done, or marking the item N/A, removes the link. The file stays in Documents.
+  - `documentId: null` only removes the link.
+  - The linked document must be a current document (not replaced, not deleted) of the same employee, or the
+    request returns 400.
+  - Ticking an item again keeps the original who/when.
+- **Seeded lines cannot be deleted.** Deleting one returns 409 ("mark it not applicable"). This keeps the form's
+  lines comparable across people and lets the exit flow rely on the keys. Custom lines can be deleted.
+- **Read side:**
+  - If the linked document was later replaced, the item shows its newest version.
+  - If it was soft-deleted, the item shows "Linked document was deleted" (soft delete never fires `SET NULL`).
+  - Progress counts done + N/A as resolved, per group and overall.
+  - The directory gets `onboarding: { resolved, total } | null` from one grouped query.
+- **Exited employees** are read-only: start, add, patch and delete return 409 via `assertNotExited`. GET still
+  works and returns `readOnly: true`.
+- **For the exit flow:** `OnboardingService.issuedEquipment(employeeId)`, exported from `PeopleModule`, returns
+  the done EQUIPMENT lines as `{ key, label, detail }`. The exit flow can use them to pre-fill the assets to
+  collect back. The method is not org-scoped; the caller must already have loaded the employee in its org.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/people/employees/:id/onboarding` | Checklist grouped, with progress per group |
+| POST | `/people/employees/:id/onboarding/start` | Seed the defaults (idempotent) |
+| POST | `/people/employees/:id/onboarding/items` | `{ group, label }` custom item |
+| PATCH | `/people/employees/:id/onboarding/items/:itemId` | `done`, `notApplicable`, `note`, `detail`, `documentId` |
+| DELETE | `/people/employees/:id/onboarding/items/:itemId` | Custom items only |
+
+All routes are Owner/Admin only, and writes are audited. The controller is in the guardrail `CONTROLLERS`
+list.
+
+In the UI, Upload on a document line reuses the Documents upload dialog. The dialog is titled with the line,
+and the category and type are pre-filled. After the upload, the UI PATCHes the new document's id onto the
+line. If document storage is not configured, lines can still be ticked but nothing can be uploaded.

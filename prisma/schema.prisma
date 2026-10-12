@@ -851,6 +851,7 @@ model Employee {
   appraisals  Appraisal[]        @relation("AppraisalEmployee")
   reviewing   Appraisal[]        @relation("AppraisalReviewer")
   exits       EmployeeExit[]
+  onboarding  OnboardingItem[]
 
   @@index([orgId, status])
   @@index([teamId])
@@ -927,6 +928,8 @@ enum DocumentCategory {
   APPRAISAL
   EXIT
   PERSONAL
+  /// The nominee's NID and photos, collected at joining.
+  NOMINEE
   OTHER
 }
 
@@ -965,9 +968,10 @@ model EmployeeDocument {
   deletedAt    DateTime?          @map("deleted_at")
 
   /// Restrict, not Cascade: deleting an employee row must not orphan objects in the bucket.
-  employee   Employee          @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  replacedBy EmployeeDocument? @relation("DocumentVersions", fields: [replacedById], references: [id], onDelete: SetNull)
-  replaces   EmployeeDocument? @relation("DocumentVersions")
+  employee        Employee          @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  replacedBy      EmployeeDocument? @relation("DocumentVersions", fields: [replacedById], references: [id], onDelete: SetNull)
+  replaces        EmployeeDocument? @relation("DocumentVersions")
+  onboardingItems OnboardingItem[]
 
   @@index([employeeId, deletedAt])
   @@index([expiresOn])
@@ -1184,4 +1188,52 @@ model ExitClearanceItem {
   @@unique([exitId, key])
   @@index([exitId, position])
   @@map("exit_clearance_items")
+}
+
+// ---------------------------------------------------------------------------
+// People: joining (onboarding) checklist, after the company's "Check List of Joining" form.
+// Spec: docs/superpowers/specs/2026-10-07-people-attendance-design.md ("Onboarding checklist")
+// ---------------------------------------------------------------------------
+
+enum OnboardingGroup {
+  DOCUMENTS
+  EQUIPMENT
+  ACCOUNTS
+  WELCOME
+}
+
+/// One line of an employee's joining checklist. Seeded items carry a stable `key` (e.g.
+/// `doc_resume`, `eq_laptop`); custom items have none. Resolved = `done` OR `notApplicable`
+/// (never both — the service keeps them mutually exclusive).
+model OnboardingItem {
+  id              String          @id @default(cuid())
+  employeeId      String          @map("employee_id")
+  group           OnboardingGroup
+  /// Stable key for a seeded item; null for a custom one. Unique per employee (NULLs are distinct).
+  key             String?
+  label           String
+  position        Int
+  done            Boolean         @default(false)
+  /// User id of the actor; null for a machine credential. Deliberately no FK.
+  doneBy          String?         @map("done_by")
+  doneAt          DateTime?       @map("done_at")
+  notApplicable   Boolean         @default(false) @map("not_applicable")
+  notApplicableBy String?         @map("not_applicable_by")
+  notApplicableAt DateTime?       @map("not_applicable_at")
+  note            String?
+  /// Free text: laptop serial, SIM number, email address...
+  detail          String?
+  /// The uploaded document that satisfies this item. A soft-deleted or replaced document is
+  /// resolved on read (soft delete does not fire SetNull).
+  documentId      String?         @map("document_id")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at")
+
+  employee Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  document EmployeeDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, key])
+  @@index([employeeId, position])
+  @@index([documentId])
+  @@map("onboarding_items")
 }

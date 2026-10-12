@@ -17,6 +17,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { Avatar } from '../components/ui/Avatar';
+import { Pill } from '../components/ui/Pill';
 import { DataTable, type Column } from '../components/ui/DataTable';
 import { useToast } from '../components/ui/Toast';
 import { EmployeeFormModal } from '../components/people/EmployeeFormModal';
@@ -79,7 +80,24 @@ const COLUMNS: Column<DirectoryRow>[] = [
       </span>
     ),
   },
-  { key: 'status', header: 'Status', width: 120, render: (r) => <EmployeeStatusPill status={r.status} /> },
+  {
+    key: 'status',
+    header: 'Status',
+    width: 170,
+    render: (r) => (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <EmployeeStatusPill status={r.status} />
+        {/* Only while incomplete, and not for leavers (their checklist is read-only). */}
+        {r.status !== 'EXITED' && r.onboarding && r.onboarding.resolved < r.onboarding.total && (
+          <span title="Joining checklist: items done or not applicable, of the total">
+            <Pill tone="amber" size="xs">
+              Onboarding {r.onboarding.resolved}/{r.onboarding.total}
+            </Pill>
+          </span>
+        )}
+      </span>
+    ),
+  },
   { key: 'today', header: 'Today', width: 100, sortable: false, render: (r) => <TodayStatePill state={r.today} /> },
   { key: 'score', header: 'Score (90d)', width: 150, render: (r) => <ScoreBandPill score={r.score} band={r.band} partial={r.partial} /> },
   { key: 'linked', header: 'Linked', width: 170, sortable: false, render: (r) => <LinkedIndicators linked={r.linked} /> },
