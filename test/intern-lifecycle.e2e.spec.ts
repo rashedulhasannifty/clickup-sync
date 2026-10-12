@@ -166,7 +166,6 @@ describe('Intern lifecycle (e2e)', () => {
       dueDate: '2026-12-10',
       periodStart: '2026-10-10',
       periodEnd: '2026-12-09',
-      overdue: false,
     });
     const due = await svc.dueEmployees(orgId, { type: 'INTERNSHIP', from: '2026-12-01', to: '2026-12-31' });
     expect(due.due.map((r) => r.employeeId)).toEqual([created.id]);
