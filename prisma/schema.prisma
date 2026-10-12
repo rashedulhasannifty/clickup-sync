@@ -798,6 +798,8 @@ enum EmploymentEventType {
   NOTICE_GIVEN
   EXITED
   NOTE
+  /// Salary increment: from/to are the old/new gross salary (whole taka), notes the percent.
+  INCREMENT
 }
 
 enum LeaveType {
@@ -816,27 +818,37 @@ enum LeaveStatus {
 }
 
 /// An employee is NOT a user: `userId` / `clickupUserId` are nullable links, made by email.
-/// Work identity only — no NID, address, phone or salary in slice 1.
+/// Work identity plus the appraisal form's header fields (0031). The salary columns are
+/// sensitive: Owner/Admin only (every /people route) and never logged.
 model Employee {
-  id               String         @id @default(cuid())
-  orgId            String         @map("org_id")
-  fullName         String         @map("full_name")
+  id                            String         @id @default(cuid())
+  orgId                         String         @map("org_id")
+  fullName                      String         @map("full_name")
   /// Stored lower-cased; attendance providers key their rows on it.
-  email            String         @unique
-  employeeCode     String?        @unique @map("employee_code")
-  userId           String?        @unique @map("user_id")
-  clickupUserId    String?        @unique @map("clickup_user_id")
-  designation      String
-  grade            String?
-  department       String?
-  teamId           String?        @map("team_id")
-  managerId        String?        @map("manager_id")
-  joinDate         DateTime       @map("join_date") @db.Date
-  confirmationDate DateTime?      @map("confirmation_date") @db.Date
-  exitDate         DateTime?      @map("exit_date") @db.Date
-  status           EmployeeStatus @default(PROBATION)
-  createdAt        DateTime       @default(now()) @map("created_at")
-  updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at")
+  email                         String         @unique
+  employeeCode                  String?        @unique @map("employee_code")
+  userId                        String?        @unique @map("user_id")
+  clickupUserId                 String?        @unique @map("clickup_user_id")
+  designation                   String
+  grade                         String?
+  department                    String?
+  teamId                        String?        @map("team_id")
+  managerId                     String?        @map("manager_id")
+  joinDate                      DateTime       @map("join_date") @db.Date
+  confirmationDate              DateTime?      @map("confirmation_date") @db.Date
+  exitDate                      DateTime?      @map("exit_date") @db.Date
+  status                        EmployeeStatus @default(PROBATION)
+  /// Company within the group the employee works for.
+  concernName                   String?        @map("concern_name")
+  academicQualification         String?        @map("academic_qualification")
+  /// Months of experience before joining; total experience = this + tenure.
+  experienceBeforeJoiningMonths Int?           @map("experience_before_joining_months")
+  /// Whole taka (BDT).
+  startingSalary                Int?           @map("starting_salary")
+  /// Present gross salary, whole taka (BDT). An INCREMENT event moves it.
+  grossSalary                   Int?           @map("gross_salary")
+  createdAt                     DateTime       @default(now()) @map("created_at")
+  updatedAt                     DateTime       @default(now()) @updatedAt @map("updated_at")
 
   org     Organization @relation(fields: [orgId], references: [id])
   user    User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -988,18 +1000,55 @@ enum AppraisalCycleStatus {
   CLOSED
 }
 
+/// KPI_BLEND cycles: SELF_REVIEW -> LEAD_REVIEW -> CALIBRATION -> SIGNED_OFF.
+/// FORM_100 cycles: SELF_REVIEW -> LEAD_REVIEW (supervisor) -> DEPT_HEAD_REVIEW -> HR_REVIEW
+/// -> FINAL_APPROVAL (CTO/COO) -> SIGNED_OFF.
 enum AppraisalStatus {
   SELF_REVIEW
   LEAD_REVIEW
   CALIBRATION
   SIGNED_OFF
+  DEPT_HEAD_REVIEW
+  HR_REVIEW
+  FINAL_APPROVAL
 }
 
+/// Legacy (KPI_BLEND) single recommendation.
 enum AppraisalRecommendation {
   PROMOTE
   RAISE
   NO_CHANGE
   IMPROVEMENT_PLAN
+}
+
+/// Which paper form a cycle is.
+enum AppraisalType {
+  HALF_YEARLY
+  CONFIRMATION
+  YEARLY
+}
+
+/// FORM_100: the paper form's 100-mark total and A-F grade are the official result; the KPI
+/// score is shown beside it as a reference. KPI_BLEND: the original 0-5 KPI/competency blend.
+enum AppraisalScoringMode {
+  KPI_BLEND
+  FORM_100
+}
+
+/// FORM_100 "Recommendations by Supervisor / Department Head" (multi-select).
+enum AppraisalAction {
+  CONFIRM
+  INCREMENT
+  PROMOTION
+  TERMINATION
+  DISMISSAL
+  TRAINING_TRANSFER
+}
+
+/// The CTO/COO's decision at final approval.
+enum AppraisalDecision {
+  APPROVED
+  NOT_APPROVED
 }
 
 model AppraisalCycle {
@@ -1009,9 +1058,12 @@ model AppraisalCycle {
   periodStart  DateTime             @map("period_start") @db.Date
   periodEnd    DateTime             @map("period_end") @db.Date
   status       AppraisalCycleStatus @default(DRAFT)
-  /// 0-100: share of the final score that comes from the KPIs; the rest is competencies.
+  type         AppraisalType        @default(YEARLY)
+  /// Cycles created before 0031 were backfilled KPI_BLEND; new cycles default to the form.
+  scoringMode  AppraisalScoringMode @default(FORM_100) @map("scoring_mode")
+  /// 0-100: share of the final score that comes from the KPIs; the rest is competencies. KPI_BLEND only.
   kpiWeight    Int                  @default(70) @map("kpi_weight")
-  /// `[{ key, label }]`. Ratings on an appraisal are keyed by `key`.
+  /// `[{ key, label, description? }]`. Ratings on an appraisal are keyed by `key`.
   competencies Json
   /// User id of the actor; null for a machine credential. Deliberately no FK.
   createdBy    String?              @map("created_by")
@@ -1033,7 +1085,7 @@ model Appraisal {
   reviewerId String?         @map("reviewer_id")
   status     AppraisalStatus @default(SELF_REVIEW)
 
-  /// `{ [competencyKey]: 1-5 }`. A missing key is unrated.
+  /// `{ [competencyKey]: rating }`: 1-5 (KPI_BLEND) or 2/4/6/8/10 (FORM_100). A missing key is unrated.
   selfRatings     Json                     @default("{}") @map("self_ratings")
   selfComment     String?                  @map("self_comment")
   leadRatings     Json                     @default("{}") @map("lead_ratings")
@@ -1048,13 +1100,44 @@ model Appraisal {
   /// 0-5, 1 dp. When set it replaces the computed score.
   calibratedScore Float?                   @map("calibrated_score")
 
-  /// Computed KPIs for the cycle period (never typed); frozen at sign-off.
+  // --- FORM_100 (the paper form) ---
+  /// Supervisor / department head recommendations. Required: PROMOTION -> newDesignation,
+  /// INCREMENT -> incrementPercent.
+  actions          AppraisalAction[]  @default([])
+  /// Prefilled in the UI from the grade's range; editable.
+  incrementPercent Float?             @map("increment_percent")
+  /// "Training need / development plan (if any)".
+  trainingPlan     String?            @map("training_plan")
+  deptHeadComment  String?            @map("dept_head_comment")
+  hrComment        String?            @map("hr_comment")
+  approvalDecision AppraisalDecision? @map("approval_decision")
+  approvalComment  String?            @map("approval_comment")
+  /// The form's header block (employee, experience, salary); captured at launch, refreshed
+  /// with the KPIs and on every step, frozen at sign-off.
+  formHeader       Json?              @map("form_header")
+  /// The stored PDF of the signed-off form (employee_documents.id, no FK: documents are soft-deleted).
+  formDocumentId   String?            @map("form_document_id")
+
+  /// Who completed each step and when (user ids; null for a machine credential). Deliberately no FK.
+  leadReviewBy String?   @map("lead_review_by")
+  leadReviewAt DateTime? @map("lead_review_at")
+  deptHeadBy   String?   @map("dept_head_by")
+  deptHeadAt   DateTime? @map("dept_head_at")
+  hrBy         String?   @map("hr_by")
+  hrAt         DateTime? @map("hr_at")
+  approvalBy   String?   @map("approval_by")
+  approvalAt   DateTime? @map("approval_at")
+
+  /// Computed KPIs for the cycle period (never typed); frozen at sign-off. FORM_100 shows it as a reference only.
   kpiSnapshot   Json?     @map("kpi_snapshot")
   kpiSnapshotAt DateTime? @map("kpi_snapshot_at")
 
   /// The score as it stood at sign-off, so history never moves if the maths is later tuned.
+  /// KPI_BLEND: 0-5. FORM_100: the 100-mark total.
   finalScore   Float?   @map("final_score")
   finalPartial Boolean? @map("final_partial")
+  /// FORM_100: the A-F grade at sign-off.
+  finalGrade   String?  @map("final_grade")
 
   signedOffAt      DateTime? @map("signed_off_at")
   /// User id of the actor; null for a machine credential. Deliberately no FK.

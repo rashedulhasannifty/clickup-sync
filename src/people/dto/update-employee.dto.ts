@@ -1,12 +1,15 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEmail,
+  IsInt,
   IsISO8601,
   IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
+  Min,
 } from 'class-validator';
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -61,4 +64,47 @@ export class UpdateEmployeeDto {
     message: 'clickupUserId must be a numeric ClickUp user id',
   })
   clickupUserId?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Company within the group (the form field "Concern name").',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  concernName?: string | null;
+
+  @ApiPropertyOptional({ example: 'BSc in CSE' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  academicQualification?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Months of experience before joining; total experience = this + tenure. `null` clears.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(720)
+  experienceBeforeJoiningMonths?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Whole taka (BDT). Sensitive. `null` clears.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100_000_000)
+  startingSalary?: number | null;
+
+  @ApiPropertyOptional({
+    description:
+      'Present gross salary, whole taka (BDT). An approved appraisal increment moves it. Sensitive. `null` clears.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100_000_000)
+  grossSalary?: number | null;
 }

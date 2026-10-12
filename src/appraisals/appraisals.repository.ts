@@ -5,7 +5,10 @@ import { isoToDateColumn } from '../people/people-dates';
 import type {
   AppraisalCycleStatusValue,
   AppraisalStatusValue,
+  AppraisalTypeValue,
   Competency,
+  FormHeader,
+  ScoringModeValue,
 } from './appraisals.types';
 
 const APPRAISAL_INCLUDE = {
@@ -27,6 +30,8 @@ export interface NewCycle {
   periodEnd: string;
   kpiWeight: number;
   competencies: Competency[];
+  type: AppraisalTypeValue;
+  scoringMode: ScoringModeValue;
   createdBy: string | null;
 }
 
@@ -36,13 +41,45 @@ export interface CycleUpdate {
   periodEnd?: string;
   kpiWeight?: number;
   competencies?: Competency[];
+  type?: AppraisalTypeValue;
   status?: AppraisalCycleStatusValue;
 }
 
 export interface LaunchCandidate {
   id: string;
   managerId: string | null;
+  /** FORM_100 cycles: the header captured at launch. */
+  formHeader?: FormHeader | null;
 }
+
+/** What the form header is built from: the employee row and its salary/promotion history. */
+const HEADER_SELECT = {
+  id: true,
+  fullName: true,
+  concernName: true,
+  designation: true,
+  department: true,
+  joinDate: true,
+  exitDate: true,
+  academicQualification: true,
+  experienceBeforeJoiningMonths: true,
+  startingSalary: true,
+  grossSalary: true,
+  events: {
+    where: { type: { in: ['INCREMENT', 'PROMOTED'] } },
+    select: {
+      type: true,
+      effectiveDate: true,
+      fromValue: true,
+      toValue: true,
+    },
+    orderBy: [{ effectiveDate: 'desc' }, { id: 'desc' }],
+  },
+} satisfies Prisma.EmployeeSelect;
+
+export type HeaderSourceRow = Prisma.EmployeeGetPayload<{
+  select: typeof HEADER_SELECT;
+}>;
 
 /**
  * Owns every write to `appraisal_cycles` and `appraisals`. Appraisals carry no
@@ -75,6 +112,8 @@ export class AppraisalsRepository {
         periodEnd: isoToDateColumn(data.periodEnd),
         kpiWeight: data.kpiWeight,
         competencies: data.competencies as unknown as Prisma.InputJsonValue,
+        type: data.type,
+        scoringMode: data.scoringMode,
         createdBy: data.createdBy,
       },
     });
@@ -94,9 +133,11 @@ export class AppraisalsRepository {
         ...(data.kpiWeight !== undefined ? { kpiWeight: data.kpiWeight } : {}),
         ...(data.competencies
           ? {
-              competencies: data.competencies as unknown as Prisma.InputJsonValue,
+              competencies:
+                data.competencies as unknown as Prisma.InputJsonValue,
             }
           : {}),
+        ...(data.type ? { type: data.type } : {}),
         ...(data.status ? { status: data.status } : {}),
       },
     });
@@ -105,7 +146,9 @@ export class AppraisalsRepository {
   /** Appraisal count per (cycle, status), for the progress bars. */
   async statusCounts(
     cycleIds: string[],
-  ): Promise<{ cycleId: string; status: AppraisalStatusValue; count: number }[]> {
+  ): Promise<
+    { cycleId: string; status: AppraisalStatusValue; count: number }[]
+  > {
     if (cycleIds.length === 0) return [];
     const rows = await this.prisma.appraisal.groupBy({
       by: ['cycleId', 'status'],
@@ -161,6 +204,11 @@ export class AppraisalsRepository {
           cycleId,
           employeeId: r.id,
           reviewerId: r.managerId,
+          ...(r.formHeader
+            ? {
+                formHeader: r.formHeader as unknown as Prisma.InputJsonValue,
+              }
+            : {}),
         })),
         skipDuplicates: true,
       }),
@@ -212,6 +260,43 @@ export class AppraisalsRepository {
       data,
     });
     return r.count > 0;
+  }
+
+  // --- form header, names, documents --------------------------------------
+
+  /** The employees' header sources, for the form header (org-scoped). */
+  headerSources(orgId: string, ids: string[]): Promise<HeaderSourceRow[]> {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.prisma.employee.findMany({
+      where: { orgId, id: { in: ids } },
+      select: HEADER_SELECT,
+    });
+  }
+
+  async organisationName(orgId: string): Promise<string> {
+    const org = await this.prisma.organization.findUnique({
+      where: { id: orgId },
+      select: { name: true },
+    });
+    return org?.name ?? '';
+  }
+
+  /** Display names for step actors (user ids). */
+  async userNames(ids: string[]): Promise<Map<string, string>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.prisma.user.findMany({
+      where: { id: { in: [...new Set(ids)] } },
+      select: { id: true, name: true, email: true },
+    });
+    return new Map(rows.map((u) => [u.id, u.name?.trim() || u.email]));
+  }
+
+  /** Records the stored PDF. Plain update: the appraisal is already signed off and read-only otherwise. */
+  async setFormDocument(id: string, documentId: string): Promise<void> {
+    await this.prisma.appraisal.update({
+      where: { id },
+      data: { formDocumentId: documentId },
+    });
   }
 
   /** Marks the outcome as written. Only the first call changes anything. */

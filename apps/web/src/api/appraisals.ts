@@ -3,16 +3,64 @@ import type { Kpis, OverallScore } from './people';
 
 /**
  * Mirrors `src/appraisals/appraisals.types.ts` and the request DTOs in
- * `src/appraisals/dto/*` by hand. Dates are `YYYY-MM-DD`, timestamps ISO-8601,
- * ratings whole numbers 1-5, scores 0-5 with one decimal. Row shapes are
+ * `src/appraisals/dto/*` by hand. Dates are `YYYY-MM-DD`, timestamps ISO-8601.
+ * FORM_100 (the paper form): ratings 2/4/6/8/10, a 100-mark total and an A-F
+ * grade; KPI_BLEND (legacy): ratings 1-5, scores 0-5 with one decimal. Row shapes are
  * `type` aliases so they satisfy DataTable's index-signature constraint.
  */
 
 export type CycleStatus = 'DRAFT' | 'OPEN' | 'CLOSED';
-export type AppraisalStatus = 'SELF_REVIEW' | 'LEAD_REVIEW' | 'CALIBRATION' | 'SIGNED_OFF';
+export type AppraisalStatus =
+  | 'SELF_REVIEW'
+  | 'LEAD_REVIEW'
+  | 'CALIBRATION'
+  | 'DEPT_HEAD_REVIEW'
+  | 'HR_REVIEW'
+  | 'FINAL_APPROVAL'
+  | 'SIGNED_OFF';
 export type Recommendation = 'PROMOTE' | 'RAISE' | 'NO_CHANGE' | 'IMPROVEMENT_PLAN';
+export type AppraisalType = 'HALF_YEARLY' | 'CONFIRMATION' | 'YEARLY';
+export type ScoringMode = 'KPI_BLEND' | 'FORM_100';
+export type AppraisalAction = 'CONFIRM' | 'INCREMENT' | 'PROMOTION' | 'TERMINATION' | 'DISMISSAL' | 'TRAINING_TRANSFER';
+export type ApprovalDecision = 'APPROVED' | 'NOT_APPROVED';
+export type FormGrade = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
 
-export type Competency = { key: string; label: string };
+export type GradePolicy = {
+  grade: FormGrade;
+  minMarks: number;
+  maxMarks: number;
+  promotion: boolean;
+  incrementMin: number;
+  incrementMax: number;
+  training: boolean;
+  transfer: boolean;
+  termination: boolean;
+  proposal: string;
+};
+
+/** The form's header block; money in whole taka. Frozen at sign-off. */
+export type FormHeader = {
+  capturedAt: string;
+  name: string;
+  concernName: string | null;
+  designation: string;
+  department: string | null;
+  joinDate: string;
+  academicQualification: string | null;
+  companyName: string;
+  experienceInCompanyMonths: number;
+  experienceBeforeJoiningMonths: number | null;
+  totalExperienceMonths: number | null;
+  startingSalary: number | null;
+  grossSalary: number | null;
+  lastIncrementAmount: number | null;
+  lastIncrementDate: string | null;
+  lastPromotionDate: string | null;
+};
+
+export type StepRecord = { status: AppraisalStatus; byUserId: string | null; byName: string | null; at: string | null };
+
+export type Competency = { key: string; label: string; description?: string };
 export type RatingMap = Record<string, number>;
 
 export type CycleCounts = {
@@ -20,6 +68,9 @@ export type CycleCounts = {
   SELF_REVIEW: number;
   LEAD_REVIEW: number;
   CALIBRATION: number;
+  DEPT_HEAD_REVIEW: number;
+  HR_REVIEW: number;
+  FINAL_APPROVAL: number;
   SIGNED_OFF: number;
 };
 
@@ -29,7 +80,9 @@ export type CycleView = {
   periodStart: string;
   periodEnd: string;
   status: CycleStatus;
-  /** 0-100: share of the final score that comes from the KPIs. */
+  type: AppraisalType;
+  scoringMode: ScoringMode;
+  /** 0-100: share of the final score that comes from the KPIs (KPI_BLEND only). */
   kpiWeight: number;
   competencies: Competency[];
   counts: CycleCounts;
@@ -46,7 +99,10 @@ export type KpiSnapshot = {
 };
 
 export type ScoreView = {
-  /** 0-5, 1 dp; the calibrated score when set. null when there is nothing to score yet. */
+  mode: ScoringMode;
+  /** The scale of `final`: 5 (KPI_BLEND) or 100 (FORM_100). */
+  outOf: 5 | 100;
+  /** KPI_BLEND: 0-5, the calibrated score when set. FORM_100: the 100-mark total. null when nothing to score yet. */
   final: number | null;
   computed: number | null;
   kpiPart: number | null;
@@ -56,6 +112,14 @@ export type ScoreView = {
   calibrated: boolean;
   basedOn: ('kpi' | 'competencies')[];
   kpiWeight: number;
+  /** FORM_100: the grade once every criterion is rated (frozen after sign-off). */
+  grade: FormGrade | null;
+  policy: GradePolicy | null;
+  /** The KPI overall score (0-100), shown beside the form as a reference only. */
+  kpiReference: number | null;
+  kpiReferencePartial: boolean;
+  ratedCount: number;
+  criteriaCount: number;
 };
 
 export type AppraisalListRow = {
@@ -68,8 +132,11 @@ export type AppraisalListRow = {
   reviewerId: string | null;
   reviewerName: string | null;
   status: AppraisalStatus;
+  scoringMode: ScoringMode;
   score: ScoreView;
   recommendation: Recommendation | null;
+  actions: AppraisalAction[];
+  approvalDecision: ApprovalDecision | null;
   signedOffAt: string | null;
   updatedAt: string;
 };
@@ -81,8 +148,12 @@ export type EmployeeAppraisalRow = {
   periodStart: string;
   periodEnd: string;
   status: AppraisalStatus;
+  scoringMode: ScoringMode;
+  appraisalType: AppraisalType;
   score: ScoreView;
   recommendation: Recommendation | null;
+  actions: AppraisalAction[];
+  approvalDecision: ApprovalDecision | null;
   newDesignation: string | null;
   signedOffAt: string | null;
 };
@@ -98,7 +169,14 @@ export type EditableField =
   | 'recommendation'
   | 'newDesignation'
   | 'calibrationNote'
-  | 'calibratedScore';
+  | 'calibratedScore'
+  | 'actions'
+  | 'incrementPercent'
+  | 'trainingPlan'
+  | 'deptHeadComment'
+  | 'hrComment'
+  | 'approvalDecision'
+  | 'approvalComment';
 
 export type AppraisalView = {
   id: string;
@@ -125,6 +203,18 @@ export type AppraisalView = {
   newDesignation: string | null;
   calibrationNote: string | null;
   calibratedScore: number | null;
+  actions: AppraisalAction[];
+  incrementPercent: number | null;
+  trainingPlan: string | null;
+  deptHeadComment: string | null;
+  hrComment: string | null;
+  approvalDecision: ApprovalDecision | null;
+  approvalComment: string | null;
+  formHeader: FormHeader | null;
+  /** This mode's step sequence with who/when once completed. */
+  steps: StepRecord[];
+  /** The stored PDF of the signed-off form (an employee document), once filed. */
+  formDocumentId: string | null;
   kpiSnapshot: KpiSnapshot | null;
   score: ScoreView;
   /** Fields the current step accepts; empty once signed off or when the cycle is not open. */
@@ -144,11 +234,13 @@ export type CreateCycleBody = {
   name: string;
   periodStart: string;
   periodEnd: string;
+  type?: AppraisalType;
+  scoringMode?: ScoringMode;
   kpiWeight?: number;
   competencies?: Competency[];
 };
 
-export type UpdateCycleBody = Partial<CreateCycleBody> & { status?: CycleStatus };
+export type UpdateCycleBody = Partial<Omit<CreateCycleBody, 'scoringMode'>> & { status?: CycleStatus };
 
 /** Only send the fields you are changing; `null` clears a nullable field. */
 export type UpdateAppraisalBody = {
@@ -163,6 +255,13 @@ export type UpdateAppraisalBody = {
   newDesignation?: string | null;
   calibrationNote?: string | null;
   calibratedScore?: number | null;
+  actions?: AppraisalAction[];
+  incrementPercent?: number | null;
+  trainingPlan?: string | null;
+  deptHeadComment?: string | null;
+  hrComment?: string | null;
+  approvalDecision?: ApprovalDecision | null;
+  approvalComment?: string | null;
 };
 
 export const appraisalsApi = {
@@ -186,6 +285,13 @@ export const appraisalsApi = {
   sendBack: (id: string) => apiClient.post<AppraisalView>(`/people/appraisals/${id}/send-back`).then((r) => r.data),
   refreshKpis: (id: string) =>
     apiClient.post<AppraisalView>(`/people/appraisals/${id}/refresh-kpis`).then((r) => r.data),
+  /** The filled paper form (FORM_100). A preview before sign-off; the frozen form after. */
+  formPdfUrl: (id: string, download = false) =>
+    `/api/people/appraisals/${encodeURIComponent(id)}/form-pdf${download ? '?download=1' : ''}`,
+  formPdfBlob: (id: string) =>
+    apiClient
+      .get<Blob>(`/people/appraisals/${encodeURIComponent(id)}/form-pdf`, { params: { download: 1 }, responseType: 'blob' })
+      .then((r) => r.data),
   forEmployee: (employeeId: string) =>
     apiClient.get<EmployeeAppraisalRow[]>(`/people/employees/${employeeId}/appraisals`).then((r) => r.data),
 };

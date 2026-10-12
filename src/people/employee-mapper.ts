@@ -29,5 +29,10 @@ export function toProfile(row: EmployeeRow, today: string): EmployeeProfile {
     clickupUserId: row.clickupUserId,
     userId: row.userId,
     linked: { clickup: row.clickupUserId !== null, user: row.userId !== null },
+    concernName: row.concernName,
+    academicQualification: row.academicQualification,
+    experienceBeforeJoiningMonths: row.experienceBeforeJoiningMonths,
+    startingSalary: row.startingSalary,
+    grossSalary: row.grossSalary,
   };
 }

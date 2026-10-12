@@ -29,7 +29,22 @@ export class CompetencyDto {
   @MinLength(1)
   @MaxLength(120)
   label!: string;
+
+  @ApiPropertyOptional({
+    description: 'What the criterion measures (shown beside the rating).',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  description?: string;
 }
+
+export const APPRAISAL_TYPES = [
+  'HALF_YEARLY',
+  'CONFIRMATION',
+  'YEARLY',
+] as const;
+export const SCORING_MODES = ['FORM_100', 'KPI_BLEND'] as const;
 
 export class CreateCycleDto {
   @ApiProperty({ example: 'H2 2026' })
@@ -48,6 +63,21 @@ export class CreateCycleDto {
   @IsISO8601({ strict: true })
   periodEnd!: string;
 
+  @ApiPropertyOptional({ enum: APPRAISAL_TYPES, default: 'YEARLY' })
+  @IsOptional()
+  @IsIn(APPRAISAL_TYPES)
+  type?: (typeof APPRAISAL_TYPES)[number];
+
+  @ApiPropertyOptional({
+    enum: SCORING_MODES,
+    default: 'FORM_100',
+    description:
+      'FORM_100: the paper form (10 criteria x 10 marks, A-F grade; KPIs shown as a reference). KPI_BLEND: the legacy 0-5 blend.',
+  })
+  @IsOptional()
+  @IsIn(SCORING_MODES)
+  scoringMode?: (typeof SCORING_MODES)[number];
+
   @ApiPropertyOptional({
     default: 70,
     description: 'Percent of the final score that comes from the KPIs.',
@@ -58,7 +88,11 @@ export class CreateCycleDto {
   @Max(100)
   kpiWeight?: number;
 
-  @ApiPropertyOptional({ type: [CompetencyDto] })
+  @ApiPropertyOptional({
+    type: [CompetencyDto],
+    description:
+      'Default: the paper form 10 criteria (FORM_100) or the four legacy competencies (KPI_BLEND).',
+  })
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(12)
@@ -101,6 +135,14 @@ export class UpdateCycleDto {
   @ValidateNested({ each: true })
   @Type(() => CompetencyDto)
   competencies?: CompetencyDto[];
+
+  @ApiPropertyOptional({
+    enum: APPRAISAL_TYPES,
+    description: 'Locked once appraisals have been launched.',
+  })
+  @IsOptional()
+  @IsIn(APPRAISAL_TYPES)
+  type?: (typeof APPRAISAL_TYPES)[number];
 
   @ApiPropertyOptional({ enum: ['DRAFT', 'OPEN', 'CLOSED'] })
   @IsOptional()

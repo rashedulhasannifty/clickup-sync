@@ -413,3 +413,64 @@ describe('EmployeesService: an exited employee is read-only', () => {
     expect(repo.addEvent).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('EmployeesService.recordAppraisalOutcome', () => {
+  it('writes every event in one batch with its side-effects, in order', async () => {
+    const addEvents = jest.fn().mockResolvedValue([]);
+    const { svc } = make({ addEvents });
+    await svc.recordAppraisalOutcome(admin, 'e1', [
+      { type: 'CONFIRMED', effectiveDate: '2026-12-31', toValue: null, notes: 'Appraisal H2 outcome' },
+      { type: 'PROMOTED', effectiveDate: '2026-12-31', toValue: 'Senior Engineer', notes: 'Appraisal H2 outcome' },
+      { type: 'INCREMENT', effectiveDate: '2026-12-31', fromValue: '80000', toValue: '90400', notes: '13%' },
+    ]);
+    expect(addEvents).toHaveBeenCalledTimes(1);
+    const [id, by, batch] = addEvents.mock.calls[0];
+    expect([id, by]).toEqual(['e1', 'u-admin']);
+    expect(batch).toEqual([
+      expect.objectContaining({ type: 'CONFIRMED', patch: { confirmationDate: '2026-12-31', status: 'ACTIVE' } }),
+      // fromValue defaults to the designation the promotion replaces.
+      expect.objectContaining({ type: 'PROMOTED', fromValue: 'Engineer', toValue: 'Senior Engineer', patch: { designation: 'Senior Engineer' } }),
+      expect.objectContaining({ type: 'INCREMENT', fromValue: '80000', toValue: '90400', notes: '13%', patch: { grossSalary: 90400 } }),
+    ]);
+  });
+
+  it('refuses an exited employee and a promotion without a designation', async () => {
+    const addEvents = jest.fn();
+    await expect(
+      make({ findById: jest.fn().mockResolvedValue(row({ status: 'EXITED' })), addEvents }).svc.recordAppraisalOutcome(admin, 'e1', [
+        { type: 'CONFIRMED', effectiveDate: '2026-12-31', toValue: null, notes: 'x' },
+      ]),
+    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      make({ addEvents }).svc.recordAppraisalOutcome(admin, 'e1', [
+        { type: 'PROMOTED', effectiveDate: '2026-12-31', toValue: ' ', notes: 'x' },
+      ]),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(addEvents).not.toHaveBeenCalled();
+  });
+
+  it('INCREMENT cannot be added by hand (salary would land in the audit log as toValue)', async () => {
+    const { MANUAL_EVENT_TYPES } = await import('./dto/add-employment-event.dto');
+    expect(MANUAL_EVENT_TYPES as readonly string[]).not.toContain('INCREMENT');
+  });
+});
+
+describe('EmployeesService: the appraisal form profile fields', () => {
+  it('saves and clears them on update', async () => {
+    const { svc, repo } = make();
+    await svc.update('org', 'e1', {
+      concernName: ' Nifty IT Solution Ltd ',
+      academicQualification: 'BSc',
+      experienceBeforeJoiningMonths: 30,
+      startingSalary: 50000,
+      grossSalary: null,
+    });
+    expect(repo.update).toHaveBeenCalledWith('e1', {
+      concernName: 'Nifty IT Solution Ltd',
+      academicQualification: 'BSc',
+      experienceBeforeJoiningMonths: 30,
+      startingSalary: 50000,
+      grossSalary: null,
+    });
+  });
+});

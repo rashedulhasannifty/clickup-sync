@@ -6,8 +6,13 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  Res,
+  StreamableFile,
   UseInterceptors,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { attachmentDelivery } from '../xero/xero-attachment-delivery';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { AuditLogInterceptor } from '../admin/audit-log.interceptor';
 import { AuthPrincipal, Role } from '../auth/auth.types';
@@ -108,7 +113,8 @@ export class AppraisalsController {
 
   @Patch('appraisals/:id')
   @ApiOperation({
-    summary: 'Save the fields of the current step (other steps’ fields are refused)',
+    summary:
+      'Save the fields of the current step (other steps’ fields are refused)',
   })
   update(
     @CurrentUser() user: AuthPrincipal,
@@ -133,7 +139,9 @@ export class AppraisalsController {
 
   @Post('appraisals/:id/send-back')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Move one step back for corrections (not after sign-off)' })
+  @ApiOperation({
+    summary: 'Move one step back for corrections (not after sign-off)',
+  })
   sendBack(
     @CurrentUser() user: AuthPrincipal,
     @Param('id') id: string,
@@ -143,12 +151,35 @@ export class AppraisalsController {
 
   @Post('appraisals/:id/refresh-kpis')
   @HttpCode(200)
-  @ApiOperation({ summary: 'Recompute the KPI snapshot (frozen after sign-off)' })
+  @ApiOperation({
+    summary: 'Recompute the KPI snapshot (frozen after sign-off)',
+  })
   refreshKpis(
     @CurrentUser() user: AuthPrincipal,
     @Param('id') id: string,
   ): Promise<AppraisalView> {
     return this.appraisals.refreshKpis(user.orgId, id);
+  }
+
+  @Get('appraisals/:id/form-pdf')
+  @ApiOperation({
+    summary:
+      'The filled paper form as a PDF (FORM_100 only). Before sign-off a preview that is not stored; after sign-off rendered from the frozen result. download=1 forces a download',
+  })
+  async formPdf(
+    @CurrentUser() user: AuthPrincipal,
+    @Param('id') id: string,
+    @Query('download') download: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const pdf = await this.appraisals.formPdf(user.orgId, id);
+    const { headers } = attachmentDelivery(
+      pdf.fileName,
+      'application/pdf',
+      download === '1' || download === 'true',
+    );
+    res.set({ ...headers, 'Content-Length': String(pdf.buffer.length) });
+    return new StreamableFile(pdf.buffer);
   }
 
   @Get('employees/:id/appraisals')

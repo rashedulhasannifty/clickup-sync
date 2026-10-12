@@ -1,10 +1,19 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Plus, Rocket, Trash2 } from 'lucide-react';
-import type { AppraisalListRow, Competency, CycleView } from '../api/appraisals';
+import type { AppraisalListRow, AppraisalType, Competency, CycleView, ScoringMode } from '../api/appraisals';
 import { useCreateCycle, useCycleAppraisals, useCycles, useLaunchCycle, useUpdateCycle } from '../hooks/useAppraisals';
 import { useEmployees } from '../hooks/usePeople';
-import { APPRAISAL_STATUS_LABEL, DEFAULT_COMPETENCIES, STATUS_STEPS, td, th } from '../lib/appraisals';
+import {
+  APPRAISAL_TYPE_LABEL,
+  DEFAULT_COMPETENCIES,
+  FORM_CRITERIA,
+  SCORING_MODE_LABEL,
+  statusLabel,
+  stepsFor,
+  td,
+  th,
+} from '../lib/appraisals';
 import { dhakaToday, formatDate } from '../lib/people';
 import { PageHeader } from '../components/ui/PageHeader';
 import { PageSkeleton } from '../components/ui/PageSkeleton';
@@ -15,11 +24,12 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Field } from '../components/ui/Field';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
+import { Select } from '../components/ui/Select';
 import { MultiSelect } from '../components/ui/MultiSelect';
 import { TableSkeleton } from '../components/ui/TableSkeleton';
 import { useToast } from '../components/ui/Toast';
-import { AppraisalStatusPill, CycleStatusPill, RecommendationText, ScoreCell } from '../components/people/AppraisalBits';
-import { FormRow, HeaderActions } from '../components/people/FormBits';
+import { AppraisalStatusPill, CycleStatusPill, OutcomeCell, ScoreCell } from '../components/people/AppraisalBits';
+import { FormRow, HeaderActions, TextArea } from '../components/people/FormBits';
 
 const slug = (s: string) =>
   s
@@ -29,15 +39,19 @@ const slug = (s: string) =>
     .slice(0, 40);
 
 /** Competency keys must be unique and `[a-z0-9_]`; a new label gets a key derived from it. */
-function withKeys(list: { key: string; label: string }[]): Competency[] {
+function withKeys(list: Competency[]): Competency[] {
   const seen = new Set<string>();
   return list.map((c, i) => {
     let key = c.key || slug(c.label) || `competency_${i + 1}`;
     while (seen.has(key)) key = `${key}_${i + 1}`;
     seen.add(key);
-    return { key, label: c.label.trim() };
+    const description = c.description?.trim();
+    return description ? { key, label: c.label.trim(), description } : { key, label: c.label.trim() };
   });
 }
+
+const TYPE_OPTIONS = (['HALF_YEARLY', 'CONFIRMATION', 'YEARLY'] as AppraisalType[]).map((t) => ({ value: t, label: APPRAISAL_TYPE_LABEL[t] }));
+const MODE_OPTIONS = (['FORM_100', 'KPI_BLEND'] as ScoringMode[]).map((m) => ({ value: m, label: SCORING_MODE_LABEL[m] }));
 
 function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreated: (c: CycleView) => void }) {
   const create = useCreateCycle();
@@ -45,20 +59,38 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
   const [name, setName] = useState(`${year} review`);
   const [periodStart, setPeriodStart] = useState(`${year}-01-01`);
   const [periodEnd, setPeriodEnd] = useState(`${year}-12-31`);
+  const [type, setType] = useState<AppraisalType>('YEARLY');
+  const [mode, setMode] = useState<ScoringMode>('FORM_100');
   const [kpiWeight, setKpiWeight] = useState('70');
-  const [competencies, setCompetencies] = useState(DEFAULT_COMPETENCIES.map((c) => ({ ...c })));
+  const [competencies, setCompetencies] = useState<Competency[]>(FORM_CRITERIA.map((c) => ({ ...c })));
   const [formError, setFormError] = useState('');
+  const form = mode === 'FORM_100';
+
+  function switchMode(next: ScoringMode) {
+    if (next === mode) return;
+    setMode(next);
+    // Each mode starts from its own defaults; the criteria are editable from there.
+    setCompetencies((next === 'FORM_100' ? FORM_CRITERIA : DEFAULT_COMPETENCIES).map((c) => ({ ...c })));
+  }
 
   function submit() {
     const weight = Number(kpiWeight);
     if (!name.trim()) return setFormError('Name the cycle.');
     if (!periodStart || !periodEnd || periodStart > periodEnd) return setFormError('The period must start on or before it ends.');
-    if (!Number.isInteger(weight) || weight < 0 || weight > 100) return setFormError('KPI weight must be a whole number from 0 to 100.');
+    if (!form && (!Number.isInteger(weight) || weight < 0 || weight > 100)) return setFormError('KPI weight must be a whole number from 0 to 100.');
     const filled = competencies.filter((c) => c.label.trim());
-    if (filled.length === 0) return setFormError('Add at least one competency.');
+    if (filled.length === 0) return setFormError(form ? 'Add at least one criterion.' : 'Add at least one competency.');
     setFormError('');
     create.mutate(
-      { name: name.trim(), periodStart, periodEnd, kpiWeight: weight, competencies: withKeys(filled) },
+      {
+        name: name.trim(),
+        periodStart,
+        periodEnd,
+        type,
+        scoringMode: mode,
+        ...(form ? {} : { kpiWeight: weight }),
+        competencies: withKeys(filled),
+      },
       { onSuccess: onCreated },
     );
   }
@@ -69,7 +101,7 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
       onClose={onClose}
       title="New appraisal cycle"
       subtitle="Created as a draft; launching it creates the appraisals."
-      width={560}
+      width={form ? 680 : 560}
       onSubmit={submit}
       footer={
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
@@ -99,32 +131,68 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
             <Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
           </Field>
         </FormRow>
-        <Field
-          label="KPI weight (%)"
-          required
-          hint={`KPIs count for ${kpiWeight || 0}% of the score, competencies for the other ${100 - (Number(kpiWeight) || 0)}%.`}
-        >
-          <Input type="number" min={0} max={100} value={kpiWeight} onChange={(e) => setKpiWeight(e.target.value)} />
-        </Field>
+        <FormRow>
+          <Field label="Appraisal type" required>
+            <Select fullWidth options={TYPE_OPTIONS} value={type} onChange={(v) => setType(v as AppraisalType)} />
+          </Field>
+          <Field
+            label="Scoring"
+            required
+            hint={form ? 'The form’s 100 marks and A–F grade are the result; KPIs are shown as a reference.' : 'Legacy: KPIs blended with 1–5 competency ratings.'}
+          >
+            <Select fullWidth options={MODE_OPTIONS} value={mode} onChange={(v) => switchMode(v as ScoringMode)} />
+          </Field>
+        </FormRow>
+        {!form && (
+          <Field
+            label="KPI weight (%)"
+            required
+            hint={`KPIs count for ${kpiWeight || 0}% of the score, competencies for the other ${100 - (Number(kpiWeight) || 0)}%.`}
+          >
+            <Input type="number" min={0} max={100} value={kpiWeight} onChange={(e) => setKpiWeight(e.target.value)} />
+          </Field>
+        )}
         <div>
-          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Competencies (rated 1–5 by the lead)</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
+            {form
+              ? 'Criteria (the supervisor rates each Outstanding 10 · Good 8 · Fair 6 · Average 4 · Below Average 2)'
+              : 'Competencies (rated 1–5 by the lead)'}
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: form ? 10 : 6,
+              maxHeight: form ? 360 : undefined,
+              overflowY: form ? 'auto' : undefined,
+            }}
+          >
             {competencies.map((c, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6 }}>
+              <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
                 {/* Input's own wrapper doesn't grow in a flex row; without this the label is cut off. */}
-                <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <Input
-                    aria-label={`Competency ${i + 1}`}
+                    aria-label={`${form ? 'Criterion' : 'Competency'} ${i + 1}`}
                     value={c.label}
                     maxLength={120}
                     onChange={(e) => setCompetencies(competencies.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
                   />
+                  {form && (
+                    <TextArea
+                      aria-label={`Criterion ${i + 1} description`}
+                      value={c.description ?? ''}
+                      maxLength={1000}
+                      rows={2}
+                      placeholder="What this criterion measures"
+                      onChange={(e) => setCompetencies(competencies.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
+                    />
+                  )}
                 </div>
                 <Button
                   type="button"
                   variant="ghost"
                   size="iconSm"
-                  aria-label={`Remove competency ${i + 1}`}
+                  aria-label={`Remove ${form ? 'criterion' : 'competency'} ${i + 1}`}
                   onClick={() => setCompetencies(competencies.filter((_, j) => j !== i))}
                 >
                   <Trash2 size={14} />
@@ -140,9 +208,14 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
               disabled={competencies.length >= 12}
               onClick={() => setCompetencies([...competencies, { key: '', label: '' }])}
             >
-              Add competency
+              {form ? 'Add criterion' : 'Add competency'}
             </Button>
           </div>
+          {form && competencies.length !== 10 && (
+            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>
+              With {competencies.length} criteria the total is normalised to 100 (sum ÷ (10 × {competencies.length}) × 100).
+            </div>
+          )}
         </div>
       </div>
     </Modal>
@@ -223,7 +296,11 @@ function CycleDetail({ cycle }: { cycle: CycleView }) {
   return (
     <Card
       title={cycle.name}
-      subtitle={`${formatDate(cycle.periodStart)} – ${formatDate(cycle.periodEnd)} · KPIs ${cycle.kpiWeight}% · competencies ${100 - cycle.kpiWeight}%`}
+      subtitle={
+        cycle.scoringMode === 'FORM_100'
+          ? `${APPRAISAL_TYPE_LABEL[cycle.type]} · ${formatDate(cycle.periodStart)} – ${formatDate(cycle.periodEnd)} · paper form, ${cycle.competencies.length} criteria, 100 marks`
+          : `${APPRAISAL_TYPE_LABEL[cycle.type]} · ${formatDate(cycle.periodStart)} – ${formatDate(cycle.periodEnd)} · KPIs ${cycle.kpiWeight}% · competencies ${100 - cycle.kpiWeight}% (legacy)`
+      }
       action={
         <HeaderActions>
           <CycleStatusPill status={cycle.status} />
@@ -252,12 +329,12 @@ function CycleDetail({ cycle }: { cycle: CycleView }) {
       )}
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-        {STATUS_STEPS.map((s) => (
+        {stepsFor(cycle.scoringMode).map((s) => (
           <div
             key={s}
             style={{ flex: '1 1 110px', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', background: 'var(--muted-bg)' }}
           >
-            <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{APPRAISAL_STATUS_LABEL[s]}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{statusLabel(s, cycle.scoringMode)}</div>
             <div style={{ fontSize: 20, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
               {cycle.counts[s]}
               <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-muted)' }}> / {cycle.counts.total}</span>
@@ -284,7 +361,7 @@ function CycleDetail({ cycle }: { cycle: CycleView }) {
                 <th style={th}>Team</th>
                 <th style={th}>Reviewer</th>
                 <th style={th}>Status</th>
-                <th style={th}>Score</th>
+                <th style={th}>{cycle.scoringMode === 'FORM_100' ? 'Marks / grade' : 'Score'}</th>
                 <th style={th}>Recommendation</th>
               </tr>
             </thead>
@@ -300,13 +377,13 @@ function CycleDetail({ cycle }: { cycle: CycleView }) {
                   <td style={td}>{a.teamName ?? '—'}</td>
                   <td style={td}>{a.reviewerName ?? '—'}</td>
                   <td style={td}>
-                    <AppraisalStatusPill status={a.status} />
+                    <AppraisalStatusPill status={a.status} mode={a.scoringMode} />
                   </td>
                   <td style={td}>
                     <ScoreCell score={a.score} />
                   </td>
                   <td style={td}>
-                    <RecommendationText value={a.recommendation} />
+                    <OutcomeCell mode={a.scoringMode} recommendation={a.recommendation} actions={a.actions} decision={a.approvalDecision} />
                   </td>
                 </tr>
               ))}
@@ -336,7 +413,7 @@ export function AppraisalsPage() {
     <div>
       <PageHeader
         title="Appraisals"
-        description="Cycles run self review, lead review, calibration and sign-off. KPIs are computed from tracked work and attendance, never typed."
+        description="Cycles follow the paper appraisal form: self review, supervisor, department head, HR, then CTO/COO approval. The form’s 100 marks and grade are the result; KPIs, computed from tracked work and attendance, are shown beside it as a reference."
         actions={
           <Button variant="accent" icon={<Plus size={14} />} onClick={() => setCreating(true)}>
             New cycle

@@ -7,6 +7,7 @@ import { Select } from '../ui/Select';
 import { Button } from '../ui/Button';
 import type { CreateEmployeeBody, EmployeeProfile, UpdateEmployeeBody } from '../../api/people';
 import { dhakaToday } from '../../lib/people';
+import { monthsText } from '../../lib/appraisals';
 import { FormRow } from './FormBits';
 
 export type PickOption = { value: string; label: string };
@@ -22,7 +23,17 @@ type Values = {
   managerId: string;
   joinDate: string;
   clickupUserId: string;
+  concernName: string;
+  academicQualification: string;
+  experienceBeforeJoiningMonths: string;
+  startingSalary: string;
+  grossSalary: string;
 };
+
+/** The whole-number fields: typed as text, sent as numbers. */
+const NUMERIC = ['experienceBeforeJoiningMonths', 'startingSalary', 'grossSalary'] as const;
+const WHOLE = /^\d+$/;
+const num = (v: number | null | undefined) => (v == null ? '' : String(v));
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -38,6 +49,11 @@ function initialValues(e: EmployeeProfile | undefined): Values {
     managerId: e?.managerId ?? '',
     joinDate: e?.joinDate ?? dhakaToday(),
     clickupUserId: e?.clickupUserId ?? '',
+    concernName: e?.concernName ?? '',
+    academicQualification: e?.academicQualification ?? '',
+    experienceBeforeJoiningMonths: num(e?.experienceBeforeJoiningMonths),
+    startingSalary: num(e?.startingSalary),
+    grossSalary: num(e?.grossSalary),
   };
 }
 
@@ -55,6 +71,9 @@ function toCreateBody(v: Values): CreateEmployeeBody {
     teamId: opt(v.teamId),
     managerId: opt(v.managerId),
     clickupUserId: opt(v.clickupUserId),
+    concernName: opt(v.concernName),
+    academicQualification: opt(v.academicQualification),
+    ...Object.fromEntries(NUMERIC.filter((k) => v[k].trim()).map((k) => [k, Number(v[k].trim())])),
   };
 }
 
@@ -72,6 +91,9 @@ function toUpdateBody(v: Values, initial: Values): UpdateEmployeeBody {
   if (v.teamId !== initial.teamId) body.teamId = v.teamId || null;
   if (v.managerId !== initial.managerId) body.managerId = v.managerId || null;
   if (changed('clickupUserId')) body.clickupUserId = v.clickupUserId.trim() || null;
+  if (changed('concernName')) body.concernName = v.concernName.trim() || null;
+  if (changed('academicQualification')) body.academicQualification = v.academicQualification.trim() || null;
+  for (const k of NUMERIC) if (changed(k)) body[k] = v[k].trim() ? Number(v[k].trim()) : null;
   return body;
 }
 
@@ -114,6 +136,11 @@ export function EmployeeFormModal({
     if (!v.joinDate) return setFormError('Set the join date.');
     if (v.clickupUserId.trim() && !/^\d+$/.test(v.clickupUserId.trim())) {
       return setFormError('ClickUp user id must be numeric.');
+    }
+    for (const k of NUMERIC) {
+      if (v[k].trim() && !WHOLE.test(v[k].trim())) {
+        return setFormError(k === 'experienceBeforeJoiningMonths' ? 'Experience must be a whole number of months.' : 'Salaries are whole taka (no decimals or commas).');
+      }
     }
     setFormError('');
     if (isEdit) {
@@ -203,6 +230,32 @@ export function EmployeeFormModal({
               placeholder="e.g. 3450636"
             />
           </Field>
+        </FormRow>
+        <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 4 }}>Appraisal form details</div>
+        <FormRow>
+          <Field label="Concern name" hint="The company within the group.">
+            <Input value={v.concernName} onChange={(e) => set('concernName', e.target.value)} maxLength={200} />
+          </Field>
+          <Field label="Academic qualification">
+            <Input value={v.academicQualification} onChange={(e) => set('academicQualification', e.target.value)} maxLength={300} placeholder="e.g. BSc in CSE" />
+          </Field>
+        </FormRow>
+        <FormRow>
+          <Field
+            label="Experience before joining (months)"
+            hint={WHOLE.test(v.experienceBeforeJoiningMonths.trim()) ? `${monthsText(Number(v.experienceBeforeJoiningMonths))}; total experience adds the tenure here.` : 'Total experience adds the tenure here.'}
+          >
+            <Input inputMode="numeric" value={v.experienceBeforeJoiningMonths} onChange={(e) => set('experienceBeforeJoiningMonths', e.target.value)} placeholder="e.g. 30" />
+          </Field>
+          <Field label="Starting salary (BDT)" hint="Whole taka. Owner/Admin only.">
+            <Input inputMode="numeric" value={v.startingSalary} onChange={(e) => set('startingSalary', e.target.value)} placeholder="e.g. 50000" />
+          </Field>
+        </FormRow>
+        <FormRow>
+          <Field label="Present gross salary (BDT)" hint="Whole taka. An approved appraisal increment updates it.">
+            <Input inputMode="numeric" value={v.grossSalary} onChange={(e) => set('grossSalary', e.target.value)} placeholder="e.g. 80000" />
+          </Field>
+          <div />
         </FormRow>
       </div>
     </Modal>

@@ -5,8 +5,8 @@ import { Card } from '../ui/Card';
 import { EmptyState } from '../ui/EmptyState';
 import { QueryError } from '../ui/QueryError';
 import { TableSkeleton } from '../ui/TableSkeleton';
-import { td, th } from '../../lib/appraisals';
-import { AppraisalStatusPill, RecommendationText, ScoreCell } from './AppraisalBits';
+import { APPRAISAL_TYPE_LABEL, td, th } from '../../lib/appraisals';
+import { AppraisalStatusPill, OutcomeCell, ScoreCell } from './AppraisalBits';
 
 /** The Appraisals tab on an employee's page: one row per cycle, linking to the form. */
 export function EmployeeAppraisalsTab({ employeeId }: { employeeId: string }) {
@@ -31,7 +31,8 @@ export function EmployeeAppraisalsTab({ employeeId }: { employeeId: string }) {
               <tr>
                 <th style={th}>Cycle</th>
                 <th style={th}>Period</th>
-                <th style={th}>Score</th>
+                <th style={th}>Type</th>
+                <th style={th}>Score / grade</th>
                 <th style={th}>Recommendation</th>
                 <th style={th}>Status</th>
                 <th style={th}>Signed off</th>
@@ -48,14 +49,21 @@ export function EmployeeAppraisalsTab({ employeeId }: { employeeId: string }) {
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>
                     {formatDate(r.periodStart)} – {formatDate(r.periodEnd)}
                   </td>
+                  <td style={{ ...td, whiteSpace: 'nowrap' }}>{APPRAISAL_TYPE_LABEL[r.appraisalType]}</td>
                   <td style={td}>
                     <ScoreCell score={r.score} />
                   </td>
                   <td style={td}>
-                    <RecommendationText value={r.recommendation} designation={r.newDesignation} />
+                    <OutcomeCell
+                      mode={r.scoringMode}
+                      recommendation={r.recommendation}
+                      actions={r.actions}
+                      decision={r.approvalDecision}
+                      designation={r.newDesignation}
+                    />
                   </td>
                   <td style={td}>
-                    <AppraisalStatusPill status={r.status} />
+                    <AppraisalStatusPill status={r.status} mode={r.scoringMode} />
                   </td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>{r.signedOffAt ? formatDate(r.signedOffAt.slice(0, 10)) : '—'}</td>
                 </tr>
