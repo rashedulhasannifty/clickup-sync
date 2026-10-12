@@ -105,6 +105,10 @@ export function toProfile(row: EmployeeRow, today: string): EmployeeProfile {
     clickupUserId: row.clickupUserId,
     userId: row.userId,
     linked: { clickup: row.clickupUserId !== null, user: row.userId !== null },
+    // Older fixtures build rows without the new columns/relation.
+    attendanceId: row.attendanceId ?? null,
+    shiftId: row.shiftId ?? null,
+    shiftName: row.shift?.name ?? null,
     concernName: row.concernName,
     academicQualification: row.academicQualification,
     experienceBeforeJoiningMonths: row.experienceBeforeJoiningMonths,

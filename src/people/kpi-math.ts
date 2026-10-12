@@ -4,15 +4,27 @@ import {
   BAND_WATCH_MIN,
   KPI_TARGETS,
   LATE_AFTER_MINUTES,
-  WORKING_DAY_HOURS,
 } from './people.constants';
 import {
   businessDaysIn,
   dhakaMinutesOfDay,
   intersect,
+  isBusinessDay,
   type DateRange,
 } from './people-dates';
-import type { Band, KpiResult, Kpis, OverallScore, ScoredKpi } from './people.types';
+import {
+  DEFAULT_PUNCTUALITY,
+  isOnTimeFor,
+  type Punctuality,
+} from './shift-math';
+import type {
+  Band,
+  KpiReason,
+  KpiResult,
+  Kpis,
+  OverallScore,
+  ScoredKpi,
+} from './people.types';
 
 /**
  * Pure KPI maths for the employee summary and directory. No I/O, no clock:
@@ -40,6 +52,8 @@ export interface KpiInput {
   attendance: { date: string; firstIn: Date | null }[];
   /** APPROVED leave only; the caller filters. Every leave type reduces availability. */
   approvedLeave: LeaveSpan[];
+  /** The employee's shift rule (`punctualityOf`). Default: late after 09:30, 8-hour days. */
+  punctuality?: Punctuality;
 }
 
 export interface KpiComputation {
@@ -65,7 +79,7 @@ export function rawScore(value: number, target: number): number {
   return Math.min(value / target, 1) * 100;
 }
 
-/** On time = first entry at or before 09:30 Dhaka. */
+/** On time = first entry at or before 09:30 Dhaka (the no-shift default; see `isOnTimeFor`). */
 export function isOnTimeArrival(firstIn: Date): boolean {
   return dhakaMinutesOfDay(firstIn) <= LATE_AFTER_MINUTES;
 }
@@ -121,14 +135,15 @@ function kpi(
   numerator: number,
   denominator: number,
   target: number,
-  reason?: 'not-linked' | 'no-data',
+  reason?: KpiReason,
 ): KpiResult {
   if (reason || denominator <= 0) {
+    const absent = reason === 'not-linked' || reason === 'not-tracked';
     return {
       value: null,
       target,
-      numerator: reason === 'not-linked' ? 0 : round(numerator, 2),
-      denominator: reason === 'not-linked' ? 0 : round(denominator, 2),
+      numerator: absent ? 0 : round(numerator, 2),
+      denominator: absent ? 0 : round(denominator, 2),
       score: null,
       status: 'no-data',
       reason: reason ?? 'no-data',
@@ -150,8 +165,9 @@ export function computeKpis(input: KpiInput): KpiComputation {
   const { period } = input;
   const inPeriod = (d: string) => d >= period.from && d <= period.to;
 
+  const rule = input.punctuality ?? DEFAULT_PUNCTUALITY;
   const availableDays = availableBusinessDays(input);
-  const availableHours = availableDays * WORKING_DAY_HOURS;
+  const availableHours = availableDays * rule.dayHours;
 
   let clickupHours = 0;
   let chargeableHours = 0;
@@ -172,9 +188,10 @@ export function computeKpis(input: KpiInput): KpiComputation {
   let arrivals = 0;
   let onTimeArrivals = 0;
   for (const a of input.attendance) {
-    if (!inPeriod(a.date) || !a.firstIn) continue;
+    // Weekend work is extra: it is never late, so it never counts toward punctuality.
+    if (!inPeriod(a.date) || !a.firstIn || !isBusinessDay(a.date)) continue;
     arrivals++;
-    if (isOnTimeArrival(a.firstIn)) onTimeArrivals++;
+    if (isOnTimeFor(a.firstIn, rule)) onTimeArrivals++;
   }
 
   const linked = input.clickupLinked;
@@ -188,7 +205,9 @@ export function computeKpis(input: KpiInput): KpiComputation {
     onTimeDelivery: linked
       ? kpi(onTimeTasks, dueTasks, KPI_TARGETS.onTimeDelivery)
       : kpi(0, 0, KPI_TARGETS.onTimeDelivery, 'not-linked'),
-    punctuality: kpi(onTimeArrivals, arrivals, KPI_TARGETS.punctuality),
+    punctuality: rule.tracked
+      ? kpi(onTimeArrivals, arrivals, KPI_TARGETS.punctuality)
+      : kpi(0, 0, KPI_TARGETS.punctuality, 'not-tracked'),
   };
 
   return {
@@ -213,9 +232,13 @@ export function overallOf(kpis: Kpis): OverallScore {
     scores.push(rawScore(k.value, k.target));
     basedOn.push(key);
   }
-  // Only "not linked" makes a score partial. A KPI that is null for lack of
-  // data (no tasks with a due date this period) is a real, complete answer.
-  const partial = keys.some((key) => kpis[key].reason === 'not-linked');
+  // Only a KPI that does not apply makes a score partial: ClickUp "not linked",
+  // or punctuality on a shift that does not track it. A KPI that is null for
+  // lack of data (no tasks with a due date this period) is a real, complete answer.
+  const partial = keys.some(
+    (key) =>
+      kpis[key].reason === 'not-linked' || kpis[key].reason === 'not-tracked',
+  );
   if (scores.length === 0) return { score: null, band: 'no-data', partial, basedOn };
   const score = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
   return { score, band: bandOf(score), partial, basedOn };

@@ -30,6 +30,17 @@ export const LATEST_EXTENSION = {
 const PROFILE_INCLUDE = {
   team: { select: { name: true } },
   manager: { select: { fullName: true } },
+  /** Lateness and expected hours follow the shift (0036). */
+  shift: {
+    select: {
+      id: true,
+      name: true,
+      startMinutes: true,
+      endMinutes: true,
+      graceMinutes: true,
+      trackPunctuality: true,
+    },
+  },
   appraisals: {
     select: {
       dueDate: true,
