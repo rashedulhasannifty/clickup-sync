@@ -28,6 +28,7 @@ import { PeopleSyncService } from './people-sync.service';
 import { PeopleShiftsController } from './people-shifts.controller';
 import { ShiftsRepository } from './shifts.repository';
 import { ShiftsService } from './shifts.service';
+import { StellarImportService } from './stellar/stellar-import.service';
 
 @Module({
   // AuditLogInterceptor/AuditLogRepository come from AdminModule (see its exports).
@@ -50,6 +51,7 @@ import { ShiftsService } from './shifts.service';
     PeopleSyncService,
     ShiftsRepository,
     ShiftsService,
+    StellarImportService,
     {
       // The provider is chosen by env, not by code: ATTENDANCE_PROVIDER=dummy|none|stellar.
       provide: ATTENDANCE_PROVIDER,

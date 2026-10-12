@@ -3,6 +3,12 @@ import { Prisma, type AttendanceSource } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { dateColumnToIso, isoToDateColumn } from './people-dates';
 import type { ProviderLeaveRow } from './attendance-provider';
+import type {
+  AttendanceWrite,
+  ExistingAttendance,
+  ExistingLeave,
+  LeaveInsert,
+} from './stellar/stellar-import-plan';
 import type { LeaveStatusValue } from './people.types';
 
 export interface AttendanceUpsert {
@@ -65,6 +71,10 @@ export interface LeaveListFilter {
 }
 
 const CHUNK = 500;
+/** Rows per createMany in an import: well under Postgres' 65 535 bind parameters. */
+const IMPORT_CHUNK = 1000;
+/** A full-quarter import is a few thousand rows; leave the transaction room. */
+const IMPORT_TX = { timeout: 60_000, maxWait: 10_000 };
 
 /** Owns every write to `attendance_days` and `leave_records`. */
 @Injectable()
@@ -103,6 +113,155 @@ export class AttendanceRepository {
     return new Set(
       rows.map((r) => `${r.employeeId}|${dateColumnToIso(r.date)}`),
     );
+  }
+
+  /** Every attendance row of these employees in [from, to], with its source (import planning). */
+  async attendanceSourcesIn(
+    employeeIds: string[],
+    from: string,
+    to: string,
+  ): Promise<ExistingAttendance[]> {
+    if (employeeIds.length === 0) return [];
+    const rows = await this.prisma.attendanceDay.findMany({
+      where: {
+        employeeId: { in: employeeIds },
+        date: { gte: isoToDateColumn(from), lte: isoToDateColumn(to) },
+      },
+      select: { employeeId: true, date: true, source: true },
+    });
+    return rows.map((r) => ({ ...r, date: dateColumnToIso(r.date) }));
+  }
+
+  /** Leave rows of these sources overlapping [from, to] (import planning). */
+  async leavesOfSourcesIn(
+    employeeIds: string[],
+    sources: string[],
+    from: string,
+    to: string,
+  ): Promise<ExistingLeave[]> {
+    if (employeeIds.length === 0) return [];
+    const rows = await this.prisma.leaveRecord.findMany({
+      where: {
+        employeeId: { in: employeeIds },
+        source: { in: sources },
+        startDate: { lte: isoToDateColumn(to) },
+        endDate: { gte: isoToDateColumn(from) },
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        source: true,
+        startDate: true,
+        endDate: true,
+      },
+    });
+    return rows.map((r) => ({
+      ...r,
+      startDate: dateColumnToIso(r.startDate),
+      endDate: dateColumnToIso(r.endDate),
+    }));
+  }
+
+  /**
+   * Apply a Stellar CSV attendance import atomically: delete the DUMMY and
+   * STELLAR_CSV rows of the matched employees over the file's range (never
+   * STELLAR_API), insert the file's rows (a STELLAR_API row that appeared
+   * meanwhile wins: skipDuplicates), and delete the simulated leave the plan
+   * named. Re-running the same file converges on the same rows.
+   */
+  async applyStellarAttendanceImport(args: {
+    employeeIds: string[];
+    from: string;
+    to: string;
+    writes: AttendanceWrite[];
+    dummyLeaveIds: string[];
+  }): Promise<{ deleted: number; inserted: number; leavesDeleted: number }> {
+    return this.prisma.$transaction(async (tx) => {
+      const deleted =
+        args.employeeIds.length === 0
+          ? { count: 0 }
+          : await tx.attendanceDay.deleteMany({
+              where: {
+                employeeId: { in: args.employeeIds },
+                date: {
+                  gte: isoToDateColumn(args.from),
+                  lte: isoToDateColumn(args.to),
+                },
+                source: { in: ['DUMMY', 'STELLAR_CSV'] },
+              },
+            });
+      let inserted = 0;
+      for (let i = 0; i < args.writes.length; i += IMPORT_CHUNK) {
+        const res = await tx.attendanceDay.createMany({
+          data: args.writes.slice(i, i + IMPORT_CHUNK).map((w) => ({
+            employeeId: w.employeeId,
+            date: isoToDateColumn(w.date),
+            firstIn: w.firstIn,
+            lastOut: w.lastOut,
+            minutesInOffice: w.minutesInOffice,
+            sessions: w.sessions,
+            workedMinutes: w.workedMinutes,
+            missingOut: w.missingOut,
+            note: w.note,
+            source: 'STELLAR_CSV' as const,
+          })),
+          skipDuplicates: true,
+        });
+        inserted += res.count;
+      }
+      const leaves =
+        args.dummyLeaveIds.length === 0
+          ? { count: 0 }
+          : await tx.leaveRecord.deleteMany({
+              where: { id: { in: args.dummyLeaveIds }, source: 'dummy' },
+            });
+      return {
+        deleted: deleted.count,
+        inserted,
+        leavesDeleted: leaves.count,
+      };
+    }, IMPORT_TX);
+  }
+
+  /**
+   * Apply a Stellar leave import atomically: delete the `stellar`/`dummy`
+   * rows the plan named (the source guard makes a manual leave undeletable
+   * here even by a bad plan), then insert the file's records.
+   */
+  async applyStellarLeaveImport(args: {
+    deleteIds: string[];
+    inserts: LeaveInsert[];
+  }): Promise<{ deleted: number; inserted: number }> {
+    return this.prisma.$transaction(async (tx) => {
+      const deleted =
+        args.deleteIds.length === 0
+          ? { count: 0 }
+          : await tx.leaveRecord.deleteMany({
+              where: {
+                id: { in: args.deleteIds },
+                source: { in: ['stellar', 'dummy'] },
+              },
+            });
+      let inserted = 0;
+      for (let i = 0; i < args.inserts.length; i += IMPORT_CHUNK) {
+        const res = await tx.leaveRecord.createMany({
+          data: args.inserts.slice(i, i + IMPORT_CHUNK).map((l) => ({
+            employeeId: l.employeeId,
+            type: l.type,
+            startDate: isoToDateColumn(l.startDate),
+            endDate: isoToDateColumn(l.endDate),
+            days: l.days,
+            status: l.status,
+            reason: l.reason,
+            source: l.source,
+            externalId: l.externalId,
+          })),
+          skipDuplicates: true,
+        });
+        inserted += res.count;
+      }
+      return { deleted: deleted.count, inserted };
+    }, IMPORT_TX);
   }
 
   /** Per-source date span of the org's attendance rows, newest data first. */

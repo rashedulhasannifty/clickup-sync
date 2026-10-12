@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { defaultOnboardingRows } from './onboarding-checklist';
-import { isoToDateColumn } from './people-dates';
+import { dateColumnToIso, isoToDateColumn } from './people-dates';
 import type { EmployeePatch } from './employment-events';
 import type {
   EmployeeStatusValue,
@@ -203,6 +203,28 @@ export class EmployeesRepository {
       )
       SELECT id FROM chain`;
     return rows.map((r) => r.id);
+  }
+
+  /** This org's employees carrying any of these Stellar HRM ids (imports match on nothing else). */
+  async byAttendanceIds(orgId: string, ids: string[]) {
+    if (ids.length === 0) return [];
+    const rows = await this.prisma.employee.findMany({
+      where: { orgId, attendanceId: { in: ids } },
+      select: {
+        id: true,
+        fullName: true,
+        attendanceId: true,
+        joinDate: true,
+        exitDate: true,
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      fullName: r.fullName,
+      attendanceId: r.attendanceId as string,
+      joinDate: dateColumnToIso(r.joinDate),
+      exitDate: r.exitDate ? dateColumnToIso(r.exitDate) : null,
+    }));
   }
 
   /** Employees an attendance sync should cover: employed at any point in [from, to]. */
