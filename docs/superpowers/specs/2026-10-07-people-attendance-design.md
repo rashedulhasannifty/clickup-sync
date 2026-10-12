@@ -306,10 +306,76 @@ stored 0 for FORM_100), and competencies, a JSON list of
 `src/appraisals/appraisal-score.ts`), editable until launch: Job Knowledge,
 Customer Orientation, Decision Making, Planning and Organizing, Building and
 Leading Teams, Developing People, Communication, Influencing, Commitment to
-Excel, Integrity. Period, type, weight and criteria lock once appraisals
-exist. Launching an OPEN cycle creates one appraisal per selected employee
-(default: every non-EXITED employee who joined before periodEnd) and, for
-FORM_100, captures each one's **form header**.
+Excel, Integrity. Period, its basis, type, weight and criteria lock once
+appraisals exist. Launching an OPEN cycle creates one appraisal per selected
+employee and, for FORM_100, captures each one's **form header**. Who is
+selected by default depends on the cycle's **periodBasis** (next section).
+
+### Counted from join dates (0032)
+
+Decided with the product owner 2026-10-12: appraisals are counted from each
+employee's **join date**, not the calendar. Migration
+`0032_appraisal_join_schedule` adds `appraisal_cycles.period_basis`
+`CALENDAR | JOIN_DATE` (existing rows → CALENDAR; new cycles default to
+JOIN_DATE) and nullable `appraisals.period_start`, `period_end`, `due_date`
+(`@db.Date`; null = the cycle's own period applies: calendar cycles and
+appraisals created before 0032).
+
+The schedule is pure (`src/appraisals/appraisal-schedule.ts`, no clock):
+
+| Type | Due | Reviews |
+|---|---|---|
+| CONFIRMATION | join + 6 months (once) | join date → day before the due date |
+| HALF_YEARLY | join + 6k months, k ≥ 2 (12, 18, 24, … months; the 6-month mark is the confirmation) | the 6 months before the due date |
+| YEARLY | join + 12k months, k ≥ 1 (each anniversary) | the 12 months before the due date |
+
+- Month arithmetic clamps the day (31 Aug + 6 → 28/29 Feb; 29 Feb + 12 → 28
+  Feb), and **every milestone is computed from the join date**, never chained
+  from the previous clamped one (29 Feb 2024 → … 28 Feb 2027, 29 Feb 2028).
+- A review period starts at the **previous milestone**, also computed from the
+  join date (the join date itself for the first one), and ends the day before
+  the due date. So periods are contiguous even when the day clamps: joined
+  31 Aug 2025, the half-yearly due 28 Feb 2027 reviews 31 Aug 2026 – 27 Feb
+  2027 (not "due − 6 months" = 28 Aug, which would overlap the previous
+  period). A period never starts before the join date.
+- Example: joined 15 Apr 2025 → Confirmation due 15 Oct 2025 (15 Apr – 14 Oct
+  2025); half-yearly due 15 Apr 2026 (15 Oct 2025 – 14 Apr 2026), 15 Oct 2026
+  (15 Apr – 14 Oct 2026); yearly due 15 Apr 2026 (15 Apr 2025 – 14 Apr 2026).
+
+For a JOIN_DATE cycle the cycle's periodStart/periodEnd mean **"due between"**:
+
+- **Default launch:** every non-EXITED employee with a milestone of the cycle's
+  type in the window (CONFIRMATION: only employees still on PROBATION). With
+  several milestones in one window, the latest wins. A launch with nobody due
+  is a 400 (it would only open an empty cycle).
+- **Explicit `employeeIds`:** each one's latest milestone on or before the
+  window's end (so a late appraisal can be launched; for a confirmation the
+  employee need not still be on probation: an explicit pick is an override).
+  Anyone with none yet (joined too recently), or who has exited, is left out
+  and listed in the launch response's `notDue`
+  (`{ employeeId, employeeName, reason: NOT_YET_DUE | EXITED, firstDueDate }`).
+  `skipped` counts only employees attempted who already had an appraisal.
+- Each created appraisal stores its own periodStart, periodEnd and dueDate;
+  the reviewer still defaults to the manager; `(cycle, employee)` stays unique.
+- Everything that used the cycle period for one appraisal uses the
+  appraisal's own: the KPI snapshot (and refresh), the PDF ("review period … ·
+  due …"), and the views (`periodStart`, `periodEnd`, `dueDate` on the
+  appraisal view, the cycle's list rows and the employee history;
+  `periodBasis` on the cycle view). The form header's **experience in the
+  company is measured to the due date** (never past the exit date), so a
+  confirmation reads 6 months however late it is signed off. Calendar cycles
+  behave exactly as before (experience to the capture date).
+
+`GET /people/appraisal-cycles/due?type=&from=&to=` (Owner/Admin, read-only)
+lists who is due in a window, each with due date and review period, sorted by
+due date. It runs the same pure selector (`dueBetween`) as the default launch,
+so the preview and the launch never disagree. The employee profile (detail,
+summary and directory rows) carries `nextAppraisal`, from `nextDue`: the
+confirmation while on PROBATION (even once its date has passed, flagged
+`overdue`), otherwise the earlier of the next half-yearly and next yearly on or
+after today (on an anniversary both fall due the same day and the yearly is
+listed first); null once EXITED. `upcomingAppraisals` lists both. It is
+computed from the join date alone and does not look at launched appraisals.
 
 ### The form (FORM_100)
 
@@ -345,7 +411,9 @@ FORM_100, captures each one's **form header**.
   outcome is applied** (so it shows the salary the appraisal was made
   against).
 - **KPI snapshot** is still computed on entering LEAD_REVIEW, refreshable
-  until sign-off, frozen after, and shown as "KPI score (reference)".
+  until sign-off, frozen after, and shown as "KPI score (reference)". It
+  covers the appraisal's own review period (join-date cycles) or the cycle
+  period, clipped to today.
 
 ### Workflow (FORM_100)
 
@@ -427,9 +495,18 @@ IMPROVEMENT_PLAN → `NOTE`). Their frozen `finalScore` stays on the 0–5 scale
 
 ### UI
 
-`/people/appraisals`: cycles list, create cycle (type, scoring, criteria
-with descriptions; KPI weight only for the legacy mode), launch, per-cycle
-progress by that cycle's steps. `/people/appraisals/:appraisalId`: FORM_100
+`/people/appraisals`: cycles list, create cycle (basis — "Counted from each
+employee's join date" by default, or "Calendar period"; on join-date basis the
+period section reads "Appraisals due between" with This month / Next month /
+This quarter quick picks that also name the cycle, and a debounced live
+preview of who is due; type, scoring, criteria with descriptions; KPI weight
+only for the legacy mode), launch (join-date cycles preselect everyone due,
+with each one's due date and review period, and allow adding others),
+per-cycle progress by that cycle's steps. A join-date cycle's subtitle and
+list line read "Due 1–31 Oct 2026 · counted from join dates" and its table
+has Due and Review period columns. The form and the employee's Appraisals tab
+show the employee's own review period and due date; the employee page shows
+"Next appraisal: Half-yearly due 15 Oct 2026". `/people/appraisals/:appraisalId`: FORM_100
 renders the form (header block, criteria with the five labelled ratings,
 live total /100 with grade badge and policy line such as "Proposed: increment
 13–14%, service confirmation", KPI reference card, recommendations, increment
