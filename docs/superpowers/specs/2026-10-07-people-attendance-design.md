@@ -633,7 +633,10 @@ confirmation date: a past Joined / Joined as intern, PROBATION_STARTED,
 INTERNSHIP_EXTENDED, CONFIRMED), designation (PROMOTED, DESIGNATION_CHANGED),
 team (TRANSFERRED to a team that still exists) and gross (INCREMENT's
 whole-taka `toValue`). `recomputeEmployee` re-folds **only the groups whose
-events changed**, so a hand edit of an unrelated field is never overwritten. A
+events changed**, so a hand edit of an unrelated field is never overwritten;
+within the lifecycle group, a field no event drives keeps its stored value, and
+a profile edit of the join date, probation start or internship end is also
+written into the remembered baseline. A
 group re-folds from its baseline: what was stored before its first past record
 (remembered in `past_records_baseline`, restored when its last past record is
 deleted) or, when it already had app events, what is stored. The app's own
@@ -696,8 +699,9 @@ as an approved appraisal writes it.
 **UI.** People → Import past records: download the template (ExcelJS: a
 "Records" sheet with dropdowns for the record and appraisal type, 3 example
 rows that the reader skips, and a "How to fill" sheet), or "Download with our
-employees" (one Joined row per current employee, already recorded, so HR only
-adds the history); upload .xlsx/.csv (read in the browser); the preview (errors
+employees" (one Joined row per current employee on the join date on file, so
+it is already recorded and HR only adds the history; the name sits in a
+"Name (not imported)" column the reader ignores); upload .xlsx/.csv (read in the browser); the preview (errors
 by row, already-recorded count, a collapsible card per employee with before →
 after); "Apply N records", disabled while errors remain. The employee page has
 "Add past record" by the career timeline (record-type cards, only the fields

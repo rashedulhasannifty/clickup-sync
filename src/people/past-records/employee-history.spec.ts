@@ -286,3 +286,24 @@ describe('recomputeEmployee', () => {
     expect(r.baselines.lifecycle).toMatchObject({ status: 'PROBATION' });
   });
 });
+
+describe('profile edits and the remembered baseline', () => {
+  it('a lifecycle field no event drives keeps its stored (edited) value on a re-fold', () => {
+    // A past "Confirmed" was imported (baseline remembered: join 2024-05-01); then the join
+    // date was corrected on the profile, and now a "Moved to probation" is added.
+    const confirmed = ev('CONFIRMED', '2024-11-01');
+    const stored: HistoryState = { ...imported, joinDate: '2024-04-01', confirmationDate: '2024-11-01' };
+    const baselines = {
+      lifecycle: { joinDate: '2024-05-01', status: 'ACTIVE' as const, probationStartDate: '2024-05-01', internshipEndDate: null, confirmationDate: null },
+    };
+    const r = recomputeEmployee({
+      stored,
+      baselines,
+      before: [confirmed],
+      after: [confirmed, ev('PROBATION_STARTED', '2024-05-01')],
+      knownTeamIds: TEAMS,
+    });
+    expect(r.state.joinDate).toBe('2024-04-01');
+    expect(r.changes.joinDate).toBeUndefined();
+  });
+});

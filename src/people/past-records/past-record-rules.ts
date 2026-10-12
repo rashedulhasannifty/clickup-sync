@@ -263,6 +263,18 @@ export function evaluateHistory(args: {
       add(e.key, `There is already a ${label} record on ${d}`);
   }
 
+  // A confirmation the system recorded, reached straight from an internship a past record
+  // added: the intern was never moved to probation. Reported on that internship record.
+  for (const c of confirmations) {
+    if (changed.has(c.key) || statusBefore.get(c.key) !== 'INTERN') continue;
+    for (const j of byType('JOINED_AS_INTERN'))
+      if (changed.has(j.key) && j.effectiveDate <= c.effectiveDate)
+        add(
+          j.key,
+          `They were confirmed on ${c.effectiveDate} with no "Moved to probation" after joining as an intern: add it`,
+        );
+  }
+
   // Confirmation before a changed probation start.
   for (const p of probations) {
     if (!changed.has(p.key)) continue;

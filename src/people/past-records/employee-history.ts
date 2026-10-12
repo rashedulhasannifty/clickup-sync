@@ -224,6 +224,33 @@ function pick(s: HistoryState, g: HistoryGroup): Partial<HistoryState> {
 
 const RESTORABLE: ReadonlySet<string> = new Set(['INTERN', 'PROBATION', 'ACTIVE']);
 
+/**
+ * Whether an event can set `field` (lifecycle fields; the other groups have one
+ * field each, driven by the whole group). A lifecycle field no event drives,
+ * before or after the change, keeps its stored value: a profile edit of it is
+ * never replaced by a remembered baseline.
+ */
+function drives(e: Pick<HistoryEvent, 'type' | 'source'>, field: keyof HistoryState): boolean {
+  const g = groupOf(e);
+  if (g === null) return false;
+  if (g !== 'lifecycle') return GROUP_FIELDS[g].includes(field);
+  const pastJoin = e.type === 'JOINED' && e.source === 'PAST_RECORD';
+  switch (field) {
+    case 'joinDate':
+      return pastJoin || e.type === 'JOINED_AS_INTERN';
+    case 'status':
+      return ['JOINED_AS_INTERN', 'PROBATION_STARTED', 'CONFIRMED'].includes(e.type);
+    case 'probationStartDate':
+      return pastJoin || ['JOINED_AS_INTERN', 'PROBATION_STARTED'].includes(e.type);
+    case 'internshipEndDate':
+      return pastJoin || ['JOINED_AS_INTERN', 'INTERNSHIP_EXTENDED'].includes(e.type);
+    case 'confirmationDate':
+      return ['JOINED_AS_INTERN', 'CONFIRMED'].includes(e.type);
+    default:
+      return false;
+  }
+}
+
 export interface Recomputed {
   /** The employee as stored, with the changes applied. */
   state: HistoryState;
@@ -267,6 +294,10 @@ export function recomputeEmployee(args: {
     }
     touched.push(g);
     const base = had ? { ...pick(stored, g), ...(saved[g] ?? {}) } : pick(stored, g);
+    // A field no event drives (before or after) keeps what is stored now.
+    for (const f of GROUP_FIELDS[g])
+      if (!before.some((e) => drives(e, f)) && !after.some((e) => drives(e, f)))
+        (base as Record<string, unknown>)[f] = stored[f];
     if (g === 'lifecycle') {
       // A status from before a notice (or a stray value) never comes back over a stored one.
       if (FROZEN.has(stored.status) || !RESTORABLE.has(String(base.status)))

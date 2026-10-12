@@ -27,6 +27,8 @@ describe('past records in the browser: reading the sheet', () => {
     expect(headerKey('  APPRAISAL TYPE ')).toBe('appraisalType');
     expect(headerKey('Due Date')).toBe('dueDate');
     expect(headerKey('Something else')).toBeNull();
+    // The prefilled template's name column is for reading only.
+    expect(headerKey('Name (not imported)')).toBeNull();
   });
 
   it('cells: date cells and Excel serials become YYYY-MM-DD, rich text and formulas their text', () => {

@@ -344,3 +344,26 @@ describe('evaluateHistory (the editor)', () => {
     expect(r.errors.get('event:4')).toEqual(['An intern cannot be confirmed directly: add "Moved to probation" first']);
   });
 });
+
+describe('the app’s own events and new past records together', () => {
+  it('a past "Joined as intern" before an app-recorded confirmation needs a probation start', () => {
+    const e = employee({
+      stored: { ...employee().stored, confirmationDate: '2024-11-01' },
+      events: [...employee().events, appEvent(9, 'CONFIRMED', '2024-11-01')],
+    });
+    const p = plan(e, rows({ record: 'Joined as intern', date: '2024-05-01' }));
+    expect(p.rowErrors).toEqual([
+      {
+        row: 2,
+        field: 'date',
+        message: 'They were confirmed on 2024-11-01 with no "Moved to probation" after joining as an intern: add it',
+      },
+    ]);
+    const fixed = plan(
+      e,
+      rows({ record: 'Joined as intern', date: '2024-05-01' }, { record: 'Moved to probation', date: '2024-08-01' }),
+    );
+    expect(fixed.rowErrors).toEqual([]);
+    expect(fixed.evaluation.after).toMatchObject({ status: 'ACTIVE', probationStartDate: '2024-08-01', confirmationDate: '2024-11-01' });
+  });
+});

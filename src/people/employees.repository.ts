@@ -100,6 +100,8 @@ export interface EmployeeProfileUpdate {
   experienceBeforeJoiningMonths?: number | null;
   startingSalary?: number | null;
   grossSalary?: number | null;
+  /** Internal (0035): the remembered pre-history values, kept in step with a profile edit. */
+  pastRecordsBaseline?: Prisma.InputJsonValue;
 }
 
 /** One event of a batch written by `addEvents`. */

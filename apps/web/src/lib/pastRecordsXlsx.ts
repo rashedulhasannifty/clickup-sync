@@ -68,13 +68,17 @@ export async function downloadTemplate(employees: TemplateEmployee[] | null): Pr
   for (const key of ['date', 'dueDate', 'employee'] as const) ws.getColumn(key).numFmt = '@';
 
   if (employees) {
-    for (const e of employees)
-      ws.addRow({
-        employee: e.email,
-        record: e.status === 'INTERN' ? 'Joined as intern' : 'Joined',
-        date: e.joinDate,
-        notes: e.fullName,
-      });
+    // Who each row is, for reading only: a column the reader ignores, so a name never ends up
+    // in a record's notes. "Joined" on the join date on file is skipped as already recorded.
+    const nameCol = TEMPLATE_COLUMNS.length + 1;
+    const nameHeader = ws.getCell(1, nameCol);
+    nameHeader.value = 'Name (not imported)';
+    nameHeader.font = { bold: true, color: { argb: 'FF6B7280' } };
+    ws.getColumn(nameCol).width = 26;
+    for (const e of employees) {
+      const row = ws.addRow({ employee: e.email, record: 'Joined', date: e.joinDate });
+      row.getCell(nameCol).value = e.fullName;
+    }
   } else {
     for (const ex of TEMPLATE_EXAMPLES) ws.addRow(ex).font = { italic: true, color: { argb: 'FF6B7280' } };
   }

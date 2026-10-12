@@ -4,7 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { AuthPrincipal } from '../auth/auth.types';
+import type { HistoryBaselines } from './past-records/employee-history';
 import { AddEmploymentEventDto } from './dto/add-employment-event.dto';
 import { assertNotExited } from './employee-readonly';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
@@ -103,6 +105,30 @@ function lifecycleError(a: {
   if (a.probationStartDate !== null && a.probationStartDate < a.joinDate)
     return 'Probation cannot start before the join date';
   return null;
+}
+
+/**
+ * Past records (0035) remember the lifecycle dates from before the first one
+ * (`past_records_baseline`), and a re-fold starts from them. A profile edit of
+ * one of those dates is the new truth "before history", so it is written into
+ * the remembered values too; otherwise the next re-fold, or deleting the last
+ * past record, would put the old date back.
+ */
+function withProfileEdit(
+  baseline: unknown,
+  data: EmployeeProfileUpdate,
+): Prisma.InputJsonValue | null {
+  if (!baseline || typeof baseline !== 'object') return null;
+  const b = baseline as HistoryBaselines;
+  if (!b.lifecycle) return null;
+  const lifecycle = { ...b.lifecycle };
+  let changed = false;
+  for (const k of ['joinDate', 'probationStartDate', 'internshipEndDate'] as const) {
+    if (data[k] === undefined) continue;
+    (lifecycle as Record<string, unknown>)[k] = data[k];
+    changed = true;
+  }
+  return changed ? ({ ...b, lifecycle } as Prisma.InputJsonValue) : null;
 }
 
 /** A machine credential is not a user row; never store its synthetic id as an actor. */
@@ -210,6 +236,8 @@ export class EmployeesService {
     if (dto.clickupUserId !== undefined) data.clickupUserId = dto.clickupUserId;
     if (dto.joinDate !== undefined) data.joinDate = dto.joinDate;
     Object.assign(data, this.lifecycleUpdate(current, dto));
+    const baseline = withProfileEdit(current.pastRecordsBaseline, data);
+    if (baseline) data.pastRecordsBaseline = baseline;
     if (dto.concernName !== undefined)
       data.concernName = dto.concernName?.trim() || null;
     if (dto.academicQualification !== undefined)

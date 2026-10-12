@@ -120,6 +120,20 @@ describe('Past records (e2e)', () => {
     expect((await prisma.employee.findUniqueOrThrow({ where: { id: emp.id } })).teamId).toBeNull();
   });
 
+  it('a join date corrected on the profile survives later past records and their deletion', async () => {
+    const emp = await createImported('Joya');
+    await pastRecords.add(principal(), emp.id, { record: 'Confirmed', date: '2024-11-01' });
+    await employees.update(orgId, emp.id, { joinDate: '2024-04-01' });
+    const added = await pastRecords.add(principal(), emp.id, { record: 'Moved to probation', date: '2024-05-01' });
+    let row = await prisma.employee.findUniqueOrThrow({ where: { id: emp.id } });
+    expect(iso(row.joinDate)).toBe('2024-04-01');
+    expect(row.status).toBe('ACTIVE');
+    for (const e of added.events) await pastRecords.remove(principal(), emp.id, `event:${e.id}`);
+    row = await prisma.employee.findUniqueOrThrow({ where: { id: emp.id } });
+    expect(iso(row.joinDate)).toBe('2024-04-01');
+    expect(row).toMatchObject({ status: 'ACTIVE', confirmationDate: null, pastRecordsBaseline: null });
+  });
+
   it('a past appraisal clears the overdue yearly and blocks launching that due date again', async () => {
     const emp = await createImported('Paro');
     const overdue = await appraisals.overdueEmployees(orgId);

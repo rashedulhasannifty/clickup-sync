@@ -43,7 +43,7 @@ export const RECORD_KINDS: RecordKindInfo[] = [
     kind: 'JOINED_AS_INTERN',
     label: 'Joined as intern',
     hint: 'They started as an intern. Sets the join date and the internship.',
-    howTo: 'Date = the first day of the internship. Use this instead of Joined for people who started as interns.',
+    howTo: 'Date = the first day of the internship. Use this (in place of the Joined row) for people who started as interns.',
     fields: [],
   },
   {
