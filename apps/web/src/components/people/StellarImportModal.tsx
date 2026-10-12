@@ -138,6 +138,9 @@ function LeavePreview({ r }: { r: LeaveImportResult }) {
         <Stat label="Approved days" value={t.approvedDays} />
         <Stat label="Rejected days" value={t.rejectedDays} tone="muted" />
         <Stat label="Replaced (earlier import / simulated)" value={`${t.replacedStellar} / ${t.dummyLeavesDeleted}`} tone="muted" />
+        {t.keptStellar > 0 && (
+          <Stat label="Kept: decided in the app or running past this file" value={t.keptStellar} tone="muted" />
+        )}
       </div>
       {flags.length > 0 && (
         <Callout tone="warning" icon={<AlertTriangle size={14} />}>

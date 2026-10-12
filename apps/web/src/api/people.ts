@@ -494,6 +494,7 @@ export type LeaveImportResult = {
     rejectedDays: number;
     outsideEmployment: number;
     replacedStellar: number;
+    keptStellar: number;
     dummyLeavesDeleted: number;
   }[];
   unmatched: UnmatchedStellarUser[];
@@ -504,6 +505,7 @@ export type LeaveImportResult = {
     approvedDays: number;
     rejectedDays: number;
     replacedStellar: number;
+    keptStellar: number;
     dummyLeavesDeleted: number;
     outsideEmployment: number;
     skippedRows: number;

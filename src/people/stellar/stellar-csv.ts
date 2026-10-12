@@ -1,5 +1,5 @@
 import { dhakaInstant } from '../people-dates';
-import { headerIndex, parseCsv, parseIsoDate } from './csv';
+import { headerIndex, parseCsv, parseIsoDate, stellarId } from './csv';
 
 /**
  * Pure parsing of a Stellar HRM attendance export (the office door system).
@@ -120,12 +120,13 @@ export function parseStellarSessions(text: string): {
   let ignoredRows = 0;
   let invalidRows = 0;
   for (const r of rows.slice(1)) {
-    const attendanceId = cell(r, col.id);
+    const rawId = cell(r, col.id);
     const userName = cell(r, col.name);
-    if (!/^\d+$/.test(attendanceId) || userName.toLowerCase() === EXIT_USER) {
+    if (!/^\d+$/.test(rawId) || userName.toLowerCase() === EXIT_USER) {
       ignoredRows++;
       continue;
     }
+    const attendanceId = stellarId(rawId);
     const date = parseIsoDate(cell(r, col.date));
     const inSec = parseClock(cell(r, col.in));
     let outSec = parseClock(cell(r, col.out));
@@ -177,9 +178,12 @@ function emptySessions() {
 /**
  * Group sessions by (person, date) into days. `firstIn` is the earliest in;
  * `lastOut` the latest out seen, with `missingOut` when the latest session
- * (by its in time) has no out. Worked time sums `Total Hour`, or out - in when
- * the total is missing but both punches exist; seconds are summed and rounded
- * once. A day of only `-` rows is a day with no presence (sessions 0).
+ * (by its in time) has no out. An exact duplicate row (same in, out and total,
+ * as when two overlapping exports are joined) counts once. Worked time is the
+ * union of the sessions' in-out spans, so overlapping sessions never count
+ * twice; a session missing a punch adds its `Total Hour` when it has one.
+ * Seconds are summed and rounded once. A day of only `-` rows is a day with no
+ * presence (sessions 0).
  */
 export function aggregateStellarDays(sessions: StellarSession[]): StellarDay[] {
   const groups = new Map<string, StellarSession[]>();
@@ -192,15 +196,33 @@ export function aggregateStellarDays(sessions: StellarSession[]): StellarDay[] {
   const days: StellarDay[] = [];
   for (const list of groups.values()) {
     const { attendanceId, date } = list[0];
-    const punched = list.filter((s) => s.inSec !== null || s.outSec !== null);
+    const seen = new Set<string>();
+    const punched = list.filter((s) => {
+      if (s.inSec === null && s.outSec === null) return false;
+      const k = `${s.inSec}|${s.outSec}|${s.totalSec}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
     const ins = punched.flatMap((s) => (s.inSec !== null ? [s.inSec] : []));
     const outs = punched.flatMap((s) => (s.outSec !== null ? [s.outSec] : []));
+    const spans = punched
+      .flatMap((s) =>
+        s.inSec !== null && s.outSec !== null && s.outSec > s.inSec
+          ? [[s.inSec, s.outSec] as const]
+          : [],
+      )
+      .sort((a, b) => a[0] - b[0]);
     let workedSec = 0;
-    for (const s of punched) {
-      if (s.totalSec !== null) workedSec += s.totalSec;
-      else if (s.inSec !== null && s.outSec !== null)
-        workedSec += s.outSec - s.inSec;
+    let end = -Infinity;
+    for (const [from, to] of spans) {
+      // Only the part after what is already counted.
+      if (to > end) workedSec += to - Math.max(from, end);
+      end = Math.max(end, to);
     }
+    for (const s of punched)
+      if ((s.inSec === null || s.outSec === null) && s.totalSec !== null)
+        workedSec += s.totalSec;
     const latest = [...punched].sort(
       (a, b) => (a.inSec ?? a.outSec ?? 0) - (b.inSec ?? b.outSec ?? 0),
     )[punched.length - 1];

@@ -1,6 +1,6 @@
 import { addDays, isBusinessDay } from '../people-dates';
 import type { LeaveStatusValue, LeaveTypeValue } from '../people.types';
-import { headerIndex, parseCsv, parseIsoDate } from './csv';
+import { headerIndex, parseCsv, parseIsoDate, stellarId } from './csv';
 
 /**
  * Pure parsing of a Stellar HRM leave export.
@@ -77,7 +77,7 @@ export function splitUserName(raw: string): {
 } {
   const m = /^(.*?)\s*\((\d+)\)\s*$/.exec(raw.trim());
   return m
-    ? { name: m[1].trim(), attendanceId: m[2] }
+    ? { name: m[1].trim(), attendanceId: stellarId(m[2]) }
     : { name: raw.trim(), attendanceId: null };
 }
 

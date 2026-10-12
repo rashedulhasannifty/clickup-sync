@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -41,8 +42,16 @@ const csvInterceptor = () =>
     limits: { fileSize: MAX_STELLAR_CSV_BYTES, files: 1, fields: 5 },
   });
 
-/** `?dryRun=true` (or `1`) previews; anything else writes. A raw 'false' string must not be truthy. */
-const isDryRun = (v: string | undefined) => v === 'true' || v === '1';
+/**
+ * Preview unless the caller says otherwise: only `?dryRun=false` (or `0`) writes. A missing value
+ * previews, and anything unrecognised is a 400, so a typo can never run the destructive replace.
+ */
+const isDryRun = (v: string | undefined): boolean => {
+  const t = (v ?? 'true').trim().toLowerCase();
+  if (t === 'true' || t === '1') return true;
+  if (t === 'false' || t === '0') return false;
+  throw new BadRequestException('dryRun must be true or false');
+};
 import type {
   LeaveRecordView,
   SyncEnqueued,
@@ -86,7 +95,7 @@ export class PeopleAttendanceController {
   @Post('attendance/import/stellar')
   @HttpCode(200)
   @ApiConsumes('multipart/form-data')
-  @ApiQuery({ name: 'dryRun', required: false, enum: ['true', 'false'] })
+  @ApiQuery({ name: 'dryRun', required: false, enum: ['true', 'false'], description: 'Default true (preview); false writes' })
   @UseInterceptors(csvInterceptor())
   @ApiOperation({
     summary:
@@ -103,7 +112,7 @@ export class PeopleAttendanceController {
   @Post('attendance/import/stellar-leaves')
   @HttpCode(200)
   @ApiConsumes('multipart/form-data')
-  @ApiQuery({ name: 'dryRun', required: false, enum: ['true', 'false'] })
+  @ApiQuery({ name: 'dryRun', required: false, enum: ['true', 'false'], description: 'Default true (preview); false writes' })
   @UseInterceptors(csvInterceptor())
   @ApiOperation({
     summary:

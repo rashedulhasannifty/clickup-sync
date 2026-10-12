@@ -69,6 +69,8 @@ export class ShiftAssignmentDto {
   @ApiProperty({ nullable: true, description: 'null = the 09:30 office default.' })
   @IsOptional()
   @IsString()
+  // An empty id is not "no shift" (that is null): refuse it here rather than at the foreign key.
+  @IsNotEmpty()
   shiftId!: string | null;
 }
 

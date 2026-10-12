@@ -65,6 +65,10 @@ function arrivalState(
   return isOnTimeFor(firstIn, rule) ? 'on-time' : 'late';
 }
 
+/** Any punch at all: an entry, or only an exit when the entry was missed. */
+const punched = (row: AttendanceRow | undefined): boolean =>
+  !!(row?.firstIn || row?.lastOut);
+
 export interface TypedLeave extends LeaveSpan {
   type: LeaveTypeValue;
 }
@@ -102,9 +106,11 @@ export function classifyDay(args: {
 }): AttendanceDayState {
   const { date, today, row, leaves } = args;
   if (date > today) return 'future';
-  if (!isBusinessDay(date)) return row?.firstIn ? 'weekend' : 'future';
+  if (!isBusinessDay(date)) return punched(row) ? 'weekend' : 'future';
   if (row?.firstIn)
     return arrivalState(row.firstIn, args.punctuality ?? DEFAULT_PUNCTUALITY);
+  // Only an exit punch (the entry was missed): they came in, at an unknown time.
+  if (punched(row)) return 'present';
   const leave = leaveCovering(date, leaves);
   if (leave) return leaveStateOf(leave.type);
   return date === today ? 'future' : 'absent';
@@ -181,9 +187,10 @@ export function classifyToday(args: {
     (employment.exitDate !== null && today > employment.exitDate)
   )
     return 'non-working';
-  if (!isBusinessDay(today)) return row?.firstIn ? 'weekend' : 'non-working';
+  if (!isBusinessDay(today)) return punched(row) ? 'weekend' : 'non-working';
   if (row?.firstIn)
     return arrivalState(row.firstIn, args.punctuality ?? DEFAULT_PUNCTUALITY);
+  if (punched(row)) return 'present';
   if (leaveCovering(today, leaves)) return 'leave';
   return 'not-in';
 }

@@ -157,3 +157,37 @@ describe('detectStellarExport', () => {
     expect(detectStellarExport('name,email\n')).toBeNull();
   });
 });
+
+describe('aggregateStellarDays: overlaps and duplicates', () => {
+  const s = (inH: number | null, outH: number | null, totalH: number | null = null) => ({
+    attendanceId: '41',
+    userName: 'A',
+    department: null,
+    date: '2026-09-01',
+    inSec: inH === null ? null : inH * 3600,
+    outSec: outH === null ? null : outH * 3600,
+    totalSec: totalH === null ? null : totalH * 3600,
+    note: null,
+  });
+  it('counts overlapping sessions once (the union of their spans)', () => {
+    const [d] = aggregateStellarDays([s(9, 13, 4), s(12, 17, 5)]);
+    expect(d).toMatchObject({ workedMinutes: 480, sessions: 2 });
+  });
+  it('an exact duplicate row (two exports joined) counts once', () => {
+    const [d] = aggregateStellarDays([s(9, 13, 4), s(9, 13, 4)]);
+    expect(d).toMatchObject({ workedMinutes: 240, sessions: 1 });
+  });
+  it('a session missing a punch adds its total', () => {
+    const [d] = aggregateStellarDays([s(9, 13, 4), s(14, null, 2)]);
+    expect(d).toMatchObject({ workedMinutes: 360, missingOut: true });
+  });
+});
+
+describe('stellarId', () => {
+  it('drops leading zeros so "041" matches employee 41', async () => {
+    const { stellarId } = await import('./csv');
+    expect(stellarId('041')).toBe('41');
+    expect(stellarId('0')).toBe('0');
+    expect(stellarId(' 66 ')).toBe('66');
+  });
+});

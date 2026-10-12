@@ -186,3 +186,34 @@ describe('planLeaveImport', () => {
     expect(plan.totals).toMatchObject({ records: 3, skippedRows: 1, unmatchedIds: 1 });
   });
 });
+
+describe('planLeaveImport: earlier leave a new file must not cut or undo', () => {
+  const rec = (start: string, end: string, days: number) => ({
+    attendanceId: '7', name: 'Test Alpha', type: 'CASUAL' as const, rawType: 'Casual Leave', startDate: start, endDate: end,
+    days, status: 'APPROVED' as const, description: null, applyDate: null, externalId: `stellar:7:${start}:CASUAL`,
+  });
+  const parseOf = (records: ReturnType<typeof rec>[], from: string, to: string): StellarLeaveParse => ({
+    records, users: [], range: { from, to }, rowsRead: records.length, skipped: [], warnings: [],
+  });
+
+  it('a shorter file keeps a leave that runs past its dates, and skips its own overlapping part', () => {
+    const plan = planLeaveImport({
+      parse: parseOf([rec('2026-09-01', '2026-09-02', 2)], '2026-09-01', '2026-09-30'),
+      employees: [emp('e7', '7')],
+      existing: [{ id: 'old', employeeId: 'e7', source: 'stellar', startDate: '2026-08-28', endDate: '2026-09-02' }],
+    });
+    expect(plan.deleteIds).toEqual([]);
+    expect(plan.inserts).toEqual([]);
+    expect(plan.totals).toMatchObject({ keptStellar: 1, replacedStellar: 0 });
+  });
+
+  it('a leave decided in the app is never replaced by the file', () => {
+    const plan = planLeaveImport({
+      parse: parseOf([rec('2026-09-07', '2026-09-08', 2)], '2026-09-01', '2026-09-30'),
+      employees: [emp('e7', '7')],
+      existing: [{ id: 'mine', employeeId: 'e7', source: 'stellar', startDate: '2026-09-07', endDate: '2026-09-08', decided: true }],
+    });
+    expect(plan.deleteIds).toEqual([]);
+    expect(plan.inserts).toEqual([]);
+  });
+});

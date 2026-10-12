@@ -28,6 +28,7 @@ import {
   type NewEmploymentEvent,
 } from './employees.repository';
 import { dateColumnToIso, dhakaDateOf } from './people-dates';
+import { stellarId } from './stellar/csv';
 import type {
   EmployeeProfile,
   EmploymentEventTypeValue,
@@ -195,7 +196,7 @@ export class EmployeesService {
         employeeCode: dto.employeeCode?.trim() || null,
         userId: linkable?.id ?? null,
         clickupUserId: dto.clickupUserId ?? linkable?.clickupUserId ?? null,
-        attendanceId: dto.attendanceId ?? null,
+        attendanceId: dto.attendanceId ? stellarId(dto.attendanceId) : null,
         shiftId: dto.shiftId ?? null,
         designation: dto.designation.trim(),
         grade: dto.grade?.trim() || null,
@@ -240,7 +241,8 @@ export class EmployeesService {
     if (dto.department !== undefined)
       data.department = dto.department?.trim() || null;
     if (dto.clickupUserId !== undefined) data.clickupUserId = dto.clickupUserId;
-    if (dto.attendanceId !== undefined) data.attendanceId = dto.attendanceId;
+    if (dto.attendanceId !== undefined)
+      data.attendanceId = dto.attendanceId ? stellarId(dto.attendanceId) : null;
     if (dto.shiftId !== undefined) {
       if (dto.shiftId !== null) await this.requireShift(orgId, dto.shiftId);
       data.shiftId = dto.shiftId;

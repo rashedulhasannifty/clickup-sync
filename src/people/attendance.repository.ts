@@ -153,10 +153,12 @@ export class AttendanceRepository {
         source: true,
         startDate: true,
         endDate: true,
+        decidedAt: true,
       },
     });
-    return rows.map((r) => ({
+    return rows.map(({ decidedAt, ...r }) => ({
       ...r,
+      decided: decidedAt !== null,
       startDate: dateColumnToIso(r.startDate),
       endDate: dateColumnToIso(r.endDate),
     }));

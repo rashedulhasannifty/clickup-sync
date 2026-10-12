@@ -48,6 +48,8 @@ export interface ExistingLeave {
   source: string;
   startDate: string;
   endDate: string;
+  /** Approved or rejected in the app (`decided_at` set): never replaced by a file. */
+  decided?: boolean;
 }
 
 export interface DateSpan {
@@ -305,6 +307,11 @@ export interface MatchedLeave {
   outsideEmployment: number;
   /** Existing Stellar leave rows removed and replaced. */
   replacedStellar: number;
+  /**
+   * Existing Stellar leave kept as it is: decided in the app, or running past the file's dates.
+   * File records that overlap one are skipped, so nothing is duplicated or cut short.
+   */
+  keptStellar: number;
   dummyLeavesDeleted: number;
 }
 
@@ -322,6 +329,7 @@ export interface LeaveImportPlan {
     approvedDays: number;
     rejectedDays: number;
     replacedStellar: number;
+    keptStellar: number;
     dummyLeavesDeleted: number;
     outsideEmployment: number;
     skippedRows: number;
@@ -366,6 +374,7 @@ export function planLeaveImport(args: {
         rejectedDays: 0,
         outsideEmployment: 0,
         replacedStellar: 0,
+        keptStellar: 0,
         dummyLeavesDeleted: 0,
       };
       matched.set(r.attendanceId, m);
@@ -402,15 +411,25 @@ export function planLeaveImport(args: {
     });
   }
 
+  // An earlier Stellar leave is replaced only when it lies wholly inside this file's dates and
+  // nobody decided it in the app; otherwise it stays, and the file's overlapping records are
+  // skipped (a shorter file must never cut a longer leave, nor undo an approval).
   const deleteIds: string[] = [];
+  const kept: ExistingLeave[] = [];
   if (range) {
     for (const m of matched.values()) {
       for (const l of args.existing) {
         if (l.employeeId !== m.employeeId) continue;
         if (!overlaps(range, l.startDate, l.endDate)) continue;
         if (l.source === STELLAR_LEAVE_SOURCE) {
-          m.replacedStellar++;
-          deleteIds.push(l.id);
+          const inside = l.startDate >= range.from && l.endDate <= range.to;
+          if (inside && !l.decided) {
+            m.replacedStellar++;
+            deleteIds.push(l.id);
+          } else {
+            m.keptStellar++;
+            kept.push(l);
+          }
         } else if (l.source === DUMMY_LEAVE_SOURCE) {
           m.dummyLeavesDeleted++;
           deleteIds.push(l.id);
@@ -418,6 +437,14 @@ export function planLeaveImport(args: {
       }
     }
   }
+  const clashes = (i: LeaveInsert) =>
+    kept.some(
+      (l) =>
+        l.employeeId === i.employeeId &&
+        overlaps({ from: i.startDate, to: i.endDate }, l.startDate, l.endDate),
+    );
+  for (let i = inserts.length - 1; i >= 0; i--)
+    if (clashes(inserts[i])) inserts.splice(i, 1);
 
   const matchedList = [...matched.values()].sort((a, b) =>
     a.fullName.localeCompare(b.fullName),
@@ -440,6 +467,7 @@ export function planLeaveImport(args: {
       approvedDays: sum('approvedDays'),
       rejectedDays: sum('rejectedDays'),
       replacedStellar: sum('replacedStellar'),
+      keptStellar: sum('keptStellar'),
       dummyLeavesDeleted: sum('dummyLeavesDeleted'),
       outsideEmployment: sum('outsideEmployment'),
       skippedRows: parse.skipped.length,

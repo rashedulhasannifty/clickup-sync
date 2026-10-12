@@ -205,3 +205,13 @@ describe('minutesBetween', () => {
     ).toBe(540);
   });
 });
+
+describe('an exit punch with no entry (the entry was missed)', () => {
+  const employment = { joinDate: '2020-01-01', exitDate: null };
+  it('is present, not absent, and weekend work on a weekend', () => {
+    const outOnly = (d: string) => row(d, null, 18 * 60);
+    expect(classifyDay({ date: '2026-10-05', today: '2026-10-07', row: outOnly('2026-10-05'), leaves: [] })).toBe('present');
+    expect(classifyDay({ date: '2026-10-03', today: '2026-10-07', row: outOnly('2026-10-03'), leaves: [] })).toBe('weekend');
+    expect(classifyToday({ today: '2026-10-07', employment, row: outOnly('2026-10-07'), leaves: [] })).toBe('present');
+  });
+});

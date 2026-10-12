@@ -114,3 +114,6 @@ export function parseIsoDate(raw: string): string | null {
     ? null
     : iso;
 }
+
+/** A Stellar User ID as stored and matched: digits without leading zeros ("041" -> "41"). */
+export const stellarId = (raw: string): string => raw.trim().replace(/^0+(?=\d)/, '');
