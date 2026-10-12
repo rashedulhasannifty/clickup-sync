@@ -17,6 +17,7 @@ import {
   type AttendanceProvider,
 } from './attendance-provider';
 import { AttendanceRepository } from './attendance.repository';
+import { sourceLabel } from './attendance-source';
 import { toProfile } from './employee-mapper';
 import {
   EmployeesRepository,
@@ -27,6 +28,7 @@ import { EmployeesService } from './employees.service';
 import { OnboardingRepository } from './onboarding.repository';
 import { computeKpis, type KpiComputation, type KpiInput } from './kpi-math';
 import { DEFAULT_PERIOD_DAYS, TREND_MONTHS } from './people.constants';
+import { punctualityOf } from './shift-math';
 import {
   addDays,
   dateColumnToIso,
@@ -149,10 +151,11 @@ export class PeopleSummaryService {
         employment,
         rows: data.attendance,
         leaves: data.leaves,
+        punctuality: punctualityOf(row.shift),
       }),
       leaveBalance: computeLeaveBalance(year, data.leaves),
       events: await this.employees.eventViews(orgId, events),
-      attendanceSource: latestSource ?? this.provider.source,
+      attendanceSource: latestSource ? sourceLabel(latestSource) : this.provider.source,
       hours: main.hours,
     };
   }
@@ -218,6 +221,7 @@ export class PeopleSummaryService {
           employment,
           row: data.attendance.find((a) => a.date === today),
           leaves: data.leaves,
+          punctuality: punctualityOf(row.shift),
         }),
         score: c.overall.score,
         band: c.overall.band,
@@ -251,6 +255,7 @@ export class PeopleSummaryService {
         firstIn: a.firstIn,
       })),
       approvedLeave: data.leaves,
+      punctuality: punctualityOf(row.shift),
     };
   }
 
@@ -297,10 +302,8 @@ export class PeopleSummaryService {
         deliveries:
           (r.clickupUserId && deliveriesBy.get(r.clickupUserId)) || [],
         attendance: (attendanceBy.get(r.id) ?? []).map((a) => ({
+          ...a,
           date: dateColumnToIso(a.date),
-          firstIn: a.firstIn,
-          lastOut: a.lastOut,
-          minutesInOffice: a.minutesInOffice,
         })),
         leaves: (leavesBy.get(r.id) ?? []).map((l) => ({
           type: l.type,

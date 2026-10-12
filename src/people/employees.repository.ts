@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { defaultOnboardingRows } from './onboarding-checklist';
-import { isoToDateColumn } from './people-dates';
+import { dateColumnToIso, isoToDateColumn } from './people-dates';
 import type { EmployeePatch } from './employment-events';
 import type {
   EmployeeStatusValue,
@@ -30,6 +30,17 @@ export const LATEST_EXTENSION = {
 const PROFILE_INCLUDE = {
   team: { select: { name: true } },
   manager: { select: { fullName: true } },
+  /** Lateness and expected hours follow the shift (0036). */
+  shift: {
+    select: {
+      id: true,
+      name: true,
+      startMinutes: true,
+      endMinutes: true,
+      graceMinutes: true,
+      trackPunctuality: true,
+    },
+  },
   appraisals: {
     select: {
       dueDate: true,
@@ -61,6 +72,8 @@ export interface NewEmployee {
   employeeCode: string | null;
   userId: string | null;
   clickupUserId: string | null;
+  attendanceId?: string | null;
+  shiftId?: string | null;
   designation: string;
   grade: string | null;
   department: string | null;
@@ -86,6 +99,8 @@ export interface EmployeeProfileUpdate {
   email?: string;
   employeeCode?: string | null;
   clickupUserId?: string | null;
+  attendanceId?: string | null;
+  shiftId?: string | null;
   userId?: string | null;
   designation?: string;
   grade?: string | null;
@@ -196,6 +211,28 @@ export class EmployeesRepository {
     return rows.map((r) => r.id);
   }
 
+  /** This org's employees carrying any of these Stellar HRM ids (imports match on nothing else). */
+  async byAttendanceIds(orgId: string, ids: string[]) {
+    if (ids.length === 0) return [];
+    const rows = await this.prisma.employee.findMany({
+      where: { orgId, attendanceId: { in: ids } },
+      select: {
+        id: true,
+        fullName: true,
+        attendanceId: true,
+        joinDate: true,
+        exitDate: true,
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      fullName: r.fullName,
+      attendanceId: r.attendanceId as string,
+      joinDate: dateColumnToIso(r.joinDate),
+      exitDate: r.exitDate ? dateColumnToIso(r.exitDate) : null,
+    }));
+  }
+
   /** Employees an attendance sync should cover: employed at any point in [from, to]. */
   listForSync(from: string, to: string) {
     return this.prisma.employee.findMany({
@@ -220,6 +257,8 @@ export class EmployeesRepository {
         employeeCode: data.employeeCode,
         userId: data.userId,
         clickupUserId: data.clickupUserId,
+        attendanceId: data.attendanceId ?? null,
+        shiftId: data.shiftId ?? null,
         designation: data.designation,
         grade: data.grade,
         department: data.department,
@@ -362,6 +401,13 @@ export class EmployeesRepository {
     return this.prisma.employmentEvent.findMany({
       where: { employeeId },
       orderBy: [{ effectiveDate: 'desc' }, { id: 'desc' }],
+    });
+  }
+
+  findShiftInOrg(orgId: string, shiftId: string) {
+    return this.prisma.workShift.findFirst({
+      where: { id: shiftId, orgId },
+      select: { id: true },
     });
   }
 

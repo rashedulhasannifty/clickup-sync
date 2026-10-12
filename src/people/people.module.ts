@@ -10,11 +10,10 @@ import { DatabaseModule } from '../database/database.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { QueuesModule } from '../queues/queues.module';
 import { ATTENDANCE_PROVIDER } from './attendance-provider';
+import { createAttendanceProvider } from './attendance-provider.factory';
 import { AttendanceRepository } from './attendance.repository';
-import { DummyAttendanceProvider } from './dummy-attendance.provider';
 import { EmployeesRepository } from './employees.repository';
 import { EmployeesService } from './employees.service';
-import { NoneAttendanceProvider } from './none-attendance.provider';
 import { OnboardingRepository } from './onboarding.repository';
 import { OnboardingService } from './onboarding.service';
 import { PeopleAttendanceController } from './people-attendance.controller';
@@ -29,6 +28,10 @@ import { PeopleSyncService } from './people-sync.service';
 import { PeoplePastRecordsController } from './past-records/past-records.controller';
 import { PastRecordsRepository } from './past-records/past-records.repository';
 import { PastRecordsService } from './past-records/past-records.service';
+import { PeopleShiftsController } from './people-shifts.controller';
+import { ShiftsRepository } from './shifts.repository';
+import { ShiftsService } from './shifts.service';
+import { StellarImportService } from './stellar/stellar-import.service';
 
 @Module({
   // AuditLogInterceptor/AuditLogRepository come from AdminModule (see its exports).
@@ -38,6 +41,7 @@ import { PastRecordsService } from './past-records/past-records.service';
     PeopleAttendanceController,
     PeopleOnboardingController,
     PeoplePastRecordsController,
+    PeopleShiftsController,
   ],
   providers: [
     EmployeesRepository,
@@ -51,9 +55,11 @@ import { PastRecordsService } from './past-records/past-records.service';
     PeopleSyncService,
     PastRecordsRepository,
     PastRecordsService,
+    ShiftsRepository,
+    ShiftsService,
+    StellarImportService,
     {
-      // The provider is chosen by env, not by code: ATTENDANCE_PROVIDER=dummy|none.
-      // The real office-entry API becomes a third branch here; the tables do not change.
+      // The provider is chosen by env, not by code: ATTENDANCE_PROVIDER=dummy|none|stellar.
       provide: ATTENDANCE_PROVIDER,
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
@@ -61,9 +67,7 @@ import { PastRecordsService } from './past-records/past-records.service';
           config.get<AttendanceProviderName>('ATTENDANCE_PROVIDER'),
           config.get<string>('NODE_ENV') ?? 'development',
         );
-        return name === 'dummy'
-          ? new DummyAttendanceProvider()
-          : new NoneAttendanceProvider();
+        return createAttendanceProvider(name);
       },
     },
     // Consumers and crons run only in the worker role, like XeroModule / SyncModule:

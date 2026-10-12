@@ -30,7 +30,7 @@ import {
 export function ScoreBandPill({ score, band, partial = false }: { score: number | null; band: Band; partial?: boolean }) {
   if (partial) {
     return (
-      <span title="Not linked to ClickUp — this score covers attendance only.">
+      <span title="Partial score: a KPI does not apply (not linked to ClickUp, or a shift that does not track punctuality).">
         <Pill tone="gray" size="xs">
           {score == null ? 'Partial' : `${score} · Partial`}
         </Pill>
@@ -80,6 +80,18 @@ export function LeaveStatusPill({ status }: { status: LeaveStatusValue }) {
     <Pill tone={leaveStatusTone(status)} size="xs">
       {LEAVE_STATUS_LABEL[status]}
     </Pill>
+  );
+}
+
+/** "Real door data" marker: shown when the latest attendance came from Stellar HRM. */
+export function RealDataBadge({ source }: { source: AttendanceSource | undefined }) {
+  if (source !== 'stellar-csv' && source !== 'stellar-api') return null;
+  return (
+    <span title="Attendance comes from Stellar HRM, the office door system.">
+      <Pill tone="green" size="xs">
+        {source === 'stellar-csv' ? 'Stellar HRM import' : 'Stellar HRM'}
+      </Pill>
+    </span>
   );
 }
 

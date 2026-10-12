@@ -33,7 +33,7 @@ import {
   td,
   th,
 } from '../../lib/appraisals';
-import { bandTone, dhakaToday, formatDate } from '../../lib/people';
+import { bandTone, dhakaToday, formatDate, kpiEmptyText } from '../../lib/people';
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/Button';
 import { Callout } from '../ui/Callout';
@@ -173,7 +173,7 @@ function ratingName(v: number | undefined): string {
 
 function kpiActual(k: KpiResult): string {
   if (k.value != null) return `${k.value}%`;
-  return k.reason === 'not-linked' ? 'Not linked to ClickUp' : 'No data';
+  return kpiEmptyText(k);
 }
 
 function HeaderGrid({ view }: { view: AppraisalView }) {

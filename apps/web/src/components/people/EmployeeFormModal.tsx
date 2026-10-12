@@ -8,6 +8,7 @@ import { Button } from '../ui/Button';
 import type { CreateEmployeeBody, EmployeeProfile, StartingStatus, UpdateEmployeeBody } from '../../api/people';
 import { dhakaToday, formatDate } from '../../lib/people';
 import { monthsText } from '../../lib/appraisals';
+import { useShifts } from '../../hooks/usePeople';
 import { FormRow } from './FormBits';
 
 export type PickOption = { value: string; label: string };
@@ -29,6 +30,10 @@ type Values = {
   /** Intern: the expected internship end. Empty (create) = join + 3 months. */
   internshipEndDate: string;
   clickupUserId: string;
+  /** Stellar HRM User ID (the office door system). */
+  attendanceId: string;
+  /** Empty = the 09:30 office default. */
+  shiftId: string;
   concernName: string;
   academicQualification: string;
   experienceBeforeJoiningMonths: string;
@@ -75,6 +80,8 @@ function initialValues(e: EmployeeProfile | undefined): Values {
     probationStartDate: e?.probationStartDate ?? '',
     internshipEndDate: e?.status === 'INTERN' ? (e.internshipEndDate ?? '') : '',
     clickupUserId: e?.clickupUserId ?? '',
+    attendanceId: e?.attendanceId ?? '',
+    shiftId: e?.shiftId ?? '',
     concernName: e?.concernName ?? '',
     academicQualification: e?.academicQualification ?? '',
     experienceBeforeJoiningMonths: num(e?.experienceBeforeJoiningMonths),
@@ -101,6 +108,8 @@ function toCreateBody(v: Values): CreateEmployeeBody {
     teamId: opt(v.teamId),
     managerId: opt(v.managerId),
     clickupUserId: opt(v.clickupUserId),
+    attendanceId: opt(v.attendanceId),
+    shiftId: opt(v.shiftId),
     concernName: opt(v.concernName),
     academicQualification: opt(v.academicQualification),
     ...Object.fromEntries(NUMERIC.filter((k) => v[k].trim()).map((k) => [k, Number(v[k].trim())])),
@@ -123,6 +132,8 @@ function toUpdateBody(v: Values, initial: Values, intern: boolean): UpdateEmploy
   if (v.teamId !== initial.teamId) body.teamId = v.teamId || null;
   if (v.managerId !== initial.managerId) body.managerId = v.managerId || null;
   if (changed('clickupUserId')) body.clickupUserId = v.clickupUserId.trim() || null;
+  if (changed('attendanceId')) body.attendanceId = v.attendanceId.trim() || null;
+  if (v.shiftId !== initial.shiftId) body.shiftId = v.shiftId || null;
   if (changed('concernName')) body.concernName = v.concernName.trim() || null;
   if (changed('academicQualification')) body.academicQualification = v.academicQualification.trim() || null;
   for (const k of NUMERIC) if (changed(k)) body[k] = v[k].trim() ? Number(v[k].trim()) : null;
@@ -159,6 +170,14 @@ export function EmployeeFormModal({
   const [v, setV] = useState<Values>(initial);
   const [formError, setFormError] = useState('');
   const isEdit = !!employee;
+  const shifts = useShifts();
+  const shiftOptions: PickOption[] = [
+    { value: '', label: 'Default (late after 09:30)' },
+    ...(shifts.data ?? []).map((s) => ({
+      value: s.id,
+      label: `${s.name} · ${s.start}–${s.end}${s.trackPunctuality ? '' : ' · not tracked'}`,
+    })),
+  ];
   const intern = v.status === 'INTERN';
   const set = <K extends keyof Values>(k: K, val: Values[K]) => setV((p) => ({ ...p, [k]: val }));
   const defaultEnd = v.joinDate ? addMonths(v.joinDate, 3) : '';
@@ -172,6 +191,9 @@ export function EmployeeFormModal({
     if (!intern && v.probationStartDate && v.probationStartDate < v.joinDate) return setFormError('Probation cannot start before the join date.');
     if (v.clickupUserId.trim() && !/^\d+$/.test(v.clickupUserId.trim())) {
       return setFormError('ClickUp user id must be numeric.');
+    }
+    if (v.attendanceId.trim() && !/^\d{1,20}$/.test(v.attendanceId.trim())) {
+      return setFormError('Stellar ID must be numeric.');
     }
     for (const k of NUMERIC) {
       if (v[k].trim() && !WHOLE.test(v[k].trim())) {
@@ -289,6 +311,14 @@ export function EmployeeFormModal({
               onChange={(e) => set('clickupUserId', e.target.value)}
               placeholder="e.g. 3450636"
             />
+          </Field>
+        </FormRow>
+        <FormRow>
+          <Field label="Stellar ID" hint="The numeric User ID in Stellar HRM (the office door system). Attendance and leave imports match on it.">
+            <Input inputMode="numeric" value={v.attendanceId} onChange={(e) => set('attendanceId', e.target.value)} maxLength={20} placeholder="e.g. 41" />
+          </Field>
+          <Field label="Shift" hint="Late means first entry after the shift start plus its grace.">
+            <Select fullWidth options={shiftOptions} value={v.shiftId} onChange={(x) => set('shiftId', x)} />
           </Field>
         </FormRow>
         <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 4 }}>Appraisal form details</div>

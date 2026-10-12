@@ -2,9 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   peopleApi,
   type AddEventBody,
+  type AttendanceImportResult,
+  type LeaveImportResult,
   type CreateEmployeeBody,
   type EmployeeListParams,
   type LeaveListParams,
+  type ShiftBody,
   type UpdateEmployeeBody,
 } from '../api/people';
 
@@ -82,5 +85,62 @@ export function useDecideLeave() {
     mutationFn: ({ id, status }: { id: string; status: 'APPROVED' | 'REJECTED' }) =>
       peopleApi.decideLeave(id, status),
     onSuccess: invalidate,
+  });
+}
+
+// --- shifts and Stellar HRM imports ------------------------------------------
+
+export function useShifts() {
+  return useQuery({ queryKey: [...ROOT, 'shifts'], queryFn: peopleApi.shifts });
+}
+
+export function useCreateShift() {
+  const invalidate = useInvalidatePeople();
+  return useMutation({ mutationFn: (body: ShiftBody) => peopleApi.createShift(body), onSuccess: invalidate });
+}
+
+export function useUpdateShift() {
+  const invalidate = useInvalidatePeople();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Partial<ShiftBody> }) => peopleApi.updateShift(id, body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteShift() {
+  const invalidate = useInvalidatePeople();
+  return useMutation({ mutationFn: (id: string) => peopleApi.deleteShift(id), onSuccess: invalidate });
+}
+
+/** Suggestions are computed on demand (button), never polled. */
+export function useShiftSuggestions(enabled: boolean) {
+  return useQuery({ queryKey: [...ROOT, 'shift-suggestions'], queryFn: peopleApi.shiftSuggestions, enabled });
+}
+
+export function useAssignShifts() {
+  const invalidate = useInvalidatePeople();
+  return useMutation({
+    mutationFn: (assignments: { employeeId: string; shiftId: string | null }[]) => peopleApi.assignShifts(assignments),
+    onSuccess: invalidate,
+  });
+}
+
+/** Dry run (preview) or the real import of a Stellar HRM export; only a real import refreshes People. */
+export function useStellarImport() {
+  const invalidate = useInvalidatePeople();
+  return useMutation({
+    mutationFn: ({
+      file,
+      kind,
+      dryRun,
+    }: {
+      file: File;
+      kind: 'attendance' | 'leaves';
+      dryRun: boolean;
+    }): Promise<AttendanceImportResult | LeaveImportResult> =>
+      kind === 'attendance' ? peopleApi.importStellarAttendance(file, dryRun) : peopleApi.importStellarLeaves(file, dryRun),
+    onSuccess: (_r, vars) => {
+      if (!vars.dryRun) void invalidate();
+    },
   });
 }

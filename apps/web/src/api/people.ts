@@ -42,12 +42,16 @@ export type ManualEventType = Exclude<
 export type LeaveTypeValue = 'SICK' | 'CASUAL' | 'ANNUAL' | 'UNPAID' | 'OTHER';
 export type LeaveStatusValue = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 
-/** Where attendance rows came from: 'dummy' | 'none' | a real provider's name. */
+/** Where attendance rows came from: 'dummy' | 'stellar-csv' | 'stellar-api', else the configured provider ('none', 'stellar'). */
 export type AttendanceSource = string;
+/** `attendance_days.source` of one row. */
+export type AttendanceRowSource = 'dummy' | 'stellar-csv' | 'stellar-api';
 
 export type Band = 'on-track' | 'watch' | 'at-risk' | 'no-data';
-export type TodayState = 'on-time' | 'late' | 'leave' | 'not-in' | 'non-working';
-export type KpiReason = 'not-linked' | 'no-data';
+/** `present`: in, on a shift that does not track punctuality. `weekend`: punched in on Sat/Sun (extra work). */
+export type TodayState = 'on-time' | 'late' | 'present' | 'weekend' | 'leave' | 'not-in' | 'non-working';
+/** `not-tracked`: the employee's shift does not track punctuality. */
+export type KpiReason = 'not-linked' | 'no-data' | 'not-tracked';
 
 export type EmployeeLinks = {
   /** `clickupUserId` is set, so ClickUp KPIs can be computed. */
@@ -91,6 +95,11 @@ export type EmployeeProfile = {
   clickupUserId: string | null;
   userId: string | null;
   linked: EmployeeLinks;
+  /** Stellar HRM User ID (the office door system); imports match on it. */
+  attendanceId: string | null;
+  /** Working shift; null = the 09:30 office default. */
+  shiftId: string | null;
+  shiftName: string | null;
   /** Company within the group (the appraisal form's concern name). */
   concernName: string | null;
   academicQualification: string | null;
@@ -159,15 +168,38 @@ export type TrendPoint = {
   punctuality: number | null;
 };
 
-export type AttendanceDayState = 'on-time' | 'late' | 'absent' | 'sick' | 'casual' | 'leave' | 'future';
+export type AttendanceDayState =
+  | 'on-time'
+  | 'late'
+  | 'present'
+  | 'weekend'
+  | 'absent'
+  | 'sick'
+  | 'casual'
+  | 'leave'
+  | 'future';
 
-export type AttendanceDayView = {
+/** Door-system detail of a day; null/false where the source does not report it (simulated data). */
+export type AttendanceDetail = {
+  sessions: number | null;
+  /** Summed session time, minutes. */
+  workedMinutes: number | null;
+  /** The last session has an in but no out. */
+  missingOut: boolean;
+  note: string | null;
+  /** null when there is no row for the day. */
+  source: AttendanceRowSource | null;
+};
+
+export type AttendanceDayView = AttendanceDetail & {
   date: string;
   state: AttendanceDayState;
   firstIn: string | null;
   lastOut: string | null;
   minutesInOffice: number | null;
 };
+
+export type AttendanceCoverage = { source: AttendanceRowSource; from: string; to: string; rows: number };
 
 export type LeaveBalance = {
   year: number;
@@ -215,7 +247,7 @@ export type EmployeeSummary = {
   hours: SummaryHours;
 };
 
-export type TodayRow = {
+export type TodayRow = AttendanceDetail & {
   employeeId: string;
   fullName: string;
   designation: string;
@@ -224,7 +256,7 @@ export type TodayRow = {
   firstIn: string | null;
   lastOut: string | null;
   minutesInOffice: number | null;
-  /** Has a first-in but no last-out yet. */
+  /** Has a first-in and the last session has no out yet. */
   inOffice: boolean;
 };
 
@@ -242,6 +274,8 @@ export type TodayAttendance = {
   /** Mon-Fri. On a weekend `rows` is empty and every count is 0. */
   workingDay: boolean;
   attendanceSource: AttendanceSource;
+  /** Date span of each source's rows, newest first. */
+  coverage: AttendanceCoverage[];
   counts: TodayCounts;
   rows: TodayRow[];
 };
@@ -295,6 +329,8 @@ export type CreateEmployeeBody = {
   /** INTERN: default join + 3 months. */
   internshipEndDate?: string;
   clickupUserId?: string;
+  attendanceId?: string;
+  shiftId?: string;
   concernName?: string;
   academicQualification?: string;
   experienceBeforeJoiningMonths?: number;
@@ -318,6 +354,8 @@ export type UpdateEmployeeBody = {
   /** Intern only; null resets it to join + 3 months. */
   internshipEndDate?: string | null;
   clickupUserId?: string | null;
+  attendanceId?: string | null;
+  shiftId?: string | null;
   concernName?: string | null;
   academicQualification?: string | null;
   experienceBeforeJoiningMonths?: number | null;
@@ -340,6 +378,153 @@ export type LeaveListParams = {
   to?: string;
   employeeId?: string;
 };
+
+// --- shifts and Stellar HRM imports ------------------------------------------
+
+export type ShiftView = {
+  id: string;
+  name: string;
+  /** Minutes after Dhaka midnight. */
+  startMinutes: number;
+  endMinutes: number;
+  graceMinutes: number;
+  trackPunctuality: boolean;
+  /** `HH:MM` */
+  start: string;
+  end: string;
+  lengthHours: number;
+  assignedCount: number;
+};
+
+export type ShiftBody = {
+  name: string;
+  startMinutes: number;
+  endMinutes: number;
+  graceMinutes?: number;
+  trackPunctuality?: boolean;
+};
+
+export type ShiftSuggestion = {
+  employeeId: string;
+  fullName: string;
+  currentShiftId: string | null;
+  medianFirstIn: number;
+  sampleDays: number;
+  spreadMinutes: number;
+  irregular: boolean;
+  proposedShiftId: string;
+  proposedShiftName: string;
+  distanceMinutes: number;
+  changes: boolean;
+};
+
+export type ShiftSuggestions = { period: { from: string; to: string }; suggestions: ShiftSuggestion[] };
+
+export type UnmatchedStellarUser = { attendanceId: string; name: string; department: string | null; count: number };
+
+export type AttendanceImportResult = {
+  kind: 'attendance';
+  dryRun: boolean;
+  file: { rowsRead: number; ignoredRows: number; invalidRows: number };
+  range: { from: string; to: string } | null;
+  matched: {
+    attendanceId: string;
+    employeeId: string;
+    fullName: string;
+    stellarName: string;
+    department: string | null;
+    days: number;
+    presentDays: number;
+    noPunchDays: number;
+    weekendDays: number;
+    outsideEmployment: number;
+    replacedDummy: number;
+    replacedCsv: number;
+    keptApi: number;
+    dummyLeavesDeleted: number;
+  }[];
+  unmatched: UnmatchedStellarUser[];
+  totals: {
+    rowsToWrite: number;
+    replacedDummy: number;
+    replacedCsv: number;
+    keptApi: number;
+    dummyLeavesDeleted: number;
+    outsideEmployment: number;
+    weekendDays: number;
+    unmatchedIds: number;
+  };
+  applied: { deleted: number; inserted: number; leavesDeleted: number } | null;
+};
+
+export type StellarLeaveFlag = {
+  attendanceId: string | null;
+  name: string;
+  date: string | null;
+  rawType: string;
+  reason: 'weekend' | 'unknown-type' | 'unknown-status' | 'bad-date' | 'no-user-id';
+};
+
+export type LeaveImportResult = {
+  kind: 'leaves';
+  dryRun: boolean;
+  file: { rowsRead: number };
+  range: { from: string; to: string } | null;
+  matched: {
+    attendanceId: string;
+    employeeId: string;
+    fullName: string;
+    stellarName: string;
+    records: {
+      type: LeaveTypeValue;
+      rawType: string;
+      startDate: string;
+      endDate: string;
+      days: number;
+      status: LeaveStatusValue;
+      description: string | null;
+    }[];
+    approvedDays: number;
+    rejectedDays: number;
+    outsideEmployment: number;
+    replacedStellar: number;
+    dummyLeavesDeleted: number;
+  }[];
+  unmatched: UnmatchedStellarUser[];
+  skipped: StellarLeaveFlag[];
+  warnings: StellarLeaveFlag[];
+  totals: {
+    records: number;
+    approvedDays: number;
+    rejectedDays: number;
+    replacedStellar: number;
+    dummyLeavesDeleted: number;
+    outsideEmployment: number;
+    skippedRows: number;
+    unmatchedIds: number;
+  };
+  applied: { deleted: number; inserted: number } | null;
+};
+
+export type StellarExportKind = 'attendance' | 'leaves';
+
+/** Which Stellar HRM export a file is, from its header line (mirrors `detectStellarExport`). */
+export async function detectStellarExport(file: File): Promise<StellarExportKind | null> {
+  const head = (await file.slice(0, 4096).text()).replace(/^\uFEFF/, '');
+  const header = head.split(/\r?\n/)[0].toLowerCase();
+  if (header.includes('in time') && header.includes('out time')) return 'attendance';
+  if (header.includes('leave type')) return 'leaves';
+  return null;
+}
+
+/** Axios drops the JSON default header for FormData and lets the browser add the multipart boundary. */
+const MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } };
+
+function csvForm(file: File): FormData {
+  const form = new FormData();
+  form.append('file', file);
+  return form;
+}
 
 export const peopleApi = {
   employees: (params: EmployeeListParams) =>
@@ -365,4 +550,28 @@ export const peopleApi = {
     apiClient.get<LeaveRecordView[]>('/people/leaves', { params }).then((r) => r.data),
   decideLeave: (id: string, status: 'APPROVED' | 'REJECTED') =>
     apiClient.patch<LeaveRecordView>(`/people/leaves/${id}`, { status }).then((r) => r.data),
+
+  importStellarAttendance: (file: File, dryRun: boolean) =>
+    apiClient
+      .post<AttendanceImportResult>('/people/attendance/import/stellar', csvForm(file), {
+        ...MULTIPART,
+        params: { dryRun: String(dryRun) },
+      })
+      .then((r) => r.data),
+  importStellarLeaves: (file: File, dryRun: boolean) =>
+    apiClient
+      .post<LeaveImportResult>('/people/attendance/import/stellar-leaves', csvForm(file), {
+        ...MULTIPART,
+        params: { dryRun: String(dryRun) },
+      })
+      .then((r) => r.data),
+
+  shifts: () => apiClient.get<ShiftView[]>('/people/shifts').then((r) => r.data),
+  createShift: (body: ShiftBody) => apiClient.post<ShiftView>('/people/shifts', body).then((r) => r.data),
+  updateShift: (id: string, body: Partial<ShiftBody>) =>
+    apiClient.patch<ShiftView>(`/people/shifts/${id}`, body).then((r) => r.data),
+  deleteShift: (id: string) => apiClient.delete(`/people/shifts/${id}`).then(() => undefined),
+  shiftSuggestions: () => apiClient.get<ShiftSuggestions>('/people/shifts/suggestions').then((r) => r.data),
+  assignShifts: (assignments: { employeeId: string; shiftId: string | null }[]) =>
+    apiClient.post<{ updated: number }>('/people/shifts/assign', { assignments }).then((r) => r.data),
 };

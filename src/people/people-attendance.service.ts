@@ -5,12 +5,20 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AuthPrincipal } from '../auth/auth.types';
-import { classifyToday, type TypedLeave } from './attendance-math';
+import {
+  classifyToday,
+  detailOf,
+  isInOffice,
+  type AttendanceRow,
+  type TypedLeave,
+} from './attendance-math';
+import { punctualityOf } from './shift-math';
 import {
   ATTENDANCE_PROVIDER,
   type AttendanceProvider,
 } from './attendance-provider';
 import { AttendanceRepository } from './attendance.repository';
+import { sourceLabel } from './attendance-source';
 import { EmployeesRepository } from './employees.repository';
 import { assertNotExited } from './employee-readonly';
 import { LEAVE_LIST_LIMIT } from './people.constants';
@@ -71,21 +79,18 @@ export class PeopleAttendanceService {
     const today = dhakaDateOf(new Date());
     const employees = await this.employees.list(orgId, {});
     const ids = employees.map((e) => e.id);
-    const [attendanceRows, approved, pending, latest] = await Promise.all([
-      this.attendance.attendanceRows(ids, today, today),
-      this.attendance.approvedLeaves(ids, today, today),
-      this.attendance.countPendingFrom(orgId, today),
-      this.attendance.latestSource(orgId),
-    ]);
-    const rows = new Map(
+    const [attendanceRows, approved, pending, latest, coverage] =
+      await Promise.all([
+        this.attendance.attendanceRows(ids, today, today),
+        this.attendance.approvedLeaves(ids, today, today),
+        this.attendance.countPendingFrom(orgId, today),
+        this.attendance.latestSource(orgId),
+        this.attendance.coverage(orgId),
+      ]);
+    const rows = new Map<string, AttendanceRow>(
       attendanceRows.map((r) => [
         r.employeeId,
-        {
-          date: dateColumnToIso(r.date),
-          firstIn: r.firstIn,
-          lastOut: r.lastOut,
-          minutesInOffice: r.minutesInOffice,
-        },
+        { ...r, date: dateColumnToIso(r.date) },
       ]),
     );
     const leaves = new Map<string, TypedLeave[]>();
@@ -118,10 +123,12 @@ export class PeopleAttendanceService {
         },
         row,
         leaves: leaves.get(e.id) ?? [],
+        punctuality: punctualityOf(e.shift),
       });
       if (state === 'non-working') continue;
-      const inOffice = !!row?.firstIn && !row.lastOut;
-      counts.total++;
+      const inOffice = isInOffice(row);
+      // Weekend work is listed, but nobody is expected: it is not in the total.
+      if (state !== 'weekend') counts.total++;
       if (inOffice) counts.inOffice++;
       if (state === 'late') counts.late++;
       if (state === 'leave') counts.onLeave++;
@@ -136,6 +143,7 @@ export class PeopleAttendanceService {
         lastOut: row?.lastOut ? row.lastOut.toISOString() : null,
         minutesInOffice: row?.minutesInOffice ?? null,
         inOffice,
+        ...detailOf(row),
       });
     }
     // Earliest arrivals first; people with no entry yet sort last, then by name.
@@ -148,7 +156,8 @@ export class PeopleAttendanceService {
     return {
       date: today,
       workingDay: isBusinessDay(today),
-      attendanceSource: latest ?? this.provider.source,
+      attendanceSource: latest ? sourceLabel(latest) : this.provider.source,
+      coverage: coverage.map((c) => ({ ...c, source: sourceLabel(c.source) })),
       counts,
       rows: out,
     };

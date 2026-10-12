@@ -6,8 +6,16 @@ import {
   isBusinessDay,
   type DateRange,
 } from './people-dates';
-import { isOnTimeArrival, type LeaveSpan } from './kpi-math';
+import type { AttendanceSource } from '@prisma/client';
+import type { LeaveSpan } from './kpi-math';
+import { sourceLabel } from './attendance-source';
+import {
+  DEFAULT_PUNCTUALITY,
+  isOnTimeFor,
+  type Punctuality,
+} from './shift-math';
 import type {
+  AttendanceDetail,
   AttendanceDayState,
   AttendanceDayView,
   LeaveBalance,
@@ -26,6 +34,35 @@ export interface AttendanceRow {
   firstIn: Date | null;
   lastOut: Date | null;
   minutesInOffice: number | null;
+  sessions?: number | null;
+  workedMinutes?: number | null;
+  missingOut?: boolean;
+  note?: string | null;
+  source?: AttendanceSource;
+}
+
+/** The door-system detail of a row for the API (empty when there is no row). */
+export function detailOf(row: AttendanceRow | undefined): AttendanceDetail {
+  return {
+    sessions: row?.sessions ?? null,
+    workedMinutes: row?.workedMinutes ?? null,
+    missingOut: row?.missingOut ?? false,
+    note: row?.note ?? null,
+    source: row?.source ? sourceLabel(row.source) : null,
+  };
+}
+
+/** Still inside: first in, and either no out yet or the last session has no out. */
+export function isInOffice(row: AttendanceRow | undefined): boolean {
+  return !!row?.firstIn && (!row.lastOut || !!row.missingOut);
+}
+
+function arrivalState(
+  firstIn: Date,
+  rule: Punctuality,
+): 'on-time' | 'late' | 'present' {
+  if (!rule.tracked) return 'present';
+  return isOnTimeFor(firstIn, rule) ? 'on-time' : 'late';
 }
 
 export interface TypedLeave extends LeaveSpan {
@@ -53,17 +90,21 @@ export function leaveCovering(
  * absence; a day with nothing recorded is `absent` only once it is over. Today
  * with no row is `future` ("not closed yet"): attendance for the current day
  * arrives with the next sync, so calling it absent would accuse everyone every
- * morning.
+ * morning. Lateness is against the employee's shift (`punctuality`; default
+ * 09:30); a shift that does not track punctuality shows `present`.
  */
 export function classifyDay(args: {
   date: string;
   today: string;
   row: AttendanceRow | undefined;
   leaves: TypedLeave[];
+  punctuality?: Punctuality;
 }): AttendanceDayState {
   const { date, today, row, leaves } = args;
   if (date > today) return 'future';
-  if (row?.firstIn) return isOnTimeArrival(row.firstIn) ? 'on-time' : 'late';
+  if (!isBusinessDay(date)) return row?.firstIn ? 'weekend' : 'future';
+  if (row?.firstIn)
+    return arrivalState(row.firstIn, args.punctuality ?? DEFAULT_PUNCTUALITY);
   const leave = leaveCovering(date, leaves);
   if (leave) return leaveStateOf(leave.type);
   return date === today ? 'future' : 'absent';
@@ -71,7 +112,9 @@ export function classifyDay(args: {
 
 /**
  * The last `STRIP_BUSINESS_DAYS` business days up to and including `today`,
- * limited to days within employment (a new joiner has a shorter strip). Oldest first.
+ * limited to days within employment (a new joiner has a shorter strip). Oldest
+ * first. Weekend days in that span appear only when someone punched in (state
+ * `weekend`, extra work) and do not count toward the limit.
  */
 export function buildAttendanceStrip(args: {
   today: string;
@@ -79,53 +122,68 @@ export function buildAttendanceStrip(args: {
   rows: AttendanceRow[];
   leaves: TypedLeave[];
   limit?: number;
+  punctuality?: Punctuality;
 }): AttendanceDayView[] {
   const limit = args.limit ?? STRIP_BUSINESS_DAYS;
   const latest =
     args.employment.exitDate && args.employment.exitDate < args.today
       ? args.employment.exitDate
       : args.today;
+  const byDate = new Map(args.rows.map((r) => [r.date, r]));
   const days: string[] = [];
+  let businessDays = 0;
   for (
     let d = latest;
-    days.length < limit && d >= args.employment.joinDate;
+    businessDays < limit && d >= args.employment.joinDate;
     d = addDays(d, -1)
   ) {
-    if (isBusinessDay(d)) days.push(d);
+    if (isBusinessDay(d)) {
+      days.push(d);
+      businessDays++;
+    } else if (byDate.get(d)?.firstIn) days.push(d);
   }
   days.reverse();
-  const byDate = new Map(args.rows.map((r) => [r.date, r]));
   return days.map((date) => {
     const row = byDate.get(date);
     return {
       date,
-      state: classifyDay({ date, today: args.today, row, leaves: args.leaves }),
+      state: classifyDay({
+        date,
+        today: args.today,
+        row,
+        leaves: args.leaves,
+        punctuality: args.punctuality,
+      }),
       firstIn: row?.firstIn ? row.firstIn.toISOString() : null,
       lastOut: row?.lastOut ? row.lastOut.toISOString() : null,
       minutesInOffice: row?.minutesInOffice ?? null,
+      ...detailOf(row),
     };
   });
 }
 
 /**
  * Today's state for the directory and door log. `non-working` covers weekends
- * and anyone outside their employment today. No row and no leave is `not-in`
- * (neutral — see `classifyDay`).
+ * and anyone outside their employment today; someone who punches in on a
+ * weekend is `weekend` (extra work, never late). No row and no leave is
+ * `not-in` (neutral — see `classifyDay`).
  */
 export function classifyToday(args: {
   today: string;
   employment: { joinDate: string; exitDate: string | null };
   row: AttendanceRow | undefined;
   leaves: TypedLeave[];
+  punctuality?: Punctuality;
 }): TodayState {
   const { today, employment, row, leaves } = args;
-  if (!isBusinessDay(today)) return 'non-working';
   if (
     today < employment.joinDate ||
     (employment.exitDate !== null && today > employment.exitDate)
   )
     return 'non-working';
-  if (row?.firstIn) return isOnTimeArrival(row.firstIn) ? 'on-time' : 'late';
+  if (!isBusinessDay(today)) return row?.firstIn ? 'weekend' : 'non-working';
+  if (row?.firstIn)
+    return arrivalState(row.firstIn, args.punctuality ?? DEFAULT_PUNCTUALITY);
   if (leaveCovering(today, leaves)) return 'leave';
   return 'not-in';
 }

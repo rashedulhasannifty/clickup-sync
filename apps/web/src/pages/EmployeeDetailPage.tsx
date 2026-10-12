@@ -381,7 +381,9 @@ export function EmployeeDetailPage() {
                     Attendance · last {summary.attendance.length || 30} working days
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
-                    Hover a day for the in and out times. Late means first entry after 09:30.
+                    Hover a day for the in and out times, sessions and notes.{' '}
+                    {e.shiftName ? `Shift: ${e.shiftName}; late means first entry after its start plus grace.` : 'Late means first entry after 09:30.'}
+                    {e.attendanceId ? ` Stellar ID ${e.attendanceId}.` : ' No Stellar ID set, so door-system imports skip this person.'}
                   </div>
                   <AttendanceStrip days={summary.attendance} />
                 </div>

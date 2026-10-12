@@ -79,6 +79,11 @@ describe('validateEnv — ATTENDANCE_PROVIDER', () => {
     expect(env.ATTENDANCE_DUMMY_ALLOW_IN_PROD).toBe(true);
   });
 
+  it('accepts stellar anywhere, production included', () => {
+    expect(validateEnv({ ...base, ATTENDANCE_PROVIDER: 'stellar' }).ATTENDANCE_PROVIDER).toBe('stellar');
+    expect(validateEnv({ ...prod, ATTENDANCE_PROVIDER: 'stellar' }).ATTENDANCE_PROVIDER).toBe('stellar');
+  });
+
   it('accepts none anywhere and parses the opt-in string, not truthiness', () => {
     expect(validateEnv({ ...base, ATTENDANCE_PROVIDER: 'none' }).ATTENDANCE_PROVIDER).toBe('none');
     expect(validateEnv({ ...prod, ATTENDANCE_PROVIDER: 'none' }).ATTENDANCE_PROVIDER).toBe('none');

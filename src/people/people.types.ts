@@ -6,6 +6,7 @@
  */
 
 import type { NextAppraisal } from '../appraisals/appraisal-schedule';
+import type { AttendanceSourceLabel } from './attendance-source';
 
 export type EmployeeStatusValue =
   | 'INTERN'
@@ -39,8 +40,16 @@ export type LeaveStatusValue =
   | 'REJECTED'
   | 'CANCELLED';
 
-/** Where attendance rows came from: the provider that wrote the latest one, else the configured one. */
+/** Where attendance rows came from: the source of the latest row ('dummy' | 'stellar-csv' | 'stellar-api'), else the configured provider ('none', 'stellar', ...). */
 export type AttendanceSource = 'dummy' | 'none' | (string & {});
+
+/** The date span each source's rows cover, newest first: "Stellar HRM import, 1 Jul - 12 Oct". */
+export interface AttendanceCoverage {
+  source: AttendanceSourceLabel;
+  from: string;
+  to: string;
+  rows: number;
+}
 
 /** KPI score band. Also used as a KPI's own `status` (derived from that KPI's score). */
 export type Band = 'on-track' | 'watch' | 'at-risk' | 'no-data';
@@ -85,6 +94,11 @@ export interface EmployeeProfile {
   clickupUserId: string | null;
   userId: string | null;
   linked: EmployeeLinks;
+  /** Stellar HRM User ID (the office door system); attendance imports match on it. */
+  attendanceId: string | null;
+  /** Working shift; null = the 09:30 office default. */
+  shiftId: string | null;
+  shiftName: string | null;
   /** Company within the group the employee works for. */
   concernName: string | null;
   academicQualification: string | null;
@@ -112,6 +126,10 @@ export interface EmployeeProfile {
 export type TodayState =
   | 'on-time'
   | 'late'
+  /** In, on a shift that does not track punctuality: neither on time nor late. */
+  | 'present'
+  /** Punched in on a Saturday/Sunday: extra work, never late or expected. */
+  | 'weekend'
   | 'leave'
   | 'not-in'
   | 'non-working';
@@ -127,7 +145,8 @@ export interface DirectoryRow extends EmployeeProfile {
   onboarding: { resolved: number; total: number } | null;
 }
 
-export type KpiReason = 'not-linked' | 'no-data';
+/** `not-tracked`: the employee's shift does not track punctuality (irregular hours). */
+export type KpiReason = 'not-linked' | 'no-data' | 'not-tracked';
 
 export interface KpiResult {
   /** Percentage, 1 decimal (e.g. 78.4). null when it cannot be computed; see `reason`. */
@@ -181,13 +200,30 @@ export interface TrendPoint {
 export type AttendanceDayState =
   | 'on-time'
   | 'late'
+  /** Came in; the shift does not track punctuality. */
+  | 'present'
+  /** Punches on a weekend: extra work. Only listed when there are punches. */
+  | 'weekend'
   | 'absent'
   | 'sick'
   | 'casual'
   | 'leave'
   | 'future';
 
-export interface AttendanceDayView {
+/** Door-system detail of one day; null/false/zero where the provider does not report it. */
+export interface AttendanceDetail {
+  /** In/out sessions; null when unknown (simulated data). */
+  sessions: number | null;
+  /** Summed session time, minutes; null when unknown. */
+  workedMinutes: number | null;
+  /** The last session has an in but no out. */
+  missingOut: boolean;
+  note: string | null;
+  /** Where the row came from; null when there is no row. */
+  source: AttendanceSourceLabel | null;
+}
+
+export interface AttendanceDayView extends AttendanceDetail {
   date: string;
   state: AttendanceDayState;
   firstIn: string | null;
@@ -245,7 +281,7 @@ export interface EmployeeSummary {
   hours: SummaryHours;
 }
 
-export interface TodayRow {
+export interface TodayRow extends AttendanceDetail {
   employeeId: string;
   fullName: string;
   designation: string;
@@ -274,6 +310,7 @@ export interface TodayAttendance {
   /** Mon-Fri. On a weekend `rows` is empty and every count is 0. */
   workingDay: boolean;
   attendanceSource: AttendanceSource;
+  coverage: AttendanceCoverage[];
   counts: TodayCounts;
   rows: TodayRow[];
 }

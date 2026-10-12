@@ -391,6 +391,7 @@ model Organization {
   invitations     Invitation[]
   teams           Team[]
   employees       Employee[]
+  workShifts      WorkShift[]
   appraisalCycles AppraisalCycle[]
 
   @@map("organizations")
@@ -874,6 +875,10 @@ model Employee {
   /// group's first past record, so deleting the last past record of a group restores them.
   /// Holds a salary: never logged.
   pastRecordsBaseline           Json?          @map("past_records_baseline")
+  /// Stellar HRM (office door / attendance system) numeric User ID. Imports match on it only (0036).
+  attendanceId                  String?        @unique @map("attendance_id")
+  /// Working shift (0036): lateness and expected hours. Null = the 09:30 default.
+  shiftId                       String?        @map("shift_id")
   createdAt                     DateTime       @default(now()) @map("created_at")
   updatedAt                     DateTime       @default(now()) @updatedAt @map("updated_at")
 
@@ -881,6 +886,7 @@ model Employee {
   user    User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
   team    Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
   manager Employee?    @relation("EmployeeManager", fields: [managerId], references: [id], onDelete: SetNull)
+  shift   WorkShift?   @relation(fields: [shiftId], references: [id], onDelete: SetNull)
   reports Employee[]   @relation("EmployeeManager")
 
   events         EmploymentEvent[]
@@ -896,6 +902,7 @@ model Employee {
   @@index([orgId, status])
   @@index([teamId])
   @@index([managerId])
+  @@index([shiftId])
   @@map("employees")
 }
 
@@ -919,15 +926,52 @@ model EmploymentEvent {
 }
 
 /// One row per employee per Dhaka calendar date, written by the attendance provider sync.
+/// Who wrote an attendance row. Real data (STELLAR_*) is never overwritten by the dummy sync (0036).
+enum AttendanceSource {
+  DUMMY
+  STELLAR_CSV
+  STELLAR_API
+}
+
+/// A working shift (0036). Minutes are after Dhaka midnight; end < start means it crosses midnight.
+model WorkShift {
+  id               String   @id @default(cuid())
+  orgId            String   @map("org_id")
+  name             String
+  startMinutes     Int      @map("start_minutes")
+  endMinutes       Int      @map("end_minutes")
+  /// Late = first-in after start + grace.
+  graceMinutes     Int      @default(15) @map("grace_minutes")
+  /// False: the punctuality KPI and late badges do not apply (irregular hours).
+  trackPunctuality Boolean  @default(true) @map("track_punctuality")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
+
+  org       Organization @relation(fields: [orgId], references: [id])
+  employees Employee[]
+
+  @@unique([orgId, name])
+  @@map("work_shifts")
+}
+
 model AttendanceDay {
-  employeeId      String    @map("employee_id")
-  date            DateTime  @db.Date
-  firstIn         DateTime? @map("first_in") @db.Timestamptz(6)
-  lastOut         DateTime? @map("last_out") @db.Timestamptz(6)
-  minutesInOffice Int?      @map("minutes_in_office")
-  /// Provider that wrote the row ('dummy' rows can be purged with one DELETE).
-  source          String
-  syncedAt        DateTime  @default(now()) @updatedAt @map("synced_at")
+  employeeId      String           @map("employee_id")
+  date            DateTime         @db.Date
+  firstIn         DateTime?        @map("first_in") @db.Timestamptz(6)
+  lastOut         DateTime?        @map("last_out") @db.Timestamptz(6)
+  /// lastOut - firstIn (the span), null when either is missing.
+  minutesInOffice Int?             @map("minutes_in_office")
+  /// In/out sessions that day (0036); null for providers that only report first/last.
+  sessions        Int?
+  /// Sum of the sessions' durations (0036); null when unknown.
+  workedMinutes   Int?             @map("worked_minutes")
+  /// The last session has no out punch (0036).
+  missingOut      Boolean          @default(false) @map("missing_out")
+  /// The attendance system's notes for the day, concatenated (0036).
+  note            String?
+  /// Provider that wrote the row ('DUMMY' rows can be purged with one DELETE).
+  source          AttendanceSource
+  syncedAt        DateTime         @default(now()) @updatedAt @map("synced_at")
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
@@ -946,7 +990,7 @@ model LeaveRecord {
   days       Decimal     @db.Decimal(5, 1)
   status     LeaveStatus @default(PENDING)
   reason     String?
-  /// 'dummy' | 'manual' | later the real API.
+  /// 'dummy' | 'manual' | 'stellar' (Stellar HRM leave import, 0036).
   source     String
   externalId String?     @map("external_id")
   /// A manual APPROVED/REJECTED decision. Set => a later provider sync must not touch the row.

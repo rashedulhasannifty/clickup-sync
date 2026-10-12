@@ -4,7 +4,10 @@ import { dhakaInstant } from './people-dates';
 
 const NOW = dhakaInstant('2026-10-07', 18 * 60);
 
-function make(provider = new DummyAttendanceProvider(() => NOW)) {
+function make(
+  provider = new DummyAttendanceProvider(() => NOW),
+  realKeys: Set<string> = new Set(),
+) {
   const emps = [
     {
       id: 'e1',
@@ -25,6 +28,7 @@ function make(provider = new DummyAttendanceProvider(() => NOW)) {
   };
   const employees = { listForSync: jest.fn().mockResolvedValue(emps) };
   const attendance = {
+    realAttendanceKeys: jest.fn().mockResolvedValue(realKeys),
     upsertAttendance: jest
       .fn()
       .mockImplementation(
@@ -94,7 +98,7 @@ describe('PeopleSyncService.run', () => {
     expect(
       rows.every(
         (x: { source: string; employeeId: string }) =>
-          x.source === 'dummy' && ['e1', 'e2'].includes(x.employeeId),
+          x.source === 'DUMMY' && ['e1', 'e2'].includes(x.employeeId),
       ),
     ).toBe(true);
     const full = rows.find((x: { lastOut: Date | null }) => x.lastOut);
@@ -121,6 +125,8 @@ describe('PeopleSyncService.run', () => {
   it('a decided leave survives a re-sync', async () => {
     const provider = {
       source: 'dummy',
+      attendanceSource: 'DUMMY',
+      canSync: true,
       fetch: jest.fn().mockResolvedValue({
         attendance: [],
         leaves: [
@@ -153,6 +159,8 @@ describe('PeopleSyncService.run', () => {
   it('skips provider rows for emails it does not know and no-ops with no employees', async () => {
     const provider = {
       source: 'dummy',
+      attendanceSource: 'DUMMY',
+      canSync: true,
       fetch: jest.fn().mockResolvedValue({
         attendance: [
           {
@@ -179,7 +187,46 @@ describe('PeopleSyncService.run', () => {
       attendanceRows: 0,
       leavesCreated: 0,
     });
-    expect(attendance.upsertAttendance).toHaveBeenCalledWith([]);
+    expect(attendance.upsertAttendance).not.toHaveBeenCalled();
+  });
+
+  it('never invents simulated leave on a day that has real (imported) attendance', async () => {
+    const leave = (date: string) => ({
+      email: 'a@x.test',
+      externalId: `dummy:a@x.test:${date}`,
+      type: 'SICK',
+      startDate: date,
+      endDate: date,
+      days: 1,
+      status: 'APPROVED',
+    });
+    const provider = {
+      source: 'dummy',
+      attendanceSource: 'DUMMY',
+      canSync: true,
+      fetch: jest.fn().mockResolvedValue({
+        attendance: [],
+        leaves: [leave('2026-10-05'), leave('2026-10-06')],
+      }),
+    };
+    const { svc, stores } = make(
+      provider as never,
+      new Set(['e1|2026-10-05']),
+    );
+    expect((await svc.run(7)).leavesCreated).toBe(1);
+    expect([...stores.leaves.keys()]).toEqual(['dummy:a@x.test:2026-10-06']);
+  });
+
+  it('with the stellar provider (no API yet) a run fetches and writes nothing', async () => {
+    const { StellarAttendanceProvider } =
+      await import('./stellar/stellar-attendance.provider');
+    const provider = new StellarAttendanceProvider();
+    const fetch = jest.spyOn(provider, 'fetch');
+    const { svc, attendance } = make(provider as never);
+    const r = await svc.run(7);
+    expect(r).toMatchObject({ source: 'stellar', attendanceRows: 0 });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(attendance.upsertAttendance).not.toHaveBeenCalled();
   });
 });
 
@@ -228,6 +275,15 @@ describe('PeopleSyncService.enqueueDaily', () => {
       await import('./none-attendance.provider');
     const { svc, queues } = make(new NoneAttendanceProvider() as never);
     expect(await svc.enqueueDaily()).toBe(false);
+    expect(queues.get).not.toHaveBeenCalled();
+  });
+
+  it('logs and skips the crons under the stellar provider until its API exists', async () => {
+    const { StellarAttendanceProvider } =
+      await import('./stellar/stellar-attendance.provider');
+    const { svc, queues } = make(new StellarAttendanceProvider() as never);
+    expect(await svc.enqueueDaily()).toBe(false);
+    expect(await svc.enqueueIntraday()).toBe(false);
     expect(queues.get).not.toHaveBeenCalled();
   });
 });
