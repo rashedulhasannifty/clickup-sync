@@ -95,7 +95,8 @@ const DOOR_COLUMNS: Column<TodayRow>[] = [
     render: (r) => (
       <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
         <TodayStatePill state={r.state} />
-        {r.inOffice && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>in office</span>}
+        {/* Accurate for a live sync and for an import alike: the last entry has no exit after it. */}
+        {r.inOffice && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>no exit yet</span>}
       </span>
     ),
   },
@@ -278,7 +279,12 @@ export function AttendancePage() {
         </Callout>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))', gap: 12 }}>
-          <MetricCard label="In office now" value={counts?.inOffice ?? '—'} sublabel={counts ? `of ${counts.total} expected` : undefined} loading={today.isLoading} />
+          <MetricCard
+            label={t && !t.canSync ? 'Inside at last import' : 'In office now'}
+            value={counts?.inOffice ?? '—'}
+            sublabel={counts ? `of ${counts.total} expected` : undefined}
+            loading={today.isLoading}
+          />
           <MetricCard label="Late today" value={counts?.late ?? '—'} sublabel="after shift start + grace" loading={today.isLoading} />
           <MetricCard label="On leave today" value={counts?.onLeave ?? '—'} loading={today.isLoading} />
           <MetricCard label="Not in yet" value={counts?.notIn ?? '—'} sublabel="no entry, no leave" loading={today.isLoading} />

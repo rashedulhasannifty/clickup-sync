@@ -1004,7 +1004,8 @@ function OverdueCallout({ onLaunch }: { onLaunch: (type: AppraisalType) => void 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
         <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--text)' }}>Overdue appraisals</span>
         <span style={{ fontSize: 12.5, color: 'var(--text-muted)' }}>
-          {plural(rows.length, 'employee')} with a due date that has no appraisal yet
+          {/* One person can be overdue on more than one type: count people, not rows. */}
+          {plural(new Set(rows.map((r) => r.employeeId)).size, 'employee')} with a due date that has no appraisal yet
         </span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

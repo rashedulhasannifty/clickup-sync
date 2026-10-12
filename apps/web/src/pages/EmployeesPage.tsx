@@ -10,7 +10,7 @@ import {
   useTodayAttendance,
 } from '../hooks/usePeople';
 import { useTeams } from '../hooks/useTeams';
-import { EMPLOYED_STATUSES, formatDate, formatTenure } from '../lib/people';
+import { formatDate, formatTenure } from '../lib/people';
 import { PageHeader } from '../components/ui/PageHeader';
 import { QueryError } from '../components/ui/QueryError';
 import { Button } from '../components/ui/Button';
@@ -142,10 +142,21 @@ export function EmployeesPage() {
 
   const onLeave = rows.filter((r) => r.today === 'leave').length;
   const inNotice = rows.filter((r) => r.status === 'NOTICE').length;
-  const active = rows.filter((r) => EMPLOYED_STATUSES.includes(r.status)).length;
+  const permanent = rows.filter((r) => r.status === 'ACTIVE').length;
+  const probation = rows.filter((r) => r.status === 'PROBATION').length;
   const interns = rows.filter((r) => r.status === 'INTERN').length;
+  // "Active" is the status word for permanent staff, so the breakdown names each stage.
   const description = employees.data
-    ? `${rows.length} ${rows.length === 1 ? 'employee' : 'employees'} · ${active} active${interns ? ` (${interns} ${interns === 1 ? 'intern' : 'interns'})` : ''} · ${onLeave} on leave today · ${inNotice} in notice period`
+    ? [
+        `${rows.length} ${rows.length === 1 ? 'employee' : 'employees'}`,
+        `${permanent} permanent`,
+        probation ? `${probation} on probation` : null,
+        interns ? `${interns} ${interns === 1 ? 'intern' : 'interns'}` : null,
+        `${onLeave} on leave today`,
+        `${inNotice} in notice period`,
+      ]
+        .filter(Boolean)
+        .join(' · ')
     : 'Employee records, today’s attendance and 90-day scores.';
 
   const filtered = !!(q || status || teamId);
