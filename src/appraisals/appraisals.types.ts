@@ -183,7 +183,12 @@ export interface LaunchResult {
   cycle: CycleView;
   /** Appraisals created by this call. */
   created: number;
-  /** Selected employees who already had an appraisal in the cycle. */
+  /**
+   * Employees attempted who already had an appraisal in this cycle (a
+   * double-click, or a calendar cycle launched twice). Join-date picks whose
+   * due date is already covered by any appraisal are not attempted: they are
+   * in `notDue` as ALREADY_APPRAISED.
+   */
   skipped: number;
   /**
    * JOIN_DATE cycles, explicit selection: employees left out because no

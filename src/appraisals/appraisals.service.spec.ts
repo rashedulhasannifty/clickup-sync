@@ -1419,6 +1419,49 @@ describe('AppraisalsService overdue, upcoming and already appraised (0033)', () 
   });
 });
 
+describe('AppraisalsService launch: everyone already appraised (0033)', () => {
+  it('says so instead of "not due"', async () => {
+    const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
+    const { svc, repo } = make(
+      { current: null },
+      {
+        findCycle: jest.fn().mockResolvedValue(
+          cycle({
+            periodBasis: 'JOIN_DATE',
+            type: 'HALF_YEARLY',
+            periodStart: day('2026-10-01'),
+            periodEnd: day('2026-10-31'),
+          }),
+        ),
+        launchCandidates: jest.fn().mockResolvedValue([
+          {
+            id: 'jahid',
+            managerId: null,
+            fullName: 'Jahid',
+            designation: 'Developer',
+            status: 'ACTIVE',
+            joinDate: day('2025-04-15'),
+            confirmationDate: null,
+            team: null,
+          },
+        ]),
+        appraisalsOnRecord: jest.fn().mockResolvedValue([
+          {
+            employeeId: 'jahid',
+            type: 'HALF_YEARLY',
+            dueDate: day('2026-10-15'),
+            periodEnd: day('2026-10-14'),
+          },
+        ]),
+      },
+    );
+    await expect(
+      svc.launch('org', 'c1', { employeeIds: ['jahid'] }),
+    ).rejects.toThrow(/already has an appraisal for that due date/);
+    expect(repo.createAppraisals).not.toHaveBeenCalled();
+  });
+});
+
 describe('AppraisalsService date adjustment (0033)', () => {
   const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
   const joinCycle = (over: Record<string, unknown> = {}) =>

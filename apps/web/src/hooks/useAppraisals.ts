@@ -80,17 +80,21 @@ export function useUpdateCycle(id: string) {
   return useMutation({ mutationFn: (b: UpdateCycleBody) => appraisalsApi.updateCycle(id, b), onSuccess: invalidate });
 }
 
-/** Creates a cycle and launches it for the given employees in one go (the create dialog's "Create and launch"). */
+/**
+ * Creates a cycle and launches it for the given employees in one go (the create dialog's "Create
+ * and launch"). A failed launch does not fail the mutation: the cycle exists by then, so the
+ * caller gets it back with `launchError` and retries from that cycle's own Launch dialog, never
+ * by creating a second cycle.
+ */
 export function useCreateAndLaunch() {
   const invalidate = useInvalidate();
   return useMutation({
     mutationFn: async ({ body, employeeIds }: { body: CreateCycleBody; employeeIds: string[] }) => {
       const cycle = await appraisalsApi.createCycle(body);
       try {
-        return { cycle, result: await appraisalsApi.launch(cycle.id, employeeIds) };
-      } finally {
-        // Even when the launch fails the cycle exists: refresh so it shows up.
-        void invalidate();
+        return { cycle, result: await appraisalsApi.launch(cycle.id, employeeIds), launchError: null };
+      } catch (e) {
+        return { cycle, result: null, launchError: e as Error };
       }
     },
     onSuccess: invalidate,

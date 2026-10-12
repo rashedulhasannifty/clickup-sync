@@ -324,9 +324,12 @@ export class AppraisalsService {
           };
     if (basisOf(cycle) === 'JOIN_DATE' && eligible.length === 0) {
       throw new BadRequestException(
-        wanted
-          ? 'None of the selected employees has an appraisal of this type due by the end of the window'
-          : 'Nobody is due an appraisal of this type in this window',
+        !wanted
+          ? 'Nobody is due an appraisal of this type in this window'
+          : notDue.length > 0 &&
+              notDue.every((n) => n.reason === 'ALREADY_APPRAISED')
+            ? 'Everyone selected already has an appraisal for that due date'
+            : 'None of the selected employees has an appraisal of this type due by the end of the window',
       );
     }
 

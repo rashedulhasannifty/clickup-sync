@@ -415,6 +415,13 @@ per employee, in this priority):
 - `upcoming`: the first milestone in (to, to + `UPCOMING_DAYS` = 60 days],
   unless covered.
 - `daysLate` / `daysEarly` count from today (Dhaka) to the due date.
+- Overdue is **per type**, as agreed ("for that type"): a missed yearly stays
+  overdue (up to the 12-month lookback) even after a later half-yearly, except
+  on an anniversary, where one appraisal covers both. An organisation that only
+  runs half-yearly cycles will therefore see "Yearly overdue since …" until a
+  yearly is launched or the lookback passes. On the local data at the time
+  (18 employees, none appraised yet) that is 14 people overdue: 14 yearly and
+  6 half-yearly, 6 of them for both.
 
 **Launch.** Default (JOIN_DATE): `due` + `overdue`; `upcoming` only when
 picked. Explicit `employeeIds`, per employee: due, else overdue, else coming
@@ -600,8 +607,11 @@ show the employee's own review period and due date with a timing chip; the emplo
 "Next appraisal: Half-yearly due 15 Oct 2026", or in amber "Half-yearly overdue
 since 15 Jan 2026" when that due date has no appraisal. The create and launch
 dialogs list **Due**, **Overdue** (amber, "27 days late") and **Coming up**
-("Include early") with a "3 due · 2 overdue · 4 coming up" line; the create
-dialog can "Create and launch" the ticked people. An **Overdue appraisals**
+("Include early") with a "3 due · 2 overdue · 4 coming up" line. In the
+join-date create dialog the primary action (Enter included) is "Create and
+launch for N" whenever anyone is ticked ("Create only" sits beside it); if the
+launch half fails, the cycle is kept and selected and the launch is retried
+from its own Launch dialog, never by creating a second cycle. An **Overdue appraisals**
 callout above the cycles lists everyone overdue by type with "Launch now",
 which opens the create dialog on that type and this month's window (the overdue
 people come ticked). The appraisal page has a **Dates** card (due, review

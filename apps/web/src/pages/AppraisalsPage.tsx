@@ -381,8 +381,9 @@ function CreateCycleModal({
       createAndLaunch.mutate(
         { body, employeeIds: launchIds },
         {
-          onSuccess: ({ cycle, result }) => {
-            toast.success(launchSummary(result));
+          onSuccess: ({ cycle, result, launchError }) => {
+            if (result) toast.success(launchSummary(result));
+            else toast.error(`Cycle created, but the launch failed: ${launchError?.message ?? 'unknown error'}. Launch it from the cycle.`);
             onCreated(cycle);
           },
         },
