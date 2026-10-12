@@ -1,4 +1,5 @@
 import type {
+  AttendanceCoverage,
   AttendanceDayState,
   Band,
   EmployeeProfile,
@@ -158,6 +159,8 @@ export function statusTone(s: EmployeeStatusValue): PillTone {
 export const TODAY_LABEL: Record<TodayState, string> = {
   'on-time': 'On time',
   late: 'Late',
+  present: 'In',
+  weekend: 'Weekend work',
   leave: 'On leave',
   'not-in': 'Not in',
   'non-working': 'Day off',
@@ -167,6 +170,8 @@ export function todayTone(s: TodayState): PillTone {
   switch (s) {
     case 'on-time': return 'green';
     case 'late': return 'amber';
+    case 'present': return 'green';
+    case 'weekend': return 'blue';
     case 'leave': return 'purple';
     case 'not-in': return 'red';
     default: return 'gray';
@@ -234,6 +239,8 @@ export const MANUAL_EVENT_TYPES: ManualEventType[] = [
 export const STRIP_STATE: Record<AttendanceDayState, { label: string; color: string }> = {
   'on-time': { label: 'On time', color: 'var(--green)' },
   late: { label: 'Late', color: 'var(--amber)' },
+  present: { label: 'In (punctuality not tracked)', color: 'var(--green)' },
+  weekend: { label: 'Weekend work', color: 'var(--blue)' },
   sick: { label: 'Sick leave', color: 'var(--pill-purple-text)' },
   casual: { label: 'Casual leave', color: 'var(--blue)' },
   leave: { label: 'Other leave', color: 'var(--text-faint)' },
@@ -243,13 +250,56 @@ export const STRIP_STATE: Record<AttendanceDayState, { label: string; color: str
 
 /** What a KPI tile says in place of a number when `value` is null. */
 export function kpiEmptyText(k: KpiResult): string {
-  return k.reason === 'not-linked' ? 'Not linked to ClickUp' : 'No data';
+  if (k.reason === 'not-linked') return 'Not linked to ClickUp';
+  if (k.reason === 'not-tracked') return 'Not tracked';
+  return 'No data';
 }
 
 export function kpiEmptyHint(k: KpiResult): string {
-  return k.reason === 'not-linked'
-    ? 'Link a ClickUp user id to this employee to compute this.'
-    : 'Nothing recorded in this period yet.';
+  if (k.reason === 'not-linked') return 'Link a ClickUp user id to this employee to compute this.';
+  if (k.reason === 'not-tracked') return 'This employee’s shift does not track punctuality (irregular hours).';
+  return 'Nothing recorded in this period yet.';
+}
+
+/** `HH:MM` from minutes after midnight. */
+export function formatTimeOfDay(minutes: number): string {
+  const n = ((Math.round(minutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`;
+}
+
+/** Minutes after midnight from `HH:MM`; null when it is not a valid time. */
+export function parseTimeOfDay(hhmm: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  return h > 23 || min > 59 ? null : h * 60 + min;
+}
+
+/** `1 Jul – 12 Oct` (adds the year when the span crosses one). */
+export function formatDateSpan(from: string, to: string): string {
+  if (from === to) return formatDate(from);
+  return from.slice(0, 4) === to.slice(0, 4) ? `${formatShortDate(from)} – ${formatShortDate(to)}` : `${formatDate(from)} – ${formatDate(to)}`;
+}
+
+const SOURCE_LABEL: Record<AttendanceCoverage['source'], string> = {
+  dummy: 'Simulated',
+  'stellar-csv': 'Stellar HRM import',
+  'stellar-api': 'Stellar HRM',
+};
+
+/**
+ * Where the attendance on screen comes from, newest source first:
+ * "Stellar HRM import, 1 Jul – 12 Oct · Simulated, 1 Jan – 30 Jun". Null with no data.
+ */
+export function coverageText(coverage: AttendanceCoverage[] | undefined): string | null {
+  if (!coverage || coverage.length === 0) return null;
+  return coverage.map((c) => (c.source === 'dummy' ? 'Simulated' : `${SOURCE_LABEL[c.source]}, ${formatDateSpan(c.from, c.to)}`)).join(' · ');
+}
+
+/** Short source label of one day's row. */
+export function rowSourceLabel(source: AttendanceCoverage['source'] | null): string | null {
+  return source ? SOURCE_LABEL[source] : null;
 }
 
 /** Heading for a timeline row, e.g. "Promoted → Senior Developer". */

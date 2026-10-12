@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, CalendarDays, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Check, CalendarDays, Database, RefreshCw, Upload, X } from 'lucide-react';
 import type { LeaveRecordView, LeaveStatusValue, TodayRow } from '../api/people';
 import { useDecideLeave, useLeaves, useSyncAttendance, useTodayAttendance } from '../hooks/usePeople';
 import {
+  coverageText,
   formatClock,
   formatDate,
   formatDays,
@@ -20,7 +21,9 @@ import { Select } from '../components/ui/Select';
 import { DataTable, type Column } from '../components/ui/DataTable';
 import { useToast } from '../components/ui/Toast';
 import { HeaderActions } from '../components/people/FormBits';
-import { DemoDataBadge, LeaveStatusPill, LeaveTypePill, TodayStatePill } from '../components/people/PeoplePills';
+import { DemoDataBadge, LeaveStatusPill, LeaveTypePill, RealDataBadge, TodayStatePill } from '../components/people/PeoplePills';
+import { StellarImportModal } from '../components/people/StellarImportModal';
+import { ShiftsSection } from '../components/people/ShiftsSection';
 
 const STATUS_FILTER = [
   { value: 'PENDING', label: 'Pending' },
@@ -43,12 +46,47 @@ const DOOR_COLUMNS: Column<TodayRow>[] = [
   },
   { key: 'teamName', header: 'Team', width: 150, render: (r) => r.teamName ?? '—' },
   { key: 'firstIn', header: 'First in', width: 90, render: (r) => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatClock(r.firstIn)}</span> },
-  { key: 'lastOut', header: 'Last out', width: 90, render: (r) => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatClock(r.lastOut)}</span> },
   {
-    key: 'minutesInOffice',
-    header: 'In office',
-    width: 100,
-    render: (r) => <span style={{ fontVariantNumeric: 'tabular-nums' }}>{formatMinutes(r.minutesInOffice)}</span>,
+    key: 'lastOut',
+    header: 'Last out',
+    width: 110,
+    render: (r) => (
+      <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center', fontVariantNumeric: 'tabular-nums' }}>
+        {formatClock(r.lastOut)}
+        {r.missingOut && r.lastOut && (
+          <span title="The last session has no out punch yet (still inside, or a forgotten punch)." style={{ color: 'var(--pill-amber-text)', display: 'inline-flex' }}>
+            <AlertTriangle size={12} aria-label="Last out missing" />
+          </span>
+        )}
+      </span>
+    ),
+  },
+  {
+    key: 'workedMinutes',
+    header: 'Worked',
+    width: 120,
+    render: (r) => (
+      <span style={{ fontVariantNumeric: 'tabular-nums' }} title={r.workedMinutes == null ? 'Time between first in and last out' : 'Sum of the in/out sessions'}>
+        {formatMinutes(r.workedMinutes ?? r.minutesInOffice)}
+        {r.sessions != null && r.sessions > 0 && (
+          <span style={{ color: 'var(--text-faint)', fontSize: 11 }}> · {r.sessions} session{r.sessions === 1 ? '' : 's'}</span>
+        )}
+      </span>
+    ),
+  },
+  {
+    key: 'note',
+    header: 'Note',
+    width: 160,
+    sortable: false,
+    render: (r) =>
+      r.note ? (
+        <span title={r.note} style={{ display: 'inline-block', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'bottom' }}>
+          {r.note}
+        </span>
+      ) : (
+        <span style={{ color: 'var(--text-faint)' }}>—</span>
+      ),
   },
   {
     key: 'state',
@@ -102,6 +140,7 @@ export function AttendancePage() {
   const leaves = useLeaves({ status: (status || undefined) as LeaveStatusValue | undefined });
   const decide = useDecideLeave();
   const sync = useSyncAttendance();
+  const [importing, setImporting] = useState(false);
 
   const t = today.data;
   const counts = t?.counts;
@@ -189,12 +228,20 @@ export function AttendancePage() {
         title="Attendance & leave"
         description={
           t
-            ? `Today, ${formatDate(t.date)} (Dhaka time). Late means first entry after 09:30.`
+            ? `Today, ${formatDate(t.date)} (Dhaka time). Late means first entry after the person’s shift start plus grace (09:30 without a shift).`
             : 'Today’s door log and leave requests.'
         }
-        badge={<DemoDataBadge source={t?.attendanceSource} />}
+        badge={
+          <>
+            <DemoDataBadge source={t?.attendanceSource} />
+            <RealDataBadge source={t?.attendanceSource} />
+          </>
+        }
         actions={
           <HeaderActions>
+            <Button size="md" variant="default" icon={<Upload size={13} />} onClick={() => setImporting(true)}>
+              Import from Stellar HRM
+            </Button>
             <Button
               size="md"
               variant="subtle"
@@ -216,14 +263,21 @@ export function AttendancePage() {
 
       <QueryError queries={[today, leaves]} what="attendance" />
 
+      {t && coverageText(t.coverage) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+          <Database size={12} aria-hidden />
+          <span>Attendance data: {coverageText(t.coverage)}</span>
+        </div>
+      )}
+
       {t && !t.workingDay ? (
         <Callout tone="neutral" icon={<CalendarDays size={14} />}>
-          Today is not a working day (the office runs Monday to Friday), so there is no door log. Leave requests are below.
+          Today is not a working day (the office runs Monday to Friday). Anyone who comes in shows below as weekend work; nobody is expected or late.
         </Callout>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))', gap: 12 }}>
           <MetricCard label="In office now" value={counts?.inOffice ?? '—'} sublabel={counts ? `of ${counts.total} expected` : undefined} loading={today.isLoading} />
-          <MetricCard label="Late today" value={counts?.late ?? '—'} sublabel="after 09:30" loading={today.isLoading} />
+          <MetricCard label="Late today" value={counts?.late ?? '—'} sublabel="after shift start + grace" loading={today.isLoading} />
           <MetricCard label="On leave today" value={counts?.onLeave ?? '—'} loading={today.isLoading} />
           <MetricCard label="Not in yet" value={counts?.notIn ?? '—'} sublabel="no entry, no leave" loading={today.isLoading} />
           <MetricCard label="Pending requests" value={counts?.pendingRequests ?? '—'} sublabel="awaiting approval" loading={today.isLoading} />
@@ -251,7 +305,7 @@ export function AttendancePage() {
             emptyBody={
               t && !t.workingDay
                 ? 'Nobody is expected in on a weekend.'
-                : 'Entries appear as people badge in, or after an attendance sync.'
+                : 'Entries appear as people badge in, after an attendance sync, or after a Stellar HRM import.'
             }
             emptyIcon={<CalendarDays size={20} strokeWidth={1.5} />}
           />
@@ -275,7 +329,11 @@ export function AttendancePage() {
             emptyIcon={<CalendarDays size={20} strokeWidth={1.5} />}
           />
         </Section>
+
+        <ShiftsSection />
       </div>
+
+      {importing && <StellarImportModal onClose={() => setImporting(false)} onDone={(m) => toast.success(m)} />}
     </div>
   );
 }
