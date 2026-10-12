@@ -21,6 +21,8 @@ export type AppraisalStatus =
 export type Recommendation = 'PROMOTE' | 'RAISE' | 'NO_CHANGE' | 'IMPROVEMENT_PLAN';
 export type AppraisalType = 'HALF_YEARLY' | 'CONFIRMATION' | 'YEARLY';
 export type ScoringMode = 'KPI_BLEND' | 'FORM_100';
+/** CALENDAR: the cycle's period is everyone's review period. JOIN_DATE: counted from each join date; the cycle's period is "due between". */
+export type PeriodBasis = 'CALENDAR' | 'JOIN_DATE';
 export type AppraisalAction = 'CONFIRM' | 'INCREMENT' | 'PROMOTION' | 'TERMINATION' | 'DISMISSAL' | 'TRAINING_TRANSFER';
 export type ApprovalDecision = 'APPROVED' | 'NOT_APPROVED';
 export type FormGrade = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
@@ -79,6 +81,7 @@ export type CycleView = {
   name: string;
   periodStart: string;
   periodEnd: string;
+  periodBasis: PeriodBasis;
   status: CycleStatus;
   type: AppraisalType;
   scoringMode: ScoringMode;
@@ -89,7 +92,29 @@ export type CycleView = {
   createdAt: string;
 };
 
-export type LaunchResult = { cycle: CycleView; created: number; skipped: number };
+export type LaunchNotDue = {
+  employeeId: string;
+  employeeName: string;
+  reason: 'NOT_YET_DUE' | 'EXITED';
+  /** NOT_YET_DUE: when the first appraisal of the cycle's type falls due. */
+  firstDueDate: string | null;
+};
+
+export type LaunchResult = { cycle: CycleView; created: number; skipped: number; notDue: LaunchNotDue[] };
+
+/** One employee due an appraisal in a window (`GET /people/appraisal-cycles/due`). */
+export type DueEmployee = {
+  employeeId: string;
+  fullName: string;
+  designation: string;
+  teamName: string | null;
+  status: 'PROBATION' | 'ACTIVE' | 'NOTICE' | 'EXITED';
+  joinDate: string;
+  type: AppraisalType;
+  dueDate: string;
+  periodStart: string;
+  periodEnd: string;
+};
 
 export type KpiSnapshot = {
   period: { from: string; to: string };
@@ -133,6 +158,11 @@ export type AppraisalListRow = {
   reviewerName: string | null;
   status: AppraisalStatus;
   scoringMode: ScoringMode;
+  /** This appraisal's own review period (the cycle's for calendar cycles). */
+  periodStart: string;
+  periodEnd: string;
+  /** JOIN_DATE cycles: when it fell due. */
+  dueDate: string | null;
   score: ScoreView;
   recommendation: Recommendation | null;
   actions: AppraisalAction[];
@@ -145,8 +175,10 @@ export type EmployeeAppraisalRow = {
   id: string;
   cycleId: string;
   cycleName: string;
+  /** This appraisal's own review period (the cycle's for calendar cycles). */
   periodStart: string;
   periodEnd: string;
+  dueDate: string | null;
   status: AppraisalStatus;
   scoringMode: ScoringMode;
   appraisalType: AppraisalType;
@@ -191,6 +223,11 @@ export type AppraisalView = {
   };
   reviewerId: string | null;
   reviewerName: string | null;
+  /** This appraisal's own review period (the cycle's for calendar cycles). */
+  periodStart: string;
+  periodEnd: string;
+  /** JOIN_DATE cycles: when it fell due. */
+  dueDate: string | null;
   status: AppraisalStatus;
   selfRatings: RatingMap;
   selfComment: string | null;
@@ -235,6 +272,7 @@ export type CreateCycleBody = {
   periodStart: string;
   periodEnd: string;
   type?: AppraisalType;
+  periodBasis?: PeriodBasis;
   scoringMode?: ScoringMode;
   kpiWeight?: number;
   competencies?: Competency[];
@@ -274,6 +312,11 @@ export const appraisalsApi = {
   launch: (id: string, employeeIds?: string[]) =>
     apiClient
       .post<LaunchResult>(`/people/appraisal-cycles/${id}/launch`, employeeIds ? { employeeIds } : {})
+      .then((r) => r.data),
+  /** Who is due a `type` appraisal with a due date in [from, to], counted from each join date. */
+  due: (type: AppraisalType, from: string, to: string) =>
+    apiClient
+      .get<DueEmployee[]>('/people/appraisal-cycles/due', { params: { type, from, to } })
       .then((r) => r.data),
   cycleAppraisals: (id: string) =>
     apiClient.get<AppraisalListRow[]>(`/people/appraisal-cycles/${id}/appraisals`).then((r) => r.data),

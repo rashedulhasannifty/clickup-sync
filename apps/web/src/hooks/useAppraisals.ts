@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   appraisalsApi,
+  type AppraisalType,
   type AppraisalView,
   type CreateCycleBody,
   type UpdateAppraisalBody,
@@ -12,6 +13,18 @@ const ROOT = ['appraisals'] as const;
 
 export function useCycles() {
   return useQuery({ queryKey: [...ROOT, 'cycles'], queryFn: appraisalsApi.cycles });
+}
+
+/** Who is due a `type` appraisal in [from, to]. Pass null to disable (e.g. while dates are incomplete). */
+export function useDueAppraisals(params: { type: AppraisalType; from: string; to: string } | null) {
+  return useQuery({
+    queryKey: [...ROOT, 'due', params?.type, params?.from, params?.to],
+    queryFn: () => {
+      const p = params as { type: AppraisalType; from: string; to: string };
+      return appraisalsApi.due(p.type, p.from, p.to);
+    },
+    enabled: !!params,
+  });
 }
 
 export function useCycleAppraisals(cycleId: string | null) {

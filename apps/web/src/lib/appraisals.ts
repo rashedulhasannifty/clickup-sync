@@ -266,3 +266,68 @@ export const td = {
   borderBottom: '1px solid var(--border-soft)',
   verticalAlign: 'middle',
 } as const;
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+const parts = (ymd: string) => ({ y: Number(ymd.slice(0, 4)), m0: Number(ymd.slice(5, 7)) - 1, d: Number(ymd.slice(8, 10)) });
+
+/** `15 Oct` from a `YYYY-MM-DD` date. */
+export function dayMonth(ymd: string): string {
+  const p = parts(ymd);
+  return `${p.d} ${MONTHS[p.m0]}`;
+}
+
+/**
+ * A compact inclusive range: `1–31 Oct 2026`, `15 Apr – 14 Oct 2026`,
+ * `15 Oct 2025 – 14 Apr 2026`.
+ */
+export function dateRangeText(start: string, end: string): string {
+  const a = parts(start);
+  const b = parts(end);
+  if (a.y !== b.y) return `${a.d} ${MONTHS[a.m0]} ${a.y} – ${b.d} ${MONTHS[b.m0]} ${b.y}`;
+  if (a.m0 !== b.m0) return `${a.d} ${MONTHS[a.m0]} – ${b.d} ${MONTHS[b.m0]} ${b.y}`;
+  return a.d === b.d ? `${a.d} ${MONTHS[a.m0]} ${a.y}` : `${a.d}–${b.d} ${MONTHS[b.m0]} ${b.y}`;
+}
+
+const ymd = (y: number, m0: number, d: number) => `${y}-${String(m0 + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+const lastDayOf = (y: number, m0: number) => new Date(Date.UTC(y, m0 + 1, 0)).getUTCDate();
+
+export type WindowPreset = { key: string; label: string; name: string; start: string; end: string };
+
+/**
+ * Quick picks for a join-date cycle's "due between" window, from today's Dhaka
+ * date: this month, next month and this quarter. Each also names the cycle.
+ */
+export function dueWindowPresets(today: string): WindowPreset[] {
+  const { y, m0 } = parts(today);
+  const month = (yy: number, mm0: number, key: string, label: string): WindowPreset => ({
+    key,
+    label,
+    name: `${MONTHS_LONG[mm0]} ${yy} appraisals`,
+    start: ymd(yy, mm0, 1),
+    end: ymd(yy, mm0, lastDayOf(yy, mm0)),
+  });
+  const nextY = m0 === 11 ? y + 1 : y;
+  const nextM0 = (m0 + 1) % 12;
+  const q = Math.floor(m0 / 3);
+  const qStart = q * 3;
+  return [
+    month(y, m0, 'this-month', `This month (${MONTHS_LONG[m0]} ${y})`),
+    month(nextY, nextM0, 'next-month', `Next month (${MONTHS_LONG[nextM0]})`),
+    {
+      key: 'this-quarter',
+      label: `This quarter (Q${q + 1})`,
+      name: `Q${q + 1} ${y} appraisals`,
+      start: ymd(y, qStart, 1),
+      end: ymd(y, qStart + 2, lastDayOf(y, qStart + 2)),
+    },
+  ];
+}
+
+/** "Half-yearly", "Confirmation", "Yearly" as a phrase: "Half-yearly due 15 Oct 2026". */
+export const APPRAISAL_TYPE_PHRASE: Record<AppraisalType, string> = {
+  HALF_YEARLY: 'Half-yearly',
+  CONFIRMATION: 'Confirmation',
+  YEARLY: 'Yearly',
+};

@@ -30,7 +30,7 @@ export function EmployeeAppraisalsTab({ employeeId }: { employeeId: string }) {
             <thead>
               <tr>
                 <th style={th}>Cycle</th>
-                <th style={th}>Period</th>
+                <th style={th}>Review period</th>
                 <th style={th}>Type</th>
                 <th style={th}>Score / grade</th>
                 <th style={th}>Recommendation</th>
@@ -48,6 +48,7 @@ export function EmployeeAppraisalsTab({ employeeId }: { employeeId: string }) {
                   </td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>
                     {formatDate(r.periodStart)} – {formatDate(r.periodEnd)}
+                    {r.dueDate && <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Due {formatDate(r.dueDate)}</div>}
                   </td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>{APPRAISAL_TYPE_LABEL[r.appraisalType]}</td>
                   <td style={td}>

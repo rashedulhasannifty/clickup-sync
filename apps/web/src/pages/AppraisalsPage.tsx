@@ -1,12 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Pencil, Plus, Rocket, Trash2 } from 'lucide-react';
-import type { AppraisalListRow, AppraisalType, Competency, CycleView, ScoringMode } from '../api/appraisals';
-import { useCreateCycle, useCycleAppraisals, useCycles, useLaunchCycle, useUpdateCycle } from '../hooks/useAppraisals';
+import type { AppraisalListRow, AppraisalType, Competency, CycleView, LaunchResult, PeriodBasis, ScoringMode } from '../api/appraisals';
+import { useCreateCycle, useCycleAppraisals, useCycles, useDueAppraisals, useLaunchCycle, useUpdateCycle } from '../hooks/useAppraisals';
 import { useEmployees } from '../hooks/usePeople';
 import {
   APPRAISAL_TYPE_LABEL,
+  dateRangeText,
+  dayMonth,
   DEFAULT_COMPETENCIES,
+  dueWindowPresets,
   FORM_CRITERIA,
   FORM_RATINGS,
   statusLabel,
@@ -96,11 +99,50 @@ function ChoiceCard({
   );
 }
 
-const TYPE_CHOICES: { value: AppraisalType; hint: string }[] = [
-  { value: 'HALF_YEARLY', hint: 'January–June or July–December' },
-  { value: 'YEARLY', hint: 'The full calendar year' },
-  { value: 'CONFIRMATION', hint: 'At the end of probation' },
+const TYPE_CHOICES: { value: AppraisalType; hint: string; joinHint: string }[] = [
+  { value: 'HALF_YEARLY', hint: 'January–June or July–December', joinHint: 'Every 6 months from the join date' },
+  { value: 'YEARLY', hint: 'The full calendar year', joinHint: 'On each join anniversary' },
+  { value: 'CONFIRMATION', hint: 'At the end of probation', joinHint: '6 months after joining' },
 ];
+
+/** The value after it has stopped changing for `ms`. */
+function useDebounced<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return debounced;
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** Live "who is due" under the dates of a join-date cycle: "3 employees due — Jahid (15 Oct), …". */
+function DuePreview({ type, from, to }: { type: AppraisalType; from: string; to: string }) {
+  const key = useDebounced(`${type}|${from}|${to}`, 350);
+  const [dType, dFrom, dTo] = key.split('|') as [AppraisalType, string, string];
+  const valid = !!dFrom && !!dTo && dFrom <= dTo;
+  const due = useDueAppraisals(valid ? { type: dType, from: dFrom, to: dTo } : null);
+  const settling = key !== `${type}|${from}|${to}`;
+
+  const box = {
+    marginTop: 10, padding: '9px 12px', borderRadius: 'var(--radius)', fontSize: 12.5, lineHeight: 1.5,
+    border: '1px solid var(--border-soft)', background: 'var(--surface-alt)', color: 'var(--text-muted)',
+  } as const;
+  if (!valid) return null;
+  if (due.isLoading || settling) return <div style={box} aria-live="polite">Checking who is due…</div>;
+  if (due.isError || !due.data) return <div style={{ ...box, color: 'var(--red)' }} role="alert">Couldn’t check who is due: {(due.error as Error | null)?.message ?? 'unknown error'}</div>;
+  if (due.data.length === 0) return <div style={box} aria-live="polite">Nobody is due in this window.</div>;
+  const shown = due.data.slice(0, 8);
+  return (
+    <div style={box} aria-live="polite">
+      <b style={{ color: 'var(--text)', fontWeight: 600 }}>{plural(due.data.length, 'employee')} due</b>
+      {' — '}
+      {shown.map((d) => `${d.fullName} (${dayMonth(d.dueDate)})`).join(', ')}
+      {due.data.length > shown.length && `, and ${due.data.length - shown.length} more`}
+    </div>
+  );
+}
 
 /** Quick picks: one click fills the name, type and dates. Built from today's date in Dhaka. */
 function periodPresets(today: string) {
@@ -126,16 +168,26 @@ function monthsBetween(start: string, end: string): number | null {
   return (ye - ys) * 12 + (me - ms) + (de >= ds - 1 ? 1 : 0);
 }
 
+/** "Due 1–31 Oct 2026 · counted from join dates", or the calendar review period. */
+function cyclePeriodText(c: CycleView): string {
+  return c.periodBasis === 'JOIN_DATE'
+    ? `Due ${dateRangeText(c.periodStart, c.periodEnd)} · counted from join dates`
+    : `${formatDate(c.periodStart)} – ${formatDate(c.periodEnd)}`;
+}
+
 const sectionTitle = { fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 8 } as const;
 
 function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreated: (c: CycleView) => void }) {
   const create = useCreateCycle();
-  const presets = periodPresets(dhakaToday());
-  const [preset, setPreset] = useState<string | null>(presets[0].label);
-  const [name, setName] = useState(presets[0].name);
-  const [periodStart, setPeriodStart] = useState(presets[0].start);
-  const [periodEnd, setPeriodEnd] = useState(presets[0].end);
-  const [type, setType] = useState<AppraisalType>(presets[0].type);
+  const today = dhakaToday();
+  const presets = periodPresets(today);
+  const windows = dueWindowPresets(today);
+  const [basis, setBasis] = useState<PeriodBasis>('JOIN_DATE');
+  const [preset, setPreset] = useState<string | null>(windows[0].key);
+  const [name, setName] = useState(windows[0].name);
+  const [periodStart, setPeriodStart] = useState(windows[0].start);
+  const [periodEnd, setPeriodEnd] = useState(windows[0].end);
+  const [type, setType] = useState<AppraisalType>('HALF_YEARLY');
   const [mode, setMode] = useState<ScoringMode>('FORM_100');
   const [kpiWeight, setKpiWeight] = useState('70');
   const [competencies, setCompetencies] = useState<Competency[]>(FORM_CRITERIA.map((c) => ({ ...c })));
@@ -145,6 +197,10 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
   const defaults = form ? FORM_CRITERIA : DEFAULT_COMPETENCIES;
   const changed = JSON.stringify(competencies.map((c) => [c.label, c.description ?? ''])) !== JSON.stringify(defaults.map((c) => [c.label, c.description ?? '']));
   const months = monthsBetween(periodStart, periodEnd);
+  const byJoin = basis === 'JOIN_DATE';
+  const chips = byJoin
+    ? windows.map((w) => ({ key: w.key, label: w.label, apply: () => pickWindow(w) }))
+    : presets.map((p) => ({ key: p.label, label: p.label, apply: () => pick(p) }));
 
   function pick(p: (typeof presets)[number]) {
     setPreset(p.label);
@@ -152,6 +208,21 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
     setType(p.type);
     setPeriodStart(p.start);
     setPeriodEnd(p.end);
+  }
+
+  function pickWindow(w: (typeof windows)[number]) {
+    setPreset(w.key);
+    setName(w.name);
+    setPeriodStart(w.start);
+    setPeriodEnd(w.end);
+  }
+
+  function switchBasis(next: PeriodBasis) {
+    if (next === basis) return;
+    setBasis(next);
+    // Each basis starts from its own first quick pick; the type stays unless a calendar pick sets it.
+    if (next === 'JOIN_DATE') pickWindow(windows[0]);
+    else pick(presets[0]);
   }
 
   function switchMode(next: ScoringMode) {
@@ -167,7 +238,8 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
   function submit() {
     const weight = Number(kpiWeight);
     if (!name.trim()) return setFormError('Give the cycle a name.');
-    if (!periodStart || !periodEnd || periodStart > periodEnd) return setFormError('The review period must start on or before it ends.');
+    if (!periodStart || !periodEnd || periodStart > periodEnd)
+      return setFormError(byJoin ? 'The window must start on or before it ends.' : 'The review period must start on or before it ends.');
     if (!form && (!Number.isInteger(weight) || weight < 0 || weight > 100)) return setFormError('KPI weight must be a whole number from 0 to 100.');
     const filled = competencies.filter((c) => c.label.trim());
     if (filled.length === 0) return setFormError(form ? 'Add at least one criterion.' : 'Add at least one competency.');
@@ -178,6 +250,7 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
         periodStart,
         periodEnd,
         type,
+        periodBasis: basis,
         scoringMode: mode,
         ...(form ? {} : { kpiWeight: weight }),
         competencies: withKeys(filled),
@@ -192,7 +265,7 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
     <Modal
       onClose={onClose}
       title="New appraisal cycle"
-      subtitle="Set up the review period and the form. Nobody is appraised until you launch it."
+      subtitle="Set up who is appraised and the form. Nobody is appraised until you launch it."
       width={720}
       onSubmit={submit}
       footer={
@@ -220,17 +293,33 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
       `}</style>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
         <section>
-          <div style={sectionTitle}>Review period</div>
+          <div style={sectionTitle}>How appraisals are counted</div>
+          <div role="radiogroup" aria-label="How appraisals are counted" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 8 }}>
+            <ChoiceCard
+              name="cycle-basis" checked={byJoin} title="Counted from each employee’s join date" badge="Recommended"
+              hint="Everyone on their own schedule: confirmation 6 months after joining, then every 6 or 12 months. Each appraisal reviews the months before its due date."
+              onSelect={() => switchBasis('JOIN_DATE')}
+            />
+            <ChoiceCard
+              name="cycle-basis" checked={!byJoin} title="Calendar period"
+              hint="Everyone is reviewed over the same dates, such as January–June."
+              onSelect={() => switchBasis('CALENDAR')}
+            />
+          </div>
+        </section>
+
+        <section>
+          <div style={sectionTitle}>{byJoin ? 'Appraisals due between' : 'Review period'}</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }} role="group" aria-label="Quick picks">
-            {presets.map((p) => {
-              const on = preset === p.label;
+            {chips.map((p) => {
+              const on = preset === p.key;
               return (
                 <button
-                  key={p.label}
+                  key={p.key}
                   type="button"
                   className="cy-chip"
                   aria-pressed={on}
-                  onClick={() => pick(p)}
+                  onClick={p.apply}
                   style={{
                     all: 'unset', cursor: 'pointer', fontSize: 12.5, fontWeight: 500, padding: '5px 12px', borderRadius: 999,
                     border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
@@ -250,10 +339,11 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
             <Field label="From" required>
               <Input type="date" value={periodStart} onChange={(e) => { setPeriodStart(e.target.value); setPreset(null); }} />
             </Field>
-            <Field label="To" required hint={months ? `${months} month${months === 1 ? '' : 's'}` : undefined}>
+            <Field label="To" required hint={!byJoin && months ? `${months} month${months === 1 ? '' : 's'}` : undefined}>
               <Input type="date" value={periodEnd} onChange={(e) => { setPeriodEnd(e.target.value); setPreset(null); }} />
             </Field>
           </div>
+          {byJoin && <DuePreview type={type} from={periodStart} to={periodEnd} />}
         </section>
 
         <section>
@@ -262,8 +352,9 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
             {TYPE_CHOICES.map((t) => (
               <ChoiceCard
                 key={t.value} name="cycle-type" checked={type === t.value}
-                title={APPRAISAL_TYPE_LABEL[t.value]} hint={t.hint}
-                onSelect={() => { setType(t.value); setPreset(null); }}
+                title={APPRAISAL_TYPE_LABEL[t.value]} hint={byJoin ? t.joinHint : t.hint}
+                // A calendar quick pick sets the type, so changing it there leaves the pick; a due window does not.
+                onSelect={() => { setType(t.value); if (!byJoin) setPreset(null); }}
               />
             ))}
           </div>
@@ -402,7 +493,24 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
   );
 }
 
+/** "12 appraisals created, 1 already existed; 2 not due yet (Rumi, Tania)". */
+function launchSummary(r: LaunchResult): string {
+  const parts = [`${plural(r.created, 'appraisal')} created`];
+  if (r.skipped) parts.push(`${r.skipped} already existed`);
+  const notDue = r.notDue ?? [];
+  const tail = notDue.length
+    ? `; left out ${notDue.length}: ${notDue
+        .map((n) => (n.reason === 'EXITED' ? `${n.employeeName} (exited)` : `${n.employeeName} (first due ${n.firstDueDate ? formatDate(n.firstDueDate) : 'later'})`))
+        .join(', ')}`
+    : '';
+  return parts.join(', ') + tail;
+}
+
 function LaunchModal({ cycle, onClose }: { cycle: CycleView; onClose: () => void }) {
+  return cycle.periodBasis === 'JOIN_DATE' ? <JoinDateLaunchModal cycle={cycle} onClose={onClose} /> : <CalendarLaunchModal cycle={cycle} onClose={onClose} />;
+}
+
+function CalendarLaunchModal({ cycle, onClose }: { cycle: CycleView; onClose: () => void }) {
   const toast = useToast();
   const launch = useLaunchCycle(cycle.id);
   const employees = useEmployees({});
@@ -417,9 +525,7 @@ function LaunchModal({ cycle, onClose }: { cycle: CycleView; onClose: () => void
   function submit() {
     launch.mutate(selected.length > 0 ? selected : undefined, {
       onSuccess: (r) => {
-        toast.success(
-          `${r.created} appraisal${r.created === 1 ? '' : 's'} created${r.skipped ? `, ${r.skipped} already existed` : ''}`,
-        );
+        toast.success(launchSummary(r));
         onClose();
       },
     });
@@ -464,11 +570,133 @@ function LaunchModal({ cycle, onClose }: { cycle: CycleView; onClose: () => void
   );
 }
 
+/**
+ * Launch for a join-date cycle: everyone due in the window is listed with their due date and
+ * review period, preselected (except anyone already in the cycle). Others can be added; the server
+ * gives each their latest due date by the window's end and reports anyone not due yet.
+ */
+function JoinDateLaunchModal({ cycle, onClose }: { cycle: CycleView; onClose: () => void }) {
+  const toast = useToast();
+  const launch = useLaunchCycle(cycle.id);
+  const employees = useEmployees({});
+  const existing = useCycleAppraisals(cycle.id);
+  const due = useDueAppraisals({ type: cycle.type, from: cycle.periodStart, to: cycle.periodEnd });
+  // Everyone due is selected unless unticked; tracking the unticked (not the ticked) means a
+  // refetch of the due list never wipes an edit, and needs no effect to seed the selection.
+  const [unticked, setUnticked] = useState<Set<string>>(() => new Set());
+  const [extra, setExtra] = useState<string[]>([]);
+
+  const already = useMemo(() => new Set((existing.data ?? []).map((a) => a.employeeId)), [existing.data]);
+  const dueRows = useMemo(() => due.data ?? [], [due.data]);
+  const dueIds = useMemo(() => new Set(dueRows.map((d) => d.employeeId)), [dueRows]);
+
+  const selected = new Set(
+    existing.data ? dueRows.filter((d) => !already.has(d.employeeId) && !unticked.has(d.employeeId)).map((d) => d.employeeId) : [],
+  );
+  const others = (employees.data ?? []).filter((e) => e.status !== 'EXITED' && !dueIds.has(e.id) && !already.has(e.id));
+  const options = others.map((e) => ({ value: e.id, label: `${e.fullName} · ${e.designation}` }));
+  const ids = [...selected, ...extra];
+
+  function toggle(id: string) {
+    const next = new Set(unticked);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setUnticked(next);
+  }
+
+  function submit() {
+    if (ids.length === 0) return;
+    launch.mutate(ids, {
+      onSuccess: (r) => {
+        toast.success(launchSummary(r));
+        onClose();
+      },
+    });
+  }
+
+  const loading = due.isLoading || existing.isLoading;
+  return (
+    <Modal
+      onClose={onClose}
+      title={`Launch ${cycle.name}`}
+      subtitle={`${APPRAISAL_TYPE_LABEL[cycle.type]} appraisals due ${dateRangeText(cycle.periodStart, cycle.periodEnd)}, counted from each join date. Each starts at the self review.`}
+      width={620}
+      onSubmit={submit}
+      footer={
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+          {launch.error && (
+            <span role="alert" style={{ marginRight: 'auto', color: 'var(--red)', fontSize: 12 }}>
+              {(launch.error as Error).message}
+            </span>
+          )}
+          <Button type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="accent" loading={launch.isPending} disabled={ids.length === 0} icon={<Rocket size={13} />}>
+            {ids.length > 0 ? `Launch for ${ids.length}` : 'Select someone to launch'}
+          </Button>
+        </div>
+      }
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <section>
+          <div style={sectionTitle}>
+            Due in this window
+            {due.data && <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> · {due.data.length}</span>}
+          </div>
+          {loading ? (
+            <TableSkeleton rows={3} />
+          ) : due.isError ? (
+            <QueryError query={due} what="who is due" />
+          ) : dueRows.length === 0 ? (
+            <div style={{ fontSize: 12.5, color: 'var(--text-muted)', padding: '10px 12px', border: '1px solid var(--border-soft)', borderRadius: 'var(--radius)', background: 'var(--surface-alt)' }}>
+              Nobody is due in this window. You can still add someone below; they get their latest due date before {formatDate(cycle.periodEnd)}.
+            </div>
+          ) : (
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', maxHeight: 300, overflowY: 'auto' }}>
+              {dueRows.map((d, i) => {
+                const inCycle = already.has(d.employeeId);
+                const on = selected.has(d.employeeId);
+                return (
+                  <li key={d.employeeId} style={{ borderTop: i === 0 ? undefined : '1px solid var(--border-soft)' }}>
+                    <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 12px', cursor: inCycle ? 'default' : 'pointer', opacity: inCycle ? 0.6 : 1 }}>
+                      <input type="checkbox" checked={on && !inCycle} disabled={inCycle} onChange={() => toggle(d.employeeId)} style={{ marginTop: 3 }} />
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{d.fullName}</span>
+                        <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)' }}>
+                          {d.designation}
+                          {inCycle && ' · already in this cycle'}
+                        </span>
+                      </span>
+                      <span style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 500, color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>Due {formatDate(d.dueDate)}</span>
+                        <span style={{ display: 'block', fontSize: 11.5, color: 'var(--text-muted)' }}>Reviews {dateRangeText(d.periodStart, d.periodEnd)}</span>
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+        <Field
+          label="Add others"
+          hint={`Each gets their latest ${APPRAISAL_TYPE_LABEL[cycle.type].toLowerCase()} due date on or before ${formatDate(cycle.periodEnd)} (a late appraisal). Anyone not due yet is left out and listed after launch.`}
+        >
+          <MultiSelect options={options} value={extra} onChange={setExtra} allLabel="Nobody else" ariaLabel="Other employees to include" />
+        </Field>
+      </div>
+    </Modal>
+  );
+}
+
 function CycleDetail({ cycle }: { cycle: CycleView }) {
   const toast = useToast();
   const appraisals = useCycleAppraisals(cycle.id);
   const update = useUpdateCycle(cycle.id);
   const [launching, setLaunching] = useState(false);
+
+  const byJoin = cycle.periodBasis === 'JOIN_DATE';
 
   const setStatus = (status: 'OPEN' | 'CLOSED') =>
     update.mutate({ status }, { onSuccess: () => toast.success(status === 'CLOSED' ? 'Cycle closed' : 'Cycle reopened') });
@@ -476,11 +704,11 @@ function CycleDetail({ cycle }: { cycle: CycleView }) {
   return (
     <Card
       title={cycle.name}
-      subtitle={
+      subtitle={`${APPRAISAL_TYPE_LABEL[cycle.type]} · ${cyclePeriodText(cycle)} · ${
         cycle.scoringMode === 'FORM_100'
-          ? `${APPRAISAL_TYPE_LABEL[cycle.type]} · ${formatDate(cycle.periodStart)} – ${formatDate(cycle.periodEnd)} · paper form, ${cycle.competencies.length} criteria, 100 marks`
-          : `${APPRAISAL_TYPE_LABEL[cycle.type]} · ${formatDate(cycle.periodStart)} – ${formatDate(cycle.periodEnd)} · KPIs ${cycle.kpiWeight}% · competencies ${100 - cycle.kpiWeight}% (legacy)`
-      }
+          ? `paper form, ${cycle.competencies.length} criteria, 100 marks`
+          : `KPIs ${cycle.kpiWeight}% · competencies ${100 - cycle.kpiWeight}% (legacy)`
+      }`}
       action={
         <HeaderActions>
           <CycleStatusPill status={cycle.status} />
@@ -530,7 +758,13 @@ function CycleDetail({ cycle }: { cycle: CycleView }) {
       ) : appraisals.data.length === 0 ? (
         <EmptyState
           title="No appraisals in this cycle"
-          body={cycle.status === 'CLOSED' ? 'Reopen the cycle to launch it.' : 'Launch the cycle to create one appraisal per employee.'}
+          body={
+            cycle.status === 'CLOSED'
+              ? 'Reopen the cycle to launch it.'
+              : byJoin
+                ? 'Launch the cycle to create an appraisal for everyone due in this window.'
+                : 'Launch the cycle to create one appraisal per employee.'
+          }
         />
       ) : (
         <div style={{ overflowX: 'auto' }}>
@@ -538,6 +772,8 @@ function CycleDetail({ cycle }: { cycle: CycleView }) {
             <thead>
               <tr>
                 <th style={th}>Employee</th>
+                {byJoin && <th style={th}>Due</th>}
+                {byJoin && <th style={th}>Review period</th>}
                 <th style={th}>Team</th>
                 <th style={th}>Reviewer</th>
                 <th style={th}>Status</th>
@@ -554,6 +790,8 @@ function CycleDetail({ cycle }: { cycle: CycleView }) {
                     </Link>
                     <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{a.designation}</div>
                   </td>
+                  {byJoin && <td style={{ ...td, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{a.dueDate ? formatDate(a.dueDate) : '—'}</td>}
+                  {byJoin && <td style={{ ...td, whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>{dateRangeText(a.periodStart, a.periodEnd)}</td>}
                   <td style={td}>{a.teamName ?? '—'}</td>
                   <td style={td}>{a.reviewerName ?? '—'}</td>
                   <td style={td}>
@@ -638,9 +876,7 @@ export function AppraisalsPage() {
                     <span style={{ fontWeight: 600, fontSize: 13.5 }}>{c.name}</span>
                     <CycleStatusPill status={c.status} />
                   </div>
-                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {formatDate(c.periodStart)} – {formatDate(c.periodEnd)}
-                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>{cyclePeriodText(c)}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
                     {c.counts.SIGNED_OFF} of {c.counts.total} signed off
                   </div>

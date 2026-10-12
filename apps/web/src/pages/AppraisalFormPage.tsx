@@ -229,7 +229,7 @@ function LegacyAppraisalForm({ view }: { view: AppraisalView }) {
         }
         title={`Performance appraisal · ${view.cycle.name}`}
         badge={<AppraisalStatusPill status={view.status} />}
-        description={`${view.employee.fullName} · ${view.employee.designation} · review period ${formatDate(view.cycle.periodStart)} – ${formatDate(view.cycle.periodEnd)}${view.reviewerName ? ` · reviewer ${view.reviewerName}` : ''}`}
+        description={`${view.employee.fullName} · ${view.employee.designation} · review period ${formatDate(view.periodStart)} – ${formatDate(view.periodEnd)}${view.dueDate ? ` · due ${formatDate(view.dueDate)}` : ''}${view.reviewerName ? ` · reviewer ${view.reviewerName}` : ''}`}
         actions={
           !signedOff && cycleOpen ? (
             <HeaderActions>

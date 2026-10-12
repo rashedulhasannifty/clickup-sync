@@ -43,6 +43,16 @@ export type EmployeeLinks = {
   user: boolean;
 };
 
+/** Mirrors `NextAppraisal` in `src/appraisals/appraisal-schedule.ts`. */
+export type NextAppraisal = {
+  type: 'HALF_YEARLY' | 'CONFIRMATION' | 'YEARLY';
+  dueDate: string;
+  periodStart: string;
+  periodEnd: string;
+  /** The due date has passed (only a probation employee's confirmation can be). */
+  overdue: boolean;
+};
+
 export type EmployeeProfile = {
   id: string;
   fullName: string;
@@ -73,6 +83,10 @@ export type EmployeeProfile = {
   startingSalary: number | null;
   /** Present gross salary, whole taka; an approved appraisal increment moves it. Sensitive. */
   grossSalary: number | null;
+  /** The next appraisal counted from the join date: the confirmation while on probation, else the earlier of the next half-yearly and yearly. Null once exited. */
+  nextAppraisal: NextAppraisal | null;
+  /** Earliest first: both the next half-yearly and the next yearly once confirmed. */
+  upcomingAppraisals: NextAppraisal[];
 };
 
 export type DirectoryRow = EmployeeProfile & {

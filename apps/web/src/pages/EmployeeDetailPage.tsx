@@ -38,7 +38,7 @@ import { EmployeeAppraisalsTab } from '../components/people/EmployeeAppraisalsTa
 import { EmployeeOnboardingTab } from '../components/people/EmployeeOnboardingTab';
 import { StartOffboardingButton } from '../components/people/StartOffboardingButton';
 import { EmployeeFormModal } from '../components/people/EmployeeFormModal';
-import { monthsText, takaText } from '../lib/appraisals';
+import { APPRAISAL_TYPE_PHRASE, monthsText, takaText } from '../lib/appraisals';
 import { HeaderActions } from '../components/people/FormBits';
 import { KpiTile } from '../components/people/KpiTile';
 import { LeaveBalanceCard } from '../components/people/LeaveBalanceCard';
@@ -47,12 +47,13 @@ import { DemoDataBadge, EmployeeStatusPill, LinkedIndicators } from '../componen
 type TabValue = 'overview' | 'onboarding' | 'documents' | 'appraisals';
 const TABS: TabValue[] = ['overview', 'onboarding', 'documents', 'appraisals'];
 
-function Chip({ children }: { children: ReactNode }) {
+function Chip({ children, title, tone }: { children: ReactNode; title?: string; tone?: 'amber' }) {
   return (
     <span
+      title={title}
       style={{
         fontSize: 12,
-        color: 'var(--text-muted)',
+        color: tone === 'amber' ? 'var(--amber)' : 'var(--text-muted)',
         background: 'var(--muted-bg)',
         borderRadius: 6,
         padding: '2px 8px',
@@ -269,6 +270,14 @@ export function EmployeeDetailPage() {
             <Chip>
               Joined {formatDate(e.joinDate)} · {formatTenure(e.tenureMonths)}
             </Chip>
+            {e.nextAppraisal && (
+              <Chip
+                tone={e.nextAppraisal.overdue ? 'amber' : undefined}
+                title={`Reviews ${formatDate(e.nextAppraisal.periodStart)} – ${formatDate(e.nextAppraisal.periodEnd)}, counted from the join date`}
+              >
+                Next appraisal: {APPRAISAL_TYPE_PHRASE[e.nextAppraisal.type]} {e.nextAppraisal.overdue ? 'overdue since' : 'due'} {formatDate(e.nextAppraisal.dueDate)}
+              </Chip>
+            )}
             {e.exitDate && <Chip>Exit {formatDate(e.exitDate)}</Chip>}
             {e.confirmationDate && <Chip>Confirmed {formatDate(e.confirmationDate)}</Chip>}
             {e.grade && <Chip>Grade {e.grade}</Chip>}

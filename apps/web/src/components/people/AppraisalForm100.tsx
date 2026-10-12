@@ -351,7 +351,7 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
             </Pill>
           </>
         }
-        description={`${view.employee.fullName} · ${view.employee.designation} · review period ${formatDate(view.cycle.periodStart)} – ${formatDate(view.cycle.periodEnd)}${view.reviewerName ? ` · supervisor ${view.reviewerName}` : ''}`}
+        description={`${view.employee.fullName} · ${view.employee.designation} · review period ${formatDate(view.periodStart)} – ${formatDate(view.periodEnd)}${view.dueDate ? ` · due ${formatDate(view.dueDate)}` : ''}${view.reviewerName ? ` · supervisor ${view.reviewerName}` : ''}`}
         actions={
           <HeaderActions>
             <Button icon={<Download size={13} />} loading={downloading} disabled={busy} onClick={onDownload}>
