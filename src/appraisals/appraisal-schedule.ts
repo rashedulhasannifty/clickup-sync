@@ -1,4 +1,4 @@
-import { addDays } from '../people/people-dates';
+import { addDays, diffDays } from '../people/people-dates';
 import type { EmployeeStatusValue } from '../people/people.types';
 import type { AppraisalTypeValue } from './appraisals.types';
 
@@ -237,6 +237,267 @@ export function nextDue(
       });
   }
   // Stable: on a tie YEARLY (pushed first) stays first.
+  return out.sort((a, b) =>
+    a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0,
+  );
+}
+
+// --- Overdue, upcoming and "already appraised" (0033) ----------------------
+
+/** How far after a due window "coming up" looks: due within this many days after the window end. */
+export const UPCOMING_DAYS = 60;
+/**
+ * Half-yearly and yearly reviews count as overdue only for due dates within
+ * this many months before today. People confirmed in bulk before overdue
+ * tracking existed would otherwise all show as years overdue.
+ */
+export const OVERDUE_LOOKBACK_MONTHS = 12;
+
+/** An appraisal the employee already has (any cycle, any status), as the schedule sees it. */
+export interface AppraisalOnRecord {
+  type: AppraisalTypeValue;
+  /** Join-date appraisals: the due date (possibly adjusted by hand). Null for calendar cycles. */
+  dueDate: string | null;
+  /** The end of the period it reviews (its own, else its cycle's). */
+  periodEnd: string;
+}
+
+/** The milestone of `type` nearest `date` (a tie goes to the earlier one), or null when `type` has none near it. */
+export function nearestMilestone(
+  join: string,
+  type: AppraisalTypeValue,
+  date: string,
+): string | null {
+  const span = STEP[type];
+  const near = milestones(
+    join,
+    type,
+    addMonthsClamped(date, -span),
+    addMonthsClamped(date, span),
+  );
+  let best: string | null = null;
+  for (const m of near) {
+    if (
+      best === null ||
+      Math.abs(diffDays(m, date)) < Math.abs(diffDays(best, date))
+    )
+      best = m;
+  }
+  return best;
+}
+
+const coverKey = (type: AppraisalTypeValue, date: string) => `${type}|${date}`;
+
+/**
+ * The milestones an employee's existing appraisals stand for, as
+ * `TYPE|YYYY-MM-DD` keys. An appraisal covers the milestone of its type
+ * nearest its due date, so one whose due date was adjusted by a few days (or
+ * hand-picked) still counts for the milestone it was launched for. On a join
+ * anniversary the half-yearly and yearly milestones coincide: an appraisal of
+ * either type covers both, so nobody is appraised twice for the same date.
+ */
+export function coveredMilestones(
+  join: string,
+  records: readonly AppraisalOnRecord[],
+): Set<string> {
+  const out = new Set<string>();
+  for (const r of records) {
+    if (!r.dueDate) continue;
+    out.add(coverKey(r.type, r.dueDate));
+    const m = nearestMilestone(join, r.type, r.dueDate);
+    if (!m) continue;
+    out.add(coverKey(r.type, m));
+    if (r.type === 'YEARLY') out.add(coverKey('HALF_YEARLY', m));
+    if (r.type === 'HALF_YEARLY' && milestones(join, 'YEARLY', m, m).length > 0)
+      out.add(coverKey('YEARLY', m));
+  }
+  return out;
+}
+
+/** Whether the `type` milestone on `date` already has an appraisal. */
+export function isCovered(
+  covered: ReadonlySet<string>,
+  type: AppraisalTypeValue,
+  date: string,
+): boolean {
+  return covered.has(coverKey(type, date));
+}
+
+/**
+ * The date the employee's latest appraisal of `type` stands for: its covered
+ * milestone (or due date), or for a calendar-cycle appraisal the end of the
+ * period it reviewed. Overdue only looks at due dates after it.
+ */
+export function lastAppraisedOn(
+  join: string,
+  type: AppraisalTypeValue,
+  records: readonly AppraisalOnRecord[],
+): string | null {
+  let last: string | null = null;
+  for (const r of records) {
+    if (r.type !== type) continue;
+    const at = r.dueDate
+      ? [
+          r.dueDate,
+          nearestMilestone(join, type, r.dueDate) ?? r.dueDate,
+        ].sort()[1]
+      : r.periodEnd;
+    if (last === null || at > last) last = at;
+  }
+  return last;
+}
+
+export interface OverdueEmployee extends ScheduleEmployee {
+  /** `YYYY-MM-DD`, or null when never confirmed (or not recorded). */
+  confirmationDate: string | null;
+  appraisals: readonly AppraisalOnRecord[];
+}
+
+/**
+ * The appraisal of `type` an employee missed before `before`, or null.
+ *
+ * - Only the latest milestone before `before` counts: if it is covered (or
+ *   not after the last appraisal of the type), the employee is not overdue,
+ *   even when an older one was missed; the latest stands in for them.
+ * - CONFIRMATION: only while on PROBATION, however long ago (it is still owed).
+ * - HALF_YEARLY / YEARLY: never while on PROBATION, never before the
+ *   confirmation date, and only within `OVERDUE_LOOKBACK_MONTHS` before `today`.
+ * - Never once EXITED.
+ */
+export function overdueFor(
+  e: OverdueEmployee,
+  type: AppraisalTypeValue,
+  before: string,
+  today: string,
+): DueAppraisal | null {
+  if (e.status === 'EXITED') return null;
+  const all = milestones(e.joinDate, type, e.joinDate, addDays(before, -1));
+  const latest = all[all.length - 1];
+  if (!latest) return null;
+  if (isCovered(coveredMilestones(e.joinDate, e.appraisals), type, latest))
+    return null;
+  const last = lastAppraisedOn(e.joinDate, type, e.appraisals);
+  if (last !== null && latest <= last) return null;
+  if (type === 'CONFIRMATION') {
+    if (e.status !== 'PROBATION') return null;
+  } else {
+    if (e.status === 'PROBATION') return null;
+    if (e.confirmationDate && latest < e.confirmationDate) return null;
+    if (latest < addMonthsClamped(today, -OVERDUE_LOOKBACK_MONTHS)) return null;
+  }
+  return { type, dueDate: latest, ...reviewPeriod(e.joinDate, type, latest) };
+}
+
+/** How late (due before today) or early (due after today) an appraisal launched today is. */
+export function lateness(
+  dueDate: string,
+  today: string,
+): { daysLate: number | null; daysEarly: number | null } {
+  const d = diffDays(dueDate, today);
+  return d >= 0
+    ? { daysLate: d, daysEarly: null }
+    : { daysLate: null, daysEarly: -d };
+}
+
+export type DueGroup = 'due' | 'overdue' | 'upcoming';
+
+export interface ClassifiedDue extends DueAppraisal {
+  group: DueGroup;
+  daysLate: number | null;
+  daysEarly: number | null;
+}
+
+export interface DueWindow {
+  from: string;
+  to: string;
+  /** Dhaka date; `daysLate`/`daysEarly` and the overdue lookback count from it. */
+  today: string;
+}
+
+/**
+ * Where one employee stands for a `type` cycle due in [from, to], or null
+ * when they are none of these. At most one answer, in this priority:
+ *
+ * - `due`: the latest milestone in the window, unless already appraised.
+ * - `overdue`: `overdueFor` with the window start as the cut-off.
+ * - `upcoming`: the first milestone in (to, to + UPCOMING_DAYS], unless
+ *   already appraised.
+ *
+ * Scope (exited, confirmation only on probation) is the caller's job.
+ */
+export function classifyDue(
+  e: OverdueEmployee,
+  type: AppraisalTypeValue,
+  w: DueWindow,
+): ClassifiedDue | null {
+  const covered = coveredMilestones(e.joinDate, e.appraisals);
+  const make = (group: DueGroup, dueDate: string): ClassifiedDue => ({
+    group,
+    type,
+    dueDate,
+    ...reviewPeriod(e.joinDate, type, dueDate),
+    ...lateness(dueDate, w.today),
+  });
+  const inWindow = milestones(e.joinDate, type, w.from, w.to);
+  const latest = inWindow[inWindow.length - 1];
+  if (latest && !isCovered(covered, type, latest)) return make('due', latest);
+  const missed = overdueFor(e, type, w.from, w.today);
+  if (missed) return make('overdue', missed.dueDate);
+  const [next] = milestones(
+    e.joinDate,
+    type,
+    addDays(w.to, 1),
+    addDays(w.to, UPCOMING_DAYS),
+  );
+  if (next && !isCovered(covered, type, next)) return make('upcoming', next);
+  return null;
+}
+
+export interface DueGroups<T> {
+  due: { employee: T; due: ClassifiedDue }[];
+  overdue: { employee: T; due: ClassifiedDue }[];
+  upcoming: { employee: T; due: ClassifiedDue }[];
+}
+
+/**
+ * Everyone in scope for a `type` cycle due in the window, grouped. Shared by
+ * the due preview and the default JOIN_DATE launch (which takes `due` and
+ * `overdue`), so the two can never disagree. Order is preserved.
+ */
+export function selectDue<T extends OverdueEmployee>(
+  employees: T[],
+  type: AppraisalTypeValue,
+  w: DueWindow,
+): DueGroups<T> {
+  const out: DueGroups<T> = { due: [], overdue: [], upcoming: [] };
+  for (const employee of employees) {
+    if (!inScope(employee, type)) continue;
+    const due = classifyDue(employee, type, w);
+    if (due) out[due.group].push({ employee, due });
+  }
+  return out;
+}
+
+/**
+ * Everything an employee is overdue for as of `today`, oldest first: the
+ * confirmation while on probation, else the half-yearly and the yearly. On a
+ * join anniversary both regular types fall due the same day; only the yearly
+ * is listed then.
+ */
+export function overdueAppraisals(
+  e: OverdueEmployee,
+  today: string,
+): ClassifiedDue[] {
+  if (e.status === 'EXITED') return [];
+  const types: AppraisalTypeValue[] =
+    e.status === 'PROBATION' ? ['CONFIRMATION'] : ['YEARLY', 'HALF_YEARLY'];
+  const out: ClassifiedDue[] = [];
+  for (const type of types) {
+    const d = overdueFor(e, type, today, today);
+    if (!d) continue;
+    if (out.some((o) => o.dueDate === d.dueDate)) continue;
+    out.push({ ...d, group: 'overdue', ...lateness(d.dueDate, today) });
+  }
   return out.sort((a, b) =>
     a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0,
   );

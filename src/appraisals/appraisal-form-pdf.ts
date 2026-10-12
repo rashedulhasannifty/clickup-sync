@@ -8,8 +8,10 @@ import { monthsText, takaText } from './appraisal-header';
 import { FORM_RATINGS, GRADE_TABLE, percentText } from './appraisal-score';
 import type {
   AppraisalActionValue,
+  AppraisalTiming,
   AppraisalTypeValue,
   AppraisalView,
+  EffectiveDateView,
   FormHeader,
   StepRecord,
 } from './appraisals.types';
@@ -74,6 +76,51 @@ const dateText = (iso: string | null): string => {
   return `${d} ${months[m - 1]} ${y}`;
 };
 
+const daysText = (n: number) => `${n} day${n === 1 ? '' : 's'}`;
+
+/**
+ * "Due 15 Jan 2026 · signed off 3 Mar 2026 (47 days late)", "Due 15 Jan 2026
+ * · open, 27 days overdue". Null without a due date (calendar cycles).
+ */
+export function timingLine(
+  dueDate: string | null,
+  signedOn: string | null,
+  timing: AppraisalTiming | null,
+): string | null {
+  if (!dueDate || !timing) return null;
+  const due = `Due ${dateText(dueDate)}`;
+  switch (timing.status) {
+    case 'ON_TIME':
+      return `${due} · signed off ${dateText(signedOn)} (on time)`;
+    case 'EARLY':
+      return `${due} · signed off ${dateText(signedOn)} (${daysText(timing.days)} early)`;
+    case 'LATE':
+      return `${due} · signed off ${dateText(signedOn)} (${daysText(timing.days)} late)`;
+    case 'OPEN_OVERDUE':
+      return `${due} · open, ${daysText(timing.days)} overdue`;
+    case 'OPEN':
+      return timing.days > 0
+        ? `${due} · open, due in ${daysText(timing.days)}`
+        : `${due} · open`;
+  }
+}
+
+/** "Effective from 15 Jan 2026 (backdated to the due date)". */
+export function effectiveLine(e: EffectiveDateView): string {
+  const reason = !e.backdated
+    ? ''
+    : e.mode === 'DUE_DATE'
+      ? ' (backdated to the due date)'
+      : ' (backdated)';
+  return `Effective from ${dateText(e.date)}${reason}`;
+}
+
+/** "3 months of increment arrears (from the effective date to approval); not calculated here." */
+export function arrearsLine(months: number): string | null {
+  if (months <= 0) return null;
+  return `${months} month${months === 1 ? '' : 's'} of increment arrears, from the effective date to the approval date (for information; not calculated here).`;
+}
+
 /** "Appraisal form - Ada Lovelace - H2 2026.pdf" (the documents module sanitises it further). */
 export function formPdfFileName(
   view: Pick<AppraisalView, 'employee' | 'cycle'>,
@@ -84,6 +131,8 @@ export function formPdfFileName(
 export interface FormPdfInput {
   view: AppraisalView;
   header: FormHeader;
+  /** Dhaka date of the sign-off, or null while open. */
+  signedOn?: string | null;
   /** Dhaka date, `YYYY-MM-DD`. */
   generatedOn: string;
 }
@@ -245,6 +294,13 @@ export function renderAppraisalFormPdf(input: FormPdfInput): Promise<Buffer> {
         `${view.cycle.name} · review period ${dateText(view.periodStart)} – ${dateText(view.periodEnd)}${view.dueDate ? ` · due ${dateText(view.dueDate)}` : ''}`,
         { width, align: 'center' },
       );
+    const timing = timingLine(
+      view.dueDate,
+      input.signedOn ?? null,
+      view.timing ?? null,
+    );
+    if (timing)
+      regular(9).fillColor(FAINT).text(timing, { width, align: 'center' });
     doc.fillColor('#000000');
     if (!signedOff) {
       bold(9)
@@ -516,6 +572,22 @@ export function renderAppraisalFormPdf(input: FormPdfInput): Promise<Buffer> {
       minH: 36,
       pad: 5,
     });
+    // Only when something is applied from a date: an approved confirmation, increment or promotion.
+    const dated = view.actions.some(
+      (a) => a === 'CONFIRM' || a === 'INCREMENT' || a === 'PROMOTION',
+    );
+    if (view.effective && view.approvalDecision === 'APPROVED' && dated) {
+      regular(9).text(effectiveLine(view.effective), left, doc.y + 3, {
+        width,
+      });
+      const arrears = arrearsLine(view.effective.arrearsMonths);
+      if (arrears) {
+        regular(8)
+          .fillColor(FAINT)
+          .text(arrears, left, doc.y + 1, { width });
+        doc.fillColor('#000000');
+      }
+    }
     const approval = signature('FINAL_APPROVAL');
     if (approval) {
       regular(7.5)

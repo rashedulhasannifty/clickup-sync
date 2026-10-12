@@ -1,13 +1,26 @@
 import {
   addMonthsClamped,
+  classifyDue,
+  coveredMilestones,
   dueBetween,
   dueInWindow,
   dueOnOrBefore,
   inScope,
   latestMilestoneOnOrBefore,
   milestones,
+  isCovered,
+  lastAppraisedOn,
+  lateness,
+  nearestMilestone,
   nextDue,
+  overdueAppraisals,
+  overdueFor,
+  OVERDUE_LOOKBACK_MONTHS,
   reviewPeriod,
+  selectDue,
+  UPCOMING_DAYS,
+  type AppraisalOnRecord,
+  type OverdueEmployee,
 } from './appraisal-schedule';
 
 describe('addMonthsClamped', () => {
@@ -309,5 +322,297 @@ describe('nextDue', () => {
     expect(
       nextDue('2026-12-01', 'ACTIVE', '2026-10-12').map((x) => x.dueDate),
     ).toEqual(['2027-12-01', '2027-12-01']);
+  });
+});
+
+// --- Overdue, upcoming and "already appraised" (0033) ----------------------
+
+const emp = (over: Partial<OverdueEmployee> = {}): OverdueEmployee => ({
+  joinDate: '2025-01-20', // half-yearly: 20 Jan 2026, 20 Jul 2026, 20 Jan 2027 ...
+  status: 'ACTIVE',
+  confirmationDate: null,
+  appraisals: [],
+  ...over,
+});
+const rec = (
+  type: AppraisalOnRecord['type'],
+  dueDate: string | null,
+  periodEnd = dueDate ?? '2026-06-30',
+): AppraisalOnRecord => ({ type, dueDate, periodEnd });
+
+describe('constants', () => {
+  it('coming up is 60 days and the overdue lookback 12 months', () => {
+    expect(UPCOMING_DAYS).toBe(60);
+    expect(OVERDUE_LOOKBACK_MONTHS).toBe(12);
+  });
+});
+
+describe('nearestMilestone', () => {
+  it('finds the milestone a moved or hand-picked due date stands for', () => {
+    expect(nearestMilestone('2025-01-20', 'HALF_YEARLY', '2026-07-20')).toBe(
+      '2026-07-20',
+    );
+    expect(nearestMilestone('2025-01-20', 'HALF_YEARLY', '2026-07-10')).toBe(
+      '2026-07-20',
+    );
+    expect(nearestMilestone('2025-01-20', 'HALF_YEARLY', '2026-08-15')).toBe(
+      '2026-07-20',
+    );
+    expect(nearestMilestone('2025-01-20', 'YEARLY', '2025-11-01')).toBe(
+      '2026-01-20',
+    );
+  });
+  it('is null when the type has no milestone near (confirmation long past)', () => {
+    expect(nearestMilestone('2024-01-01', 'CONFIRMATION', '2026-01-01')).toBe(
+      null,
+    );
+  });
+});
+
+describe('coveredMilestones / lastAppraisedOn', () => {
+  it('an appraisal covers its own due date and the milestone nearest it', () => {
+    const c = coveredMilestones('2025-01-20', [
+      rec('HALF_YEARLY', '2026-07-12'),
+    ]);
+    expect(isCovered(c, 'HALF_YEARLY', '2026-07-20')).toBe(true);
+    expect(isCovered(c, 'HALF_YEARLY', '2026-07-12')).toBe(true);
+    expect(isCovered(c, 'HALF_YEARLY', '2026-01-20')).toBe(false);
+  });
+  it('on an anniversary a yearly covers the half-yearly and vice versa', () => {
+    const y = coveredMilestones('2025-01-20', [rec('YEARLY', '2026-01-20')]);
+    expect(isCovered(y, 'HALF_YEARLY', '2026-01-20')).toBe(true);
+    const h = coveredMilestones('2025-01-20', [
+      rec('HALF_YEARLY', '2026-01-20'),
+    ]);
+    expect(isCovered(h, 'YEARLY', '2026-01-20')).toBe(true);
+    // A non-anniversary half-yearly does not cover any yearly.
+    const h2 = coveredMilestones('2025-01-20', [
+      rec('HALF_YEARLY', '2026-07-20'),
+    ]);
+    expect(isCovered(h2, 'YEARLY', '2026-07-20')).toBe(false);
+  });
+  it('a calendar-cycle appraisal covers no milestone but dates the last appraisal by its period end', () => {
+    const records = [rec('HALF_YEARLY', null, '2026-06-30')];
+    expect(coveredMilestones('2025-01-20', records).size).toBe(0);
+    expect(lastAppraisedOn('2025-01-20', 'HALF_YEARLY', records)).toBe(
+      '2026-06-30',
+    );
+    expect(lastAppraisedOn('2025-01-20', 'YEARLY', records)).toBe(null);
+  });
+  it('a due date moved earlier still dates the last appraisal at its milestone', () => {
+    expect(
+      lastAppraisedOn('2025-01-20', 'HALF_YEARLY', [
+        rec('HALF_YEARLY', '2026-07-10'),
+      ]),
+    ).toBe('2026-07-20');
+  });
+});
+
+describe('overdueFor', () => {
+  const today = '2026-10-12';
+
+  it('is the latest missed due date only, with its review period', () => {
+    // Missed 20 Jan and 20 Jul 2026: only 20 Jul stands.
+    expect(overdueFor(emp(), 'HALF_YEARLY', '2026-10-01', today)).toEqual({
+      type: 'HALF_YEARLY',
+      dueDate: '2026-07-20',
+      periodStart: '2026-01-20',
+      periodEnd: '2026-07-19',
+    });
+  });
+
+  it('is nothing once the latest missed one is appraised (an older miss does not resurface)', () => {
+    const e = emp({ appraisals: [rec('HALF_YEARLY', '2026-07-20')] });
+    expect(overdueFor(e, 'HALF_YEARLY', '2026-10-01', today)).toBeNull();
+  });
+
+  it('only counts due dates after the last appraisal of the type', () => {
+    // A calendar H1 2026 appraisal reviewed to 30 Jun; 20 Jul is after it.
+    const e = emp({ appraisals: [rec('HALF_YEARLY', null, '2026-07-31')] });
+    expect(overdueFor(e, 'HALF_YEARLY', '2026-10-01', today)).toBeNull();
+    const e2 = emp({ appraisals: [rec('HALF_YEARLY', null, '2026-06-30')] });
+    expect(overdueFor(e2, 'HALF_YEARLY', '2026-10-01', today)?.dueDate).toBe(
+      '2026-07-20',
+    );
+  });
+
+  it('a due date moved earlier never brings its milestone back as overdue', () => {
+    const e = emp({ appraisals: [rec('HALF_YEARLY', '2026-07-10')] });
+    expect(overdueFor(e, 'HALF_YEARLY', '2026-10-01', today)).toBeNull();
+  });
+
+  it('never before the confirmation date', () => {
+    const e = emp({ confirmationDate: '2026-08-01' });
+    expect(overdueFor(e, 'HALF_YEARLY', '2026-10-01', today)).toBeNull();
+    const e2 = emp({ confirmationDate: '2026-07-20' });
+    expect(overdueFor(e2, 'HALF_YEARLY', '2026-10-01', today)?.dueDate).toBe(
+      '2026-07-20',
+    );
+  });
+
+  it('looks back 12 months at most (bulk-confirmed staff are not years overdue)', () => {
+    // A January window, today 12 Oct 2026: the yearly due 12 Oct 2025 is exactly 12 months back...
+    const e = emp({ joinDate: '2020-10-12' });
+    expect(overdueFor(e, 'YEARLY', '2026-01-01', today)?.dueDate).toBe(
+      '2025-10-12',
+    );
+    // ...one day older is out (and an older miss is never looked at instead).
+    const e2 = emp({ joinDate: '2020-10-11' });
+    expect(overdueFor(e2, 'YEARLY', '2026-01-01', today)).toBeNull();
+  });
+
+  it('a null confirmation date (never recorded) only applies the lookback', () => {
+    expect(
+      overdueFor(emp({ confirmationDate: null }), 'YEARLY', today, today),
+    ).toMatchObject({ dueDate: '2026-01-20' });
+  });
+
+  it('half-yearly/yearly never while on probation; confirmation only while on probation, however old', () => {
+    const prob = emp({ status: 'PROBATION', joinDate: '2024-01-10' });
+    expect(overdueFor(prob, 'HALF_YEARLY', today, today)).toBeNull();
+    expect(overdueFor(prob, 'CONFIRMATION', today, today)).toMatchObject({
+      dueDate: '2024-07-10',
+    });
+    expect(
+      overdueFor({ ...prob, status: 'ACTIVE' }, 'CONFIRMATION', today, today),
+    ).toBeNull();
+    expect(
+      overdueFor({ ...prob, status: 'EXITED' }, 'CONFIRMATION', today, today),
+    ).toBeNull();
+  });
+
+  it('counts strictly before the cut-off', () => {
+    expect(overdueFor(emp(), 'HALF_YEARLY', '2026-07-20', today)?.dueDate).toBe(
+      '2026-01-20',
+    );
+    expect(overdueFor(emp(), 'HALF_YEARLY', '2026-07-21', today)?.dueDate).toBe(
+      '2026-07-20',
+    );
+  });
+});
+
+describe('lateness', () => {
+  it('days late before today, days early after, late 0 on the day', () => {
+    expect(lateness('2026-09-15', '2026-10-12')).toEqual({
+      daysLate: 27,
+      daysEarly: null,
+    });
+    expect(lateness('2026-10-20', '2026-10-12')).toEqual({
+      daysLate: null,
+      daysEarly: 8,
+    });
+    expect(lateness('2026-10-12', '2026-10-12')).toEqual({
+      daysLate: 0,
+      daysEarly: null,
+    });
+  });
+});
+
+describe('classifyDue', () => {
+  const w = { from: '2026-10-01', to: '2026-10-31', today: '2026-10-12' };
+
+  it('due in the window wins over an older miss', () => {
+    // Joined 15 Apr 2025: due 15 Oct 2026 (in window); 15 Apr 2026 missed.
+    expect(
+      classifyDue(emp({ joinDate: '2025-04-15' }), 'HALF_YEARLY', w),
+    ).toMatchObject({ group: 'due', dueDate: '2026-10-15', daysEarly: 3 });
+  });
+
+  it('overdue when nothing is due in the window', () => {
+    expect(classifyDue(emp(), 'HALF_YEARLY', w)).toMatchObject({
+      group: 'overdue',
+      dueDate: '2026-07-20',
+      daysLate: 84,
+      daysEarly: null,
+    });
+  });
+
+  it('coming up within 60 days after the window end, and not one day more', () => {
+    // Window end 31 Oct + 60 days = 30 Dec.
+    expect(
+      classifyDue(
+        emp({ joinDate: '2025-06-30', confirmationDate: '2026-12-31' }),
+        'HALF_YEARLY',
+        w,
+      ),
+    ).toMatchObject({
+      group: 'upcoming',
+      dueDate: '2026-12-30',
+      daysEarly: 79,
+    });
+    expect(
+      classifyDue(
+        emp({ joinDate: '2025-07-01', confirmationDate: '2026-12-31' }),
+        'HALF_YEARLY',
+        w,
+      ),
+    ).toBeNull();
+  });
+
+  it('already appraised for the window’s due date (in any cycle): not due', () => {
+    const e = emp({
+      joinDate: '2025-04-15',
+      appraisals: [rec('HALF_YEARLY', '2026-10-15')],
+    });
+    expect(classifyDue(e, 'HALF_YEARLY', w)).toBeNull();
+  });
+
+  it('an early appraisal for an upcoming due date takes it off the list', () => {
+    const e = emp({
+      joinDate: '2025-06-30',
+      confirmationDate: '2026-12-31',
+      appraisals: [rec('HALF_YEARLY', '2026-12-30')],
+    });
+    expect(classifyDue(e, 'HALF_YEARLY', w)).toBeNull();
+  });
+});
+
+describe('selectDue', () => {
+  it('groups everyone in scope, at most once each', () => {
+    const people = [
+      { id: 'due', ...emp({ joinDate: '2025-04-15' }) },
+      { id: 'late', ...emp() },
+      {
+        id: 'soon',
+        ...emp({ joinDate: '2025-06-30', confirmationDate: '2026-12-31' }),
+      },
+      { id: 'gone', ...emp({ status: 'EXITED' }) },
+    ];
+    const g = selectDue(people, 'HALF_YEARLY', {
+      from: '2026-10-01',
+      to: '2026-10-31',
+      today: '2026-10-12',
+    });
+    expect(g.due.map((x) => x.employee.id)).toEqual(['due']);
+    expect(g.overdue.map((x) => x.employee.id)).toEqual(['late']);
+    expect(g.upcoming.map((x) => x.employee.id)).toEqual(['soon']);
+  });
+
+  it('a confirmation cycle only looks at probation', () => {
+    const g = selectDue(
+      [
+        { id: 'p', ...emp({ status: 'PROBATION', joinDate: '2026-01-10' }) },
+        { id: 'a', ...emp({ joinDate: '2026-01-10' }) },
+      ],
+      'CONFIRMATION',
+      { from: '2026-10-01', to: '2026-10-31', today: '2026-10-12' },
+    );
+    expect(g.overdue.map((x) => x.employee.id)).toEqual(['p']);
+    expect(g.due).toEqual([]);
+  });
+});
+
+describe('overdueAppraisals', () => {
+  it('lists the yearly once when an anniversary is missed, oldest first', () => {
+    const r = overdueAppraisals(emp(), '2026-10-12');
+    expect(r.map((x) => [x.type, x.dueDate])).toEqual([
+      ['YEARLY', '2026-01-20'],
+      ['HALF_YEARLY', '2026-07-20'],
+    ]);
+  });
+  it('nothing for an exited employee', () => {
+    expect(overdueAppraisals(emp({ status: 'EXITED' }), '2026-10-12')).toEqual(
+      [],
+    );
   });
 });
