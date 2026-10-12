@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { defaultOnboardingRows } from './onboarding-checklist';
 import { isoToDateColumn } from './people-dates';
 import type { EmployeePatch } from './employment-events';
 import type {
@@ -125,7 +126,10 @@ export class EmployeesRepository {
     });
   }
 
-  /** Create the employee and its JOINED event atomically (one nested write). */
+  /**
+   * Create the employee, its JOINED event and the default onboarding checklist atomically (one
+   * nested write). Both POST create and import-from-users come through here.
+   */
   create(data: NewEmployee): Promise<EmployeeRow> {
     return this.prisma.employee.create({
       data: {
@@ -149,6 +153,7 @@ export class EmployeesRepository {
             createdBy: data.createdBy,
           },
         },
+        onboarding: { create: defaultOnboardingRows() },
       },
       include: PROFILE_INCLUDE,
     });

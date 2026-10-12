@@ -15,9 +15,12 @@ import { DummyAttendanceProvider } from './dummy-attendance.provider';
 import { EmployeesRepository } from './employees.repository';
 import { EmployeesService } from './employees.service';
 import { NoneAttendanceProvider } from './none-attendance.provider';
+import { OnboardingRepository } from './onboarding.repository';
+import { OnboardingService } from './onboarding.service';
 import { PeopleAttendanceController } from './people-attendance.controller';
 import { PeopleAttendanceService } from './people-attendance.service';
 import { PeopleEmployeesController } from './people-employees.controller';
+import { PeopleOnboardingController } from './people-onboarding.controller';
 import { PeopleMetricsRepository } from './people-metrics.repository';
 import { PeopleSummaryService } from './people-summary.service';
 import { PeopleSyncProcessor } from './people-sync.processor';
@@ -27,11 +30,17 @@ import { PeopleSyncService } from './people-sync.service';
 @Module({
   // AuditLogInterceptor/AuditLogRepository come from AdminModule (see its exports).
   imports: [DatabaseModule, QueuesModule, JobsModule, AdminModule],
-  controllers: [PeopleEmployeesController, PeopleAttendanceController],
+  controllers: [
+    PeopleEmployeesController,
+    PeopleAttendanceController,
+    PeopleOnboardingController,
+  ],
   providers: [
     EmployeesRepository,
     AttendanceRepository,
     PeopleMetricsRepository,
+    OnboardingRepository,
+    OnboardingService,
     EmployeesService,
     PeopleSummaryService,
     PeopleAttendanceService,
@@ -55,6 +64,7 @@ import { PeopleSyncService } from './people-sync.service';
     // a plain provider here would make the web process consume jobs and double-fire the cron.
     ...(isWorker() ? [PeopleSyncProcessor, PeopleScheduler] : []),
   ],
-  exports: [EmployeesService, PeopleSummaryService],
+  // OnboardingService: the exit flow reads `issuedEquipment` to pre-fill what to collect back.
+  exports: [EmployeesService, PeopleSummaryService, OnboardingService],
 })
 export class PeopleModule {}

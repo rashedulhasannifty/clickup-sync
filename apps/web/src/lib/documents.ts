@@ -7,6 +7,7 @@ export const CATEGORY_LABELS: Record<DocumentCategory, string> = {
   APPRAISAL: 'Appraisal',
   EXIT: 'Exit',
   PERSONAL: 'Personal',
+  NOMINEE: 'Nominee',
   OTHER: 'Other',
 };
 export const CATEGORIES = Object.keys(CATEGORY_LABELS) as DocumentCategory[];

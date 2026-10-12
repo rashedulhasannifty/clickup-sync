@@ -24,6 +24,7 @@ import {
   type EmployeeRow,
 } from './employees.repository';
 import { EmployeesService } from './employees.service';
+import { OnboardingRepository } from './onboarding.repository';
 import { computeKpis, type KpiComputation, type KpiInput } from './kpi-math';
 import { DEFAULT_PERIOD_DAYS, TREND_MONTHS } from './people.constants';
 import {
@@ -74,6 +75,7 @@ export class PeopleSummaryService {
     private readonly employees: EmployeesService,
     private readonly attendance: AttendanceRepository,
     private readonly metrics: PeopleMetricsRepository,
+    private readonly onboarding: OnboardingRepository,
     @Inject(ATTENDANCE_PROVIDER) private readonly provider: AttendanceProvider,
   ) {}
 
@@ -192,7 +194,10 @@ export class PeopleSummaryService {
     const rows = await this.employeesRepo.list(orgId, filter);
     if (rows.length === 0) return [];
 
-    const byEmployee = await this.loadMany(rows, period.from, period.to);
+    const [byEmployee, onboarding] = await Promise.all([
+      this.loadMany(rows, period.from, period.to),
+      this.onboarding.progressFor(rows.map((r) => r.id)),
+    ]);
     return rows.map((row) => {
       const profile = toProfile(row, today);
       const data = byEmployee.get(row.id) ?? {
@@ -217,6 +222,7 @@ export class PeopleSummaryService {
         score: c.overall.score,
         band: c.overall.band,
         partial: c.overall.partial,
+        onboarding: onboarding.get(row.id) ?? null,
       };
     });
   }
