@@ -89,6 +89,11 @@ export class DocumentsService {
     @Inject(DOCUMENT_STORAGE) private readonly storage: DocumentStorage,
   ) {}
 
+  /** False when no object store is configured; generated documents are then skipped, not failed. */
+  get enabled(): boolean {
+    return this.storage.enabled;
+  }
+
   // ── reads ──────────────────────────────────────────────────────────────────
 
   async listForEmployee(orgId: string, employeeId: string): Promise<EmployeeDocumentsResponse> {
@@ -247,12 +252,29 @@ export class DocumentsService {
   async storeGenerated(
     actor: AuthPrincipal,
     employeeId: string,
-    input: { category: DocumentCategoryName; docType: string; fileName: string; buffer: Buffer },
+    input: {
+      category: DocumentCategoryName;
+      docType: string;
+      fileName: string;
+      buffer: Buffer;
+      /**
+       * Which document this one replaces. Omitted: the employee's current document of this category
+       * and type (one per employee, e.g. an exit letter). Given: only that document, if it is still
+       * current; `null` always files a new one. Used where an employee has several of a type (one
+       * appraisal form per cycle), so a regenerate never versions another cycle's form.
+       */
+      replaces?: string | null;
+    },
   ): Promise<DocumentView> {
     await this.requireEmployee(actor.orgId, employeeId);
     const file: UploadedFileLike = { originalname: input.fileName, buffer: input.buffer, size: input.buffer.length };
     const live = await this.repo.liveForEmployee(employeeId);
-    const current = live.find((d) => d.replacedById === null && d.category === input.category && d.docType === input.docType);
+    const current =
+      input.replaces === undefined
+        ? live.find((d) => d.replacedById === null && d.category === input.category && d.docType === input.docType)
+        : input.replaces === null
+          ? undefined
+          : live.find((d) => d.id === input.replaces && d.replacedById === null);
     if (current) return this.putNextVersion(actor, current, file, {});
     return this.putNew(actor, employeeId, file, { category: input.category, docType: input.docType });
   }

@@ -36,7 +36,12 @@ export const DOCUMENT_TYPES: Record<DocumentCategoryName, DocTypeOption[]> = {
     OTHER_DOC_TYPE,
   ],
   EDUCATION: [{ key: 'EDUCATION_CERTIFICATE', label: 'Education certificate' }, { key: 'TRANSCRIPT', label: 'Transcript' }, OTHER_DOC_TYPE],
-  APPRAISAL: [{ key: 'SIGNED_APPRAISAL', label: 'Appraisal (signed)' }, OTHER_DOC_TYPE],
+  APPRAISAL: [
+    { key: 'SIGNED_APPRAISAL', label: 'Appraisal (signed)' },
+    // Generated at sign-off by the appraisal flow (src/appraisals): the filled paper form.
+    { key: 'APPRAISAL_FORM', label: 'Appraisal form' },
+    OTHER_DOC_TYPE,
+  ],
   EXIT: [
     { key: 'RESIGNATION_LETTER', label: 'Resignation letter' },
     { key: 'CLEARANCE_FORM', label: 'Clearance form' },

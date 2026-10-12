@@ -1,5 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
   IsIn,
   IsNumber,
   IsObject,
@@ -17,6 +20,17 @@ export const RECOMMENDATIONS = [
   'IMPROVEMENT_PLAN',
 ] as const;
 
+export const APPRAISAL_ACTIONS = [
+  'CONFIRM',
+  'INCREMENT',
+  'PROMOTION',
+  'TERMINATION',
+  'DISMISSAL',
+  'TRAINING_TRANSFER',
+] as const;
+
+export const APPROVAL_DECISIONS = ['APPROVED', 'NOT_APPROVED'] as const;
+
 const TEXT = 5000;
 
 /**
@@ -26,7 +40,8 @@ const TEXT = 5000;
  */
 export class UpdateAppraisalDto {
   @ApiPropertyOptional({
-    description: '`{ [competencyKey]: 1-5 }`; replaces the whole map.',
+    description:
+      '`{ [competencyKey]: rating }` (1-5, or 2/4/6/8/10 on the paper form); replaces the whole map.',
   })
   @IsOptional()
   @IsObject()
@@ -39,7 +54,8 @@ export class UpdateAppraisalDto {
   selfComment?: string | null;
 
   @ApiPropertyOptional({
-    description: '`{ [competencyKey]: 1-5 }`; replaces the whole map.',
+    description:
+      '`{ [competencyKey]: rating }` (1-5, or 2/4/6/8/10 on the paper form); replaces the whole map.',
   })
   @IsOptional()
   @IsObject()
@@ -92,4 +108,57 @@ export class UpdateAppraisalDto {
   @Min(0)
   @Max(5)
   calibratedScore?: number | null;
+
+  // --- FORM_100 ---
+
+  @ApiPropertyOptional({
+    enum: APPRAISAL_ACTIONS,
+    isArray: true,
+    description:
+      'Recommendations by supervisor / department head; replaces the whole list. PROMOTION needs newDesignation, INCREMENT needs incrementPercent.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(APPRAISAL_ACTIONS.length)
+  @ArrayUnique()
+  @IsIn(APPRAISAL_ACTIONS, { each: true })
+  actions?: (typeof APPRAISAL_ACTIONS)[number][];
+
+  @ApiPropertyOptional({
+    description: 'Proposed increment, percent (0-100, up to 2 decimals).',
+  })
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  incrementPercent?: number | null;
+
+  @ApiPropertyOptional({ description: 'Training need / development plan.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(TEXT)
+  trainingPlan?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(TEXT)
+  deptHeadComment?: string | null;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  @MaxLength(TEXT)
+  hrComment?: string | null;
+
+  @ApiPropertyOptional({ enum: APPROVAL_DECISIONS, nullable: true })
+  @IsOptional()
+  @IsIn(APPROVAL_DECISIONS)
+  approvalDecision?: (typeof APPROVAL_DECISIONS)[number] | null;
+
+  @ApiPropertyOptional({ description: 'Approval & comments by CTO/COO.' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(TEXT)
+  approvalComment?: string | null;
 }
