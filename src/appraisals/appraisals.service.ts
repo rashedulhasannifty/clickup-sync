@@ -439,7 +439,11 @@ export class AppraisalsService {
       throw this.changedUnderneath();
     if (next === 'SIGNED_OFF') {
       // The status flip above is the claim: only the caller that won it gets here.
-      await this.applyOutcome(principal, row);
+      // Apply from the row as signed off (its frozen header), exactly as a retry would.
+      await this.applyOutcome(
+        principal,
+        await this.requireAppraisal(orgId, id),
+      );
       if (mode === 'FORM_100') await this.fileFormPdf(principal, id);
     }
     return this.getAppraisal(orgId, id);
@@ -615,7 +619,10 @@ export class AppraisalsService {
    * KPI_BLEND: one event from the single recommendation (PROMOTED also moves
    * the designation). FORM_100: only when the CTO/COO APPROVED, the CONFIRMED /
    * PROMOTED / INCREMENT events in ONE transaction, so a retry never writes
-   * half of them twice. NOT_APPROVED signs off with no outcome.
+   * half of them twice. NOT_APPROVED signs off with no outcome. The increment
+   * is computed on the gross salary in the header frozen at sign-off, never
+   * the employee's current one: if the events landed but the "applied" mark
+   * did not, a retry must not raise an already-raised salary again.
    */
   private async applyOutcome(
     principal: AuthPrincipal,
@@ -628,7 +635,7 @@ export class AppraisalsService {
         actions: (row.actions ?? []) as AppraisalActionValue[],
         newDesignation: row.newDesignation,
         incrementPercent: row.incrementPercent,
-        grossSalary: row.employee.grossSalary,
+        grossSalary: headerOf(row)?.grossSalary ?? row.employee.grossSalary,
         employeeStatus: row.employee.status,
         cycleName: row.cycle.name,
         effectiveDate,

@@ -925,3 +925,65 @@ describe('AppraisalsService FORM_100 (paper form)', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
+
+describe('AppraisalsService FORM_100 outcome retry', () => {
+  it('never compounds an increment when the outcome landed but was not marked applied', async () => {
+    const rows: { current: Row | null } = {
+      current: appraisal({
+        cycle: cycle({
+          scoringMode: 'FORM_100',
+          kpiWeight: 0,
+          competencies: [{ key: 'integrity', label: 'Integrity' }],
+        }),
+        status: 'FINAL_APPROVAL',
+        leadRatings: { integrity: 8 },
+        actions: ['INCREMENT'],
+        incrementPercent: 13,
+        approvalDecision: 'APPROVED',
+      }),
+    };
+    const { svc, repo, employees } = make(rows);
+    // The header reads the employee as they are now, like the real query.
+    repo.headerSources.mockImplementation(async (_org: string, ids: string[]) =>
+      ids.map((id) => ({
+        ...headerSource(id),
+        grossSalary: rows.current?.employee.grossSalary ?? null,
+      })),
+    );
+    // The events commit and move the salary...
+    employees.recordAppraisalOutcome.mockImplementation(
+      async (
+        _p: unknown,
+        _id: string,
+        events: { type: string; toValue: string }[],
+      ) => {
+        const inc = events.find((e) => e.type === 'INCREMENT');
+        if (inc && rows.current)
+          rows.current = {
+            ...rows.current,
+            employee: {
+              ...rows.current.employee,
+              grossSalary: Number(inc.toValue),
+            },
+          };
+      },
+    );
+    // ...but marking the outcome applied fails once.
+    repo.markOutcomeApplied.mockRejectedValueOnce(new Error('db blip'));
+
+    await expect(svc.advance(admin, 'a1')).rejects.toThrow('db blip');
+    expect(rows.current?.employee.grossSalary).toBe(90400);
+
+    await svc.advance(admin, 'a1');
+    const calls = employees.recordAppraisalOutcome.mock.calls;
+    expect(calls).toHaveLength(2);
+    // The retry is computed on the salary frozen at sign-off (80,000), not the raised one.
+    expect(calls[1][2]).toEqual([
+      expect.objectContaining({
+        type: 'INCREMENT',
+        fromValue: '80000',
+        toValue: '90400',
+      }),
+    ]);
+  });
+});
