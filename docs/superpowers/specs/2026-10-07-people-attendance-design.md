@@ -329,18 +329,18 @@ fills in every step, including the self review on the employee's behalf.
   compensation, growth, environment; "what could we have done", would
   recommend / rejoin (`YES | MAYBE | NO`), interviewer notes (HR only),
   conductedBy/at.
-- **Clearance checklist** (`exit_clearance_items`): seeded from a default
-  list (laptop & charger returned, ClickUp access removed, Nifty Timer
-  account disabled, handover of open tasks, final settlement / leave
-  encashment), editable (add/remove custom items). Each: done, doneBy,
-  doneAt, note.
+- **Clearance checklist** (`exit_clearance_items`): seeded from the
+  company's manual Employee-Exit-Checklist (see "Exit checklist follows the
+  company sheet" below), editable (add/remove custom items, into either
+  group). Each: group (`PROCESS | ASSETS`), key (seeded items only), done,
+  doneBy, doneAt, notApplicable, notApplicableBy, notApplicableAt, note.
 - **Letters:** experience letter and release letter generated server-side as
   PDF (company name from the org, employee name, designation, join date,
   last working day) and stored through the slice-2 documents module as
   `EXIT / EXPERIENCE_LETTER` and `EXIT / RELEASE_LETTER`. Regenerating
   replaces (new version), never duplicates.
-- **Complete exit** requires all clearance items done (or an explicit
-  override with a note). It writes `EXITED` (exitDate = lastWorkingDay,
+- **Complete exit** requires all clearance items resolved — done or not
+  applicable (or an explicit override with a note). It writes `EXITED` (exitDate = lastWorkingDay,
   status EXITED) and, when `disableLogin` (default true) and the employee is
   linked to a user, disables that user and revokes their sessions through
   the existing users service. Exited employees are read-only and drop out of
@@ -348,6 +348,36 @@ fills in every step, including the self review on the employee's behalf.
 - **UI:** "Start offboarding" on the employee page → `/people/:id/exit`
   (stepper as in mockup tab 6), plus `/people/exits` listing in-progress and
   recent exits.
+
+### Exit checklist follows the company sheet (migration `0029_exit_checklist`)
+
+- The default checklist is the company's "Employee-Exit-Checklist" sheet, in
+  two groups. **Process tasks** (15): termination paperwork; inform key
+  stakeholders; communicate the exit internally; communicate it to clients;
+  handover document; collect company assets; remove software access
+  (WhatsApp, Teams, Slack, Face lock, Outlook, Time Doctor, ClickUp, Nifty
+  Timer); final payments & benefits; review binding agreements; conduct exit
+  interview; thank employee on final day; collect contact info / connect on
+  LinkedIn; check in with the remaining team; initiate recruiting for a
+  replacement; update the organizational chart. **Company assets** (6):
+  laptop, phone, monitor, mouse and keyboard, ID/access card, company vehicle.
+  The list lives in `DEFAULT_CLEARANCE_ITEMS` (`src/exits/exit-status.ts`).
+- Each item can be **Done** or **Not applicable** (the sheet's two columns);
+  they are mutually exclusive — setting one clears the other, unsetting one
+  touches only its own fields, and `done: true` + `notApplicable: true` in one
+  request is a 400. An item is *resolved* when either is set; counts
+  (`clearance.resolved`, the list's `clearanceResolved`), the stepper and the
+  completion rule all use resolved, and the override note is needed only for
+  items that are neither.
+- Seeded items carry a stable `key` (unique per exit; custom items have
+  none). Saving the exit interview ticks the `exit_interview` item as done by
+  the interviewer, only if it is still open (one conditional update, so it
+  is idempotent; an item marked N/A or removed is left alone).
+- Exits started before 0029 keep their old items, which become `PROCESS`
+  items with no key; nothing is re-seeded.
+- The sheet's "Approved By" is the person who completed the exit: the view
+  carries `completedByName` and the page shows "Approved by <name> on
+  <date>".
 
 ### Known limitations (slices 3–4)
 
