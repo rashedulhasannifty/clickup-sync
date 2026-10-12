@@ -9,7 +9,8 @@ import { Observable, tap, catchError, throwError } from 'rxjs';
 import { AuditLogRepository } from './audit-log.repository';
 
 const WRITE_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
-const REDACT_RE = /(secret|token|api[_-]?key|password|signature)/i;
+// `salary`: employee salaries (People) are sensitive and must never reach the audit log.
+const REDACT_RE = /(secret|token|api[_-]?key|password|signature|salary)/i;
 const PATH_PARAM_RE = /:([A-Za-z0-9_]+)/g;
 const MAX_BODY_BYTES = 16 * 1024;
 

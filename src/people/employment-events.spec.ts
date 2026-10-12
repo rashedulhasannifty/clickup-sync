@@ -27,6 +27,11 @@ describe('eventEffects', () => {
     expect(e('TRANSFERRED', 't1', true)).toEqual({ teamId: 't1' });
     expect(e('TRANSFERRED', 't1', false)).toEqual({});
   });
+  it('INCREMENT moves the gross salary only for a whole-taka amount', () => {
+    expect(e('INCREMENT', '90400')).toEqual({ grossSalary: 90400 });
+    expect(e('INCREMENT', '904.5')).toEqual({});
+    expect(e('INCREMENT', null)).toEqual({});
+  });
   it('JOINED and NOTE change nothing', () => {
     expect(e('NOTE')).toEqual({});
     expect(e('JOINED')).toEqual({});

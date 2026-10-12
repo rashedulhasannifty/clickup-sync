@@ -16,6 +16,8 @@ export interface EmployeePatch {
   exitDate?: string;
   status?: EmployeeStatusValue;
   teamId?: string;
+  /** INCREMENT: the new gross salary, whole taka. */
+  grossSalary?: number;
 }
 
 /** Events whose `toValue` is the new value and is therefore required. */
@@ -42,6 +44,11 @@ export function eventEffects(args: {
       return { exitDate: effectiveDate, status: 'EXITED' };
     case 'TRANSFERRED':
       return toValue && teamResolves ? { teamId: toValue } : {};
+    case 'INCREMENT':
+      // toValue is the new gross salary; anything but whole taka is history only.
+      return toValue && /^\d+$/.test(toValue)
+        ? { grossSalary: Number(toValue) }
+        : {};
     case 'JOINED':
     case 'NOTE':
       return {};

@@ -14,7 +14,9 @@ export type EmploymentEventTypeValue =
   | 'TRANSFERRED'
   | 'NOTICE_GIVEN'
   | 'EXITED'
-  | 'NOTE';
+  | 'NOTE'
+  /** Salary increment: fromValue/toValue are the old/new gross salary (whole taka), notes the percent. */
+  | 'INCREMENT';
 export type LeaveTypeValue = 'SICK' | 'CASUAL' | 'ANNUAL' | 'UNPAID' | 'OTHER';
 export type LeaveStatusValue =
   | 'PENDING'
@@ -56,6 +58,15 @@ export interface EmployeeProfile {
   clickupUserId: string | null;
   userId: string | null;
   linked: EmployeeLinks;
+  /** Company within the group the employee works for. */
+  concernName: string | null;
+  academicQualification: string | null;
+  /** Experience before joining, in whole months; total experience = this + tenure. */
+  experienceBeforeJoiningMonths: number | null;
+  /** Whole taka (BDT). Sensitive: Owner/Admin only, never logged. */
+  startingSalary: number | null;
+  /** Present gross salary, whole taka (BDT). Moves with INCREMENT events. Sensitive. */
+  grossSalary: number | null;
 }
 
 /** State of an employee today, as shown in the directory and the door log. */

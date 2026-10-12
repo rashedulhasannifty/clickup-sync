@@ -40,6 +40,11 @@ export interface NewEmployee {
   joinDate: string;
   status?: EmployeeStatusValue;
   createdBy: string | null;
+  concernName?: string | null;
+  academicQualification?: string | null;
+  experienceBeforeJoiningMonths?: number | null;
+  startingSalary?: number | null;
+  grossSalary?: number | null;
 }
 
 export interface EmployeeProfileUpdate {
@@ -54,6 +59,39 @@ export interface EmployeeProfileUpdate {
   teamId?: string | null;
   managerId?: string | null;
   joinDate?: string;
+  concernName?: string | null;
+  academicQualification?: string | null;
+  experienceBeforeJoiningMonths?: number | null;
+  startingSalary?: number | null;
+  grossSalary?: number | null;
+}
+
+/** One event of a batch written by `addEvents`. */
+export interface NewEmploymentEvent {
+  type: EmploymentEventTypeValue;
+  effectiveDate: string;
+  fromValue: string | null;
+  toValue: string | null;
+  notes: string | null;
+  patch: EmployeePatch;
+}
+
+/** An event's side-effects as a Prisma update. Only keys that change are present. */
+function patchData(patch: EmployeePatch): Prisma.EmployeeUncheckedUpdateInput {
+  return {
+    ...(patch.designation !== undefined
+      ? { designation: patch.designation }
+      : {}),
+    ...(patch.confirmationDate
+      ? { confirmationDate: isoToDateColumn(patch.confirmationDate) }
+      : {}),
+    ...(patch.exitDate ? { exitDate: isoToDateColumn(patch.exitDate) } : {}),
+    ...(patch.status ? { status: patch.status } : {}),
+    ...(patch.teamId ? { teamId: patch.teamId } : {}),
+    ...(patch.grossSalary !== undefined
+      ? { grossSalary: patch.grossSalary }
+      : {}),
+  };
 }
 
 /** Owns every write to `employees` and `employment_events`. */
@@ -141,6 +179,11 @@ export class EmployeesRepository {
         teamId: data.teamId,
         managerId: data.managerId,
         joinDate: isoToDateColumn(data.joinDate),
+        concernName: data.concernName ?? null,
+        academicQualification: data.academicQualification ?? null,
+        experienceBeforeJoiningMonths: data.experienceBeforeJoiningMonths ?? null,
+        startingSalary: data.startingSalary ?? null,
+        grossSalary: data.grossSalary ?? null,
         ...(data.status ? { status: data.status } : {}),
         events: {
           create: {
@@ -206,22 +249,46 @@ export class EmployeesRepository {
       }),
       this.prisma.employee.update({
         where: { id: args.employeeId },
-        data: {
-          ...(patch.designation !== undefined
-            ? { designation: patch.designation }
-            : {}),
-          ...(patch.confirmationDate
-            ? { confirmationDate: isoToDateColumn(patch.confirmationDate) }
-            : {}),
-          ...(patch.exitDate
-            ? { exitDate: isoToDateColumn(patch.exitDate) }
-            : {}),
-          ...(patch.status ? { status: patch.status } : {}),
-          ...(patch.teamId ? { teamId: patch.teamId } : {}),
-        },
+        data: patchData(patch),
       }),
     ]);
     return event;
+  }
+
+  /**
+   * Several events and their side-effects in ONE transaction, in order, so a
+   * multi-event outcome (an appraisal's confirm + promote + increment) lands
+   * whole or not at all and a retry never writes half of it twice.
+   */
+  async addEvents(
+    employeeId: string,
+    createdBy: string | null,
+    events: NewEmploymentEvent[],
+  ) {
+    if (events.length === 0) return [];
+    return this.prisma.$transaction(async (tx) => {
+      const out = [];
+      for (const e of events) {
+        out.push(
+          await tx.employmentEvent.create({
+            data: {
+              employeeId,
+              type: e.type,
+              effectiveDate: isoToDateColumn(e.effectiveDate),
+              fromValue: e.fromValue,
+              toValue: e.toValue,
+              notes: e.notes,
+              createdBy,
+            },
+          }),
+        );
+        await tx.employee.update({
+          where: { id: employeeId },
+          data: patchData(e.patch),
+        });
+      }
+      return out;
+    });
   }
 
   listEvents(employeeId: string) {

@@ -16,6 +16,7 @@ import {
   type EmployeeListFilter,
   type EmployeeProfileUpdate,
   type EmployeeRow,
+  type NewEmploymentEvent,
 } from './employees.repository';
 import { dateColumnToIso, dhakaDateOf } from './people-dates';
 import type {
@@ -45,6 +46,16 @@ export interface ExitLifecycleEvent {
   type: ExitLifecycleEventType;
   effectiveDate: string;
   notes?: string;
+}
+
+/** What an approved appraisal may write to the timeline (see `recordAppraisalOutcome`). */
+export interface AppraisalOutcomeEvent {
+  type: 'CONFIRMED' | 'PROMOTED' | 'INCREMENT' | 'NOTE';
+  effectiveDate: string;
+  /** Omitted: the event's default (the replaced designation for PROMOTED). */
+  fromValue?: string | null;
+  toValue: string | null;
+  notes: string;
 }
 
 const EXIT_LIFECYCLE_TYPES: ReadonlySet<string> = new Set([
@@ -104,6 +115,11 @@ export class EmployeesService {
         managerId: dto.managerId ?? null,
         joinDate: dto.joinDate,
         createdBy: actorId(principal),
+        concernName: dto.concernName?.trim() || null,
+        academicQualification: dto.academicQualification?.trim() || null,
+        experienceBeforeJoiningMonths: dto.experienceBeforeJoiningMonths ?? null,
+        startingSalary: dto.startingSalary ?? null,
+        grossSalary: dto.grossSalary ?? null,
       });
       return toProfile(row, dhakaDateOf(new Date()));
     } catch (e) {
@@ -129,6 +145,17 @@ export class EmployeesService {
       data.department = dto.department?.trim() || null;
     if (dto.clickupUserId !== undefined) data.clickupUserId = dto.clickupUserId;
     if (dto.joinDate !== undefined) data.joinDate = dto.joinDate;
+    if (dto.concernName !== undefined)
+      data.concernName = dto.concernName?.trim() || null;
+    if (dto.academicQualification !== undefined)
+      data.academicQualification = dto.academicQualification?.trim() || null;
+    for (const k of [
+      'experienceBeforeJoiningMonths',
+      'startingSalary',
+      'grossSalary',
+    ] as const) {
+      if (dto[k] !== undefined) data[k] = dto[k];
+    }
     if (dto.teamId !== undefined) {
       if (dto.teamId !== null) await this.requireTeam(orgId, dto.teamId);
       data.teamId = dto.teamId;
@@ -253,6 +280,50 @@ export class EmployeesService {
       patch,
     });
     return (await this.eventViews(principal.orgId, [event]))[0];
+  }
+
+  /**
+   * Internal path for `AppraisalsService`: an approved appraisal's outcome
+   * (CONFIRMED / PROMOTED / INCREMENT) as ONE transaction, so a retry after a
+   * failure never writes half of it twice. Refused for an exited employee, like
+   * every other event. Each event's side-effects come from `eventEffects`, and
+   * a PROMOTED event's `fromValue` defaults to the designation it replaces.
+   */
+  async recordAppraisalOutcome(
+    principal: AuthPrincipal,
+    id: string,
+    events: AppraisalOutcomeEvent[],
+  ): Promise<void> {
+    const employee = await this.require(principal.orgId, id);
+    assertNotExited(employee);
+    let designation = employee.designation;
+    const batch: NewEmploymentEvent[] = events.map((e) => {
+      const toValue = e.toValue?.trim() || null;
+      if (EVENT_REQUIRES_TO_VALUE.has(e.type) && !toValue)
+        throw new BadRequestException(`${e.type} needs a toValue`);
+      const patch = eventEffects({
+        type: e.type,
+        effectiveDate: e.effectiveDate,
+        toValue,
+        teamResolves: false,
+      });
+      const fromValue =
+        e.fromValue !== undefined
+          ? e.fromValue
+          : e.type === 'PROMOTED'
+            ? designation
+            : null;
+      if (patch.designation !== undefined) designation = patch.designation;
+      return {
+        type: e.type,
+        effectiveDate: e.effectiveDate,
+        fromValue,
+        toValue,
+        notes: e.notes.trim() || null,
+        patch,
+      };
+    });
+    await this.repo.addEvents(id, actorId(principal), batch);
   }
 
   /**
