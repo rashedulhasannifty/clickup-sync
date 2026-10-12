@@ -595,6 +595,116 @@ schedule is the **internship review**:
   chosen (internship reviews are join-date and form-only, so the dialog hides
   them for calendar cycles and hides KPI blend for them).
 
+### Past records (0035)
+
+Decided with the product owner 2026-10-12. HR enters existing employees'
+history from **before this system** (joined as intern, moved to probation,
+confirmed, promotions, increments, designation changes, transfers, and
+appraisals done on paper) through a spreadsheet import (the first migration of
+everyone) or one at a time ("Add past record"). Both routes write the same
+data and run the same rules (`src/people/past-records/*`).
+
+Migration `0035_past_records` (additive; `JOINED_AS_INTERN` is not used in the
+migration that adds it):
+
+- `employment_events.source` `EventSource` `APP | PAST_RECORD` (every existing
+  row APP), and a partial unique index on (employee, type, effective date)
+  `WHERE source = 'PAST_RECORD'`, so a double-submitted import cannot add a
+  record twice.
+- `EmploymentEventType` gains `JOINED_AS_INTERN`.
+- `past_appraisals`: type, due date (nullable), conducted on, marks 0–100 and
+  grade A–F (both CHECK-constrained), outcome, actions (informational),
+  `document_id` (an employee document, SET NULL), notes, created by; unique on
+  (employee, type, conducted on), indexed on (employee, type).
+- `employees.past_records_baseline` (JSONB, internal, never in a view): per
+  field group, the values from before the group's first past record (below).
+
+**Past records are ordinary events.** They show on the timeline with a
+"From records" tag; only they (and past appraisals) can be edited or deleted,
+never what the app recorded. Applying them never runs an appraisal outcome,
+generates a document or sends anything.
+
+**The employee is re-derived from the whole history**
+(`foldEmployeeHistory`, built on `eventEffects`): every event, APP and
+PAST_RECORD, replayed oldest first (same day: joining, probation, extension,
+confirmation, the rest). The fields fall into groups, each driven by its own
+event types: lifecycle (join date, status, probation start, internship end,
+confirmation date: a past Joined / Joined as intern, PROBATION_STARTED,
+INTERNSHIP_EXTENDED, CONFIRMED), designation (PROMOTED, DESIGNATION_CHANGED),
+team (TRANSFERRED to a team that still exists) and gross (INCREMENT's
+whole-taka `toValue`). `recomputeEmployee` re-folds **only the groups whose
+events changed**, so a hand edit of an unrelated field is never overwritten. A
+group re-folds from its baseline: what was stored before its first past record
+(remembered in `past_records_baseline`, restored when its last past record is
+deleted) or, when it already had app events, what is stored. The app's own
+JOINED (written at creation with the join date of the time) drives nothing; a
+past Joined that moves the join date moves a probation start that sat on it.
+Notice/exit never take part: a past record never moves anyone into or out of
+NOTICE/EXITED (exits are refused as past records; a stored NOTICE status is
+kept), and exited employees are read-only.
+
+**Validation** (the whole history after the change; errors are reported on the
+records being written, plus any stored past record the change would break):
+no future dates; nothing (but a join record) before the join date; one join
+record, one probation start and one confirmation in the whole history;
+intern ≤ probation start ≤ confirmation; an intern is never confirmed directly;
+no status-changing record on or after a notice; no two records of the same type
+on the same date; a transfer's team must exist; increments in positive whole
+taka, the new gross above the old; a promotion or designation change needs the
+new designation; grade A–F, marks 0–100, the grade worked out from the marks
+(`gradeFor`) when only marks are given. Messages never quote a salary.
+
+**Coverage.** A past appraisal counts as "already appraised" exactly like a
+real one: it stands for its due date, else the date it was conducted
+(`pastAppraisalOnRecord`), matched to the nearest milestone, and it bounds the
+overdue lookback. It is merged into the schedule records in the profile
+(`toProfile`), every due/overdue/launch selection (`appraisalsOnRecord`) and the
+due-date edit check. A paper appraisal for a due date an appraisal in the
+system (or another paper one) already covers is refused.
+
+**API** (Owner/Admin, org-scoped, audited; `from`, `to`, `amount`,
+`fromValue`, `toValue` are redacted from the audit log on these routes because
+increments carry gross salaries):
+
+- `POST /people/past-records/preview` `{ rows }` (≤ 2,000; the client parses the
+  sheet): per-row errors `{ row, field, message }`, the count of rows already
+  recorded (an identical record exists, or a Joined row on the stored join
+  date: skipped, not errors), and per employee before → after (status,
+  designation, team, gross, join date, probation start, confirmation, next
+  appraisal), overdue cleared, records to add and warnings (e.g. the status
+  would go back from Permanent to Probation).
+- `POST /people/past-records/apply` `{ rows }`: re-validates and applies
+  everything in one transaction; refused while any row has an error.
+  Idempotent: applying the same file again adds nothing.
+- `GET|POST /people/employees/:id/past-records`,
+  `PATCH|DELETE /people/employees/:id/past-records/:recordId`
+  (`event:<id>` or `appraisal:<id>`): one record at a time; each write
+  re-validates the employee's whole history and re-folds them.
+- The two import routes take a 4 MB JSON body (`applyBodyLimits`); every other
+  route keeps the 100 kB default.
+
+**Rows.** `employee` (email or employee code), `record` (Joined, Joined as
+intern, Moved to probation, Confirmed, Promotion, Designation change, Transfer,
+Increment, Appraisal; case-insensitive), `date` (`YYYY-MM-DD`, day-first
+`DD/MM/YYYY`, or an Excel serial), `from`, `to`, `amount` (an increment's %, or
+over 100 the new gross when `to` is empty), `grade`, `marks`, `appraisalType`
+(Yearly by default, Half-yearly, Confirmation, Internship review), `actions`
+(comma list), `dueDate` and `outcome` (appraisals, optional), `notes`. An
+increment is `from` + `to`, or `to` + %, or `from` + %; the % goes in the notes
+as an approved appraisal writes it.
+
+**UI.** People → Import past records: download the template (ExcelJS: a
+"Records" sheet with dropdowns for the record and appraisal type, 3 example
+rows that the reader skips, and a "How to fill" sheet), or "Download with our
+employees" (one Joined row per current employee, already recorded, so HR only
+adds the history); upload .xlsx/.csv (read in the browser); the preview (errors
+by row, already-recorded count, a collapsible card per employee with before →
+after); "Apply N records", disabled while errors remain. The employee page has
+"Add past record" by the career timeline (record-type cards, only the fields
+that type needs, checked inline; a past appraisal can link a document or upload
+the scan as an Appraisal document first), edit/delete on "From records" rows,
+and past appraisals in the Appraisals tab as "Past appraisal (paper)".
+
 ### The form (FORM_100)
 
 - **Rating scale:** Outstanding 10, Good 8, Fair 6, Average 4, Below

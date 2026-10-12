@@ -157,6 +157,7 @@ Team ID: `3450636`.
 | ClickUp workspace directory + invite-from-ClickUp | `src/clickup/workspace-member*.ts`, `src/auth/workspace-directory*.ts`, `apps/web/src/components/team/ClickupMembersTable.tsx` |
 | One-off `scope_client_option_id` backfill | `src/scripts/backfill-client-option-ids.ts` |
 | People: employees, employment events (incl. the intern → probation lifecycle, 0034), attendance/leave provider + sync, employee KPIs, joining (onboarding) checklist | `src/people/*` (incl. its own `people-sync` processor and scheduler; the checklist is `onboarding*.ts` + `people-onboarding.controller.ts`), `apps/web/src/pages/{Employees,EmployeeDetail,Attendance}Page.tsx`, `apps/web/src/components/people/*` |
+| Past records (history before the system: import + per-employee editor, history fold, paper appraisals) | `src/people/past-records/*`, `apps/web/src/pages/PastRecordsImportPage.tsx`, `apps/web/src/components/people/PastRecordModal.tsx`, `apps/web/src/lib/pastRecords*.ts` |
 | Employee documents (MinIO/S3, streamed through the backend) | `src/documents/*`, `apps/web/src/pages/DocumentsPage.tsx`, `apps/web/src/components/people/EmployeeDocumentsTab.tsx` |
 
 ## Data model rules
