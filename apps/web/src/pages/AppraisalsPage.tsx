@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Plus, Rocket, Trash2 } from 'lucide-react';
+import { Check, Pencil, Plus, Rocket, Trash2 } from 'lucide-react';
 import type { AppraisalListRow, AppraisalType, Competency, CycleView, ScoringMode } from '../api/appraisals';
 import { useCreateCycle, useCycleAppraisals, useCycles, useLaunchCycle, useUpdateCycle } from '../hooks/useAppraisals';
 import { useEmployees } from '../hooks/usePeople';
@@ -8,7 +8,7 @@ import {
   APPRAISAL_TYPE_LABEL,
   DEFAULT_COMPETENCIES,
   FORM_CRITERIA,
-  SCORING_MODE_LABEL,
+  FORM_RATINGS,
   statusLabel,
   stepsFor,
   td,
@@ -24,12 +24,11 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Field } from '../components/ui/Field';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
-import { Select } from '../components/ui/Select';
 import { MultiSelect } from '../components/ui/MultiSelect';
 import { TableSkeleton } from '../components/ui/TableSkeleton';
 import { useToast } from '../components/ui/Toast';
 import { AppraisalStatusPill, CycleStatusPill, OutcomeCell, ScoreCell } from '../components/people/AppraisalBits';
-import { FormRow, HeaderActions, TextArea } from '../components/people/FormBits';
+import { HeaderActions, TextArea } from '../components/people/FormBits';
 
 const slug = (s: string) =>
   s
@@ -50,33 +49,125 @@ function withKeys(list: Competency[]): Competency[] {
   });
 }
 
-const TYPE_OPTIONS = (['HALF_YEARLY', 'CONFIRMATION', 'YEARLY'] as AppraisalType[]).map((t) => ({ value: t, label: APPRAISAL_TYPE_LABEL[t] }));
-const MODE_OPTIONS = (['FORM_100', 'KPI_BLEND'] as ScoringMode[]).map((m) => ({ value: m, label: SCORING_MODE_LABEL[m] }));
+/** One choice in a group of cards (radio semantics), with a one-line explanation under its name. */
+function ChoiceCard({
+  name, checked, title, hint, badge, onSelect,
+}: {
+  name: string;
+  checked: boolean;
+  title: string;
+  hint: string;
+  badge?: string;
+  onSelect: () => void;
+}) {
+  return (
+    <label
+      className="cy-choice"
+      style={{
+        position: 'relative', display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer',
+        padding: '11px 12px', borderRadius: 'var(--radius)',
+        border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
+        background: checked ? 'var(--selected-bg)' : 'var(--surface)',
+        boxShadow: checked ? '0 0 0 3px var(--accent-soft)' : undefined,
+        transition: 'border-color 120ms, background 120ms',
+      }}
+    >
+      <input type="radio" name={name} checked={checked} onChange={onSelect} style={{ position: 'absolute', opacity: 0, pointerEvents: 'none' }} />
+      <span
+        aria-hidden
+        style={{
+          marginTop: 2, width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
+          border: checked ? '5px solid var(--accent)' : '1.5px solid var(--border-strong)', background: 'var(--surface)',
+          transition: 'border 120ms',
+        }}
+      />
+      <span style={{ minWidth: 0 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+          {title}
+          {badge && (
+            <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--accent-strong)', background: 'var(--accent-soft)', borderRadius: 999, padding: '1px 7px' }}>
+              {badge}
+            </span>
+          )}
+        </span>
+        <span style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.45 }}>{hint}</span>
+      </span>
+    </label>
+  );
+}
+
+const TYPE_CHOICES: { value: AppraisalType; hint: string }[] = [
+  { value: 'HALF_YEARLY', hint: 'January–June or July–December' },
+  { value: 'YEARLY', hint: 'The full calendar year' },
+  { value: 'CONFIRMATION', hint: 'At the end of probation' },
+];
+
+/** Quick picks: one click fills the name, type and dates. Built from today's date in Dhaka. */
+function periodPresets(today: string) {
+  const year = Number(today.slice(0, 4));
+  const firstHalf = Number(today.slice(5, 7)) <= 6;
+  const half = (y: number, h: 1 | 2) => ({
+    label: `H${h} ${y}`,
+    name: `H${h} ${y} half-yearly review`,
+    type: 'HALF_YEARLY' as AppraisalType,
+    start: h === 1 ? `${y}-01-01` : `${y}-07-01`,
+    end: h === 1 ? `${y}-06-30` : `${y}-12-31`,
+  });
+  const full = (y: number) => ({ label: `Full year ${y}`, name: `${y} yearly review`, type: 'YEARLY' as AppraisalType, start: `${y}-01-01`, end: `${y}-12-31` });
+  return firstHalf
+    ? [half(year, 1), half(year - 1, 2), full(year - 1)]
+    : [half(year, 2), half(year, 1), full(year)];
+}
+
+function monthsBetween(start: string, end: string): number | null {
+  if (!start || !end || start > end) return null;
+  const [ys, ms, ds] = start.split('-').map(Number);
+  const [ye, me, de] = end.split('-').map(Number);
+  return (ye - ys) * 12 + (me - ms) + (de >= ds - 1 ? 1 : 0);
+}
+
+const sectionTitle = { fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 8 } as const;
 
 function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreated: (c: CycleView) => void }) {
   const create = useCreateCycle();
-  const year = dhakaToday().slice(0, 4);
-  const [name, setName] = useState(`${year} review`);
-  const [periodStart, setPeriodStart] = useState(`${year}-01-01`);
-  const [periodEnd, setPeriodEnd] = useState(`${year}-12-31`);
-  const [type, setType] = useState<AppraisalType>('YEARLY');
+  const presets = periodPresets(dhakaToday());
+  const [preset, setPreset] = useState<string | null>(presets[0].label);
+  const [name, setName] = useState(presets[0].name);
+  const [periodStart, setPeriodStart] = useState(presets[0].start);
+  const [periodEnd, setPeriodEnd] = useState(presets[0].end);
+  const [type, setType] = useState<AppraisalType>(presets[0].type);
   const [mode, setMode] = useState<ScoringMode>('FORM_100');
   const [kpiWeight, setKpiWeight] = useState('70');
   const [competencies, setCompetencies] = useState<Competency[]>(FORM_CRITERIA.map((c) => ({ ...c })));
+  const [editing, setEditing] = useState<number | null>(null);
   const [formError, setFormError] = useState('');
   const form = mode === 'FORM_100';
+  const defaults = form ? FORM_CRITERIA : DEFAULT_COMPETENCIES;
+  const changed = JSON.stringify(competencies.map((c) => [c.label, c.description ?? ''])) !== JSON.stringify(defaults.map((c) => [c.label, c.description ?? '']));
+  const months = monthsBetween(periodStart, periodEnd);
+
+  function pick(p: (typeof presets)[number]) {
+    setPreset(p.label);
+    setName(p.name);
+    setType(p.type);
+    setPeriodStart(p.start);
+    setPeriodEnd(p.end);
+  }
 
   function switchMode(next: ScoringMode) {
     if (next === mode) return;
     setMode(next);
+    setEditing(null);
     // Each mode starts from its own defaults; the criteria are editable from there.
     setCompetencies((next === 'FORM_100' ? FORM_CRITERIA : DEFAULT_COMPETENCIES).map((c) => ({ ...c })));
   }
 
+  const setAt = (i: number, patch: Partial<Competency>) => setCompetencies(competencies.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+
   function submit() {
     const weight = Number(kpiWeight);
-    if (!name.trim()) return setFormError('Name the cycle.');
-    if (!periodStart || !periodEnd || periodStart > periodEnd) return setFormError('The period must start on or before it ends.');
+    if (!name.trim()) return setFormError('Give the cycle a name.');
+    if (!periodStart || !periodEnd || periodStart > periodEnd) return setFormError('The review period must start on or before it ends.');
     if (!form && (!Number.isInteger(weight) || weight < 0 || weight > 100)) return setFormError('KPI weight must be a whole number from 0 to 100.');
     const filled = competencies.filter((c) => c.label.trim());
     if (filled.length === 0) return setFormError(form ? 'Add at least one criterion.' : 'Add at least one competency.');
@@ -96,12 +187,13 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
   }
 
   const message = formError || (create.error ? (create.error as Error).message : '');
+  const noun = form ? 'criterion' : 'competency';
   return (
     <Modal
       onClose={onClose}
       title="New appraisal cycle"
-      subtitle="Created as a draft; launching it creates the appraisals."
-      width={form ? 680 : 560}
+      subtitle="Set up the review period and the form. Nobody is appraised until you launch it."
+      width={720}
       onSubmit={submit}
       footer={
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
@@ -119,104 +211,192 @@ function CreateCycleModal({ onClose, onCreated }: { onClose: () => void; onCreat
         </div>
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <Field label="Name" required>
-          <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
-        </Field>
-        <FormRow>
-          <Field label="Period start" required>
-            <Input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
-          </Field>
-          <Field label="Period end" required>
-            <Input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
-          </Field>
-        </FormRow>
-        <FormRow>
-          <Field label="Appraisal type" required>
-            <Select fullWidth options={TYPE_OPTIONS} value={type} onChange={(v) => setType(v as AppraisalType)} />
-          </Field>
-          <Field
-            label="Scoring"
-            required
-            hint={form ? 'The form’s 100 marks and A–F grade are the result; KPIs are shown as a reference.' : 'Legacy: KPIs blended with 1–5 competency ratings.'}
-          >
-            <Select fullWidth options={MODE_OPTIONS} value={mode} onChange={(v) => switchMode(v as ScoringMode)} />
-          </Field>
-        </FormRow>
-        {!form && (
-          <Field
-            label="KPI weight (%)"
-            required
-            hint={`KPIs count for ${kpiWeight || 0}% of the score, competencies for the other ${100 - (Number(kpiWeight) || 0)}%.`}
-          >
-            <Input type="number" min={0} max={100} value={kpiWeight} onChange={(e) => setKpiWeight(e.target.value)} />
-          </Field>
-        )}
-        <div>
-          <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>
-            {form
-              ? 'Criteria (the supervisor rates each Outstanding 10 · Good 8 · Fair 6 · Average 4 · Below Average 2)'
-              : 'Competencies (rated 1–5 by the lead)'}
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: form ? 10 : 6,
-              maxHeight: form ? 360 : undefined,
-              overflowY: form ? 'auto' : undefined,
-            }}
-          >
-            {competencies.map((c, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-                {/* Input's own wrapper doesn't grow in a flex row; without this the label is cut off. */}
-                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <Input
-                    aria-label={`${form ? 'Criterion' : 'Competency'} ${i + 1}`}
-                    value={c.label}
-                    maxLength={120}
-                    onChange={(e) => setCompetencies(competencies.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
-                  />
-                  {form && (
-                    <TextArea
-                      aria-label={`Criterion ${i + 1} description`}
-                      value={c.description ?? ''}
-                      maxLength={1000}
-                      rows={2}
-                      placeholder="What this criterion measures"
-                      onChange={(e) => setCompetencies(competencies.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))}
-                    />
-                  )}
-                </div>
-                <Button
+      <style>{`
+        .cy-choice:hover { border-color: var(--border-strong); }
+        .cy-choice:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .cy-chip:hover { border-color: var(--accent) !important; }
+        .cy-chip:focus-visible, .cy-crit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+        .cy-crit:hover { background: var(--hover) !important; }
+      `}</style>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+        <section>
+          <div style={sectionTitle}>Review period</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }} role="group" aria-label="Quick picks">
+            {presets.map((p) => {
+              const on = preset === p.label;
+              return (
+                <button
+                  key={p.label}
                   type="button"
-                  variant="ghost"
-                  size="iconSm"
-                  aria-label={`Remove ${form ? 'criterion' : 'competency'} ${i + 1}`}
-                  onClick={() => setCompetencies(competencies.filter((_, j) => j !== i))}
+                  className="cy-chip"
+                  aria-pressed={on}
+                  onClick={() => pick(p)}
+                  style={{
+                    all: 'unset', cursor: 'pointer', fontSize: 12.5, fontWeight: 500, padding: '5px 12px', borderRadius: 999,
+                    border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+                    background: on ? 'var(--accent-soft)' : 'var(--surface)',
+                    color: on ? 'var(--accent-strong)' : 'var(--text)',
+                  }}
                 >
-                  <Trash2 size={14} />
-                </Button>
-              </div>
+                  {p.label}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 190px), 1fr))', gap: 12 }}>
+            <Field label="Name" required>
+              <Input value={name} onChange={(e) => { setName(e.target.value); setPreset(null); }} maxLength={120} />
+            </Field>
+            <Field label="From" required>
+              <Input type="date" value={periodStart} onChange={(e) => { setPeriodStart(e.target.value); setPreset(null); }} />
+            </Field>
+            <Field label="To" required hint={months ? `${months} month${months === 1 ? '' : 's'}` : undefined}>
+              <Input type="date" value={periodEnd} onChange={(e) => { setPeriodEnd(e.target.value); setPreset(null); }} />
+            </Field>
+          </div>
+        </section>
+
+        <section>
+          <div style={sectionTitle}>Appraisal type</div>
+          <div role="radiogroup" aria-label="Appraisal type" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 190px), 1fr))', gap: 8 }}>
+            {TYPE_CHOICES.map((t) => (
+              <ChoiceCard
+                key={t.value} name="cycle-type" checked={type === t.value}
+                title={APPRAISAL_TYPE_LABEL[t.value]} hint={t.hint}
+                onSelect={() => { setType(t.value); setPreset(null); }}
+              />
             ))}
           </div>
-          <div style={{ marginTop: 8 }}>
+        </section>
+
+        <section>
+          <div style={sectionTitle}>How it’s scored</div>
+          <div role="radiogroup" aria-label="Scoring" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 8 }}>
+            <ChoiceCard
+              name="cycle-mode" checked={form} title="Company appraisal form" badge="Recommended"
+              hint="Supervisor rates each criterion out of 10. Total out of 100 with grade A–F; KPIs shown alongside."
+              onSelect={() => switchMode('FORM_100')}
+            />
+            <ChoiceCard
+              name="cycle-mode" checked={!form} title="KPI blend"
+              hint="Older method: KPIs blended with 1–5 competency ratings into a score out of 5."
+              onSelect={() => switchMode('KPI_BLEND')}
+            />
+          </div>
+          {!form && (
+            <div style={{ marginTop: 12, maxWidth: 260 }}>
+              <Field label="KPI weight (%)" required hint={`KPIs ${kpiWeight || 0}%, competencies ${100 - (Number(kpiWeight) || 0)}%`}>
+                <Input type="number" min={0} max={100} value={kpiWeight} onChange={(e) => setKpiWeight(e.target.value)} />
+              </Field>
+            </div>
+          )}
+        </section>
+
+        <section>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 4 }}>
+            <div style={{ ...sectionTitle, marginBottom: 0 }}>
+              {form ? 'Criteria' : 'Competencies'}
+              <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}> · {competencies.length}</span>
+            </div>
+            {changed && (
+              <Button type="button" size="sm" variant="ghost" onClick={() => { setCompetencies(defaults.map((c) => ({ ...c }))); setEditing(null); }}>
+                {form ? 'Restore company criteria' : 'Restore defaults'}
+              </Button>
+            )}
+          </div>
+          {form ? (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+              Rated
+              {FORM_RATINGS.map((r) => (
+                <span key={r.value} style={{ border: '1px solid var(--border)', borderRadius: 999, padding: '1px 8px', background: 'var(--surface-alt)' }}>
+                  {r.label} <b style={{ color: 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>{r.value}</b>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>Rated 1–5 by the lead.</div>
+          )}
+
+          <ol style={{ listStyle: 'none', margin: 0, padding: 0, border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+            {competencies.map((c, i) => {
+              const open = editing === i || !c.label.trim();
+              return (
+                <li key={i} style={{ borderTop: i === 0 ? undefined : '1px solid var(--border-soft)' }}>
+                  {open ? (
+                    <div style={{ display: 'flex', gap: 10, padding: '10px 12px', background: 'var(--surface-alt)' }}>
+                      <span style={{ width: 20, paddingTop: 7, fontSize: 12, color: 'var(--text-faint)', fontVariantNumeric: 'tabular-nums', textAlign: 'right', flexShrink: 0 }}>{i + 1}</span>
+                      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <Input
+                          autoFocus={editing === i}
+                          aria-label={`${noun} ${i + 1} name`}
+                          placeholder={form ? 'Criterion name, e.g. Teamwork' : 'Competency name'}
+                          value={c.label}
+                          maxLength={120}
+                          onChange={(e) => setAt(i, { label: e.target.value })}
+                        />
+                        {form && (
+                          <TextArea
+                            aria-label={`Criterion ${i + 1} description`}
+                            value={c.description ?? ''}
+                            maxLength={1000}
+                            rows={3}
+                            placeholder="What the supervisor should look for"
+                            onChange={(e) => setAt(i, { description: e.target.value })}
+                          />
+                        )}
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          <Button type="button" size="sm" variant="ghost" icon={<Trash2 size={13} />} onClick={() => { setCompetencies(competencies.filter((_, j) => j !== i)); setEditing(null); }}>
+                            Remove
+                          </Button>
+                          {c.label.trim() && (
+                            <Button type="button" size="sm" onClick={() => setEditing(null)}>
+                              Done
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="cy-crit"
+                      onClick={() => setEditing(i)}
+                      title={`Edit ${c.label}`}
+                      style={{ all: 'unset', boxSizing: 'border-box', cursor: 'pointer', width: '100%', display: 'flex', gap: 10, padding: '9px 12px' }}
+                    >
+                      <span style={{ width: 20, fontSize: 12, color: 'var(--text-faint)', fontVariantNumeric: 'tabular-nums', textAlign: 'right', flexShrink: 0, paddingTop: 1 }}>{i + 1}</span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{c.label}</span>
+                        {c.description && (
+                          <span style={{ display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden', fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>
+                            {c.description}
+                          </span>
+                        )}
+                      </span>
+                      <Pencil size={13} style={{ color: 'var(--text-faint)', flexShrink: 0, marginTop: 3 }} aria-hidden />
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
             <Button
               type="button"
               size="sm"
               icon={<Plus size={13} />}
               disabled={competencies.length >= 12}
-              onClick={() => setCompetencies([...competencies, { key: '', label: '' }])}
+              onClick={() => { setCompetencies([...competencies, { key: '', label: '' }]); setEditing(competencies.length); }}
             >
               {form ? 'Add criterion' : 'Add competency'}
             </Button>
+            {form && competencies.length !== 10 && (
+              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                With {competencies.length} criteria the total is scaled to 100.
+              </span>
+            )}
           </div>
-          {form && competencies.length !== 10 && (
-            <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>
-              With {competencies.length} criteria the total is normalised to 100 (sum ÷ (10 × {competencies.length}) × 100).
-            </div>
-          )}
-        </div>
+        </section>
       </div>
     </Modal>
   );
