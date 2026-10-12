@@ -87,8 +87,8 @@ const COLUMNS: Column<DirectoryRow>[] = [
     render: (r) => (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
         <EmployeeStatusPill status={r.status} />
-        {/* Only while incomplete: a finished checklist is not news. */}
-        {r.onboarding && r.onboarding.resolved < r.onboarding.total && (
+        {/* Only while incomplete, and not for leavers (their checklist is read-only). */}
+        {r.status !== 'EXITED' && r.onboarding && r.onboarding.resolved < r.onboarding.total && (
           <span title="Joining checklist: items done or not applicable, of the total">
             <Pill tone="amber" size="xs">
               Onboarding {r.onboarding.resolved}/{r.onboarding.total}
