@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, CalendarPlus, Pencil, UserX } from 'lucide-react';
+import { ArrowLeft, CalendarPlus, History, Pencil, UserX } from 'lucide-react';
 import type { EmployeeSummary, ScoredKpi } from '../api/people';
 import {
   useAddEmploymentEvent,
@@ -9,6 +9,7 @@ import {
   useUpdateEmployee,
 } from '../hooks/usePeople';
 import { useTeams } from '../hooks/useTeams';
+import { usePastRecordMutations } from '../hooks/usePastRecords';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import {
   BAND_LABEL,
@@ -39,6 +40,8 @@ import { EmployeeAppraisalsTab } from '../components/people/EmployeeAppraisalsTa
 import { EmployeeOnboardingTab } from '../components/people/EmployeeOnboardingTab';
 import { StartOffboardingButton } from '../components/people/StartOffboardingButton';
 import { EmployeeFormModal } from '../components/people/EmployeeFormModal';
+import { PastRecordModal, type PastRecordTarget } from '../components/people/PastRecordModal';
+import { Modal } from '../components/ui/Modal';
 import { APPRAISAL_TYPE_PHRASE, monthsText, takaText } from '../lib/appraisals';
 import { HeaderActions } from '../components/people/FormBits';
 import { KpiTile } from '../components/people/KpiTile';
@@ -160,12 +163,16 @@ export function EmployeeDetailPage() {
   const tab: TabValue = requestedTab && TABS.includes(requestedTab) ? requestedTab : 'overview';
   const [editing, setEditing] = useState(false);
   const [addingEvent, setAddingEvent] = useState(false);
+  // undefined: closed; null: adding a new past record; else the record being edited.
+  const [pastTarget, setPastTarget] = useState<PastRecordTarget | undefined>(undefined);
+  const [deletingPast, setDeletingPast] = useState<{ recordId: string; label: string } | null>(null);
 
   const summaryQuery = useEmployeeSummary(id);
   const teams = useTeams();
   const directory = useEmployees({});
   const update = useUpdateEmployee(id ?? '');
   const addEvent = useAddEmploymentEvent(id ?? '');
+  const past = usePastRecordMutations(id ?? '');
 
   const teamOptions = useMemo(
     () => (teams.data ?? []).map((t) => ({ value: t.id, label: t.name })),
@@ -319,7 +326,11 @@ export function EmployeeDetailPage() {
       ) : tab === 'documents' ? (
         <EmployeeDocumentsTab employeeId={e.id} readOnly={readOnly} />
       ) : tab === 'appraisals' ? (
-        <EmployeeAppraisalsTab employeeId={e.id} />
+        <EmployeeAppraisalsTab
+          employeeId={e.id}
+          onEditPast={readOnly ? undefined : (a) => setPastTarget({ kind: 'appraisal', appraisal: a })}
+          onDeletePast={readOnly ? undefined : (a) => setDeletingPast({ recordId: a.id, label: `the ${formatDate(a.conductedOn)} paper appraisal` })}
+        />
       ) : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 230px), 1fr))', gap: 12 }}>
@@ -381,13 +392,22 @@ export function EmployeeDetailPage() {
               title="Career timeline"
               action={
                 readOnly ? undefined : (
-                  <Button size="sm" variant="ghost" icon={<CalendarPlus size={12} />} onClick={() => setAddingEvent(true)}>
-                    Add event
-                  </Button>
+                  <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <Button size="sm" variant="ghost" icon={<History size={12} />} onClick={() => setPastTarget(null)}>
+                      Add past record
+                    </Button>
+                    <Button size="sm" variant="ghost" icon={<CalendarPlus size={12} />} onClick={() => setAddingEvent(true)}>
+                      Add event
+                    </Button>
+                  </span>
                 )
               }
             >
-              <CareerTimeline events={summary.events} />
+              <CareerTimeline
+                events={summary.events}
+                onEdit={readOnly ? undefined : (ev) => setPastTarget({ kind: 'event', event: ev })}
+                onDelete={readOnly ? undefined : (ev) => setDeletingPast({ recordId: `event:${ev.id}`, label: `this ${formatDate(ev.effectiveDate)} record` })}
+              />
             </Card>
           </div>
 
@@ -459,6 +479,77 @@ export function EmployeeDetailPage() {
             })
           }
         />
+      )}
+      {pastTarget !== undefined && !readOnly && (
+        <PastRecordModal
+          employee={e}
+          teams={teamOptions}
+          target={pastTarget}
+          pending={past.add.isPending || past.update.isPending}
+          error={
+            past.add.isError ? (past.add.error as Error).message : past.update.isError ? (past.update.error as Error).message : null
+          }
+          onClose={() => {
+            setPastTarget(undefined);
+            past.add.reset();
+            past.update.reset();
+          }}
+          onSubmit={(body) => {
+            const done = {
+              onSuccess: () => {
+                setPastTarget(undefined);
+                toast.success(pastTarget ? 'Past record updated.' : 'Past record added. The profile follows the whole history.');
+              },
+            };
+            if (pastTarget === null) past.add.mutate(body, done);
+            else
+              past.update.mutate(
+                { recordId: pastTarget.kind === 'event' ? `event:${pastTarget.event.id}` : pastTarget.appraisal.id, body },
+                done,
+              );
+          }}
+        />
+      )}
+      {deletingPast && !readOnly && (
+        <Modal
+          onClose={() => {
+            setDeletingPast(null);
+            past.remove.reset();
+          }}
+          title="Delete this past record?"
+          width={440}
+          footer={
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+              {past.remove.isError && (
+                <span role="alert" style={{ marginRight: 'auto', color: 'var(--red)', fontSize: 12 }}>
+                  {(past.remove.error as Error).message}
+                </span>
+              )}
+              <Button variant="ghost" onClick={() => setDeletingPast(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                loading={past.remove.isPending}
+                onClick={() =>
+                  past.remove.mutate(deletingPast.recordId, {
+                    onSuccess: () => {
+                      setDeletingPast(null);
+                      toast.success('Past record deleted.');
+                    },
+                  })
+                }
+              >
+                Delete
+              </Button>
+            </div>
+          }
+        >
+          <p style={{ fontSize: 13, margin: 0, lineHeight: 1.5 }}>
+            Delete {deletingPast.label}? The employee’s status, designation, team and gross salary are worked out again
+            from the rest of their history. Records the system made itself are not affected.
+          </p>
+        </Modal>
       )}
       {addingEvent && !readOnly && (
         <AddEventModal

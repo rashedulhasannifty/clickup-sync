@@ -130,6 +130,9 @@ const DocumentsPage = React.lazy(() =>
 const ExitsPage = React.lazy(() =>
 	import('./pages/ExitsPage').then((m) => ({ default: m.ExitsPage })),
 );
+const PastRecordsImportPage = React.lazy(() =>
+	import('./pages/PastRecordsImportPage').then((m) => ({ default: m.PastRecordsImportPage })),
+);
 const ExitPage = React.lazy(() =>
 	import('./pages/ExitPage').then((m) => ({ default: m.ExitPage })),
 );
@@ -396,6 +399,14 @@ export default function App() {
 											element={
 												<RequireRole min="ADMIN" redirect="/overview">
 													<SuspenseRoute><DocumentsPage /></SuspenseRoute>
+												</RequireRole>
+											}
+										/>
+										<Route
+											path="/people/past-records"
+											element={
+												<RequireRole min="ADMIN" redirect="/overview">
+													<SuspenseRoute><PastRecordsImportPage /></SuspenseRoute>
 												</RequireRole>
 											}
 										/>

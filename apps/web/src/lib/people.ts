@@ -217,6 +217,7 @@ export const EVENT_LABEL: Record<EmploymentEventTypeValue, string> = {
   INCREMENT: 'Salary increment',
   PROBATION_STARTED: 'Moved to probation',
   INTERNSHIP_EXTENDED: 'Internship extended',
+  JOINED_AS_INTERN: 'Joined as intern',
 };
 
 /** Order shown in the "Add event" picker. `JOINED`, `NOTICE_GIVEN` and `EXITED` are not hand-addable. */

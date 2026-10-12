@@ -26,12 +26,19 @@ export type EmploymentEventTypeValue =
   /** An intern moved to probation: the effective date is the probation start. */
   | 'PROBATION_STARTED'
   /** from/to: the old/new internship end date (YYYY-MM-DD). */
-  | 'INTERNSHIP_EXTENDED';
+  | 'INTERNSHIP_EXTENDED'
+  /** Past records only: joined as an intern. */
+  | 'JOINED_AS_INTERN';
+/** APP: recorded by this system. PAST_RECORD: history entered by HR ("From records"). */
+export type EventSourceValue = 'APP' | 'PAST_RECORD';
 /**
  * `JOINED` is written by creating the employee; `NOTICE_GIVEN` and `EXITED` by the offboarding
  * flow; `INCREMENT` by an approved appraisal. None of them can be added by hand.
  */
-export type ManualEventType = Exclude<EmploymentEventTypeValue, 'JOINED' | 'NOTICE_GIVEN' | 'EXITED' | 'INCREMENT'>;
+export type ManualEventType = Exclude<
+  EmploymentEventTypeValue,
+  'JOINED' | 'NOTICE_GIVEN' | 'EXITED' | 'INCREMENT' | 'JOINED_AS_INTERN'
+>;
 export type LeaveTypeValue = 'SICK' | 'CASUAL' | 'ANNUAL' | 'UNPAID' | 'OTHER';
 export type LeaveStatusValue = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 
@@ -182,6 +189,8 @@ export type EmploymentEventView = {
   notes: string | null;
   createdByName: string | null;
   createdAt: string;
+  /** PAST_RECORD events can be edited and deleted (as `event:<id>`); APP events never. */
+  source: EventSourceValue;
 };
 
 export type SummaryHours = {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, RefreshCw, Search, UserPlus, Users } from 'lucide-react';
+import { History, Plus, RefreshCw, Search, UserPlus, Users } from 'lucide-react';
 import type { DirectoryRow, EmployeeStatusValue } from '../api/people';
 import {
   useCreateEmployee,
@@ -191,6 +191,9 @@ export function EmployeesPage() {
               }
             >
               Import from users
+            </Button>
+            <Button size="md" variant="subtle" icon={<History size={13} />} onClick={() => navigate('/people/past-records')}>
+              Import past records
             </Button>
             <Button size="md" variant="accent" icon={<Plus size={13} />} onClick={() => setAdding(true)}>
               Add employee
