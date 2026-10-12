@@ -469,6 +469,132 @@ approval date. When backdated, the page and the PDF say "Effective from 15 Jan
 show the whole months of arrears between the effective date and the approval
 date, as information only (no money is computed).
 
+### Intern lifecycle (0034)
+
+Decided with the product owner 2026-10-12. The company lifecycle is **Intern
+(3–4 months, varies per person) → Probation (6 months) → Confirmation
+(permanent) → a Yearly appraisal every year, counted from the PROBATION START
+date**. Most cycles are yearly; each appraisal can recommend promotion,
+increment, both, or other actions. Example: intern from 1 Jan 2025, probation
+from 1 Apr 2025, confirmation due 1 Oct 2025, yearly appraisals due 1 Apr
+2026, 1 Apr 2027, …
+
+Migration `0034_intern_lifecycle` (additive; no statement uses a value added
+in the same migration):
+
+- `EmployeeStatus` gains `INTERN`; `EmploymentEventType` gains
+  `PROBATION_STARTED` and `INTERNSHIP_EXTENDED`; `AppraisalType` gains
+  `INTERNSHIP`; a new enum `InternshipOutcome` `MOVE_TO_PROBATION |
+  EXTEND_INTERNSHIP | END_INTERNSHIP`.
+- `employees.probation_start_date` (DATE, nullable; **every existing row
+  backfilled to `join_date`**, so nobody's schedule moved; the app reads null
+  as the join date, except for an intern, who has not started probation) and
+  `employees.internship_end_date` (DATE, nullable: the expected internship
+  end).
+- `appraisals.internship_outcome`, `proposed_probation_start`,
+  `proposed_internship_end`. The internship recommendation is a separate
+  single-value column, not new `AppraisalAction` values: "exactly one" is a
+  scalar, and the two sets can never be offered on the wrong kind of review.
+
+**The schedule anchor is the probation start** (`anchorOf` in
+`appraisal-schedule.ts`: `probationStartDate ?? joinDate`). CONFIRMATION is
+anchor + 6 months, YEARLY anchor + 12k months, HALF_YEARLY anchor + 6k months
+(k ≥ 2); review periods never start before the anchor, so an intern's
+internship months are not part of their first yearly review. Overdue,
+"already appraised", `nextDue` and the explicit-launch fallback all count from
+the anchor. Everything in the 0032/0033 sections above that says "join date"
+for these three types now means the anchor.
+
+**Interns** are never in scope for confirmation, yearly or half-yearly
+reviews (`inScope`, `overdueFor`, `overdueAppraisals`, `nextDue`); their only
+schedule is the **internship review**:
+
+- **Due** on `internshipEndDate`, else join + 3 months (`addMonthsClamped`, no
+  day subtracted: joined 1 Jan → due 1 Apr). It is the type's one milestone
+  for the due / overdue / coming-up groups and for launch; overdue has no
+  lookback (it is still owed while an intern, like the confirmation on
+  probation). Only INTERN employees; an explicit pick of a non-intern for an
+  internship cycle is reported in `notDue` as `NOT_AN_INTERN`, an intern picked
+  for any other type as `STILL_INTERN`.
+- **Reviews** join date → the day before the due date. After an extension it
+  reviews the previous end date → the day before the new end date. The
+  previous end is the latest `INTERNSHIP_EXTENDED` event's `fromValue`
+  (written by the server, never typed). "Already reviewed" is per term: an
+  internship review covers the current term when its due date is after that
+  previous end (before any extension, any internship review covers it), so a
+  nudged due date on the current review never looks like an old one.
+- **Cycles:** an INTERNSHIP cycle must be FORM_100 and JOIN_DATE (400
+  otherwise, on create and update). It starts with six criteria, each with a
+  one-sentence description, editable until launch (`INTERNSHIP_CRITERIA`):
+  Learning ability, Job knowledge, Quality of work, Communication, Attendance
+  & discipline, Attitude & teamwork. Ratings 2/4/6/8/10, the total normalised
+  to 100 and the A–F grade, as on the form.
+- **Workflow** (`flowOf(scoringMode, type)` → `stepsFor`, `nextStatus`,
+  `previousStatus`, `editableFields`): SELF_REVIEW (optional) → LEAD_REVIEW
+  (supervisor: ratings, comment, `internshipOutcome` and its date) →
+  HR_REVIEW (HR comment, `approvalDecision`, `approvalComment`) → SIGNED_OFF.
+  No department head or CTO/COO step; `actions`, increment, promotion and the
+  effective-date choice are never editable on an internship review, and the
+  internship fields never on any other.
+- **Recommendation** (exactly one). MOVE_TO_PROBATION needs a probation start
+  on or after the join date; choosing it without a date defaults it to the day
+  after the due date. EXTEND_INTERNSHIP needs a new end date later than the
+  current one. END_INTERNSHIP needs nothing. A date for the other outcome is a
+  400, and switching outcome clears the other date. Leaving LEAD_REVIEW and
+  HR_REVIEW is blocked by an unrated criterion or an incomplete or invalid
+  recommendation (re-checked against the employee's internship end as it is
+  now); HR_REVIEW also needs the decision.
+- **Outcome**, applied once (`outcomeAppliedAt`), only when HR APPROVED and the
+  employee is still an INTERN (`internshipOutcomePlan`):
+  MOVE_TO_PROBATION writes `PROBATION_STARTED` dated the chosen probation
+  start (status → PROBATION, `probation_start_date` set; the confirmation is
+  then due 6 months later). EXTEND_INTERNSHIP writes `INTERNSHIP_EXTENDED`
+  (from/to = old/new end date, dated the sign-off date) and sets
+  `internship_end_date`; a new internship review falls due then. It is skipped
+  once the end date already is the new one, so a retry never extends twice.
+  END_INTERNSHIP writes nothing: the page shows "Start offboarding", as for a
+  termination. The stored effective date is the probation start for an
+  approved move, else the sign-off date; the view's `effective` is null.
+- **Not shown** on an internship review: the KPI reference card, salary and
+  experience rows, increment, promotion and the evaluation-metrics policy line.
+  The KPI snapshot is still computed in the background, unused.
+- **PDF:** "Internship Review" in the same style (header without salary, the
+  criteria table, total and grade, the single recommendation with its date,
+  supervisor and HR blocks, HR decision), filed as `APPRAISAL /
+  APPRAISAL_FORM` ("Internship review - <name> - <cycle>.pdf").
+
+**Employees.**
+
+- Create accepts `status` `INTERN | PROBATION | ACTIVE` (default PROBATION).
+  An INTERN gets `internshipEndDate` (default join + 3 months; must be after the
+  join date) and no probation start; PROBATION/ACTIVE get `probationStartDate`
+  (default the join date; not before it) and may not send an internship end.
+  Import-from-users (ACTIVE) gets the join date as its probation start too.
+- Edit never changes the status. It may correct an intern's internship end, or
+  anyone else's probation start (`null` resets it to the join date); the other
+  one is a 400. A probation start that equalled the join date moves with a
+  corrected join date, so fixing a join date moves the schedule as it did
+  before 0034.
+- Manual events: **Moved to probation** (`PROBATION_STARTED`, effective date =
+  probation start, only from INTERN, not before joining) and **Internship
+  extended** (`INTERNSHIP_EXTENDED`, toValue = the new end date, only for an
+  INTERN, later than the current end; fromValue is always the current end).
+  `CONFIRMED` is refused for an INTERN (`eventPreconditionError`, also applied
+  to appraisal outcomes).
+- Profile: `probationStartDate` (null for an intern), `internshipEndDate`
+  (never null for an intern). `GET /people/employees?status=INTERN` filters.
+- Offboarding an intern and cancelling it puts them back to INTERN.
+- UI: an "Intern" status pill (purple) and directory filter; the employee page
+  shows the stage in one chip ("Intern since 1 Jan 2026 · internship ends 31
+  Mar 2026", "Probation since 1 Apr 2026 · confirmation due 1 Oct 2026",
+  "Permanent since 1 Oct 2026"), "Next appraisal: Internship review due 31 Mar
+  2026" for an intern, and the probation start on the Overview tab. The create
+  cycle dialog defaults to Yearly, orders the types Yearly, Confirmation,
+  Internship review, Half-yearly (marked less common), uses the probation-start
+  wording, and swaps in the internship criteria when Internship review is
+  chosen (internship reviews are join-date and form-only, so the dialog hides
+  them for calendar cycles and hides KPI blend for them).
+
 ### The form (FORM_100)
 
 - **Rating scale:** Outstanding 10, Good 8, Fair 6, Average 4, Below
@@ -633,6 +759,10 @@ shows type, marks/score and grade, recommendations and status.
   Training / Transfer); the policy line only proposes.
 - A CONFIRM skipped because the employee was not on probation is visible on
   the employee's timeline (no CONFIRMED event), not called out on the form.
+  Likewise an internship outcome skipped because the employee is no longer an
+  intern.
+- Interns on NOTICE are scheduled like anyone else on notice (from the join
+  date, since no probation start is stored); harmless in practice.
 
 ## Slice 4 — exit
 
