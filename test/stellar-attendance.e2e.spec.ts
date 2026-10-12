@@ -9,6 +9,7 @@ import { PrismaService } from '../src/database/prisma.service';
 import { DocumentsService } from '../src/documents/documents.service';
 import { AttendanceRepository } from '../src/people/attendance.repository';
 import { EmployeesService } from '../src/people/employees.service';
+import { PeopleAttendanceService } from '../src/people/people-attendance.service';
 import { dhakaInstant } from '../src/people/people-dates';
 import { ShiftsService } from '../src/people/shifts.service';
 import { StellarImportService } from '../src/people/stellar/stellar-import.service';
@@ -114,6 +115,15 @@ describe('Stellar HRM import (e2e)', () => {
     expect(rows[1]).toMatchObject({ sessions: 0, firstIn: null });
     const leaves = await prisma.leaveRecord.findMany({ where: { employeeId: alphaId } });
     expect(leaves.map((l) => l.source)).toEqual(['manual']);
+
+    // The page header's "Stellar HRM import, 6 Jul - 8 Jul" comes from the coverage query.
+    const today = await app.get(PeopleAttendanceService).today(orgId);
+    expect(today.coverage).toEqual(
+      expect.arrayContaining([{ source: 'stellar-csv', from: '2026-07-06', to: '2026-07-07', rows: 2 }]),
+    );
+    expect(today.coverage).toEqual(
+      expect.arrayContaining([{ source: 'stellar-api', from: '2026-07-08', to: '2026-07-08', rows: 1 }]),
+    );
 
     const again = await importer.importAttendance(orgId, file(ATT()), false);
     expect(again.applied).toEqual({ deleted: 2, inserted: 2, leavesDeleted: 0 });

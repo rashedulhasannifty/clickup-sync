@@ -267,9 +267,14 @@ export class AttendanceRepository {
   /** Per-source date span of the org's attendance rows, newest data first. */
   async coverage(orgId: string): Promise<SourceCoverage[]> {
     const rows = await this.prisma.$queryRaw<
-      { source: AttendanceSource; from: Date; to: Date; rows: bigint }[]
+      { source: AttendanceSource; from: string; to: string; rows: number }[]
     >`
-      SELECT a.source, min(a.date) AS "from", max(a.date) AS "to", count(*) AS "rows"
+      -- Dates as text and the enum/count cast explicitly, like people-metrics:
+      -- the driver adapter's raw DATE/BIGINT/enum types are not relied on.
+      SELECT a.source::text AS source,
+             to_char(min(a.date), 'YYYY-MM-DD') AS "from",
+             to_char(max(a.date), 'YYYY-MM-DD') AS "to",
+             count(*)::int AS "rows"
       FROM attendance_days a
       JOIN employees e ON e.id = a.employee_id
       WHERE e.org_id = ${orgId}
@@ -277,8 +282,8 @@ export class AttendanceRepository {
       ORDER BY max(a.date) DESC`;
     return rows.map((r) => ({
       source: r.source,
-      from: dateColumnToIso(r.from),
-      to: dateColumnToIso(r.to),
+      from: r.from,
+      to: r.to,
       rows: Number(r.rows),
     }));
   }
