@@ -30,6 +30,7 @@ import {
   type AppraisalOnRecord,
   type OverdueEmployee,
 } from './appraisal-schedule';
+import { pastAppraisalOnRecord } from '../people/employee-mapper';
 
 describe('addMonthsClamped', () => {
   it('adds months, crossing year ends both ways', () => {
@@ -850,5 +851,44 @@ describe('interns and the internship review (0034)', () => {
     expect(
       dueDateTaken(intern(), 'INTERNSHIP', '2026-06-01', others),
     ).toBeNull();
+  });
+});
+
+describe('past (paper) appraisals count as already appraised (0035)', () => {
+  // Imported from logins: anchored on 1 May 2024, confirmed long ago, never appraised here.
+  const base = {
+    joinDate: '2024-05-01',
+    status: 'ACTIVE' as const,
+    probationStartDate: '2024-05-01',
+    confirmationDate: null,
+  };
+  const today = '2026-10-12';
+  const paper = (type: AppraisalOnRecord['type'], conductedOn: string, dueDate: string | null = null) =>
+    pastAppraisalOnRecord({ type, conductedOn, dueDate });
+
+  it('stands for its due date, else the date it was conducted', () => {
+    expect(paper('YEARLY', '2026-05-10')).toEqual({ type: 'YEARLY', dueDate: '2026-05-10', periodEnd: '2026-05-09' });
+    expect(paper('YEARLY', '2026-08-01', '2026-05-01').dueDate).toBe('2026-05-01');
+  });
+
+  it('removes the overdue entry for the milestone nearest it', () => {
+    expect(overdueAppraisals({ ...base, appraisals: [] }, today).map((d) => [d.type, d.dueDate])).toEqual([
+      ['YEARLY', '2026-05-01'],
+    ]);
+    expect(overdueAppraisals({ ...base, appraisals: [paper('YEARLY', '2026-05-10')] }, today)).toEqual([]);
+    // On the anniversary a paper half-yearly covers the yearly too.
+    expect(overdueAppraisals({ ...base, appraisals: [paper('HALF_YEARLY', '2026-04-25')] }, today)).toEqual([]);
+  });
+
+  it('prevents re-launching that due date, and bounds the overdue lookback', () => {
+    const e = { ...base, appraisals: [paper('YEARLY', '2026-05-10')] };
+    expect(isDueCovered(e, 'YEARLY', '2026-05-01')).toBe(true);
+    expect(dueDateTaken(e, 'YEARLY', '2026-05-03', e.appraisals)).toBe('2026-05-01');
+    // The default launch of a yearly cycle over May 2026 leaves them out.
+    const groups = selectDue([e], 'YEARLY', { from: '2026-05-01', to: '2026-05-31', today });
+    expect([...groups.due, ...groups.overdue]).toEqual([]);
+    // An older paper appraisal (2025) leaves the 2026 milestone overdue: it is after the last one.
+    const older = { ...base, appraisals: [paper('YEARLY', '2025-05-02')] };
+    expect(overdueFor(older, 'YEARLY', today, today)?.dueDate).toBe('2026-05-01');
   });
 });

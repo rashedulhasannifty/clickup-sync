@@ -101,6 +101,10 @@ export function eventEffects(args: {
       return toValue && teamResolves ? { teamId: toValue } : {};
     case 'PROBATION_STARTED':
       return { status: 'PROBATION', probationStartDate: effectiveDate };
+    case 'JOINED_AS_INTERN':
+      // Past records only. The join date and the cleared probation/confirmation dates are the
+      // history fold's job (`foldEmployeeHistory`), which is the only path that replays it.
+      return { status: 'INTERN' };
     case 'INTERNSHIP_EXTENDED':
       return isDateOnly(toValue) ? { internshipEndDate: toValue } : {};
     case 'INCREMENT':

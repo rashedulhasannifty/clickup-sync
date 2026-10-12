@@ -807,6 +807,16 @@ enum EmploymentEventType {
   PROBATION_STARTED
   /// An internship extended (0034): from/to are the old/new internship end dates (YYYY-MM-DD).
   INTERNSHIP_EXTENDED
+  /// Joined as an intern (0035, past records only): sets the join date and status INTERN.
+  JOINED_AS_INTERN
+}
+
+/// Where an employment event came from (0035). APP: written by this system (every row before
+/// 0035). PAST_RECORD: history before the system, entered by HR (import or "Add past record");
+/// only these can be edited or deleted, and the employee is re-derived by folding every event.
+enum EventSource {
+  APP
+  PAST_RECORD
 }
 
 enum LeaveType {
@@ -860,6 +870,10 @@ model Employee {
   startingSalary                Int?           @map("starting_salary")
   /// Present gross salary, whole taka (BDT). An INCREMENT event moves it.
   grossSalary                   Int?           @map("gross_salary")
+  /// Internal (0035), never in a view: per field group, the values this row had before the
+  /// group's first past record, so deleting the last past record of a group restores them.
+  /// Holds a salary: never logged.
+  pastRecordsBaseline           Json?          @map("past_records_baseline")
   createdAt                     DateTime       @default(now()) @map("created_at")
   updatedAt                     DateTime       @default(now()) @updatedAt @map("updated_at")
 
@@ -869,14 +883,15 @@ model Employee {
   manager Employee?    @relation("EmployeeManager", fields: [managerId], references: [id], onDelete: SetNull)
   reports Employee[]   @relation("EmployeeManager")
 
-  events      EmploymentEvent[]
-  attendances AttendanceDay[]
-  leaves      LeaveRecord[]
-  documents   EmployeeDocument[]
-  appraisals  Appraisal[]        @relation("AppraisalEmployee")
-  reviewing   Appraisal[]        @relation("AppraisalReviewer")
-  exits       EmployeeExit[]
-  onboarding  OnboardingItem[]
+  events         EmploymentEvent[]
+  attendances    AttendanceDay[]
+  leaves         LeaveRecord[]
+  documents      EmployeeDocument[]
+  appraisals     Appraisal[]        @relation("AppraisalEmployee")
+  reviewing      Appraisal[]        @relation("AppraisalReviewer")
+  exits          EmployeeExit[]
+  onboarding     OnboardingItem[]
+  pastAppraisals PastAppraisal[]
 
   @@index([orgId, status])
   @@index([teamId])
@@ -895,6 +910,7 @@ model EmploymentEvent {
   /// User id of the actor; null for a machine credential. Deliberately no FK.
   createdBy     String?             @map("created_by")
   createdAt     DateTime            @default(now()) @map("created_at")
+  source        EventSource         @default(APP)
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
@@ -997,6 +1013,7 @@ model EmployeeDocument {
   replacedBy      EmployeeDocument? @relation("DocumentVersions", fields: [replacedById], references: [id], onDelete: SetNull)
   replaces        EmployeeDocument? @relation("DocumentVersions")
   onboardingItems OnboardingItem[]
+  pastAppraisals  PastAppraisal[]
 
   @@index([employeeId, deletedAt])
   @@index([expiresOn])
@@ -1380,4 +1397,37 @@ model OnboardingItem {
   @@index([employeeId, position])
   @@index([documentId])
   @@map("onboarding_items")
+}
+
+/// An appraisal done outside the system (on paper, before it), entered as a past record (0035).
+/// Counts as "already appraised" in the schedule exactly like a real appraisal, at its due date
+/// (else the date it was conducted). Informational: nothing here runs an outcome.
+model PastAppraisal {
+  id          String            @id @default(cuid())
+  employeeId  String            @map("employee_id")
+  type        AppraisalType
+  /// The milestone it was for, when known; else `conductedOn` stands in for it.
+  dueDate     DateTime?         @map("due_date") @db.Date
+  conductedOn DateTime          @map("conducted_on") @db.Date
+  /// 0-100.
+  marks       Float?
+  /// A-F.
+  grade       String?
+  outcome     String?
+  /// What was recommended, for the record only.
+  actions     AppraisalAction[] @default([])
+  /// The scanned form (an employee document); cleared if that row is ever removed.
+  documentId  String?           @map("document_id")
+  notes       String?
+  /// User id of the actor; null for a machine credential. Deliberately no FK.
+  createdBy   String?           @map("created_by")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @default(now()) @updatedAt @map("updated_at")
+
+  employee Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  document EmployeeDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, type, conductedOn])
+  @@index([employeeId, type])
+  @@map("past_appraisals")
 }

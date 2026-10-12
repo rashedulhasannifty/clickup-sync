@@ -288,12 +288,42 @@ export class AppraisalsRepository {
         cycle: { select: { type: true, periodEnd: true } },
       },
     });
-    return rows.map((r) => ({
-      employeeId: r.employeeId,
-      type: r.cycle.type,
-      dueDate: r.dueDate,
-      periodEnd: r.periodEnd ?? r.cycle.periodEnd,
-    }));
+    // Paper appraisals from before the system (0035) count like any appraisal,
+    // standing for their due date, else the date they were conducted.
+    const past = await this.prisma.pastAppraisal.findMany({
+      where: {
+        employee: { orgId },
+        ...(employeeIds ? { employeeId: { in: employeeIds } } : {}),
+      },
+      select: { employeeId: true, type: true, dueDate: true, conductedOn: true },
+    });
+    return [
+      ...rows.map((r) => ({
+        employeeId: r.employeeId,
+        type: r.cycle.type,
+        dueDate: r.dueDate,
+        periodEnd: r.periodEnd ?? r.cycle.periodEnd,
+      })),
+      ...past.map((p) => {
+        const at = p.dueDate ?? p.conductedOn;
+        return {
+          employeeId: p.employeeId,
+          type: p.type,
+          dueDate: at,
+          periodEnd: new Date(at.getTime() - 86_400_000),
+        };
+      }),
+    ];
+  }
+
+  /** An employee's past (paper) appraisals as the schedule sees them (0035). */
+  async pastAppraisalsOnRecord(
+    employeeId: string,
+  ): Promise<{ type: AppraisalTypeValue; dueDate: Date | null; conductedOn: Date }[]> {
+    return this.prisma.pastAppraisal.findMany({
+      where: { employeeId },
+      select: { type: true, dueDate: true, conductedOn: true },
+    });
   }
 
   // --- appraisals ---------------------------------------------------------

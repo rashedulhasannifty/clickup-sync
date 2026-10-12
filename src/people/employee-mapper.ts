@@ -3,10 +3,12 @@ import {
   nextDue,
   overdueAppraisals,
   type AppraisalOnRecord,
+  type NextAppraisal,
+  type OverdueEmployee,
   type ScheduleEmployee,
 } from '../appraisals/appraisal-schedule';
 import type { EmployeeRow } from './employees.repository';
-import { dateColumnToIso, tenureMonths } from './people-dates';
+import { addDays, dateColumnToIso, tenureMonths } from './people-dates';
 import type { EmployeeProfile } from './people.types';
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -40,25 +42,34 @@ export function scheduleFieldsOf(row: {
   };
 }
 
-/** Row -> API profile. `today` is the Dhaka date, so tenure is computable without a clock in here. */
-export function toProfile(row: EmployeeRow, today: string): EmployeeProfile {
-  const joinDate = dateColumnToIso(row.joinDate);
-  const exitDate = row.exitDate ? dateColumnToIso(row.exitDate) : null;
-  const end = exitDate && exitDate < today ? exitDate : today;
-  const confirmationDate = row.confirmationDate
-    ? dateColumnToIso(row.confirmationDate)
-    : null;
-  // Older fixtures build rows without the relation; treat that as "no appraisals".
-  const appraisals: AppraisalOnRecord[] = (row.appraisals ?? []).map((a) => ({
-    type: a.cycle.type,
-    dueDate: a.dueDate ? dateColumnToIso(a.dueDate) : null,
-    periodEnd: dateColumnToIso(a.periodEnd ?? a.cycle.periodEnd),
-  }));
-  const schedule = scheduleFieldsOf(row);
-  const overdue = overdueAppraisals(
-    { ...schedule, confirmationDate, appraisals },
-    today,
-  ).map((d) => ({
+/**
+ * A past (paper) appraisal as the schedule sees it (0035): it stands for its
+ * due date when one was recorded, else the date it was conducted, and is
+ * matched to the nearest milestone like any appraisal.
+ */
+export function pastAppraisalOnRecord(p: {
+  type: AppraisalOnRecord['type'];
+  dueDate: string | null;
+  conductedOn: string;
+}): AppraisalOnRecord {
+  const at = p.dueDate ?? p.conductedOn;
+  return { type: p.type, dueDate: at, periodEnd: addDays(at, -1) };
+}
+
+/**
+ * What an employee is overdue for and due next, as the profile shows it: a
+ * missed due date with no appraisal first ("overdue since"), then what is
+ * coming. Shared by the profile and the past-records preview.
+ */
+export function appraisalOutlook(
+  e: OverdueEmployee,
+  today: string,
+): {
+  overdue: NextAppraisal[];
+  upcoming: NextAppraisal[];
+  next: NextAppraisal | null;
+} {
+  const overdue = overdueAppraisals(e, today).map((d) => ({
     type: d.type,
     dueDate: d.dueDate,
     periodStart: d.periodStart,
@@ -66,7 +77,7 @@ export function toProfile(row: EmployeeRow, today: string): EmployeeProfile {
     overdue: true,
   }));
   // A past confirmation is only overdue while nobody has launched it.
-  const upcoming = nextDue(schedule, today).map((n) =>
+  const upcoming = nextDue(e, today).map((n) =>
     n.overdue
       ? {
           ...n,
@@ -75,6 +86,37 @@ export function toProfile(row: EmployeeRow, today: string): EmployeeProfile {
           ),
         }
       : n,
+  );
+  return { overdue, upcoming, next: overdue[0] ?? upcoming[0] ?? null };
+}
+
+/** Row -> API profile. `today` is the Dhaka date, so tenure is computable without a clock in here. */
+export function toProfile(row: EmployeeRow, today: string): EmployeeProfile {
+  const joinDate = dateColumnToIso(row.joinDate);
+  const exitDate = row.exitDate ? dateColumnToIso(row.exitDate) : null;
+  const end = exitDate && exitDate < today ? exitDate : today;
+  const confirmationDate = row.confirmationDate
+    ? dateColumnToIso(row.confirmationDate)
+    : null;
+  // Older fixtures build rows without the relations; treat that as "no appraisals".
+  const appraisals: AppraisalOnRecord[] = [
+    ...(row.appraisals ?? []).map((a) => ({
+      type: a.cycle.type,
+      dueDate: a.dueDate ? dateColumnToIso(a.dueDate) : null,
+      periodEnd: dateColumnToIso(a.periodEnd ?? a.cycle.periodEnd),
+    })),
+    ...(row.pastAppraisals ?? []).map((p) =>
+      pastAppraisalOnRecord({
+        type: p.type,
+        dueDate: p.dueDate ? dateColumnToIso(p.dueDate) : null,
+        conductedOn: dateColumnToIso(p.conductedOn),
+      }),
+    ),
+  ];
+  const schedule = scheduleFieldsOf(row);
+  const { overdue, upcoming } = appraisalOutlook(
+    { ...schedule, confirmationDate, appraisals },
+    today,
   );
   return {
     id: row.id,

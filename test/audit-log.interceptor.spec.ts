@@ -193,4 +193,37 @@ describe('AuditLogInterceptor — secret-shaped path params', () => {
     const call = repo.create.mock.calls[0][0];
     expect(call.path).toBe('/x/unmatched');
   });
+
+  it('redacts salary-bearing past-record fields (from, to, amount) on the past-records routes only', async () => {
+    const repo = makeRepo();
+    const interceptor = new AuditLogInterceptor(repo as any);
+    const row = { employee: 'a@x', record: 'Increment', date: '2025-07-01', from: 40000, to: '46000', amount: '15%', notes: 'ok' };
+    await lastValueFrom(interceptor.intercept(
+      makeCtx({ method: 'POST', path: '/api/people/past-records/apply', routePath: '/api/people/past-records/apply', body: { rows: [row] } }),
+      makeNext({}),
+    ));
+    await lastValueFrom(interceptor.intercept(
+      makeCtx({
+        method: 'PATCH',
+        path: '/api/people/employees/e1/past-records/event:5',
+        routePath: '/api/people/employees/:id/past-records/:recordId',
+        params: { id: 'e1', recordId: 'event:5' },
+        body: { record: 'Increment', date: '2025-07-01', from: 40000, to: 46000, fromValue: '1', toValue: '2' },
+      }),
+      makeNext({}),
+    ));
+    await lastValueFrom(interceptor.intercept(
+      makeCtx({ method: 'POST', path: '/api/other', routePath: '/api/other', body: { from: '2026-01-01', to: '2026-02-01' } }),
+      makeNext({}),
+    ));
+    const [apply, patch, other] = repo.create.mock.calls.map((c) => c[0].requestBody);
+    expect(apply.rows[0]).toEqual({
+      employee: 'a@x', record: 'Increment', date: '2025-07-01',
+      from: '[REDACTED]', to: '[REDACTED]', amount: '[REDACTED]', notes: 'ok',
+    });
+    expect(patch).toMatchObject({ from: '[REDACTED]', to: '[REDACTED]', fromValue: '[REDACTED]', toValue: '[REDACTED]' });
+    expect(JSON.stringify([apply, patch])).not.toMatch(/40000|46000/);
+    // Elsewhere `from`/`to` are ordinary (date ranges) and stay readable.
+    expect(other).toEqual({ from: '2026-01-01', to: '2026-02-01' });
+  });
 });

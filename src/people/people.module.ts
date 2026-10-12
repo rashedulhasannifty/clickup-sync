@@ -26,6 +26,9 @@ import { PeopleSummaryService } from './people-summary.service';
 import { PeopleSyncProcessor } from './people-sync.processor';
 import { PeopleScheduler } from './people-sync.scheduler';
 import { PeopleSyncService } from './people-sync.service';
+import { PeoplePastRecordsController } from './past-records/past-records.controller';
+import { PastRecordsRepository } from './past-records/past-records.repository';
+import { PastRecordsService } from './past-records/past-records.service';
 
 @Module({
   // AuditLogInterceptor/AuditLogRepository come from AdminModule (see its exports).
@@ -34,6 +37,7 @@ import { PeopleSyncService } from './people-sync.service';
     PeopleEmployeesController,
     PeopleAttendanceController,
     PeopleOnboardingController,
+    PeoplePastRecordsController,
   ],
   providers: [
     EmployeesRepository,
@@ -45,6 +49,8 @@ import { PeopleSyncService } from './people-sync.service';
     PeopleSummaryService,
     PeopleAttendanceService,
     PeopleSyncService,
+    PastRecordsRepository,
+    PastRecordsService,
     {
       // The provider is chosen by env, not by code: ATTENDANCE_PROVIDER=dummy|none.
       // The real office-entry API becomes a third branch here; the tables do not change.

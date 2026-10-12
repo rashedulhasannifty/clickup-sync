@@ -10,7 +10,10 @@ import { AuthPrincipal } from '../auth/auth.types';
 import { DocumentsService } from '../documents/documents.service';
 import { EmployeesService } from '../people/employees.service';
 import { assertNotExited } from '../people/employee-readonly';
-import { scheduleFieldsOf } from '../people/employee-mapper';
+import {
+  pastAppraisalOnRecord,
+  scheduleFieldsOf,
+} from '../people/employee-mapper';
 import {
   addDays,
   dateColumnToIso,
@@ -856,17 +859,25 @@ export class AppraisalsService {
     if (error) throw new BadRequestException(error);
 
     if (next.dueDate && next.dueDate !== current.dueDate) {
-      const others = (
-        await this.repo.listForEmployee(row.cycle.orgId, row.employeeId)
-      )
-        .filter((a) => a.id !== row.id)
-        .map(
-          (a): AppraisalOnRecord => ({
-            type: a.cycle.type,
-            dueDate: a.dueDate ? dateColumnToIso(a.dueDate) : null,
-            periodEnd: periodOf(a).periodEnd,
+      const others = [
+        ...(await this.repo.listForEmployee(row.cycle.orgId, row.employeeId))
+          .filter((a) => a.id !== row.id)
+          .map(
+            (a): AppraisalOnRecord => ({
+              type: a.cycle.type,
+              dueDate: a.dueDate ? dateColumnToIso(a.dueDate) : null,
+              periodEnd: periodOf(a).periodEnd,
+            }),
+          ),
+        // A paper appraisal already stands for its due date too (0035).
+        ...(await this.repo.pastAppraisalsOnRecord(row.employeeId)).map((p) =>
+          pastAppraisalOnRecord({
+            type: p.type,
+            dueDate: p.dueDate ? dateColumnToIso(p.dueDate) : null,
+            conductedOn: dateColumnToIso(p.conductedOn),
           }),
-        );
+        ),
+      ];
       const type = row.cycle.type as AppraisalTypeValue;
       const milestone = dueDateTaken(
         scheduleFieldsOf(row.employee),

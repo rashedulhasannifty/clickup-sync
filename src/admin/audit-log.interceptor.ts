@@ -11,6 +11,10 @@ import { AuditLogRepository } from './audit-log.repository';
 const WRITE_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 // `salary`: employee salaries (People) are sensitive and must never reach the audit log.
 const REDACT_RE = /(secret|token|api[_-]?key|password|signature|salary)/i;
+// Past records (0035): an increment's `from`/`to` and an `amount` are gross salaries, under
+// names the salary rule cannot see. On these routes they are redacted wherever they appear.
+const PAST_RECORDS_ROUTE_RE = /\/past-records\b/;
+const PAST_RECORDS_REDACT_RE = /^(from|to|amount|fromValue|toValue)$/;
 const PATH_PARAM_RE = /:([A-Za-z0-9_]+)/g;
 const MAX_BODY_BYTES = 16 * 1024;
 
@@ -36,24 +40,32 @@ function loggedPath(req: { path?: string; route?: { path?: string }; params?: Re
   });
 }
 
-function redact(value: unknown, seen = new WeakSet()): unknown {
+function redact(
+  value: unknown,
+  seen = new WeakSet(),
+  extra: RegExp | null = null,
+): unknown {
   if (value === null || typeof value !== 'object') return value;
   if (seen.has(value as object)) throw new Error('cyclic');
   seen.add(value as object);
-  if (Array.isArray(value)) return value.map((v) => redact(v, seen));
+  if (Array.isArray(value)) return value.map((v) => redact(v, seen, extra));
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    if (REDACT_RE.test(k)) out[k] = '[REDACTED]';
-    else out[k] = redact(v, seen);
+    if (REDACT_RE.test(k) || extra?.test(k)) out[k] = '[REDACTED]';
+    else out[k] = redact(v, seen, extra);
   }
   return out;
 }
 
-function prepareBody(raw: unknown): unknown {
+function prepareBody(raw: unknown, path = ''): unknown {
   if (raw === undefined || raw === null) return null;
   let processed: unknown;
   try {
-    processed = redact(raw);
+    processed = redact(
+      raw,
+      new WeakSet(),
+      PAST_RECORDS_ROUTE_RE.test(path) ? PAST_RECORDS_REDACT_RE : null,
+    );
   } catch {
     return { _redactionError: true };
   }
@@ -90,7 +102,10 @@ export class AuditLogInterceptor implements NestInterceptor {
           (req.socket?.remoteAddress as string | undefined) ??
           null) || null,
       userAgent: ((req.headers['user-agent'] as string | undefined) ?? null) || null,
-      requestBody: prepareBody(req.body),
+      requestBody: prepareBody(
+        req.body,
+        (req.route?.path as string | undefined) ?? (req.path as string | undefined) ?? '',
+      ),
     };
 
     const write = (statusCode: number, errorMessage: string | null) => {

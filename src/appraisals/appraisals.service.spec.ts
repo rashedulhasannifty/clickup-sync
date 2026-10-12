@@ -161,6 +161,7 @@ function make(
         org === 'org' ? rows.current : null,
       ),
     listForEmployee: jest.fn().mockResolvedValue([]),
+    pastAppraisalsOnRecord: jest.fn().mockResolvedValue([]),
     updateIf: jest.fn().mockImplementation(async (_id, expected, data) => {
       if (!rows.current || rows.current.status !== expected) return false;
       rows.current = { ...rows.current, ...data };
@@ -1525,6 +1526,23 @@ describe('AppraisalsService date adjustment (0033)', () => {
     const { svc } = make(
       { current: dated() },
       { listForEmployee: jest.fn().mockResolvedValue([other]) },
+    );
+    await expect(
+      svc.update('org', 'a1', {
+        dueDate: '2026-01-25',
+        periodEnd: '2026-01-24',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('will not move the due date onto a milestone a past (paper) appraisal covers (0035)', async () => {
+    const { svc } = make(
+      { current: dated() },
+      {
+        pastAppraisalsOnRecord: jest.fn().mockResolvedValue([
+          { type: 'YEARLY', dueDate: null, conductedOn: day('2026-01-22') },
+        ]),
+      },
     );
     await expect(
       svc.update('org', 'a1', {

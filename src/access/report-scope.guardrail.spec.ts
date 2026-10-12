@@ -29,6 +29,7 @@ import { TeamsController } from '../teams/teams.controller';
 import { PeopleAttendanceController } from '../people/people-attendance.controller';
 import { PeopleEmployeesController } from '../people/people-employees.controller';
 import { PeopleOnboardingController } from '../people/people-onboarding.controller';
+import { PeoplePastRecordsController } from '../people/past-records/past-records.controller';
 import { scopeFactory } from './scope.decorator';
 
 /** A controller class, used only as a reflection-metadata target — not instantiated here. */
@@ -76,6 +77,7 @@ const CONTROLLERS: ControllerClass[] = [
   PeopleEmployeesController,
   PeopleAttendanceController,
   PeopleOnboardingController,
+  PeoplePastRecordsController,
   DocumentsController,
   AppraisalsController,
   ExitsController,

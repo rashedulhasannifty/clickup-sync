@@ -28,6 +28,7 @@ import type {
   EmployeeProfile,
   EmploymentEventTypeValue,
   EmploymentEventView,
+  EventSourceValue,
   ImportFromUsersResult,
 } from './people.types';
 
@@ -577,6 +578,7 @@ export class EmployeesService {
       notes: string | null;
       createdBy: string | null;
       createdAt: Date;
+      source?: EventSourceValue;
     }[],
   ): Promise<EmploymentEventView[]> {
     const teamIds = new Set<string>();
@@ -609,6 +611,7 @@ export class EmployeesService {
       notes: e.notes,
       createdByName: e.createdBy ? (userName.get(e.createdBy) ?? null) : null,
       createdAt: e.createdAt.toISOString(),
+      source: e.source ?? 'APP',
     }));
   }
 

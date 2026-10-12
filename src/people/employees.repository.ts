@@ -38,6 +38,10 @@ const PROFILE_INCLUDE = {
     },
   },
   events: LATEST_EXTENSION,
+  // Paper appraisals from before the system count as "already appraised" (0035).
+  pastAppraisals: {
+    select: { type: true, dueDate: true, conductedOn: true },
+  },
 } satisfies Prisma.EmployeeInclude;
 
 export type EmployeeRow = Prisma.EmployeeGetPayload<{

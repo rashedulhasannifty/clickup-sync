@@ -27,7 +27,11 @@ export type EmploymentEventTypeValue =
   /** An intern moved to probation: the effective date is the probation start. */
   | 'PROBATION_STARTED'
   /** fromValue/toValue: the old/new internship end date (`YYYY-MM-DD`). */
-  | 'INTERNSHIP_EXTENDED';
+  | 'INTERNSHIP_EXTENDED'
+  /** Past records only (0035): joined as an intern; sets the join date and status INTERN. */
+  | 'JOINED_AS_INTERN';
+/** APP: written by this system. PAST_RECORD: history entered by HR (0035). */
+export type EventSourceValue = 'APP' | 'PAST_RECORD';
 export type LeaveTypeValue = 'SICK' | 'CASUAL' | 'ANNUAL' | 'UNPAID' | 'OTHER';
 export type LeaveStatusValue =
   | 'PENDING'
@@ -213,6 +217,8 @@ export interface EmploymentEventView {
   /** Actor's name (or email); null for a machine credential or a deleted user. */
   createdByName: string | null;
   createdAt: string;
+  /** PAST_RECORD: entered as history ("From records"); only these can be edited or deleted. */
+  source: EventSourceValue;
 }
 
 export interface SummaryHours {
