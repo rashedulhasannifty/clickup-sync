@@ -1059,6 +1059,14 @@ enum AppraisalDecision {
   NOT_APPROVED
 }
 
+/// From when an approved FORM_100 outcome takes effect (0033). DUE_DATE backdates it to the
+/// appraisal's due date; APPROVAL_DATE is the sign-off date; CUSTOM is `effective_date`.
+enum AppraisalEffectiveDate {
+  DUE_DATE
+  APPROVAL_DATE
+  CUSTOM
+}
+
 model AppraisalCycle {
   id           String               @id @default(cuid())
   orgId        String               @map("org_id")
@@ -1129,6 +1137,11 @@ model Appraisal {
   hrComment        String?            @map("hr_comment")
   approvalDecision AppraisalDecision? @map("approval_decision")
   approvalComment  String?            @map("approval_comment")
+  /// Chosen at final approval. Null = the default, resolved at sign-off: DUE_DATE when the
+  /// appraisal is late, else APPROVAL_DATE. Rows before 0033 were backfilled APPROVAL_DATE.
+  effectiveDateMode AppraisalEffectiveDate? @map("effective_date_mode")
+  /// CUSTOM: the chosen date. From sign-off: the resolved date the outcome events use.
+  effectiveDate     DateTime?               @map("effective_date") @db.Date
   /// The form's header block (employee, experience, salary); captured at launch, refreshed
   /// with the KPIs and on every step, frozen at sign-off.
   formHeader       Json?              @map("form_header")
