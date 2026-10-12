@@ -8,7 +8,7 @@ import type { AuthPrincipal } from '../../auth/auth.types';
 import type { FormGrade } from '../../appraisals/appraisals.types';
 import { assertNotExited } from '../employee-readonly';
 import { EmployeesService } from '../employees.service';
-import { eventEditability } from '../employment-events';
+import { eventEditability, hasPastJoin, isJoinType } from '../employment-events';
 import { dateColumnToIso, dhakaDateOf } from '../people-dates';
 import type { EmploymentEventTypeValue } from '../people.types';
 import type { HistoryEvent, HistoryState } from './employee-history';
@@ -45,6 +45,13 @@ import type {
   PastRecordsPreview,
   SummarySide,
 } from './past-records.types';
+
+/** Event types that change the status; never deleted while someone is on notice. */
+const STATUS_CHANGING: ReadonlySet<string> = new Set([
+  'JOINED_AS_INTERN',
+  'PROBATION_STARTED',
+  'CONFIRMED',
+]);
 
 /** A machine credential is not a user row; never store its synthetic id as an actor. */
 const actorId = (p: AuthPrincipal): string | null =>
@@ -347,7 +354,7 @@ export class PastRecordsService {
       throw new ConflictException(
         `Already recorded: ${record.event.date} is the join date. To change it or set "Joined as", edit the Joined entry on the timeline`,
       );
-    await this.commit(ctx, events, appraisals, [], async (tx) => {
+    await this.commit(ctx, events, appraisals, {}, async (tx) => {
       if (record.kind === 'event')
         await this.repo.addEvents(tx, employeeId, actorId(principal), [record.event]);
       else
@@ -374,16 +381,25 @@ export class PastRecordsService {
         'A past event cannot become an appraisal (or the other way round): delete it and add a new one',
       );
     if (record.kind === 'event' && stored?.source === 'APP') {
-      const join = (t: string) => t === 'JOINED' || t === 'JOINED_AS_INTERN';
-      if (join(stored.type) ? !join(record.event.type) : record.event.type !== stored.type)
+      if (isJoinType(stored.type) ? !isJoinType(record.event.type) : record.event.type !== stored.type)
         throw new BadRequestException(
-          join(stored.type)
+          isJoinType(stored.type)
             ? 'The join can switch between "Joined" and "Joined as intern" only'
             : 'This entry keeps its type: delete it and add the other one instead',
         );
     }
     const { events, appraisals } = this.withRecord(ctx.history, record, key);
-    await this.commit(ctx, events, appraisals, [key], async (tx) => {
+    const app = stored?.source === 'APP';
+    await this.commit(ctx, events, appraisals, {
+      changedKey: app ? key : undefined,
+      checkWhole: app,
+      joinToIntern:
+        stored !== null &&
+        isJoinType(stored.type) &&
+        stored.type !== 'JOINED_AS_INTERN' &&
+        record.kind === 'event' &&
+        record.event.type === 'JOINED_AS_INTERN',
+    }, async (tx) => {
       const ok =
         record.kind === 'event'
           ? await this.repo.updateEvent(tx, employeeId, target.id as bigint, record.event)
@@ -400,10 +416,14 @@ export class PastRecordsService {
     const target = parseRecordId(recordId);
     const ctx = await this.context(principal.orgId, employeeId);
     const key = `${target.kind}:${target.id}`;
-    this.requireEditable(ctx, target, key, 'delete');
+    const stored = this.requireEditable(ctx, target, key, 'delete');
+    if (stored && ctx.row.status === 'NOTICE' && STATUS_CHANGING.has(stored.type))
+      throw new BadRequestException(
+        'They are on notice: their status stays as offboarding set it. Cancel the offboarding first to change it',
+      );
     const events = ctx.history.events.filter((e) => e.key !== key);
     const appraisals = ctx.history.pastAppraisals.filter((a) => a.key !== key);
-    await this.commit(ctx, events, appraisals, [], async (tx) => {
+    await this.commit(ctx, events, appraisals, { checkWhole: stored?.source === 'APP' }, async (tx) => {
       const ok =
         target.kind === 'event'
           ? await this.repo.deleteEvent(tx, employeeId, target.id)
@@ -441,12 +461,9 @@ export class PastRecordsService {
     }
     const e = ctx.row.events.find((x) => x.id === target.id);
     if (!e) throw new NotFoundException('Past record not found');
-    const hasPastJoin = ctx.row.events.some(
-      (x) => x.source === 'PAST_RECORD' && (x.type === 'JOINED' || x.type === 'JOINED_AS_INTERN'),
-    );
     const rules = eventEditability(
       { type: e.type as EmploymentEventTypeValue, source: e.source, appraisalId: e.appraisalId ?? null },
-      hasPastJoin,
+      hasPastJoin(ctx.row.events),
     );
     if (action === 'edit' && !rules.editable)
       throw new BadRequestException(rules.lockedReason ?? 'This entry cannot be edited: delete it and add a new one');
@@ -558,15 +575,25 @@ export class PastRecordsService {
     ctx: Awaited<ReturnType<PastRecordsService['context']>>,
     events: HistoryEvent[],
     appraisals: StoredPastAppraisal[],
-    /** Edited app events: checked like the past records. */
-    alsoChanged: string[],
+    opts: {
+      /** An edited app event: checked like the past records. */
+      changedKey?: string;
+      /**
+       * A change to one of the app's own events: every event HR could change is checked too, so
+       * moving the join after a confirmation, or deleting the probation under one, is refused.
+       */
+      checkWhole?: boolean;
+      /** The join switched to "Joined as intern": refused when it would make them an intern again. */
+      joinToIntern?: boolean;
+    },
     write: (tx: Parameters<Parameters<PastRecordsRepository['transaction']>[0]>[0]) => Promise<void>,
   ): Promise<void> {
     const history = ctx.history;
     const changed = new Set([
       ...events.filter((e) => e.source === 'PAST_RECORD').map((e) => e.key),
       ...appraisals.map((a) => a.key),
-      ...alsoChanged,
+      ...(opts.changedKey ? [opts.changedKey] : []),
+      ...(opts.checkWhole ? this.checkableEventKeys(ctx) : []),
     ]);
     const evaluation = evaluateHistory({
       employee: history,
@@ -584,6 +611,10 @@ export class PastRecordsService {
       throw new BadRequestException(messages.join('; '));
     }
     const r = evaluation.recomputed;
+    if (opts.joinToIntern && history.stored.status !== 'INTERN' && r.state.status === 'INTERN')
+      throw new BadRequestException(
+        'That would make them an intern again: add "Moved to probation" (and "Confirmed", if they were confirmed) first, then switch the join',
+      );
     try {
       await this.repo.transaction(async (tx) => {
         await write(tx);
@@ -594,6 +625,20 @@ export class PastRecordsService {
         throw new ConflictException('There is already a past record of this type on this date');
       throw e;
     }
+  }
+
+  /** The keys of every event the timeline lets HR change (locked ones are never blamed). */
+  private checkableEventKeys(ctx: Awaited<ReturnType<PastRecordsService['context']>>): string[] {
+    const pastJoin = hasPastJoin(ctx.row.events);
+    return ctx.row.events
+      .filter(
+        (e) =>
+          eventEditability(
+            { type: e.type as EmploymentEventTypeValue, source: e.source, appraisalId: e.appraisalId ?? null },
+            pastJoin,
+          ).editable,
+      )
+      .map((e) => `event:${e.id}`);
   }
 
   private async appraisalViews(rows: PastAppraisalRow[]): Promise<PastAppraisalView[]> {

@@ -11,6 +11,7 @@ import {
   appraisalOutlook,
   pastAppraisalOnRecord,
 } from '../employee-mapper';
+import { isJoinType } from '../employment-events';
 import type { EmployeeStatusValue } from '../people.types';
 import {
   activeEvents,
@@ -80,7 +81,6 @@ const STATUS_CHANGING: ReadonlySet<string> = new Set([
   'PROBATION_STARTED',
   'CONFIRMED',
 ]);
-const JOIN_TYPES: ReadonlySet<string> = new Set(['JOINED', 'JOINED_AS_INTERN']);
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 const labelOf = (type: string): string =>
@@ -197,7 +197,7 @@ export function evaluateHistory(args: {
   );
 
   const byType = (t: string) => events.filter((e) => e.type === t);
-  const joins = activeEvents(events).filter((e) => JOIN_TYPES.has(e.type));
+  const joins = activeEvents(events).filter((e) => isJoinType(e.type));
   const internAt = byType('JOINED_AS_INTERN')[0]?.effectiveDate ?? null;
   const probations = byType('PROBATION_STARTED');
   const confirmations = byType('CONFIRMED');
@@ -207,9 +207,9 @@ export function evaluateHistory(args: {
     const d = e.effectiveDate;
     const label = labelOf(e.type);
     if (d > today) add(e.key, 'The date is in the future');
-    if (!JOIN_TYPES.has(e.type) && d < joinDate)
+    if (!isJoinType(e.type) && d < joinDate)
       add(e.key, `Before the join date (${joinDate})`);
-    if (JOIN_TYPES.has(e.type) && joins.length > 1)
+    if (isJoinType(e.type) && joins.length > 1)
       add(
         e.key,
         'Only one Joined or Joined as intern record per employee: keep the one with the real join date',

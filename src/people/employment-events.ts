@@ -24,6 +24,17 @@ export interface EmployeePatch {
   internshipEndDate?: string;
 }
 
+/** The two ways someone starts; every employee has exactly one join in effect. */
+export const JOIN_EVENT_TYPES = ['JOINED', 'JOINED_AS_INTERN'] as const;
+export const isJoinType = (t: string): boolean =>
+  (JOIN_EVENT_TYPES as readonly string[]).includes(t);
+
+/** A past record gives the real join date (the app's own join row then only says when they were added here). */
+export const hasPastJoin = (
+  events: readonly { type: string; source?: string | null }[],
+): boolean =>
+  events.some((e) => e.source === 'PAST_RECORD' && isJoinType(e.type));
+
 /** Events whose `toValue` is the new value and is therefore required. */
 export const EVENT_REQUIRES_TO_VALUE: ReadonlySet<EmploymentEventTypeValue> =
   new Set([
@@ -152,7 +163,7 @@ export function eventEditability(
   if (e.appraisalId !== null)
     return locked('Recorded by an approved appraisal.');
   if (e.type === 'NOTE') return locked('Notes stay as written.');
-  const join = e.type === 'JOINED' || e.type === 'JOINED_AS_INTERN';
+  const join = isJoinType(e.type);
   if (join && e.source === 'APP') {
     if (hasPastJoin)
       return locked('When they were added to this system. The real join is the record from before.');

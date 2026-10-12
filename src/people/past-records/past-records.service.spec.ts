@@ -369,8 +369,14 @@ describe('PastRecordsService: one employee', () => {
     });
     // The app's own row stays the app's: no "From records" tag appears.
     expect((repo.employee(id).events as EventRow[])[0]).toMatchObject({ source: 'APP', toValue: 'Senior Software Engineer' });
+    // Someone on probation switched to "Joined as intern" with nothing after it would become an
+    // intern again: refused, with what to add first.
+    await expect(svc.update(principal, id, join, { record: 'Joined as intern', date: '2024-03-01' })).rejects.toThrow(
+      /intern again/,
+    );
+    await svc.add(principal, id, { record: 'Moved to probation', date: '2024-06-01' });
     await svc.update(principal, id, join, { record: 'Joined as intern', date: '2024-03-01' });
-    expect(repo.employee(id)).toMatchObject({ status: 'INTERN', probationStartDate: null });
+    expect(repo.employee(id)).toMatchObject({ status: 'PROBATION', probationStartDate: isoToDateColumn('2024-06-01') });
     await expect(svc.update(principal, id, join, { record: 'Confirmed', date: '2024-09-01' })).rejects.toThrow(
       /"Joined" and "Joined as intern" only/,
     );
@@ -401,6 +407,38 @@ describe('PastRecordsService: one employee', () => {
     await expect(svc.remove(principal, id, 'event:52')).rejects.toThrow(/Notes stay/);
     await svc.remove(principal, id, 'event:50');
     expect(repo.employee(id)).toMatchObject({ status: 'PROBATION', confirmationDate: null });
+  });
+
+  it('a change to the app’s events checks the whole history; on notice, the status stays', async () => {
+    const repo = new FakeRepo();
+    const id = seedEmployee(repo, { confirmationDate: isoToDateColumn('2024-11-01') });
+    const app = (n: bigint, type: string, date: string): EventRow => ({
+      id: n, type, source: 'APP', effectiveDate: isoToDateColumn(date), fromValue: null, toValue: null,
+      notes: null, createdBy: null, createdAt: new Date(),
+    });
+    (repo.employee(id).events as EventRow[]).push(app(60n, 'CONFIRMED', '2024-11-01'));
+    const svc = makeService(repo);
+    const join = `event:${(repo.employee(id).events as EventRow[])[0].id}`;
+    // Moving the join after the confirmation leaves the confirmation before it.
+    await expect(svc.update(principal, id, join, { record: 'Joined', date: '2025-01-01' })).rejects.toThrow(
+      /Before the join date/,
+    );
+    repo.employee(id).status = 'NOTICE';
+    await expect(svc.remove(principal, id, 'event:60')).rejects.toThrow(/on notice/);
+  });
+
+  it('deleting the app’s probation under its confirmation is refused (an intern is never confirmed directly)', async () => {
+    const repo = new FakeRepo();
+    const id = seedEmployee(repo, { confirmationDate: isoToDateColumn('2024-12-01'), probationStartDate: isoToDateColumn('2024-06-01') });
+    const app = (n: bigint, type: string, date: string): EventRow => ({
+      id: n, type, source: 'APP', effectiveDate: isoToDateColumn(date), fromValue: null, toValue: null,
+      notes: null, createdBy: null, createdAt: new Date(),
+    });
+    const events = repo.employee(id).events as EventRow[];
+    events[0].type = 'JOINED_AS_INTERN';
+    events.push(app(70n, 'PROBATION_STARTED', '2024-06-01'), app(71n, 'CONFIRMED', '2024-12-01'));
+    const svc = makeService(repo);
+    await expect(svc.remove(principal, id, 'event:70')).rejects.toThrow(/cannot be confirmed directly/);
   });
 
   it('refuses a delete that would leave another record invalid', async () => {

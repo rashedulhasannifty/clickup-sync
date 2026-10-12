@@ -1,5 +1,5 @@
 import { defaultInternshipEnd } from '../../appraisals/appraisal-schedule';
-import { eventEffects } from '../employment-events';
+import { eventEffects, hasPastJoin, isJoinType } from '../employment-events';
 import type {
   EmployeeStatusValue,
   EmploymentEventTypeValue,
@@ -80,12 +80,8 @@ export type HistoryBaselines = Partial<
   Record<HistoryGroup, Partial<HistoryState>>
 >;
 
-const JOIN_TYPES: ReadonlySet<EmploymentEventTypeValue> = new Set([
-  'JOINED',
-  'JOINED_AS_INTERN',
-]);
 export const isJoin = (e: Pick<HistoryEvent, 'type'>): boolean =>
-  JOIN_TYPES.has(e.type);
+  isJoinType(e.type);
 
 /**
  * The events that take part in the history: all of them, except the app's own
@@ -95,8 +91,7 @@ export const isJoin = (e: Pick<HistoryEvent, 'type'>): boolean =>
 export function activeEvents<T extends Pick<HistoryEvent, 'type' | 'source'>>(
   events: readonly T[],
 ): T[] {
-  const pastJoin = events.some((e) => isJoin(e) && e.source === 'PAST_RECORD');
-  return pastJoin
+  return hasPastJoin(events)
     ? events.filter((e) => !(isJoin(e) && e.source === 'APP'))
     : [...events];
 }
@@ -186,7 +181,7 @@ export function foldWithTrace(
     if (groupOf(e) === null) continue;
     steps.push({ key: e.key, statusBefore: s.status });
     const d = e.effectiveDate;
-    if (e.type === 'JOINED' || e.type === 'JOINED_AS_INTERN') moveJoin(s, d);
+    if (isJoin(e)) moveJoin(s, d);
     const patch = eventEffects({
       type: e.type,
       effectiveDate: d,
@@ -283,6 +278,8 @@ function drives(e: Pick<HistoryEvent, 'type' | 'source'>, field: keyof HistorySt
   }
 }
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
 const STATUS_DRIVERS: ReadonlySet<EmploymentEventTypeValue> = new Set([
   'JOINED_AS_INTERN',
   'PROBATION_STARTED',
@@ -300,9 +297,12 @@ const STATUS_DRIVERS: ReadonlySet<EmploymentEventTypeValue> = new Set([
  *   else probation), with no confirmation; an APP "Moved to probation" or
  *   "Joined as intern" means probation starts on the join date until an event
  *   says otherwise (`probationStartDate` is a marker here: the caller sets it
- *   to the base join date); switching an app join away from "Joined as intern"
+ *   to the base join date, or null for someone who starts as an intern);
+ *   an APP internship extension means the end starts at the earliest
+ *   extension's old end; switching an app join away from "Joined as intern"
  *   clears the internship end.
- * - designation, team, gross: the earliest event's `fromValue`, when it has one.
+ * - designation, team, gross: the `fromValue` of the earliest event that has
+ *   one (what the app saw before it changed anything).
  */
 function appEventStart(
   g: HistoryGroup,
@@ -321,16 +321,21 @@ function appEventStart(
     }
     if (app.some((e) => e.type === 'PROBATION_STARTED' || e.type === 'JOINED_AS_INTERN'))
       out.probationStartDate = null;
-    if (
+    if (app.some((e) => e.type === 'INTERNSHIP_EXTENDED')) {
+      const first = sortHistory(all.filter((e) => e.type === 'INTERNSHIP_EXTENDED'))[0];
+      out.internshipEndDate =
+        first?.fromValue && DATE_ONLY.test(first.fromValue) ? first.fromValue : null;
+    } else if (
       app.some((e) => e.type === 'JOINED_AS_INTERN') &&
-      !after.some((e) => e.type === 'JOINED_AS_INTERN' || e.type === 'INTERNSHIP_EXTENDED')
+      !after.some((e) => e.type === 'JOINED_AS_INTERN')
     )
       out.internshipEndDate = null;
     return out;
   }
   if (!before.some((e) => e.source === 'APP' && groupOf(e) === g)) return {};
-  const first = sortHistory(before.filter((e) => groupOf(e) === g))[0];
-  const from = first?.fromValue ?? null;
+  const from =
+    sortHistory(before.filter((e) => groupOf(e) === g)).find((e) => e.fromValue !== null)
+      ?.fromValue ?? null;
   if (from === null) return {};
   if (g === 'designation') return { designation: from };
   if (g === 'team') return knownTeamIds.has(from) ? { teamId: from } : {};
@@ -391,13 +396,22 @@ export function recomputeEmployee(args: {
     const appStart = appEventStart(g, before, after, args.knownTeamIds);
     Object.assign(base, appStart);
     if (g === 'lifecycle') {
-      if ('probationStartDate' in appStart) base.probationStartDate = base.joinDate;
+      if ('probationStartDate' in appStart)
+        base.probationStartDate = base.status === 'INTERN' ? null : base.joinDate;
       // A status from before a notice (or a stray value) never comes back over a stored one.
       if (FROZEN.has(stored.status) || !RESTORABLE.has(String(base.status)))
         base.status = stored.status;
     }
     Object.assign(composite, base);
-    if (has) nextBaselines[g] = had ? (saved[g] ?? pick(stored, g)) : pick(stored, g);
+    if (has)
+      // Once the start is worked out from the app's events, that is the group's baseline: a
+      // remembered one was taken with those events already applied.
+      nextBaselines[g] =
+        Object.keys(appStart).length > 0
+          ? pick(base as HistoryState, g)
+          : had
+            ? (saved[g] ?? pick(stored, g))
+            : pick(stored, g);
     else delete nextBaselines[g];
   }
   const { state: folded, steps } = touched.length

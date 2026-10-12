@@ -82,7 +82,7 @@ export class PeoplePastRecordsController {
   }
 
   @Patch('employees/:id/past-records/:recordId')
-  @ApiOperation({ summary: 'Edit one past record (`event:<id>` or `appraisal:<id>`)' })
+  @ApiOperation({ summary: 'Edit one past record or timeline entry (`event:<id>` or `appraisal:<id>`)' })
   update(
     @CurrentUser() user: AuthPrincipal,
     @Param('id') id: string,

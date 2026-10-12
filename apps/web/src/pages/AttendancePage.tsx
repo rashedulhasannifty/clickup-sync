@@ -242,6 +242,7 @@ export function AttendancePage() {
             <Button size="md" variant="default" icon={<Upload size={13} />} onClick={() => setImporting(true)}>
               Import from Stellar HRM
             </Button>
+            {t?.canSync && (
             <Button
               size="md"
               variant="subtle"
@@ -257,6 +258,7 @@ export function AttendancePage() {
             >
               Sync attendance
             </Button>
+            )}
           </HeaderActions>
         }
       />

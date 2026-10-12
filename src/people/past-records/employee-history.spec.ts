@@ -289,8 +289,8 @@ describe('recomputeEmployee', () => {
       knownTeamIds: TEAMS,
     });
     expect(r.changes).toEqual({ status: 'ACTIVE', confirmationDate: '2026-10-01' });
-    // Lifecycle already had events: the baseline remembered is what was stored then.
-    expect(r.baselines.lifecycle).toMatchObject({ status: 'PROBATION' });
+    // The baseline is the start before the app's events (0037): an intern, before probation.
+    expect(r.baselines.lifecycle).toMatchObject({ status: 'INTERN', probationStartDate: null, confirmationDate: null });
   });
 });
 
@@ -428,5 +428,49 @@ describe('recomputeEmployee: editing the app’s own events (0037)', () => {
       knownTeamIds: TEAMS,
     });
     expect(r.changes).toEqual({ designation: 'Developer' });
+  });
+});
+
+describe('recomputeEmployee: review cases (0037)', () => {
+  const app = (type: HistoryEvent['type'], d: string, extra: Partial<HistoryEvent> = {}) =>
+    ev(type, d, null, { source: 'APP', ...extra });
+
+  it('deleting an app internship extension goes back to the end date it replaced', () => {
+    const join = app('JOINED_AS_INTERN', '2024-05-01');
+    const ext = app('INTERNSHIP_EXTENDED', '2024-07-15', { fromValue: '2024-08-01', toValue: '2025-02-01' });
+    const intern: HistoryState = { ...imported, joinDate: '2024-05-01', status: 'INTERN', probationStartDate: null, internshipEndDate: '2025-02-01' };
+    const r = recomputeEmployee({ stored: intern, baselines: null, before: [join, ext], after: [join], knownTeamIds: TEAMS });
+    expect(r.changes).toEqual({ internshipEndDate: '2024-08-01' });
+  });
+
+  it('an intern (legacy JOINED) whose app probation is deleted has no probation start', () => {
+    const join = app('JOINED', '2024-05-01');
+    const prob = app('PROBATION_STARTED', '2024-08-01');
+    const s: HistoryState = { ...imported, joinDate: '2024-05-01', status: 'PROBATION', probationStartDate: '2024-08-01' };
+    const r = recomputeEmployee({ stored: s, baselines: null, before: [join, prob], after: [join], knownTeamIds: TEAMS });
+    expect(r.state).toMatchObject({ status: 'INTERN', probationStartDate: null });
+  });
+
+  it('deleting an app promotion re-captures the baseline, so deleting the past record later stays right', () => {
+    const past = ev('DESIGNATION_CHANGED', '2024-07-01', 'Mid');
+    const promoted = app('PROMOTED', '2025-01-01', { fromValue: 'Eng', toValue: 'Senior' });
+    const stored: HistoryState = { ...imported, designation: 'Senior' };
+    const first = recomputeEmployee({
+      stored,
+      baselines: { designation: { designation: 'Senior' } },
+      before: [past, promoted],
+      after: [past],
+      knownTeamIds: TEAMS,
+    });
+    expect(first.state.designation).toBe('Mid');
+    expect(first.baselines.designation).toEqual({ designation: 'Eng' });
+    const second = recomputeEmployee({
+      stored: first.state,
+      baselines: first.baselines,
+      before: [past],
+      after: [],
+      knownTeamIds: TEAMS,
+    });
+    expect(second.state.designation).toBe('Eng');
   });
 });

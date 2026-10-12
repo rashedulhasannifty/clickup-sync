@@ -158,6 +158,7 @@ export function EmployeesPage() {
         badge={<DemoDataBadge source={today.data?.attendanceSource} />}
         actions={
           <HeaderActions>
+            {today.data?.canSync && (
             <Button
               size="md"
               variant="subtle"
@@ -173,6 +174,7 @@ export function EmployeesPage() {
             >
               Sync attendance
             </Button>
+            )}
             <Button
               size="md"
               variant="subtle"

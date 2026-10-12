@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import { defaultOnboardingRows } from './onboarding-checklist';
 import { dateColumnToIso, isoToDateColumn } from './people-dates';
-import type { EmployeePatch } from './employment-events';
+import { JOIN_EVENT_TYPES, type EmployeePatch } from './employment-events';
 import type {
   EmployeeStatusValue,
   EmploymentEventTypeValue,
@@ -329,7 +329,7 @@ export class EmployeesRepository {
           where: {
             employeeId: id,
             source: 'PAST_RECORD',
-            type: { in: ['JOINED', 'JOINED_AS_INTERN'] },
+            type: { in: [...JOIN_EVENT_TYPES] },
           },
         });
         if (pastJoin === 0)
@@ -337,7 +337,7 @@ export class EmployeesRepository {
             where: {
               employeeId: id,
               source: 'APP',
-              type: { in: ['JOINED', 'JOINED_AS_INTERN'] },
+              type: { in: [...JOIN_EVENT_TYPES] },
             },
             data: { effectiveDate: isoToDateColumn(joinDate) },
           });
@@ -352,6 +352,18 @@ export class EmployeesRepository {
       data: changes,
       include: PROFILE_INCLUDE,
     });
+  }
+
+  /** Whether a past record gives this employee's real join (see `hasPastJoin`). */
+  async hasPastJoin(employeeId: string): Promise<boolean> {
+    const n = await this.prisma.employmentEvent.count({
+      where: {
+        employeeId,
+        source: 'PAST_RECORD',
+        type: { in: [...JOIN_EVENT_TYPES] },
+      },
+    });
+    return n > 0;
   }
 
   /** Links a login/ClickUp identity to an employee that has none (never overwrites a set link). */

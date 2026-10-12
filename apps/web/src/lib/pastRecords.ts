@@ -36,7 +36,8 @@ export const RECORD_KINDS: RecordKindInfo[] = [
     kind: 'JOINED',
     label: 'Joined',
     hint: 'The real join date, when it differs from the one on file.',
-    howTo: 'Date = the day they joined. To = the designation they joined as (optional). A row with the join date already on file is skipped.',
+    howTo:
+      'Date = the day they joined. To = the designation they joined as (optional). A row with the join date already on file is skipped; to set "Joined as" for it, edit the Joined entry on the employee page.',
     fields: ['to'],
   },
   {

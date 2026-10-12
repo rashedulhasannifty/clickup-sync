@@ -314,6 +314,8 @@ export interface TodayAttendance {
   /** Mon-Fri. On a weekend `rows` is empty and every count is 0. */
   workingDay: boolean;
   attendanceSource: AttendanceSource;
+  /** The configured provider can pull attendance itself; false = import its export instead. */
+  canSync: boolean;
   coverage: AttendanceCoverage[];
   counts: TodayCounts;
   rows: TodayRow[];

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { JOIN_EVENT_TYPES } from '../employment-events';
 import { isoToDateColumn } from '../people-dates';
 import type { HistoryBaselines, HistoryState } from './employee-history';
 import type { PlannedAppraisal, PlannedEvent } from './past-record-rules';
@@ -69,13 +70,16 @@ export type PastAppraisalRow = Prisma.PastAppraisalGetPayload<{
 
 const date = (v: string | null) => (v ? isoToDateColumn(v) : null);
 
-/** Owns every write of a past record and of the employee fields a re-fold changes. */
-/** The events the timeline may change or delete (the service checks the finer rules). */
+/**
+ * A partial backstop under `eventEditability` (which the service applies first): never an
+ * approved appraisal's event, notice, exit or a note, whatever the caller checked.
+ */
 const EDITABLE_EVENT = {
   appraisalId: null,
   type: { notIn: ['NOTICE_GIVEN', 'EXITED', 'NOTE'] },
 } satisfies Prisma.EmploymentEventWhereInput;
 
+/** Owns every write of a past record and of the employee fields a re-fold changes. */
 @Injectable()
 export class PastRecordsRepository {
   constructor(readonly prisma: PrismaService) {}
@@ -183,7 +187,13 @@ export class PastRecordsRepository {
 
   async deleteEvent(db: Db, employeeId: string, id: bigint) {
     const r = await db.employmentEvent.deleteMany({
-      where: { id, employeeId, ...EDITABLE_EVENT },
+      where: {
+        id,
+        employeeId,
+        ...EDITABLE_EVENT,
+        // The app's own join is changed, never deleted: every employee keeps one.
+        NOT: { source: 'APP', type: { in: [...JOIN_EVENT_TYPES] } },
+      },
     });
     return r.count > 0;
   }

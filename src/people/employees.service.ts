@@ -18,6 +18,7 @@ import {
   eventEffects,
   eventPreconditionError,
   eventEditability,
+  hasPastJoin,
 } from './employment-events';
 import {
   EmployeesRepository,
@@ -244,6 +245,16 @@ export class EmployeesService {
       if (dto.shiftId !== null) await this.requireShift(orgId, dto.shiftId);
       data.shiftId = dto.shiftId;
     }
+    if (
+      dto.joinDate !== undefined &&
+      dto.joinDate !== dateColumnToIso(current.joinDate) &&
+      (await this.repo.hasPastJoin(id))
+    )
+      // The timeline's past join is the source of the date: a profile edit would be undone by the
+      // next change to the history.
+      throw new BadRequestException(
+        'The join date comes from the past "Joined" record on the career timeline: edit that record instead',
+      );
     if (dto.joinDate !== undefined) data.joinDate = dto.joinDate;
     Object.assign(data, this.lifecycleUpdate(current, dto));
     const baseline = withProfileEdit(current.pastRecordsBaseline, data);
@@ -624,11 +635,7 @@ export class EmployeesService {
       appraisalId?: string | null;
     }[],
   ): Promise<EmploymentEventView[]> {
-    const hasPastJoin = events.some(
-      (e) =>
-        e.source === 'PAST_RECORD' &&
-        (e.type === 'JOINED' || e.type === 'JOINED_AS_INTERN'),
-    );
+    const pastJoin = hasPastJoin(events);
     const teamIds = new Set<string>();
     const userIds = new Set<string>();
     for (const e of events) {
@@ -666,7 +673,7 @@ export class EmployeesService {
           source: e.source ?? 'APP',
           appraisalId: e.appraisalId ?? null,
         },
-        hasPastJoin,
+        pastJoin,
       ),
     }));
   }

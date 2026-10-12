@@ -134,6 +134,26 @@ describe('Past records (e2e)', () => {
     expect(row).toMatchObject({ status: 'ACTIVE', confirmationDate: null, pastRecordsBaseline: null });
   });
 
+  it('the career timeline (0037): the app join follows a profile edit, can be edited, never deleted', async () => {
+    const emp = await createImported('Tanvir');
+    const join = () =>
+      prisma.employmentEvent.findFirstOrThrow({ where: { employeeId: emp.id, source: 'APP', type: { in: ['JOINED', 'JOINED_AS_INTERN'] } } });
+    // A profile join-date edit moves the app's join row in the same transaction.
+    await employees.update(orgId, emp.id, { joinDate: '2024-03-01' });
+    expect(iso((await join()).effectiveDate)).toBe('2024-03-01');
+    // Edit it on the timeline: date and "Joined as"; it stays the app's row.
+    const j = await join();
+    await pastRecords.update(principal(), emp.id, `event:${j.id}`, { record: 'Joined', date: '2024-02-01', to: 'Senior Software Engineer' });
+    const row = await prisma.employee.findUniqueOrThrow({ where: { id: emp.id } });
+    expect(iso(row.joinDate)).toBe('2024-02-01');
+    expect(row.designation).toBe('Senior Software Engineer');
+    expect(await join()).toMatchObject({ source: 'APP', toValue: 'Senior Software Engineer' });
+    await expect(pastRecords.remove(principal(), emp.id, `event:${j.id}`)).rejects.toThrow(/cannot be deleted/);
+    // Once a past record gives the real join, the profile cannot move the date out from under it.
+    await pastRecords.add(principal(), emp.id, { record: 'Joined', date: '2023-01-01' });
+    await expect(employees.update(orgId, emp.id, { joinDate: '2023-02-01' })).rejects.toThrow(/past "Joined" record/);
+  });
+
   it('a past appraisal clears the overdue yearly and blocks launching that due date again', async () => {
     const emp = await createImported('Paro');
     const overdue = await appraisals.overdueEmployees(orgId);

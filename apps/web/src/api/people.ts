@@ -278,6 +278,8 @@ export type TodayAttendance = {
   /** Mon-Fri. On a weekend `rows` is empty and every count is 0. */
   workingDay: boolean;
   attendanceSource: AttendanceSource;
+  /** The provider can pull attendance itself; false = import its export (Stellar until its API is built). */
+  canSync: boolean;
   /** Date span of each source's rows, newest first. */
   coverage: AttendanceCoverage[];
   counts: TodayCounts;

@@ -37,6 +37,12 @@ const DATE_LABEL: Record<RecordKind, string> = {
   APPRAISAL: 'Done on',
 };
 
+/** Editing the app's own join: the two ways someone starts, worded for that (not for adding history). */
+const APP_JOIN_KINDS = [
+  { ...RECORD_KIND.JOINED, hint: 'Started as an employee, on probation from this date.' },
+  { ...RECORD_KIND.JOINED_AS_INTERN, hint: 'Started as an intern. Add "Moved to probation" for when probation began.' },
+];
+
 const APPRAISAL_TYPES: AppraisalType[] = ['YEARLY', 'HALF_YEARLY', 'CONFIRMATION', 'INTERNSHIP'];
 const GRADES = ['A', 'B', 'C', 'D', 'E', 'F'];
 const PERCENT_NOTE = /^(\d+(?:\.\d+)?)%(?: · ([\s\S]*))?$/;
@@ -174,7 +180,9 @@ export function PastRecordModal({
   const appJoin = appEvent !== null && (appEvent.type === 'JOINED' || appEvent.type === 'JOINED_AS_INTERN');
   const kinds =
     target?.kind === 'event'
-      ? RECORD_KINDS.filter((k) => (appJoin ? k.kind === 'JOINED' || k.kind === 'JOINED_AS_INTERN' : k.kind !== 'APPRAISAL'))
+      ? appJoin
+        ? APP_JOIN_KINDS
+        : RECORD_KINDS.filter((k) => k.kind !== 'APPRAISAL')
       : RECORD_KINDS;
   const showKinds = target?.kind !== 'appraisal' && !(appEvent && !appJoin);
   const joining = f.kind === 'JOINED' || f.kind === 'JOINED_AS_INTERN';

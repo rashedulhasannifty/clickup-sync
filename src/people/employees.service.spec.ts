@@ -45,6 +45,7 @@ const row = (over: Record<string, unknown> = {}) => ({
 function make(over: Record<string, jest.Mock> = {}) {
   const repo = {
     findById: jest.fn().mockResolvedValue(row()),
+    hasPastJoin: jest.fn().mockResolvedValue(false),
     findTeamInOrg: jest.fn().mockResolvedValue({ id: 't1', name: 'New' }),
     existsInOrg: jest.fn().mockResolvedValue(true),
     managerChain: jest.fn().mockResolvedValue([]),

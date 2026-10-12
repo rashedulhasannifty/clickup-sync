@@ -72,8 +72,8 @@ export function CareerTimeline({
                   </span>
                 )}
                 {(onEdit || onDelete) && !canEdit && !canDelete && e.lockedReason && (
-                  <span title={e.lockedReason} aria-label={`Locked: ${e.lockedReason}`} style={{ marginLeft: 'auto', display: 'inline-flex', color: 'var(--text-muted)', opacity: 0.7 }}>
-                    <Lock size={11} />
+                  <span role="img" title={e.lockedReason} aria-label={`Locked: ${e.lockedReason}`} style={{ marginLeft: 'auto', display: 'inline-flex', color: 'var(--text-muted)', opacity: 0.7 }}>
+                    <Lock size={11} aria-hidden />
                   </span>
                 )}
               </div>

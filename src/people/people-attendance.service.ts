@@ -157,6 +157,7 @@ export class PeopleAttendanceService {
       date: today,
       workingDay: isBusinessDay(today),
       attendanceSource: latest ? sourceLabel(latest) : this.provider.source,
+      canSync: this.provider.canSync,
       coverage: coverage.map((c) => ({ ...c, source: sourceLabel(c.source) })),
       counts,
       rows: out,

@@ -1262,12 +1262,20 @@ export class AppraisalsService {
         effectiveDate,
       });
       if (plan) {
-        await this.employees.addEvent(principal, row.employeeId, {
-          type: plan.type as 'PROMOTED' | 'NOTE',
-          effectiveDate: plan.effectiveDate,
-          toValue: plan.toValue ?? undefined,
-          notes: plan.notes,
-        });
+        // Through the outcome path, so the event is marked as this appraisal's (locked, 0037).
+        await this.employees.recordAppraisalOutcome(
+          principal,
+          row.employeeId,
+          [
+            {
+              type: plan.type as 'PROMOTED' | 'NOTE',
+              effectiveDate: plan.effectiveDate,
+              toValue: plan.toValue ?? null,
+              notes: plan.notes,
+            },
+          ],
+          row.id,
+        );
       }
     }
     await this.repo.markOutcomeApplied(row.id);

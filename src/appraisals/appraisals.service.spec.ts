@@ -505,20 +505,19 @@ describe('AppraisalsService.advance', () => {
     expect(first.status).toBe('SIGNED_OFF');
     expect(first.outcomeApplied).toBe(true);
     expect(first.score.final).toBe(4.2);
-    expect(employees.addEvent).toHaveBeenCalledTimes(1);
-    expect(employees.addEvent).toHaveBeenCalledWith(
+    expect(employees.recordAppraisalOutcome).toHaveBeenCalledTimes(1);
+    // Marked with the appraisal id, so the timeline keeps the promotion locked (0037).
+    expect(employees.recordAppraisalOutcome).toHaveBeenCalledWith(
       admin,
       'e1',
-      expect.objectContaining({
-        type: 'PROMOTED',
-        toValue: 'Senior Developer',
-      }),
+      [expect.objectContaining({ type: 'PROMOTED', toValue: 'Senior Developer' })],
+      'a1',
     );
 
     // Signing off again changes nothing.
     const second = await svc.advance(admin, 'a1');
     expect(second.status).toBe('SIGNED_OFF');
-    expect(employees.addEvent).toHaveBeenCalledTimes(1);
+    expect(employees.recordAppraisalOutcome).toHaveBeenCalledTimes(1);
   });
 
   it('writes a NOTE for a raise and nothing for NO_CHANGE', async () => {
@@ -526,13 +525,16 @@ describe('AppraisalsService.advance', () => {
       current: appraisal({ status: 'CALIBRATION', ...completeLead }),
     });
     await raise.svc.advance(admin, 'a1');
-    expect(raise.employees.addEvent).toHaveBeenCalledWith(
+    expect(raise.employees.recordAppraisalOutcome).toHaveBeenCalledWith(
       admin,
       'e1',
-      expect.objectContaining({
-        type: 'NOTE',
-        notes: 'Salary increase recommended — appraisal H2 2026',
-      }),
+      [
+        expect.objectContaining({
+          type: 'NOTE',
+          notes: 'Salary increase recommended — appraisal H2 2026',
+        }),
+      ],
+      'a1',
     );
 
     const none = make({
@@ -543,7 +545,7 @@ describe('AppraisalsService.advance', () => {
       }),
     });
     const v = await none.svc.advance(admin, 'a1');
-    expect(none.employees.addEvent).not.toHaveBeenCalled();
+    expect(none.employees.recordAppraisalOutcome).not.toHaveBeenCalled();
     expect(v.outcomeApplied).toBe(true);
   });
 
@@ -552,7 +554,7 @@ describe('AppraisalsService.advance', () => {
       current: appraisal({ status: 'CALIBRATION', ...completeLead }),
     };
     const { svc, employees } = make(rows);
-    employees.addEvent.mockRejectedValueOnce(new Error('db down'));
+    employees.recordAppraisalOutcome.mockRejectedValueOnce(new Error('db down'));
 
     await expect(svc.advance(admin, 'a1')).rejects.toThrow('db down');
     expect(rows.current?.status).toBe('SIGNED_OFF');
@@ -560,7 +562,7 @@ describe('AppraisalsService.advance', () => {
 
     const v = await svc.advance(admin, 'a1');
     expect(v.outcomeApplied).toBe(true);
-    expect(employees.addEvent).toHaveBeenCalledTimes(2);
+    expect(employees.recordAppraisalOutcome).toHaveBeenCalledTimes(2);
   });
 
   it('uses the calibrated score when one is set', async () => {
