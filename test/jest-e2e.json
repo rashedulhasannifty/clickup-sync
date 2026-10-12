@@ -2,7 +2,7 @@
   "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": "..",
   "testRegex": "\\.e2e\\.spec\\.ts$",
-  "testPathIgnorePatterns": ["/node_modules/"],
+  "testPathIgnorePatterns": ["/node_modules/", "/\\.worktrees/", "<rootDir>/\\.claude/"],
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },

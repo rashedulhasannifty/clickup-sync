@@ -9,13 +9,13 @@ import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
-import { json } from 'express';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { UpstreamExceptionFilter } from './common/upstream-exception.filter';
 import { getRole } from './config/role';
 import { helmetOptions } from './config/helmet.config';
+import { applyBodyLimits } from './config/body-limits';
 
 async function bootstrap() {
   // Worker role: boot the DI container so BullMQ processors + cron start, but
@@ -49,10 +49,8 @@ async function bootstrap() {
   app.use(helmet(helmetOptions));
   app.use(compression());
   app.use(cookieParser());
-  // A past-records import carries up to 2,000 rows, past the default 100kb JSON limit. Only
-  // those two routes get the larger limit; this runs before Nest's own parser, which then
-  // skips the already-parsed body.
-  app.use(['/api/people/past-records/preview', '/api/people/past-records/apply'], json({ limit: '4mb' }));
+  // A past-records import carries up to 2,000 rows, past the default 100kb JSON limit.
+  applyBodyLimits(app);
   app.enableCors({
     origin: (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173').split(',').map((s) => s.trim()),
     credentials: true,
