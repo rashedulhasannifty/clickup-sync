@@ -303,18 +303,34 @@ const FORM_EDITABLE: Record<AppraisalStatusValue, AppraisalEditableField[]> = {
     'trainingPlan',
   ],
   HR_REVIEW: ['hrComment'],
-  // The CTO/COO.
-  FINAL_APPROVAL: ['approvalDecision', 'approvalComment'],
+  // The CTO/COO, and from when an approved outcome takes effect.
+  FINAL_APPROVAL: [
+    'approvalDecision',
+    'approvalComment',
+    'effectiveDateMode',
+    'effectiveDate',
+  ],
   CALIBRATION: [],
   SIGNED_OFF: [],
 };
+
+/**
+ * An appraisal's own due date and review period can be adjusted at any step
+ * until sign-off (an early or late appraisal), in either mode.
+ */
+export const DATE_FIELDS: readonly AppraisalEditableField[] = [
+  'dueDate',
+  'periodStart',
+  'periodEnd',
+];
 
 /** The fields a step accepts. Signed-off appraisals are read-only. */
 export function editableFields(
   s: AppraisalStatusValue,
   mode: ScoringModeValue = 'KPI_BLEND',
 ): AppraisalEditableField[] {
-  return [...(mode === 'FORM_100' ? FORM_EDITABLE : EDITABLE)[s]];
+  const step = (mode === 'FORM_100' ? FORM_EDITABLE : EDITABLE)[s];
+  return s === 'SIGNED_OFF' ? [...step] : [...step, ...DATE_FIELDS];
 }
 
 /** Cycle status moves: DRAFT -> OPEN (launch), OPEN -> CLOSED, and CLOSED -> OPEN to reopen. */

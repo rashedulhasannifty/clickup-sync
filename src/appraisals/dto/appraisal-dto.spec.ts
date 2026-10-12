@@ -67,6 +67,43 @@ describe('UpdateAppraisalDto (FORM_100 fields)', () => {
   });
 });
 
+describe('UpdateAppraisalDto (dates and effective date)', () => {
+  it('accepts date-only due date, period and a custom effective date', async () => {
+    expect(
+      await errorsOf(UpdateAppraisalDto, {
+        dueDate: '2026-01-15',
+        periodStart: '2025-07-15',
+        periodEnd: '2026-01-14',
+        effectiveDateMode: 'CUSTOM',
+        effectiveDate: '2026-02-01',
+      }),
+    ).toEqual([]);
+    expect(
+      await errorsOf(UpdateAppraisalDto, {
+        effectiveDateMode: null,
+        effectiveDate: null,
+      }),
+    ).toEqual([]);
+  });
+  it('refuses timestamps, impossible dates and an unknown mode', async () => {
+    expect(
+      await errorsOf(UpdateAppraisalDto, { dueDate: '2026-01-15T00:00:00Z' }),
+    ).toEqual(['dueDate']);
+    expect(
+      await errorsOf(UpdateAppraisalDto, { periodStart: '2026-02-30' }),
+    ).toEqual(['periodStart']);
+    expect(await errorsOf(UpdateAppraisalDto, { periodEnd: 'soon' })).toEqual([
+      'periodEnd',
+    ]);
+    expect(
+      await errorsOf(UpdateAppraisalDto, { effectiveDateMode: 'TODAY' }),
+    ).toEqual(['effectiveDateMode']);
+    expect(
+      await errorsOf(UpdateAppraisalDto, { effectiveDate: '15/01/2026' }),
+    ).toEqual(['effectiveDate']);
+  });
+});
+
 describe('CreateCycleDto', () => {
   const base = {
     name: 'H2 2026',

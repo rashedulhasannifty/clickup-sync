@@ -65,6 +65,7 @@ const CANDIDATE_SELECT = {
   designation: true,
   status: true,
   joinDate: true,
+  confirmationDate: true,
   team: { select: { name: true } },
 } satisfies Prisma.EmployeeSelect;
 
@@ -250,6 +251,43 @@ export class AppraisalsRepository {
       }),
     ]);
     return created.count;
+  }
+
+  /**
+   * Every appraisal the employees have, in any cycle and any status, with
+   * the type, due date and the end of the period it reviews: what the
+   * schedule needs to tell "already appraised" and "overdue". Org-scoped.
+   */
+  async appraisalsOnRecord(
+    orgId: string,
+    employeeIds?: string[],
+  ): Promise<
+    {
+      employeeId: string;
+      type: AppraisalTypeValue;
+      dueDate: Date | null;
+      periodEnd: Date;
+    }[]
+  > {
+    if (employeeIds && employeeIds.length === 0) return [];
+    const rows = await this.prisma.appraisal.findMany({
+      where: {
+        cycle: { orgId },
+        ...(employeeIds ? { employeeId: { in: employeeIds } } : {}),
+      },
+      select: {
+        employeeId: true,
+        dueDate: true,
+        periodEnd: true,
+        cycle: { select: { type: true, periodEnd: true } },
+      },
+    });
+    return rows.map((r) => ({
+      employeeId: r.employeeId,
+      type: r.cycle.type,
+      dueDate: r.dueDate,
+      periodEnd: r.periodEnd ?? r.cycle.periodEnd,
+    }));
   }
 
   // --- appraisals ---------------------------------------------------------

@@ -10,15 +10,35 @@ import { AuthPrincipal } from '../auth/auth.types';
 import { DocumentsService } from '../documents/documents.service';
 import { EmployeesService } from '../people/employees.service';
 import { assertNotExited } from '../people/employee-readonly';
-import { addDays, dateColumnToIso, dhakaDateOf } from '../people/people-dates';
+import {
+  addDays,
+  dateColumnToIso,
+  dhakaDateOf,
+  isoToDateColumn,
+} from '../people/people-dates';
 import { PeopleSummaryService } from '../people/people-summary.service';
 import { buildFormHeader } from './appraisal-header';
 import {
-  dueBetween,
-  dueOnOrBefore,
-  milestones,
   addMonthsClamped,
+  classifyDue,
+  coveredMilestones,
+  dueOnOrBefore,
+  isCovered,
+  milestones,
+  nearestMilestone,
+  overdueAppraisals,
+  selectDue,
+  UPCOMING_DAYS,
+  type AppraisalOnRecord,
+  type ClassifiedDue,
+  type DueAppraisal,
+  type OverdueEmployee,
 } from './appraisal-schedule';
+import {
+  dateEditError,
+  effectiveDateError,
+  resolveEffectiveDate,
+} from './appraisal-timing';
 import { formPdfFileName, renderAppraisalFormPdf } from './appraisal-form-pdf';
 import {
   cycleStatusAllowed,
@@ -42,12 +62,14 @@ import {
 import {
   basisOf,
   blockersOf,
+  effectiveOf,
   competenciesOf,
   emptyCounts,
   headerOf,
   modeOf,
   periodOf,
   scoreOf,
+  signedOnOf,
   stepActorIds,
   toAppraisalView,
   toCycleView,
@@ -65,12 +87,15 @@ import {
 import type {
   AppraisalActionValue,
   AppraisalEditableField,
+  AppraisalEffectiveDateValue,
+  AppraisalTypeValue,
   AppraisalListRow,
   AppraisalStatusValue,
   AppraisalView,
   CycleCounts,
   CycleView,
   DueEmployeeRow,
+  DueGroupsView,
   EmployeeAppraisalRow,
   FormHeader,
   KpiSnapshot,
@@ -118,6 +143,32 @@ const TEXT_FIELDS = [
   'hrComment',
   'approvalComment',
 ] as const;
+
+/** A launch candidate as the schedule sees it. */
+type SchedulePerson = Omit<CandidateRow, 'joinDate' | 'confirmationDate'> &
+  OverdueEmployee;
+
+const dueRow = (e: SchedulePerson, due: ClassifiedDue): DueEmployeeRow => ({
+  employeeId: e.id,
+  fullName: e.fullName,
+  designation: e.designation,
+  teamName: e.team?.name ?? null,
+  status: e.status,
+  joinDate: e.joinDate,
+  type: due.type,
+  dueDate: due.dueDate,
+  periodStart: due.periodStart,
+  periodEnd: due.periodEnd,
+  daysLate: due.daysLate,
+  daysEarly: due.daysEarly,
+});
+
+const byDueThenName = (a: DueEmployeeRow, b: DueEmployeeRow) =>
+  a.dueDate !== b.dueDate
+    ? a.dueDate < b.dueDate
+      ? -1
+      : 1
+    : a.fullName.localeCompare(b.fullName);
 
 export interface FormPdf {
   fileName: string;
@@ -264,7 +315,7 @@ export class AppraisalsService {
 
     const { eligible, notDue } =
       basisOf(cycle) === 'JOIN_DATE'
-        ? this.joinDateSelection(cycle, candidates, !!wanted)
+        ? await this.joinDateSelection(orgId, cycle, candidates, !!wanted)
         : {
             eligible: candidates.map(
               (c): LaunchCandidate => ({ id: c.id, managerId: c.managerId }),
@@ -311,63 +362,106 @@ export class AppraisalsService {
   }
 
   /**
-   * Who is due a `type` appraisal with a due date in [from, to], each with
-   * their latest such due date and its review period. The same selection a
-   * default launch of a JOIN_DATE cycle over that window makes.
+   * Who a `type` cycle due in [from, to] would cover, in three groups: due
+   * in the window, overdue (the latest missed due date before it) and coming
+   * up (due within `UPCOMING_DAYS` after it). Anyone whose due date already
+   * has an appraisal in any cycle is left out. The default launch of a
+   * JOIN_DATE cycle over the window takes `due` and `overdue`, from the same
+   * selector.
    */
-  async dueEmployees(orgId: string, q: DueQuery): Promise<DueEmployeeRow[]> {
+  async dueEmployees(orgId: string, q: DueQuery): Promise<DueGroupsView> {
     this.assertPeriod(q.from, q.to);
-    const candidates = await this.repo.launchCandidates(orgId, q.to);
-    return dueBetween(
-      candidates.map((c) => ({ ...c, joinDate: dateColumnToIso(c.joinDate) })),
-      q.type,
-      q.from,
-      q.to,
-    )
-      .map(
-        ({ employee: e, due }): DueEmployeeRow => ({
-          employeeId: e.id,
-          fullName: e.fullName,
-          designation: e.designation,
-          teamName: e.team?.name ?? null,
-          status: e.status,
-          joinDate: e.joinDate,
-          type: due.type,
-          dueDate: due.dueDate,
-          periodStart: due.periodStart,
-          periodEnd: due.periodEnd,
-        }),
-      )
-      .sort((a, b) =>
-        a.dueDate !== b.dueDate
-          ? a.dueDate < b.dueDate
-            ? -1
-            : 1
-          : a.fullName.localeCompare(b.fullName),
-      );
+    const today = this.today();
+    // Upcoming reaches past the window, so take anyone who joined by then.
+    const people = await this.schedulePeople(
+      orgId,
+      await this.repo.launchCandidates(orgId, addDays(q.to, UPCOMING_DAYS)),
+    );
+    const groups = selectDue(people, q.type, { from: q.from, to: q.to, today });
+    const rows = (list: { employee: SchedulePerson; due: ClassifiedDue }[]) =>
+      list.map((x) => dueRow(x.employee, x.due)).sort(byDueThenName);
+    return {
+      due: rows(groups.due),
+      overdue: rows(groups.overdue),
+      upcoming: rows(groups.upcoming),
+    };
   }
 
   /**
-   * JOIN_DATE launch. Default: everyone due in the cycle's window (latest due
-   * date in it). Explicit selection: each employee's latest due date on or
-   * before the window's end; anyone with none yet, or who has exited, is
-   * left out and reported. An explicit pick may predate the window (a late
-   * appraisal) and, for a confirmation, need not still be on probation.
+   * Everyone overdue for any appraisal type as of today (`overdueAppraisals`):
+   * the confirmation while on probation, else the latest missed half-yearly
+   * or yearly within the lookback. Oldest due date first.
    */
-  private joinDateSelection(
+  async overdueEmployees(orgId: string): Promise<DueEmployeeRow[]> {
+    const today = this.today();
+    const people = await this.schedulePeople(
+      orgId,
+      await this.repo.launchCandidates(orgId, today),
+    );
+    return people
+      .flatMap((e) => overdueAppraisals(e, today).map((d) => dueRow(e, d)))
+      .sort(byDueThenName);
+  }
+
+  /** Candidates with their join and confirmation dates and every appraisal they already have. */
+  private async schedulePeople(
+    orgId: string,
+    candidates: CandidateRow[],
+  ): Promise<SchedulePerson[]> {
+    const records = await this.recordsByEmployee(
+      orgId,
+      candidates.map((c) => c.id),
+    );
+    return candidates.map((c) => ({
+      ...c,
+      joinDate: dateColumnToIso(c.joinDate),
+      confirmationDate: c.confirmationDate
+        ? dateColumnToIso(c.confirmationDate)
+        : null,
+      appraisals: records.get(c.id) ?? [],
+    }));
+  }
+
+  private async recordsByEmployee(
+    orgId: string,
+    employeeIds: string[],
+  ): Promise<Map<string, AppraisalOnRecord[]>> {
+    const out = new Map<string, AppraisalOnRecord[]>();
+    for (const r of await this.repo.appraisalsOnRecord(orgId, employeeIds)) {
+      const list = out.get(r.employeeId) ?? [];
+      list.push({
+        type: r.type,
+        dueDate: r.dueDate ? dateColumnToIso(r.dueDate) : null,
+        periodEnd: dateColumnToIso(r.periodEnd),
+      });
+      out.set(r.employeeId, list);
+    }
+    return out;
+  }
+
+  /**
+   * JOIN_DATE launch. Default: everyone due in the cycle's window and
+   * everyone overdue (`selectDue`); the coming-up group only when picked.
+   * Explicit selection, per employee: due in the window, else overdue, else
+   * coming up, else the latest due date on or before the window's end (a
+   * late appraisal outside the overdue rules); for a confirmation the
+   * employee need not still be on probation. Exited employees, anyone with no
+   * due date yet, and anyone whose due date already has an appraisal in any
+   * cycle are left out and reported.
+   */
+  private async joinDateSelection(
+    orgId: string,
     cycle: CycleRow,
     candidates: CandidateRow[],
     explicit: boolean,
-  ): { eligible: LaunchCandidate[]; notDue: LaunchNotDue[] } {
+  ): Promise<{ eligible: LaunchCandidate[]; notDue: LaunchNotDue[] }> {
     const from = dateColumnToIso(cycle.periodStart);
     const to = dateColumnToIso(cycle.periodEnd);
-    const people = candidates.map((c) => ({
-      ...c,
-      joinDate: dateColumnToIso(c.joinDate),
-    }));
+    const today = this.today();
+    const people = await this.schedulePeople(orgId, candidates);
     const toCandidate = (
-      c: (typeof people)[number],
-      due: { periodStart: string; periodEnd: string; dueDate: string },
+      c: SchedulePerson,
+      due: DueAppraisal,
     ): LaunchCandidate => ({
       id: c.id,
       managerId: c.managerId,
@@ -379,8 +473,9 @@ export class AppraisalsService {
     });
 
     if (!explicit) {
+      const g = selectDue(people, cycle.type, { from, to, today });
       return {
-        eligible: dueBetween(people, cycle.type, from, to).map((x) =>
+        eligible: [...g.due, ...g.overdue].map((x) =>
           toCandidate(x.employee, x.due),
         ),
         notDue: [],
@@ -398,23 +493,41 @@ export class AppraisalsService {
         });
         continue;
       }
-      const due = dueOnOrBefore(c.joinDate, cycle.type, to);
-      if (due) {
-        eligible.push(toCandidate(c, due));
+      const due =
+        classifyDue(c, cycle.type, { from, to, today }) ??
+        dueOnOrBefore(c.joinDate, cycle.type, to);
+      if (!due) {
+        const [first] = milestones(
+          c.joinDate,
+          cycle.type,
+          c.joinDate,
+          addMonthsClamped(c.joinDate, 12),
+        );
+        notDue.push({
+          employeeId: c.id,
+          employeeName: c.fullName,
+          reason: 'NOT_YET_DUE',
+          firstDueDate: first ?? null,
+        });
         continue;
       }
-      const [first] = milestones(
-        c.joinDate,
-        cycle.type,
-        c.joinDate,
-        addMonthsClamped(c.joinDate, 12),
-      );
-      notDue.push({
-        employeeId: c.id,
-        employeeName: c.fullName,
-        reason: 'NOT_YET_DUE',
-        firstDueDate: first ?? null,
-      });
+      if (
+        isCovered(
+          coveredMilestones(c.joinDate, c.appraisals),
+          cycle.type,
+          due.dueDate,
+        )
+      ) {
+        notDue.push({
+          employeeId: c.id,
+          employeeName: c.fullName,
+          reason: 'ALREADY_APPRAISED',
+          firstDueDate: null,
+          dueDate: due.dueDate,
+        });
+        continue;
+      }
+      eligible.push(toCandidate(c, due));
     }
     return { eligible, notDue };
   }
@@ -426,7 +539,10 @@ export class AppraisalsService {
     cycleId: string,
   ): Promise<AppraisalListRow[]> {
     await this.requireCycle(orgId, cycleId);
-    return (await this.repo.listByCycle(orgId, cycleId)).map(toListRow);
+    const today = this.today();
+    return (await this.repo.listByCycle(orgId, cycleId)).map((r) =>
+      toListRow(r, today),
+    );
   }
 
   async getAppraisal(orgId: string, id: string): Promise<AppraisalView> {
@@ -438,8 +554,9 @@ export class AppraisalsService {
     employeeId: string,
   ): Promise<EmployeeAppraisalRow[]> {
     await this.employees.getProfile(orgId, employeeId); // 404 for a foreign id
-    return (await this.repo.listForEmployee(orgId, employeeId)).map(
-      toEmployeeRow,
+    const today = this.today();
+    return (await this.repo.listForEmployee(orgId, employeeId)).map((r) =>
+      toEmployeeRow(r, today),
     );
   }
 
@@ -504,6 +621,8 @@ export class AppraisalsService {
     }
     if (dto.approvalDecision !== undefined)
       data.approvalDecision = dto.approvalDecision;
+    Object.assign(data, await this.dateChanges(row, dto));
+    Object.assign(data, this.effectiveDateChanges(row, dto, data));
     if (dto.calibratedScore !== undefined) {
       if (
         dto.calibratedScore !== null &&
@@ -569,6 +688,22 @@ export class AppraisalsService {
     if (next === 'SIGNED_OFF') {
       data.signedOffAt = now;
       data.signedOffBy = actorId(principal);
+      // Resolved once, here, and stored: the outcome (and any retry of it) uses this date.
+      const period = periodOf(row);
+      const effective = resolveEffectiveDate({
+        scoringMode: mode,
+        mode: (row.effectiveDateMode ??
+          null) as AppraisalEffectiveDateValue | null,
+        customDate: row.effectiveDate
+          ? dateColumnToIso(row.effectiveDate)
+          : null,
+        dueDate: period.dueDate,
+        periodStart: period.periodStart,
+        approvalDate: this.today(),
+      });
+      if (!effective.ok) throw new BadRequestException(effective.error);
+      data.effectiveDateMode = effective.mode;
+      data.effectiveDate = isoToDateColumn(effective.date);
       if (mode === 'FORM_100') {
         const keys = competenciesOf(row.cycle).map((c) => c.key);
         const f = formScore(cleanRatings(row.leadRatings, keys, mode), keys);
@@ -651,6 +786,142 @@ export class AppraisalsService {
 
   // --- internals ----------------------------------------------------------
 
+  /** Today's Dhaka date. One place, so tests can pin the clock. */
+  protected today(): string {
+    return dhakaDateOf(new Date());
+  }
+
+  /**
+   * An edit of the appraisal's own due date and review period (any step
+   * before sign-off). The partial edit is merged with what is stored and
+   * validated as a whole (`dateEditError`); a due date may not move onto a
+   * milestone another appraisal of the employee already covers. When the
+   * period changes and a KPI snapshot exists, it is recomputed over the new
+   * period in the same write (and, for the form, the header, whose
+   * experience is measured to the due date). Returns the columns to write.
+   */
+  private async dateChanges(
+    row: AppraisalRow,
+    dto: UpdateAppraisalDto,
+  ): Promise<Prisma.AppraisalUpdateManyMutationInput> {
+    if (
+      dto.dueDate === undefined &&
+      dto.periodStart === undefined &&
+      dto.periodEnd === undefined
+    )
+      return {};
+    const current = periodOf(row);
+    const next = {
+      periodStart: dto.periodStart ?? current.periodStart,
+      periodEnd: dto.periodEnd ?? current.periodEnd,
+      dueDate: dto.dueDate ?? current.dueDate,
+    };
+    const joinDate = dateColumnToIso(row.employee.joinDate);
+    const error = dateEditError({ joinDate, ...next });
+    if (error) throw new BadRequestException(error);
+
+    if (next.dueDate && next.dueDate !== current.dueDate) {
+      const others = (
+        await this.repo.listForEmployee(row.cycle.orgId, row.employeeId)
+      )
+        .filter((a) => a.id !== row.id)
+        .map(
+          (a): AppraisalOnRecord => ({
+            type: a.cycle.type,
+            dueDate: a.dueDate ? dateColumnToIso(a.dueDate) : null,
+            periodEnd: periodOf(a).periodEnd,
+          }),
+        );
+      const type = row.cycle.type as AppraisalTypeValue;
+      const milestone =
+        nearestMilestone(joinDate, type, next.dueDate) ?? next.dueDate;
+      if (isCovered(coveredMilestones(joinDate, others), type, milestone))
+        throw new ConflictException(
+          `Another appraisal already covers the ${milestone} due date for this employee`,
+        );
+    }
+
+    const data: Prisma.AppraisalUpdateManyMutationInput = {
+      periodStart: isoToDateColumn(next.periodStart),
+      periodEnd: isoToDateColumn(next.periodEnd),
+      dueDate: next.dueDate ? isoToDateColumn(next.dueDate) : null,
+    };
+    const periodMoved =
+      next.periodStart !== current.periodStart ||
+      next.periodEnd !== current.periodEnd;
+    if (periodMoved && row.kpiSnapshot !== null) {
+      const snapshot = await this.snapshot(row, next);
+      data.kpiSnapshot = snapshot as unknown as Prisma.InputJsonValue;
+      data.kpiSnapshotAt = new Date(snapshot.computedAt);
+    }
+    if (
+      modeOf(row) === 'FORM_100' &&
+      (periodMoved || next.dueDate !== current.dueDate)
+    ) {
+      const [sources, companyName] = await Promise.all([
+        this.repo.headerSources(row.cycle.orgId, [row.employeeId]),
+        this.repo.organisationName(row.cycle.orgId),
+      ]);
+      if (sources[0])
+        data.formHeader = this.header(
+          sources[0],
+          companyName,
+          next.dueDate,
+        ) as unknown as Prisma.InputJsonValue;
+    }
+    return data;
+  }
+
+  /**
+   * The effective-date choice at final approval. Choosing DUE_DATE or
+   * APPROVAL_DATE clears a custom date; a date may only be sent with (or
+   * kept by) CUSTOM; CUSTOM needs a date on or after the review period start
+   * (checked against the period as this same request leaves it).
+   */
+  private effectiveDateChanges(
+    row: AppraisalRow,
+    dto: UpdateAppraisalDto,
+    pending: Prisma.AppraisalUpdateManyMutationInput,
+  ): Prisma.AppraisalUpdateManyMutationInput {
+    if (dto.effectiveDateMode === undefined && dto.effectiveDate === undefined)
+      return {};
+    const mode =
+      dto.effectiveDateMode !== undefined
+        ? dto.effectiveDateMode
+        : ((row.effectiveDateMode ??
+            null) as AppraisalEffectiveDateValue | null);
+    const stored = row.effectiveDate
+      ? dateColumnToIso(row.effectiveDate)
+      : null;
+    const date = dto.effectiveDate !== undefined ? dto.effectiveDate : stored;
+    if (mode !== 'CUSTOM' && dto.effectiveDate)
+      throw new BadRequestException(
+        'effectiveDate is only used with effectiveDateMode CUSTOM',
+      );
+    const period = periodOf(row);
+    const periodStart =
+      pending.periodStart instanceof Date
+        ? dateColumnToIso(pending.periodStart)
+        : period.periodStart;
+    const dueDate =
+      pending.dueDate !== undefined
+        ? pending.dueDate instanceof Date
+          ? dateColumnToIso(pending.dueDate)
+          : null
+        : period.dueDate;
+    const error = effectiveDateError({
+      mode,
+      customDate: mode === 'CUSTOM' ? date : null,
+      dueDate,
+      periodStart,
+    });
+    if (error) throw new BadRequestException(error);
+    return {
+      effectiveDateMode: mode,
+      effectiveDate: mode === 'CUSTOM' && date ? isoToDateColumn(date) : null,
+    };
+  }
+
   private async renderFormPdf(row: AppraisalRow): Promise<FormPdf> {
     const view = await this.view(row);
     // Signed off: the frozen header. Open: the header as it would be captured now.
@@ -661,6 +932,7 @@ export class AppraisalsService {
     const buffer = await renderAppraisalFormPdf({
       view,
       header,
+      signedOn: signedOnOf(row),
       generatedOn: dhakaDateOf(new Date()),
     });
     return { fileName: formPdfFileName(view), buffer };
@@ -748,9 +1020,12 @@ export class AppraisalsService {
    * KPIs over the appraisal's review period (its own for a join-date cycle,
    * else the cycle's), clipped to today so future days don't count as available.
    */
-  private async snapshot(row: AppraisalRow): Promise<KpiSnapshot> {
-    const today = dhakaDateOf(new Date());
-    const { periodStart: from, periodEnd: end } = periodOf(row);
+  private async snapshot(
+    row: AppraisalRow,
+    period: { periodStart: string; periodEnd: string } = periodOf(row),
+  ): Promise<KpiSnapshot> {
+    const today = this.today();
+    const { periodStart: from, periodEnd: end } = period;
     let to = end < today ? end : today;
     if (to < from) to = from;
     const c = await this.summaries.kpisForPeriod(
@@ -783,7 +1058,10 @@ export class AppraisalsService {
     principal: AuthPrincipal,
     row: AppraisalRow,
   ): Promise<void> {
-    const effectiveDate = dhakaDateOf(new Date());
+    // The date resolved and stored at sign-off; a retry on a later day writes the same one.
+    const effectiveDate =
+      effectiveOf(row, this.today())?.date ??
+      dhakaDateOf(row.signedOffAt ?? new Date());
     if (modeOf(row) === 'FORM_100') {
       const plan = formOutcomePlan({
         decision: row.approvalDecision,
@@ -833,11 +1111,15 @@ export class AppraisalsService {
       this.repo.listForEmployee(row.cycle.orgId, row.employeeId),
       this.repo.userNames(stepActorIds(row)),
     ]);
+    const today = this.today();
     return toAppraisalView(
       row,
       counts.get(row.cycleId) ?? emptyCounts(),
-      history.filter((h) => h.id !== row.id).map(toEmployeeRow),
+      history
+        .filter((h) => h.id !== row.id)
+        .map((h) => toEmployeeRow(h, today)),
       names,
+      today,
     );
   }
 

@@ -149,6 +149,9 @@ describe('editableFields', () => {
     expect(editableFields('SELF_REVIEW')).toEqual([
       'selfRatings',
       'selfComment',
+      'dueDate',
+      'periodStart',
+      'periodEnd',
     ]);
     expect(editableFields('LEAD_REVIEW')).toContain('leadRatings');
     expect(editableFields('LEAD_REVIEW')).not.toContain('calibratedScore');

@@ -1,4 +1,9 @@
-import { dateColumnToIso } from '../people/people-dates';
+import { dateColumnToIso, dhakaDateOf } from '../people/people-dates';
+import {
+  appraisalTiming,
+  effectiveDateError,
+  effectiveDateView,
+} from './appraisal-timing';
 import {
   advanceBlockers,
   cleanRatings,
@@ -12,13 +17,16 @@ import {
 import type { AppraisalRow, CycleRow } from './appraisals.repository';
 import type {
   AppraisalActionValue,
+  AppraisalEffectiveDateValue,
   AppraisalListRow,
   AppraisalPeriod,
   AppraisalPeriodBasisValue,
   AppraisalRecommendationValue,
   AppraisalStatusValue,
+  AppraisalTiming,
   AppraisalView,
   Competency,
+  EffectiveDateView,
   CycleCounts,
   CycleView,
   EmployeeAppraisalRow,
@@ -110,6 +118,54 @@ export function periodOf(
     periodEnd: dateColumnToIso(row.cycle.periodEnd),
     dueDate: null,
   };
+}
+
+/** The Dhaka date the appraisal was signed off on, or null while open. */
+export const signedOnOf = (row: Pick<AppraisalRow, 'signedOffAt'>) =>
+  row.signedOffAt ? dhakaDateOf(row.signedOffAt) : null;
+
+/** On time / early / late against the appraisal's own due date (null for calendar cycles). */
+export function timingOf(
+  row: Parameters<typeof periodOf>[0] & Pick<AppraisalRow, 'signedOffAt'>,
+  today: string,
+): AppraisalTiming | null {
+  return appraisalTiming(periodOf(row).dueDate, signedOnOf(row), today);
+}
+
+const effectiveModeOf = (row: Pick<AppraisalRow, 'effectiveDateMode'>) =>
+  (row.effectiveDateMode ?? null) as AppraisalEffectiveDateValue | null;
+
+/** The stored effective date, `YYYY-MM-DD`. */
+const storedEffectiveDate = (row: Pick<AppraisalRow, 'effectiveDate'>) =>
+  row.effectiveDate ? dateColumnToIso(row.effectiveDate) : null;
+
+/**
+ * The outcome's effective date: frozen once signed off (the mode and date
+ * stored at sign-off), else what signing off today would use.
+ */
+export function effectiveOf(
+  row: AppraisalRow,
+  today: string,
+): EffectiveDateView | null {
+  const period = periodOf(row);
+  const signedOn = signedOnOf(row);
+  const mode = effectiveModeOf(row);
+  const stored = storedEffectiveDate(row);
+  return effectiveDateView({
+    scoringMode: modeOf(row),
+    mode,
+    customDate: stored,
+    dueDate: period.dueDate,
+    periodStart: period.periodStart,
+    approvalDate: signedOn ?? today,
+    decision: row.approvalDecision,
+    actions: actionsOf(row),
+    // Rows signed off before 0033 without a stored date read as their sign-off date.
+    frozen:
+      row.status === 'SIGNED_OFF' && signedOn
+        ? { mode: mode ?? 'APPROVAL_DATE', date: stored ?? signedOn }
+        : null,
+  });
 }
 
 export function snapshotOf(
@@ -205,7 +261,10 @@ export function scoreOf(row: AppraisalRow): ScoreView {
 const actionsOf = (row: AppraisalRow): AppraisalActionValue[] =>
   (row.actions ?? []) as AppraisalActionValue[];
 
-export function toListRow(row: AppraisalRow): AppraisalListRow {
+export function toListRow(
+  row: AppraisalRow,
+  today: string = dhakaDateOf(new Date()),
+): AppraisalListRow {
   return {
     id: row.id,
     cycleId: row.cycleId,
@@ -223,11 +282,15 @@ export function toListRow(row: AppraisalRow): AppraisalListRow {
     actions: actionsOf(row),
     approvalDecision: row.approvalDecision,
     signedOffAt: row.signedOffAt?.toISOString() ?? null,
+    timing: timingOf(row, today),
     updatedAt: row.updatedAt.toISOString(),
   };
 }
 
-export function toEmployeeRow(row: AppraisalRow): EmployeeAppraisalRow {
+export function toEmployeeRow(
+  row: AppraisalRow,
+  today: string = dhakaDateOf(new Date()),
+): EmployeeAppraisalRow {
   return {
     id: row.id,
     cycleId: row.cycleId,
@@ -242,13 +305,14 @@ export function toEmployeeRow(row: AppraisalRow): EmployeeAppraisalRow {
     approvalDecision: row.approvalDecision,
     newDesignation: row.newDesignation,
     signedOffAt: row.signedOffAt?.toISOString() ?? null,
+    timing: timingOf(row, today),
   };
 }
 
 export function blockersOf(row: AppraisalRow): string[] {
   const mode = modeOf(row);
   const keys = competenciesOf(row.cycle).map((c) => c.key);
-  return advanceBlockers({
+  const out = advanceBlockers({
     mode,
     status: row.status,
     leadRatings: cleanRatings(row.leadRatings, keys, mode),
@@ -260,6 +324,18 @@ export function blockersOf(row: AppraisalRow): string[] {
     approvalDecision: row.approvalDecision,
     grossSalaryKnown: row.employee.grossSalary !== null,
   });
+  // Checked again here, not only on save: the period can be edited after the date was chosen.
+  if (mode === 'FORM_100' && row.status === 'FINAL_APPROVAL') {
+    const period = periodOf(row);
+    const error = effectiveDateError({
+      mode: effectiveModeOf(row),
+      customDate: storedEffectiveDate(row),
+      dueDate: period.dueDate,
+      periodStart: period.periodStart,
+    });
+    if (error) out.push(error);
+  }
+  return out;
 }
 
 /** Who completed each step (recorded as the appraisal left it). User ids not in `names` show no name. */
@@ -311,6 +387,7 @@ export function toAppraisalView(
   counts: CycleCounts,
   previous: EmployeeAppraisalRow[],
   names: ReadonlyMap<string, string> = new Map(),
+  today: string = dhakaDateOf(new Date()),
 ): AppraisalView {
   const mode = modeOf(row);
   const keys = competenciesOf(row.cycle).map((c) => c.key);
@@ -364,6 +441,10 @@ export function toAppraisalView(
       : [exited ? 'This employee has exited' : 'This cycle is not open'],
     canSendBack: open && previousStatus(status, mode) !== null,
     signedOffAt: row.signedOffAt?.toISOString() ?? null,
+    timing: timingOf(row, today),
+    effectiveDateMode: effectiveModeOf(row),
+    effectiveDate: storedEffectiveDate(row),
+    effective: modeOf(row) === 'FORM_100' ? effectiveOf(row, today) : null,
     outcomeApplied: row.outcomeAppliedAt !== null,
     previous,
     createdAt: row.createdAt.toISOString(),

@@ -4,10 +4,12 @@ import {
   ArrayUnique,
   IsArray,
   IsIn,
+  IsISO8601,
   IsNumber,
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -30,6 +32,14 @@ export const APPRAISAL_ACTIONS = [
 ] as const;
 
 export const APPROVAL_DECISIONS = ['APPROVED', 'NOT_APPROVED'] as const;
+
+export const EFFECTIVE_DATE_MODES = [
+  'DUE_DATE',
+  'APPROVAL_DATE',
+  'CUSTOM',
+] as const;
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 const TEXT = 5000;
 
@@ -161,4 +171,56 @@ export class UpdateAppraisalDto {
   @IsString()
   @MaxLength(TEXT)
   approvalComment?: string | null;
+
+  @ApiPropertyOptional({
+    enum: EFFECTIVE_DATE_MODES,
+    nullable: true,
+    description:
+      'Final approval: from when an approved outcome takes effect. Null = the default (DUE_DATE when the appraisal is late, else APPROVAL_DATE). CUSTOM needs effectiveDate.',
+  })
+  @IsOptional()
+  @IsIn(EFFECTIVE_DATE_MODES)
+  effectiveDateMode?: (typeof EFFECTIVE_DATE_MODES)[number] | null;
+
+  @ApiPropertyOptional({
+    example: '2026-01-15',
+    nullable: true,
+    description:
+      'CUSTOM only: the effective date, on or after the review period start.',
+  })
+  @IsOptional()
+  @Matches(DATE_ONLY, { message: 'effectiveDate must be a YYYY-MM-DD date' })
+  @IsISO8601({ strict: true })
+  effectiveDate?: string | null;
+
+  // --- the appraisal's own dates (any step before sign-off) ---
+
+  @ApiPropertyOptional({
+    example: '2026-01-15',
+    description:
+      'Adjust the due date (an early or late appraisal). Never before joining; the review period must end on or before it.',
+  })
+  @IsOptional()
+  @Matches(DATE_ONLY, { message: 'dueDate must be a YYYY-MM-DD date' })
+  @IsISO8601({ strict: true })
+  dueDate?: string;
+
+  @ApiPropertyOptional({
+    example: '2025-07-15',
+    description:
+      'Adjust the review period start: not before joining, not after periodEnd. The KPI snapshot is recomputed when the period changes.',
+  })
+  @IsOptional()
+  @Matches(DATE_ONLY, { message: 'periodStart must be a YYYY-MM-DD date' })
+  @IsISO8601({ strict: true })
+  periodStart?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-01-14',
+    description: 'Adjust the review period end: on or before the due date.',
+  })
+  @IsOptional()
+  @Matches(DATE_ONLY, { message: 'periodEnd must be a YYYY-MM-DD date' })
+  @IsISO8601({ strict: true })
+  periodEnd?: string;
 }

@@ -127,6 +127,8 @@ const completeLead = {
   kpiSnapshot: snapshot,
 };
 
+const TODAY = '2026-10-12';
+
 function make(
   rows: { current: Row | null },
   over: Record<string, jest.Mock> = {},
@@ -151,6 +153,7 @@ function make(
       .fn()
       .mockResolvedValue([{ id: 'e1', managerId: 'm1' }]),
     createAppraisals: jest.fn().mockResolvedValue(1),
+    appraisalsOnRecord: jest.fn().mockResolvedValue([]),
     listByCycle: jest.fn().mockResolvedValue([]),
     findAppraisal: jest
       .fn()
@@ -203,6 +206,10 @@ function make(
     employees as never,
     documents as never,
   );
+  // Overdue, timing and the effective date count from today: pin it.
+  jest
+    .spyOn(svc as unknown as { today: () => string }, 'today')
+    .mockReturnValue(TODAY);
   return { svc, repo, summaries, employees, documents, rows };
 }
 
@@ -1214,8 +1221,11 @@ describe('AppraisalsService join-date cycles', () => {
       from: '2026-10-01',
       to: '2026-10-31',
     });
-    expect(repo.launchCandidates).toHaveBeenCalledWith('org', '2026-10-31');
-    expect(r).toEqual([
+    // Coming up reaches 60 days past the window.
+    expect(repo.launchCandidates).toHaveBeenCalledWith('org', '2026-12-30');
+    expect(r.overdue).toEqual([]);
+    expect(r.upcoming).toEqual([]);
+    expect(r.due).toEqual([
       {
         employeeId: 'jahid',
         fullName: 'jahid',
@@ -1227,6 +1237,8 @@ describe('AppraisalsService join-date cycles', () => {
         dueDate: '2026-10-15',
         periodStart: '2026-04-15',
         periodEnd: '2026-10-14',
+        daysLate: null,
+        daysEarly: 3,
       },
       expect.objectContaining({ employeeId: 'mira', dueDate: '2026-10-31' }),
     ]);
@@ -1272,5 +1284,423 @@ describe('AppraisalsService join-date cycles', () => {
       dueDate: null,
       cycle: { periodBasis: 'CALENDAR' },
     });
+  });
+});
+
+describe('AppraisalsService overdue, upcoming and already appraised (0033)', () => {
+  const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
+  const person = (
+    id: string,
+    joinDate: string,
+    over: Record<string, unknown> = {},
+  ) => ({
+    id,
+    managerId: 'm1',
+    fullName: id,
+    designation: 'Developer',
+    status: 'ACTIVE',
+    joinDate: day(joinDate),
+    confirmationDate: null,
+    team: { name: 'Core' },
+    ...over,
+  });
+  const octCycle = () =>
+    cycle({
+      periodBasis: 'JOIN_DATE',
+      type: 'HALF_YEARLY',
+      periodStart: day('2026-10-01'),
+      periodEnd: day('2026-10-31'),
+      status: 'DRAFT',
+    });
+  const onRecord = (
+    employeeId: string,
+    dueDate: string | null,
+    periodEnd: string,
+    type = 'HALF_YEARLY',
+  ) => ({
+    employeeId,
+    type,
+    dueDate: dueDate ? day(dueDate) : null,
+    periodEnd: day(periodEnd),
+  });
+  const people = [
+    person('jahid', '2025-04-15'), // due 15 Oct 2026
+    person('late', '2025-01-20'), // missed 20 Jul 2026
+    person('soon', '2025-06-30', { confirmationDate: day('2026-12-31') }), // due 30 Dec 2026
+    person('done', '2025-04-16'), // due 16 Oct 2026, already appraised in another cycle
+  ];
+
+  it('the due preview groups due, overdue and coming up, leaving out anyone already appraised', async () => {
+    const { svc } = make(
+      { current: null },
+      {
+        launchCandidates: jest.fn().mockResolvedValue(people),
+        appraisalsOnRecord: jest
+          .fn()
+          .mockResolvedValue([onRecord('done', '2026-10-16', '2026-10-15')]),
+      },
+    );
+    const r = await svc.dueEmployees('org', {
+      type: 'HALF_YEARLY',
+      from: '2026-10-01',
+      to: '2026-10-31',
+    });
+    expect(r.due.map((x) => [x.employeeId, x.dueDate, x.daysEarly])).toEqual([
+      ['jahid', '2026-10-15', 3],
+    ]);
+    expect(r.overdue.map((x) => [x.employeeId, x.dueDate, x.daysLate])).toEqual(
+      [['late', '2026-07-20', 84]],
+    );
+    expect(
+      r.upcoming.map((x) => [x.employeeId, x.dueDate, x.daysEarly]),
+    ).toEqual([['soon', '2026-12-30', 79]]);
+  });
+
+  it('a default launch takes due and overdue, not coming up', async () => {
+    const { svc, repo } = make(
+      { current: null },
+      {
+        findCycle: jest.fn().mockResolvedValue(octCycle()),
+        launchCandidates: jest.fn().mockResolvedValue(people),
+        appraisalsOnRecord: jest
+          .fn()
+          .mockResolvedValue([onRecord('done', '2026-10-16', '2026-10-15')]),
+        createAppraisals: jest.fn().mockResolvedValue(2),
+      },
+    );
+    await svc.launch('org', 'c1', {});
+    const rows = repo.createAppraisals.mock.calls[0][1];
+    expect(
+      rows.map((x: { id: string; period: { dueDate: string } }) => [
+        x.id,
+        x.period.dueDate,
+      ]),
+    ).toEqual([
+      ['jahid', '2026-10-15'],
+      ['late', '2026-07-20'],
+    ]);
+  });
+
+  it('explicit picks: coming up gets its own (early) due date; an already-appraised due date is refused and reported', async () => {
+    const { svc, repo } = make(
+      { current: null },
+      {
+        findCycle: jest.fn().mockResolvedValue(octCycle()),
+        launchCandidates: jest.fn().mockResolvedValue(people),
+        appraisalsOnRecord: jest
+          .fn()
+          .mockResolvedValue([onRecord('done', '2026-10-16', '2026-10-15')]),
+        createAppraisals: jest.fn().mockResolvedValue(2),
+      },
+    );
+    const r = await svc.launch('org', 'c1', {
+      employeeIds: ['soon', 'done', 'late', 'jahid'],
+    });
+    const rows = repo.createAppraisals.mock.calls[0][1];
+    expect(
+      rows.map((x: { id: string; period: { dueDate: string } }) => [
+        x.id,
+        x.period.dueDate,
+      ]),
+    ).toEqual([
+      ['jahid', '2026-10-15'],
+      ['late', '2026-07-20'],
+      ['soon', '2026-12-30'],
+    ]);
+    expect(r.notDue).toEqual([
+      {
+        employeeId: 'done',
+        employeeName: 'done',
+        reason: 'ALREADY_APPRAISED',
+        firstDueDate: null,
+        dueDate: '2026-10-16',
+      },
+    ]);
+  });
+});
+
+describe('AppraisalsService date adjustment (0033)', () => {
+  const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
+  const joinCycle = (over: Record<string, unknown> = {}) =>
+    cycle({
+      periodBasis: 'JOIN_DATE',
+      type: 'HALF_YEARLY',
+      scoringMode: 'FORM_100',
+      kpiWeight: 0,
+      competencies: [{ key: 'integrity', label: 'Integrity' }],
+      ...over,
+    });
+  const dated = (over: Record<string, unknown> = {}) =>
+    appraisal({
+      cycle: joinCycle(),
+      periodStart: day('2026-01-20'),
+      periodEnd: day('2026-07-19'),
+      dueDate: day('2026-07-20'),
+      employee: { ...appraisal().employee, joinDate: day('2025-01-20') },
+      ...over,
+    });
+
+  it('moves the due date and period while open, in any step before sign-off', async () => {
+    const rows = { current: dated() };
+    const { svc } = make(rows);
+    const v = await svc.update('org', 'a1', {
+      dueDate: '2026-09-01',
+      periodEnd: '2026-08-31',
+    });
+    expect(v).toMatchObject({
+      dueDate: '2026-09-01',
+      periodStart: '2026-01-20',
+      periodEnd: '2026-08-31',
+    });
+    // A late appraisal: open and well past its (moved) due date.
+    expect(v.timing).toEqual({ status: 'OPEN_OVERDUE', days: 41 });
+  });
+
+  it('validates the merged dates', async () => {
+    const { svc } = make({ current: dated() });
+    await expect(
+      svc.update('org', 'a1', { periodStart: '2025-01-01' }),
+    ).rejects.toThrow(/before the employee joined/);
+    await expect(
+      svc.update('org', 'a1', { periodEnd: '2026-07-21' }),
+    ).rejects.toThrow(/on or before the due date/);
+    await expect(
+      svc.update('org', 'a1', {
+        periodStart: '2026-07-19',
+        periodEnd: '2026-07-01',
+      }),
+    ).rejects.toThrow(/start on or before/);
+  });
+
+  it('will not move the due date onto a milestone another appraisal already covers', async () => {
+    const other = dated({
+      id: 'a0',
+      dueDate: day('2026-01-20'),
+      periodStart: day('2025-07-20'),
+      periodEnd: day('2026-01-19'),
+    });
+    const { svc } = make(
+      { current: dated() },
+      { listForEmployee: jest.fn().mockResolvedValue([other]) },
+    );
+    await expect(
+      svc.update('org', 'a1', {
+        dueDate: '2026-01-25',
+        periodEnd: '2026-01-24',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('recomputes the KPI snapshot over the new period in the same write, once one exists', async () => {
+    const rows = {
+      current: dated({ status: 'LEAD_REVIEW', kpiSnapshot: snapshot }),
+    };
+    const { svc, repo, summaries } = make(rows);
+    await svc.update('org', 'a1', { periodStart: '2026-02-01' });
+    expect(summaries.kpisForPeriod).toHaveBeenCalledWith('org', 'e1', {
+      from: '2026-02-01',
+      to: '2026-07-19',
+    });
+    const data = repo.updateIf.mock.calls[0][2];
+    expect(data).toMatchObject({
+      periodStart: day('2026-02-01'),
+      kpiSnapshot: expect.anything(),
+    });
+    // Self review has no snapshot yet: none is taken.
+    const fresh = make({ current: dated() });
+    await fresh.svc.update('org', 'a1', { periodStart: '2026-02-01' });
+    expect(fresh.summaries.kpisForPeriod).not.toHaveBeenCalled();
+  });
+
+  it('is refused once signed off, while the cycle is closed, and once the employee exited', async () => {
+    await expect(
+      make({ current: dated({ status: 'SIGNED_OFF' }) }).svc.update(
+        'org',
+        'a1',
+        { dueDate: '2026-07-25' },
+      ),
+    ).rejects.toThrow(/signed off/);
+    await expect(
+      make({
+        current: dated({ cycle: joinCycle({ status: 'CLOSED' }) }),
+      }).svc.update('org', 'a1', { dueDate: '2026-07-25' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      make({
+        current: dated({ employee: { ...dated().employee, status: 'EXITED' } }),
+      }).svc.update('org', 'a1', {
+        dueDate: '2026-07-25',
+      }),
+    ).rejects.toThrow();
+  });
+});
+
+describe('AppraisalsService outcome effective date (0033)', () => {
+  const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
+  // Due 20 Jul 2026; today (pinned) 12 Oct 2026: 84 days late.
+  const late = (over: Record<string, unknown> = {}) =>
+    appraisal({
+      cycle: cycle({
+        periodBasis: 'JOIN_DATE',
+        type: 'HALF_YEARLY',
+        scoringMode: 'FORM_100',
+        kpiWeight: 0,
+        competencies: [{ key: 'integrity', label: 'Integrity' }],
+      }),
+      periodStart: day('2026-01-20'),
+      periodEnd: day('2026-07-19'),
+      dueDate: day('2026-07-20'),
+      status: 'FINAL_APPROVAL',
+      leadRatings: { integrity: 8 },
+      actions: ['CONFIRM', 'INCREMENT'],
+      incrementPercent: 13,
+      approvalDecision: 'APPROVED',
+      employee: {
+        ...appraisal().employee,
+        status: 'PROBATION',
+        joinDate: day('2025-01-20'),
+      },
+      ...over,
+    });
+
+  it('a late appraisal defaults to the due date: the events, the stored date and the view all use it', async () => {
+    const rows = { current: late() };
+    const { svc, employees } = make(rows);
+    const v = await svc.advance(admin, 'a1');
+    expect(rows.current).toMatchObject({
+      effectiveDateMode: 'DUE_DATE',
+      effectiveDate: day('2026-07-20'),
+    });
+    expect(employees.recordAppraisalOutcome.mock.calls[0][2]).toEqual([
+      expect.objectContaining({
+        type: 'CONFIRMED',
+        effectiveDate: '2026-07-20',
+      }),
+      expect.objectContaining({
+        type: 'INCREMENT',
+        effectiveDate: '2026-07-20',
+      }),
+    ]);
+    expect(v.effective).toEqual({
+      mode: 'DUE_DATE',
+      date: '2026-07-20',
+      defaulted: false,
+      backdated: true,
+      arrearsMonths: 2,
+    });
+    expect(v.timing).toEqual({ status: 'LATE', days: 84 });
+  });
+
+  it('an on-time appraisal defaults to the approval date', async () => {
+    const rows = {
+      current: late({
+        dueDate: day('2026-10-10'),
+        periodEnd: day('2026-10-09'),
+      }),
+    };
+    const { svc, employees } = make(rows);
+    await svc.advance(admin, 'a1');
+    expect(employees.recordAppraisalOutcome.mock.calls[0][2][0]).toMatchObject({
+      effectiveDate: '2026-10-12',
+    });
+  });
+
+  it('a chosen date is used as is; a retry on a later day reuses the stored date', async () => {
+    const rows = {
+      current: late({
+        effectiveDateMode: 'CUSTOM',
+        effectiveDate: day('2026-08-01'),
+      }),
+    };
+    const { svc, repo, employees } = make(rows);
+    repo.markOutcomeApplied.mockRejectedValueOnce(new Error('db blip'));
+    await expect(svc.advance(admin, 'a1')).rejects.toThrow('db blip');
+    (svc as unknown as { today: jest.Mock }).today.mockReturnValue(
+      '2026-11-30',
+    );
+    await svc.advance(admin, 'a1');
+    const calls = employees.recordAppraisalOutcome.mock.calls;
+    expect(calls.map((c) => c[2][0].effectiveDate)).toEqual([
+      '2026-08-01',
+      '2026-08-01',
+    ]);
+  });
+
+  it('saves the choice at final approval with its rules', async () => {
+    const rows = { current: late() };
+    const { svc } = make(rows);
+    await expect(
+      svc.update('org', 'a1', { effectiveDateMode: 'CUSTOM' }),
+    ).rejects.toThrow(/Choose the date/);
+    await expect(
+      svc.update('org', 'a1', {
+        effectiveDateMode: 'CUSTOM',
+        effectiveDate: '2026-01-19',
+      }),
+    ).rejects.toThrow(/before the review period/);
+    await expect(
+      svc.update('org', 'a1', { effectiveDate: '2026-08-01' }),
+    ).rejects.toThrow(/only used with/);
+    const v = await svc.update('org', 'a1', {
+      effectiveDateMode: 'CUSTOM',
+      effectiveDate: '2026-08-01',
+    });
+    expect(v).toMatchObject({
+      effectiveDateMode: 'CUSTOM',
+      effectiveDate: '2026-08-01',
+    });
+    expect(v.effective).toMatchObject({
+      mode: 'CUSTOM',
+      date: '2026-08-01',
+      backdated: true,
+    });
+    // Switching back clears the custom date.
+    const back = await svc.update('org', 'a1', {
+      effectiveDateMode: 'APPROVAL_DATE',
+    });
+    expect(back).toMatchObject({
+      effectiveDateMode: 'APPROVAL_DATE',
+      effectiveDate: null,
+    });
+  });
+
+  it('only at final approval; DUE_DATE needs a due date', async () => {
+    await expect(
+      make({ current: late({ status: 'HR_REVIEW' }) }).svc.update('org', 'a1', {
+        effectiveDateMode: 'DUE_DATE',
+      }),
+    ).rejects.toThrow(/cannot be edited during HR_REVIEW/);
+    const calendar = late({
+      periodStart: null,
+      periodEnd: null,
+      dueDate: null,
+      cycle: cycle({
+        scoringMode: 'FORM_100',
+        competencies: [{ key: 'integrity', label: 'Integrity' }],
+      }),
+    });
+    await expect(
+      make({ current: calendar }).svc.update('org', 'a1', {
+        effectiveDateMode: 'DUE_DATE',
+      }),
+    ).rejects.toThrow(/no due date/);
+  });
+
+  it('blocks sign-off when the period moved after a custom date was chosen', async () => {
+    const rows = {
+      current: late({
+        effectiveDateMode: 'CUSTOM',
+        effectiveDate: day('2026-01-25'),
+        periodStart: day('2026-02-01'),
+      }),
+    };
+    const { svc } = make(rows);
+    const v = await svc.getAppraisal('org', 'a1');
+    expect(v.advanceBlockers).toContain(
+      'The effective date cannot be before the review period starts',
+    );
+    await expect(svc.advance(admin, 'a1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 });

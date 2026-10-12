@@ -1,4 +1,8 @@
-import { nextDue } from '../appraisals/appraisal-schedule';
+import {
+  nextDue,
+  overdueAppraisals,
+  type AppraisalOnRecord,
+} from '../appraisals/appraisal-schedule';
 import type { EmployeeRow } from './employees.repository';
 import { dateColumnToIso, tenureMonths } from './people-dates';
 import type { EmployeeProfile } from './people.types';
@@ -8,7 +12,36 @@ export function toProfile(row: EmployeeRow, today: string): EmployeeProfile {
   const joinDate = dateColumnToIso(row.joinDate);
   const exitDate = row.exitDate ? dateColumnToIso(row.exitDate) : null;
   const end = exitDate && exitDate < today ? exitDate : today;
-  const upcoming = nextDue(joinDate, row.status, today);
+  const confirmationDate = row.confirmationDate
+    ? dateColumnToIso(row.confirmationDate)
+    : null;
+  // Older fixtures build rows without the relation; treat that as "no appraisals".
+  const appraisals: AppraisalOnRecord[] = (row.appraisals ?? []).map((a) => ({
+    type: a.cycle.type,
+    dueDate: a.dueDate ? dateColumnToIso(a.dueDate) : null,
+    periodEnd: dateColumnToIso(a.periodEnd ?? a.cycle.periodEnd),
+  }));
+  const overdue = overdueAppraisals(
+    { joinDate, status: row.status, confirmationDate, appraisals },
+    today,
+  ).map((d) => ({
+    type: d.type,
+    dueDate: d.dueDate,
+    periodStart: d.periodStart,
+    periodEnd: d.periodEnd,
+    overdue: true,
+  }));
+  // A past confirmation is only overdue while nobody has launched it.
+  const upcoming = nextDue(joinDate, row.status, today).map((n) =>
+    n.overdue
+      ? {
+          ...n,
+          overdue: overdue.some(
+            (o) => o.type === n.type && o.dueDate === n.dueDate,
+          ),
+        }
+      : n,
+  );
   return {
     id: row.id,
     fullName: row.fullName,
@@ -22,9 +55,7 @@ export function toProfile(row: EmployeeRow, today: string): EmployeeProfile {
     managerId: row.managerId,
     managerName: row.manager?.fullName ?? null,
     joinDate,
-    confirmationDate: row.confirmationDate
-      ? dateColumnToIso(row.confirmationDate)
-      : null,
+    confirmationDate,
     exitDate,
     status: row.status,
     tenureMonths: tenureMonths(joinDate, end),
@@ -36,7 +67,8 @@ export function toProfile(row: EmployeeRow, today: string): EmployeeProfile {
     experienceBeforeJoiningMonths: row.experienceBeforeJoiningMonths,
     startingSalary: row.startingSalary,
     grossSalary: row.grossSalary,
-    nextAppraisal: upcoming[0] ?? null,
+    // A missed due date with no appraisal comes first: the chip reads "overdue since".
+    nextAppraisal: overdue[0] ?? upcoming[0] ?? null,
     upcomingAppraisals: upcoming,
   };
 }

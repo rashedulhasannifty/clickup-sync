@@ -221,9 +221,11 @@ describe('FORM_100 step sequence', () => {
 
 describe('FORM_100 editable fields per step', () => {
   it('opens each comment block only in its own step', () => {
+    const dates = ['dueDate', 'periodStart', 'periodEnd'];
     expect(editableFields('SELF_REVIEW', 'FORM_100')).toEqual([
       'selfRatings',
       'selfComment',
+      ...dates,
     ]);
     expect(editableFields('LEAD_REVIEW', 'FORM_100')).toEqual([
       'leadRatings',
@@ -232,6 +234,7 @@ describe('FORM_100 editable fields per step', () => {
       'incrementPercent',
       'newDesignation',
       'trainingPlan',
+      ...dates,
     ]);
     expect(editableFields('DEPT_HEAD_REVIEW', 'FORM_100')).toContain(
       'deptHeadComment',
@@ -240,10 +243,17 @@ describe('FORM_100 editable fields per step', () => {
     expect(editableFields('DEPT_HEAD_REVIEW', 'FORM_100')).not.toContain(
       'leadRatings',
     );
-    expect(editableFields('HR_REVIEW', 'FORM_100')).toEqual(['hrComment']);
+    expect(editableFields('HR_REVIEW', 'FORM_100')).toEqual([
+      'hrComment',
+      ...dates,
+    ]);
+    // The effective date is chosen with the decision.
     expect(editableFields('FINAL_APPROVAL', 'FORM_100')).toEqual([
       'approvalDecision',
       'approvalComment',
+      'effectiveDateMode',
+      'effectiveDate',
+      ...dates,
     ]);
     expect(editableFields('SIGNED_OFF', 'FORM_100')).toEqual([]);
   });

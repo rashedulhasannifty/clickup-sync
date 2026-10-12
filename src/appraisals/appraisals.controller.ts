@@ -23,6 +23,7 @@ import type {
   AppraisalView,
   CycleView,
   DueEmployeeRow,
+  DueGroupsView,
   EmployeeAppraisalRow,
   LaunchResult,
 } from './appraisals.types';
@@ -59,17 +60,26 @@ export class AppraisalsController {
     return this.appraisals.createCycle(user, dto);
   }
 
-  // Declared before `appraisal-cycles/:id`, which would otherwise take "due" as an id.
+  // Declared before `appraisal-cycles/:id`, which would otherwise take "due"/"overdue" as an id.
   @Get('appraisal-cycles/due')
   @ApiOperation({
     summary:
-      'Employees due an appraisal of a type between two dates, counted from each join date, with their due date and review period',
+      'Who a cycle of a type due between two dates would cover, counted from each join date: due in the window, overdue, and coming up (60 days after), each with due date, review period and days late/early. Anyone already appraised for that due date is left out.',
   })
   due(
     @CurrentUser() user: AuthPrincipal,
     @Query() q: DueQuery,
-  ): Promise<DueEmployeeRow[]> {
+  ): Promise<DueGroupsView> {
     return this.appraisals.dueEmployees(user.orgId, q);
+  }
+
+  @Get('appraisal-cycles/overdue')
+  @ApiOperation({
+    summary:
+      'Everyone overdue for an appraisal of any type as of today (latest missed due date with no appraisal), oldest first',
+  })
+  overdue(@CurrentUser() user: AuthPrincipal): Promise<DueEmployeeRow[]> {
+    return this.appraisals.overdueEmployees(user.orgId);
   }
 
   @Get('appraisal-cycles/:id')

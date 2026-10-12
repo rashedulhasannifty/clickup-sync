@@ -100,6 +100,10 @@ function view(over: Partial<AppraisalView> = {}): AppraisalView {
       },
     ],
     formDocumentId: null,
+    timing: null,
+    effectiveDateMode: null,
+    effectiveDate: null,
+    effective: null,
     kpiSnapshot: null,
     score: {
       mode: 'FORM_100',

@@ -54,6 +54,38 @@ export type AppraisalActionValue =
 /** The CTO/COO's decision at final approval. */
 export type ApprovalDecisionValue = 'APPROVED' | 'NOT_APPROVED';
 export type FormGrade = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+/**
+ * From when an approved outcome takes effect (0033). DUE_DATE backdates it to
+ * when the appraisal was due; APPROVAL_DATE is the sign-off date; CUSTOM is a
+ * chosen date (never before the review period starts).
+ */
+export type AppraisalEffectiveDateValue =
+  | 'DUE_DATE'
+  | 'APPROVAL_DATE'
+  | 'CUSTOM';
+
+/**
+ * When an appraisal happened against its due date (`appraisal-timing.ts`).
+ * `days`: ON_TIME the signed offset (-3..3); EARLY / LATE / OPEN_OVERDUE how
+ * far from the due date (> 0); OPEN days until due (-3..-1 = past due, still
+ * within the grace).
+ */
+export interface AppraisalTiming {
+  status: 'ON_TIME' | 'EARLY' | 'LATE' | 'OPEN_OVERDUE' | 'OPEN';
+  days: number;
+}
+
+/** The outcome's effective date: frozen at sign-off, a preview before. */
+export interface EffectiveDateView {
+  mode: AppraisalEffectiveDateValue;
+  date: string;
+  /** No mode was chosen: the default (DUE_DATE when late, else APPROVAL_DATE). */
+  defaulted: boolean;
+  /** Before the approval (sign-off) date. */
+  backdated: boolean;
+  /** Approved, backdated increment: whole months between the effective and approval dates. Information only. */
+  arrearsMonths: number;
+}
 
 /** One row of the form's evaluation-metrics table. */
 export interface GradePolicy {
@@ -164,9 +196,15 @@ export interface LaunchResult {
 export interface LaunchNotDue {
   employeeId: string;
   employeeName: string;
-  reason: 'NOT_YET_DUE' | 'EXITED';
+  /**
+   * NOT_YET_DUE: joined too recently. EXITED. ALREADY_APPRAISED: the due date
+   * the pick resolved to already has an appraisal (in any cycle).
+   */
+  reason: 'NOT_YET_DUE' | 'EXITED' | 'ALREADY_APPRAISED';
   /** NOT_YET_DUE: when the first appraisal of the cycle's type falls due. */
   firstDueDate: string | null;
+  /** ALREADY_APPRAISED: the due date that is already covered. */
+  dueDate?: string | null;
 }
 
 /**
@@ -192,6 +230,22 @@ export interface DueEmployeeRow {
   dueDate: string;
   periodStart: string;
   periodEnd: string;
+  /** Due before today: by how many days (null otherwise). */
+  daysLate: number | null;
+  /** Due after today: in how many days (null otherwise). */
+  daysEarly: number | null;
+}
+
+/**
+ * `GET /people/appraisal-cycles/due`: who a cycle of `type` due in the window
+ * would cover. `due` and `overdue` are what a default launch takes; `upcoming`
+ * (due within `UPCOMING_DAYS` after the window) is offered unticked. Anyone
+ * whose due date already has an appraisal (any cycle) is left out.
+ */
+export interface DueGroupsView {
+  due: DueEmployeeRow[];
+  overdue: DueEmployeeRow[];
+  upcoming: DueEmployeeRow[];
 }
 
 /** Stored when an appraisal enters lead review, and on refresh; frozen at sign-off. */
@@ -258,6 +312,7 @@ export interface AppraisalListRow {
   actions: AppraisalActionValue[];
   approvalDecision: ApprovalDecisionValue | null;
   signedOffAt: string | null;
+  timing: AppraisalTiming | null;
   updatedAt: string;
 }
 
@@ -280,6 +335,7 @@ export interface EmployeeAppraisalRow {
   approvalDecision: ApprovalDecisionValue | null;
   newDesignation: string | null;
   signedOffAt: string | null;
+  timing: AppraisalTiming | null;
 }
 
 /** The fields a step lets the caller edit; anything else on PATCH is refused. */
@@ -301,7 +357,12 @@ export type AppraisalEditableField =
   | 'deptHeadComment'
   | 'hrComment'
   | 'approvalDecision'
-  | 'approvalComment';
+  | 'approvalComment'
+  | 'dueDate'
+  | 'periodStart'
+  | 'periodEnd'
+  | 'effectiveDateMode'
+  | 'effectiveDate';
 
 /** Who completed a step and when (recorded as the appraisal leaves it). */
 export interface StepRecord {
@@ -363,6 +424,13 @@ export interface AppraisalView {
   advanceBlockers: string[];
   canSendBack: boolean;
   signedOffAt: string | null;
+  timing: AppraisalTiming | null;
+  /** The stored choice (null = the default). */
+  effectiveDateMode: AppraisalEffectiveDateValue | null;
+  /** CUSTOM: the chosen date; after sign-off: the resolved date. */
+  effectiveDate: string | null;
+  /** The resolved effective date: frozen at sign-off, else a preview as if signed off today. Null while the choice is invalid. */
+  effective: EffectiveDateView | null;
   /** The recommendation's employment event has been written. */
   outcomeApplied: boolean;
   /** The employee's other appraisals, newest first. */

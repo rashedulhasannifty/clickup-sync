@@ -9,10 +9,22 @@ import type {
   EmploymentEventTypeValue,
 } from './people.types';
 
-/** The relations every profile needs: team and manager names. */
+/**
+ * The relations every profile needs: team and manager names, and the
+ * employee's appraisals as the schedule sees them (type, due date, reviewed
+ * period end), so `nextAppraisal` can tell a missed due date from one that
+ * already has an appraisal.
+ */
 const PROFILE_INCLUDE = {
   team: { select: { name: true } },
   manager: { select: { fullName: true } },
+  appraisals: {
+    select: {
+      dueDate: true,
+      periodEnd: true,
+      cycle: { select: { type: true, periodEnd: true } },
+    },
+  },
 } satisfies Prisma.EmployeeInclude;
 
 export type EmployeeRow = Prisma.EmployeeGetPayload<{

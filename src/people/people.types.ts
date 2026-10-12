@@ -70,11 +70,11 @@ export interface EmployeeProfile {
   /** Present gross salary, whole taka (BDT). Moves with INCREMENT events. Sensitive. */
   grossSalary: number | null;
   /**
-   * The next appraisal counted from the join date (`nextDue` in
-   * `src/appraisals/appraisal-schedule.ts`): the confirmation while on
-   * probation (flagged `overdue` once its date has passed), else the earlier
-   * of the next half-yearly and the next yearly. Null once exited. Computed
-   * from the join date alone; it does not look at appraisals already launched.
+   * The next appraisal counted from the join date. The oldest overdue one
+   * first (`overdueAppraisals` in `src/appraisals/appraisal-schedule.ts`: a
+   * missed due date with no appraisal in any cycle, flagged `overdue`); else
+   * `nextDue`: the confirmation while on probation, else the earlier of the
+   * next half-yearly and the next yearly. Null once exited.
    */
   nextAppraisal: NextAppraisal | null;
   /** Everything `nextDue` lists, earliest first (both the half-yearly and the yearly once confirmed). */
