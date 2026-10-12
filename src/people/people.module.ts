@@ -10,11 +10,10 @@ import { DatabaseModule } from '../database/database.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { QueuesModule } from '../queues/queues.module';
 import { ATTENDANCE_PROVIDER } from './attendance-provider';
+import { createAttendanceProvider } from './attendance-provider.factory';
 import { AttendanceRepository } from './attendance.repository';
-import { DummyAttendanceProvider } from './dummy-attendance.provider';
 import { EmployeesRepository } from './employees.repository';
 import { EmployeesService } from './employees.service';
-import { NoneAttendanceProvider } from './none-attendance.provider';
 import { OnboardingRepository } from './onboarding.repository';
 import { OnboardingService } from './onboarding.service';
 import { PeopleAttendanceController } from './people-attendance.controller';
@@ -46,8 +45,7 @@ import { PeopleSyncService } from './people-sync.service';
     PeopleAttendanceService,
     PeopleSyncService,
     {
-      // The provider is chosen by env, not by code: ATTENDANCE_PROVIDER=dummy|none.
-      // The real office-entry API becomes a third branch here; the tables do not change.
+      // The provider is chosen by env, not by code: ATTENDANCE_PROVIDER=dummy|none|stellar.
       provide: ATTENDANCE_PROVIDER,
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
@@ -55,9 +53,7 @@ import { PeopleSyncService } from './people-sync.service';
           config.get<AttendanceProviderName>('ATTENDANCE_PROVIDER'),
           config.get<string>('NODE_ENV') ?? 'development',
         );
-        return name === 'dummy'
-          ? new DummyAttendanceProvider()
-          : new NoneAttendanceProvider();
+        return createAttendanceProvider(name);
       },
     },
     // Consumers and crons run only in the worker role, like XeroModule / SyncModule:

@@ -1,3 +1,4 @@
+import type { AttendanceSource } from '@prisma/client';
 import type { LeaveStatusValue, LeaveTypeValue } from './people.types';
 
 /** DI token for the configured `AttendanceProvider` (see PeopleModule). */
@@ -45,8 +46,15 @@ export interface AttendanceFetchResult {
  * (e.g. pending requests for the coming weeks).
  */
 export interface AttendanceProvider {
-  /** Stamped on every row this provider writes (`attendance_days.source`, `leave_records.source`). */
+  /** Provider name; stamped on the leave rows it writes (`leave_records.source`). */
   readonly source: string;
+  /** Stamped on the attendance rows it writes (`attendance_days.source`); null when it writes none. */
+  readonly attendanceSource: AttendanceSource | null;
+  /**
+   * Whether a scheduled/manual sync can pull anything. False for `none`, and for
+   * `stellar` until its API client exists (rows come from the CSV import meanwhile).
+   */
+  readonly canSync: boolean;
   fetch(
     people: ProviderPerson[],
     from: string,

@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
 import { QueueService } from '../queues/queue.service';
 import { JOBS, QUEUES } from '../queues/queue.constants';
 import { minutesBetween } from './attendance-math';
@@ -50,6 +50,10 @@ export class PeopleSyncService {
     lookbackDays = SYNC_DEFAULT_LOOKBACK_DAYS,
     trigger: PeopleSyncJobData['trigger'] = 'manual',
   ): Promise<SyncEnqueued> {
+    if (!this.provider.canSync && this.provider.source !== 'none')
+      throw new ConflictException(
+        `The '${this.provider.source}' provider cannot sync yet: import its CSV export from the Attendance page`,
+      );
     const data: PeopleSyncJobData = {
       entity: 'attendance',
       lookbackDays,
@@ -76,7 +80,14 @@ export class PeopleSyncService {
     lookbackDays: number,
     trigger: PeopleSyncJobData['trigger'],
   ): Promise<boolean> {
-    if (this.provider.source === 'none') return false;
+    if (!this.provider.canSync) {
+      // `none`: nothing configured. `stellar`: no API client yet; rows come from the CSV import.
+      if (this.provider.source !== 'none')
+        this.logger.log(
+          `Skipping scheduled ${JOBS.SYNC_ATTENDANCE}: provider '${this.provider.source}' cannot sync yet (use the CSV import)`,
+        );
+      return false;
+    }
     const queue = this.queues.get(QUEUES.PEOPLE_SYNC);
     // Name-filtered busy check, as in XeroScheduler: jobId dedup cannot work for crons.
     const live = await queue.getJobs([
@@ -110,6 +121,13 @@ export class PeopleSyncService {
       leavesPreserved: 0,
     };
     if (employees.length === 0) return result;
+    const attendanceSource = this.provider.attendanceSource;
+    if (!this.provider.canSync || !attendanceSource) {
+      this.logger.log(
+        `attendance sync skipped: provider '${this.provider.source}' cannot sync yet`,
+      );
+      return result;
+    }
 
     const idByEmail = new Map(
       employees.map((e) => [e.email.toLowerCase(), e.id]),
@@ -135,17 +153,28 @@ export class PeopleSyncService {
         firstIn: row.firstIn,
         lastOut: row.lastOut,
         minutesInOffice: minutesBetween(row.firstIn, row.lastOut),
-        source: this.provider.source,
+        source: attendanceSource,
       });
     }
     result.attendanceRows = await this.attendance.upsertAttendance([
       ...attendance.values(),
     ]);
 
+    // Simulated leave never lands on a day the door system has real data for:
+    // an import already deleted those, and re-creating them would undo it.
+    const real =
+      attendanceSource === 'DUMMY'
+        ? await this.attendance.realAttendanceKeys(
+            [...idByEmail.values()],
+            from,
+            to,
+          )
+        : new Set<string>();
     const leaves = new Map<string, LeaveUpsert>();
     for (const row of fetched.leaves) {
       const employeeId = idByEmail.get(row.email.toLowerCase());
       if (!employeeId) continue;
+      if (real.has(`${employeeId}|${row.startDate}`)) continue;
       const { email: _email, ...rest } = row;
       leaves.set(row.externalId, { ...rest, employeeId });
     }

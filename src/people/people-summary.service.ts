@@ -17,6 +17,7 @@ import {
   type AttendanceProvider,
 } from './attendance-provider';
 import { AttendanceRepository } from './attendance.repository';
+import { sourceLabel } from './attendance-source';
 import { toProfile } from './employee-mapper';
 import {
   EmployeesRepository,
@@ -152,7 +153,7 @@ export class PeopleSummaryService {
       }),
       leaveBalance: computeLeaveBalance(year, data.leaves),
       events: await this.employees.eventViews(orgId, events),
-      attendanceSource: latestSource ?? this.provider.source,
+      attendanceSource: latestSource ? sourceLabel(latestSource) : this.provider.source,
       hours: main.hours,
     };
   }

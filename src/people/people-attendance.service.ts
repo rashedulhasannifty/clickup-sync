@@ -11,6 +11,7 @@ import {
   type AttendanceProvider,
 } from './attendance-provider';
 import { AttendanceRepository } from './attendance.repository';
+import { sourceLabel } from './attendance-source';
 import { EmployeesRepository } from './employees.repository';
 import { assertNotExited } from './employee-readonly';
 import { LEAVE_LIST_LIMIT } from './people.constants';
@@ -148,7 +149,7 @@ export class PeopleAttendanceService {
     return {
       date: today,
       workingDay: isBusinessDay(today),
-      attendanceSource: latest ?? this.provider.source,
+      attendanceSource: latest ? sourceLabel(latest) : this.provider.source,
       counts,
       rows: out,
     };

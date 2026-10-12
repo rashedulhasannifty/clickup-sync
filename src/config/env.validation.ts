@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { isValidEncryptionKey } from '../settings/crypto.service';
 
-export type AttendanceProviderName = 'dummy' | 'none';
+export type AttendanceProviderName = 'dummy' | 'none' | 'stellar';
 
 /**
  * The attendance provider that is actually in effect. Unset means `dummy` outside
@@ -57,11 +57,11 @@ const schema = z.object({
   XERO_CLIENT_ID: z.string().optional().default(''),
   XERO_CLIENT_SECRET: z.string().optional().default(''),
   // Where People attendance/leave comes from. `dummy` is deterministic demo data;
-  // the real office-entry API will be a third value. Left unset, the effective
+  // `stellar` is Stellar HRM, the office door system (CSV import now, API later). Left unset, the effective
   // value is resolved by `resolveAttendanceProvider` (dummy outside production,
   // none in production) rather than defaulted here, so the refine below can tell
   // an explicit `dummy` in production from an omitted one.
-  ATTENDANCE_PROVIDER: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['dummy', 'none']).optional()),
+  ATTENDANCE_PROVIDER: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['dummy', 'none', 'stellar']).optional()),
   // Same enum+transform pattern as WEBHOOK_AUTOHEAL_ENABLED (z.coerce.boolean treats "false" as true).
   ATTENDANCE_DUMMY_ALLOW_IN_PROD: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   // Employee documents live in a private S3-compatible bucket (MinIO). All five of the

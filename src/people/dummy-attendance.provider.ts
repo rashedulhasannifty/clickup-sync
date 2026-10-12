@@ -61,6 +61,8 @@ const between = (u: number, lo: number, hi: number): number =>
  */
 export class DummyAttendanceProvider implements AttendanceProvider {
   readonly source = 'dummy';
+  readonly attendanceSource = 'DUMMY' as const;
+  readonly canSync = true;
 
   constructor(private readonly now: () => Date = () => new Date()) {}
 
