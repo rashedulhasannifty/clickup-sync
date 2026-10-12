@@ -1,6 +1,11 @@
 import type {
   AppraisalAction,
   AppraisalStatus,
+  AppraisalTiming,
+  ApprovalDecision,
+  DueEmployee,
+  EffectiveDateMode,
+  EffectiveDateView,
   AppraisalType,
   Competency,
   CycleStatus,
@@ -10,7 +15,7 @@ import type {
   ScoreView,
   ScoringMode,
 } from '../api/appraisals';
-import type { PillTone } from './people';
+import { dhakaToday, formatDate, type PillTone } from './people';
 
 /** KPI_BLEND (legacy) steps. Use `stepsFor(mode)` for a specific cycle. */
 export const STATUS_STEPS: AppraisalStatus[] = ['SELF_REVIEW', 'LEAD_REVIEW', 'CALIBRATION', 'SIGNED_OFF'];
@@ -331,3 +336,104 @@ export const APPRAISAL_TYPE_PHRASE: Record<AppraisalType, string> = {
   CONFIRMATION: 'Confirmation',
   YEARLY: 'Yearly',
 };
+
+// --- Timing and the effective date (mirrors src/appraisals/appraisal-timing.ts) ---
+
+/** Signed off within this many days either side of the due date counts as on time. */
+export const TIMING_GRACE_DAYS = 3;
+
+export const daysText = (n: number) => `${n} day${n === 1 ? '' : 's'}`;
+
+/** The Dhaka calendar date of an ISO timestamp. */
+export const dhakaDateOfIso = (iso: string) => dhakaToday(new Date(iso));
+
+/** Short label for a chip: "On time", "47 days late", "12 days overdue", "Due in 5 days". */
+export function timingLabel(t: AppraisalTiming): string {
+  switch (t.status) {
+    case 'ON_TIME':
+      return 'On time';
+    case 'EARLY':
+      return `${daysText(t.days)} early`;
+    case 'LATE':
+      return `${daysText(t.days)} late`;
+    case 'OPEN_OVERDUE':
+      return `${daysText(t.days)} overdue`;
+    case 'OPEN':
+      return t.days > 0 ? `Due in ${daysText(t.days)}` : t.days === 0 ? 'Due today' : `Due ${daysText(-t.days)} ago`;
+  }
+}
+
+export function timingTone(t: AppraisalTiming): PillTone {
+  switch (t.status) {
+    case 'ON_TIME':
+      return 'green';
+    case 'EARLY':
+      return 'blue';
+    case 'LATE':
+    case 'OPEN_OVERDUE':
+      return 'amber';
+    case 'OPEN':
+      return 'gray';
+  }
+}
+
+/** "Due 15 Jan 2026 · signed off 3 Mar 2026 (47 days late)", or "Due 15 Jan 2026 · 27 days overdue" while open. */
+export function timingSentence(dueDate: string | null, signedOffAt: string | null, t: AppraisalTiming | null): string | null {
+  if (!dueDate || !t) return null;
+  const due = `Due ${formatDate(dueDate)}`;
+  if (signedOffAt) {
+    const when = `signed off ${formatDate(dhakaDateOfIso(signedOffAt))}`;
+    return t.status === 'ON_TIME' ? `${due} · ${when} (on time)` : `${due} · ${when} (${timingLabel(t).toLowerCase()})`;
+  }
+  return `${due} · ${t.status === 'OPEN_OVERDUE' ? timingLabel(t) : timingLabel(t).toLowerCase()}`;
+}
+
+/** "27 days late", "in 8 days" or "today" for a row of the due list. */
+export function dueOffsetText(d: Pick<DueEmployee, 'daysLate' | 'daysEarly'>): string {
+  if (d.daysEarly) return `in ${daysText(d.daysEarly)}`;
+  if (d.daysLate) return `${daysText(d.daysLate)} late`;
+  return 'today';
+}
+
+/** Whole months from `a` to `b` (a month counts once its day is reached). */
+export function wholeMonths(a: string, b: string): number {
+  const [ay, am, ad] = a.split('-').map(Number);
+  const [by, bm, bd] = b.split('-').map(Number);
+  return Math.max(0, (by - ay) * 12 + (bm - am) - (bd < ad ? 1 : 0));
+}
+
+/**
+ * What a choice at final approval would resolve to if signed off today (mirrors the server):
+ * null while it cannot be used (no due date for DUE_DATE, no or too-early custom date).
+ */
+export function effectivePreview(a: {
+  mode: EffectiveDateMode;
+  customDate: string;
+  dueDate: string | null;
+  periodStart: string;
+  today: string;
+  decision: ApprovalDecision | null;
+  actions: AppraisalAction[];
+}): EffectiveDateView | null {
+  const date = a.mode === 'DUE_DATE' ? a.dueDate : a.mode === 'CUSTOM' ? a.customDate || null : a.today;
+  if (!date || (a.mode === 'CUSTOM' && date < a.periodStart)) return null;
+  const backdated = date < a.today;
+  return {
+    mode: a.mode,
+    date,
+    defaulted: false,
+    backdated,
+    arrearsMonths: a.decision === 'APPROVED' && a.actions.includes('INCREMENT') && backdated ? wholeMonths(date, a.today) : 0,
+  };
+}
+
+/** "Effective from 15 Jan 2026 (backdated to the due date)". */
+export function effectiveSentence(e: EffectiveDateView): string {
+  const reason = !e.backdated ? '' : e.mode === 'DUE_DATE' ? ' (backdated to the due date)' : ' (backdated)';
+  return `Effective from ${formatDate(e.date)}${reason}`;
+}
+
+/** "2 months of increment arrears", for information only. */
+export function arrearsText(months: number): string | null {
+  return months > 0 ? `${months} month${months === 1 ? '' : 's'} of increment arrears (effective date to approval), for information; not calculated here.` : null;
+}

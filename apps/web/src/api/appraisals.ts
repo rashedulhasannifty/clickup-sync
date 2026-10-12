@@ -26,6 +26,26 @@ export type PeriodBasis = 'CALENDAR' | 'JOIN_DATE';
 export type AppraisalAction = 'CONFIRM' | 'INCREMENT' | 'PROMOTION' | 'TERMINATION' | 'DISMISSAL' | 'TRAINING_TRANSFER';
 export type ApprovalDecision = 'APPROVED' | 'NOT_APPROVED';
 export type FormGrade = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+/** From when an approved outcome takes effect: the due date (backdated), the approval date, or a chosen date. */
+export type EffectiveDateMode = 'DUE_DATE' | 'APPROVAL_DATE' | 'CUSTOM';
+
+/**
+ * When an appraisal happened against its due date. `days`: ON_TIME the signed offset (-3..3);
+ * EARLY / LATE / OPEN_OVERDUE how far from the due date; OPEN days until due (negative = past due,
+ * still within the 3-day grace).
+ */
+export type AppraisalTiming = { status: 'ON_TIME' | 'EARLY' | 'LATE' | 'OPEN_OVERDUE' | 'OPEN'; days: number };
+
+/** The outcome's effective date: frozen at sign-off, a preview (as if signed off today) before. */
+export type EffectiveDateView = {
+  mode: EffectiveDateMode;
+  date: string;
+  /** No mode chosen: the default (due date when late, else approval date). */
+  defaulted: boolean;
+  backdated: boolean;
+  /** Approved, backdated increment: whole months between the effective and approval dates. */
+  arrearsMonths: number;
+};
 
 export type GradePolicy = {
   grade: FormGrade;
@@ -95,9 +115,12 @@ export type CycleView = {
 export type LaunchNotDue = {
   employeeId: string;
   employeeName: string;
-  reason: 'NOT_YET_DUE' | 'EXITED';
+  /** ALREADY_APPRAISED: the due date the pick resolved to already has an appraisal (any cycle). */
+  reason: 'NOT_YET_DUE' | 'EXITED' | 'ALREADY_APPRAISED';
   /** NOT_YET_DUE: when the first appraisal of the cycle's type falls due. */
   firstDueDate: string | null;
+  /** ALREADY_APPRAISED: the covered due date. */
+  dueDate?: string | null;
 };
 
 export type LaunchResult = { cycle: CycleView; created: number; skipped: number; notDue: LaunchNotDue[] };
@@ -114,7 +137,14 @@ export type DueEmployee = {
   dueDate: string;
   periodStart: string;
   periodEnd: string;
+  /** Due before today: by how many days. */
+  daysLate: number | null;
+  /** Due after today: in how many days. */
+  daysEarly: number | null;
 };
+
+/** `GET /people/appraisal-cycles/due`: due in the window, overdue before it, coming up within 60 days after. */
+export type DueGroups = { due: DueEmployee[]; overdue: DueEmployee[]; upcoming: DueEmployee[] };
 
 export type KpiSnapshot = {
   period: { from: string; to: string };
@@ -168,6 +198,7 @@ export type AppraisalListRow = {
   actions: AppraisalAction[];
   approvalDecision: ApprovalDecision | null;
   signedOffAt: string | null;
+  timing: AppraisalTiming | null;
   updatedAt: string;
 };
 
@@ -188,6 +219,7 @@ export type EmployeeAppraisalRow = {
   approvalDecision: ApprovalDecision | null;
   newDesignation: string | null;
   signedOffAt: string | null;
+  timing: AppraisalTiming | null;
 };
 
 export type EditableField =
@@ -208,7 +240,12 @@ export type EditableField =
   | 'deptHeadComment'
   | 'hrComment'
   | 'approvalDecision'
-  | 'approvalComment';
+  | 'approvalComment'
+  | 'dueDate'
+  | 'periodStart'
+  | 'periodEnd'
+  | 'effectiveDateMode'
+  | 'effectiveDate';
 
 export type AppraisalView = {
   id: string;
@@ -260,6 +297,13 @@ export type AppraisalView = {
   advanceBlockers: string[];
   canSendBack: boolean;
   signedOffAt: string | null;
+  timing: AppraisalTiming | null;
+  /** The stored choice; null = the default. */
+  effectiveDateMode: EffectiveDateMode | null;
+  /** CUSTOM: the chosen date; after sign-off: the resolved date. */
+  effectiveDate: string | null;
+  /** FORM_100: the resolved effective date (frozen after sign-off, else a preview). */
+  effective: EffectiveDateView | null;
   /** The recommendation's employment event has been written. */
   outcomeApplied: boolean;
   previous: EmployeeAppraisalRow[];
@@ -300,6 +344,11 @@ export type UpdateAppraisalBody = {
   hrComment?: string | null;
   approvalDecision?: ApprovalDecision | null;
   approvalComment?: string | null;
+  effectiveDateMode?: EffectiveDateMode | null;
+  effectiveDate?: string | null;
+  dueDate?: string;
+  periodStart?: string;
+  periodEnd?: string;
 };
 
 export const appraisalsApi = {
@@ -313,11 +362,13 @@ export const appraisalsApi = {
     apiClient
       .post<LaunchResult>(`/people/appraisal-cycles/${id}/launch`, employeeIds ? { employeeIds } : {})
       .then((r) => r.data),
-  /** Who is due a `type` appraisal with a due date in [from, to], counted from each join date. */
+  /** Who a `type` cycle due in [from, to] would cover: due, overdue and coming up. */
   due: (type: AppraisalType, from: string, to: string) =>
     apiClient
-      .get<DueEmployee[]>('/people/appraisal-cycles/due', { params: { type, from, to } })
+      .get<DueGroups>('/people/appraisal-cycles/due', { params: { type, from, to } })
       .then((r) => r.data),
+  /** Everyone overdue for any appraisal type as of today, oldest first. */
+  overdue: () => apiClient.get<DueEmployee[]>('/people/appraisal-cycles/overdue').then((r) => r.data),
   cycleAppraisals: (id: string) =>
     apiClient.get<AppraisalListRow[]>(`/people/appraisal-cycles/${id}/appraisals`).then((r) => r.data),
 

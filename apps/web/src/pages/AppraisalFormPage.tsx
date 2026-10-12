@@ -19,6 +19,7 @@ import { useToast } from '../components/ui/Toast';
 import { AppraisalStatusPill, RecommendationText, ScoreCell } from '../components/people/AppraisalBits';
 import { HeaderActions, TextArea } from '../components/people/FormBits';
 import { Form100Appraisal } from '../components/people/AppraisalForm100';
+import { AppraisalDatesCard } from '../components/people/AppraisalDates';
 
 const KPI_ROWS: { key: ScoredKpi; label: string }[] = [
   { key: 'utilisation', label: 'Utilisation' },
@@ -198,6 +199,18 @@ function LegacyAppraisalForm({ view }: { view: AppraisalView }) {
       await m.refreshKpis.mutateAsync();
     } catch {
       // surfaced through `error` above
+    }
+  }
+
+  /** Saves pending edits first (the page remounts on every save), then the adjusted dates. */
+  async function saveDates(body: UpdateAppraisalBody): Promise<boolean> {
+    if (!(await save())) return false;
+    try {
+      await m.save.mutateAsync(body);
+      toast.success('Dates updated');
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -455,6 +468,8 @@ function LegacyAppraisalForm({ view }: { view: AppraisalView }) {
         </div>
 
         <div style={{ flex: '0 1 320px', minWidth: 260, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <AppraisalDatesCard view={view} busy={busy} onSave={saveDates} />
+
           <Card title="Weighted score">
             {score.final == null ? (
               <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>Nothing to score yet.</div>

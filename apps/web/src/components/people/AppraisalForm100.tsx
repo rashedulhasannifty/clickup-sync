@@ -7,6 +7,7 @@ import {
   type AppraisalView,
   type ApprovalDecision,
   type EditableField,
+  type EffectiveDateMode,
   type UpdateAppraisalBody,
 } from '../../api/appraisals';
 import type { KpiResult, ScoredKpi } from '../../api/people';
@@ -16,7 +17,10 @@ import {
   ACTIONS,
   APPRAISAL_TYPE_LABEL,
   FORM_RATINGS,
+  arrearsText,
   draftFormScore,
+  effectivePreview,
+  effectiveSentence,
   gradePolicy,
   incrementRange,
   monthsText,
@@ -26,7 +30,7 @@ import {
   td,
   th,
 } from '../../lib/appraisals';
-import { bandTone, formatDate } from '../../lib/people';
+import { bandTone, dhakaToday, formatDate } from '../../lib/people';
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/Button';
 import { Callout } from '../ui/Callout';
@@ -37,6 +41,11 @@ import { Pill } from '../ui/Pill';
 import { useToast } from '../ui/Toast';
 import { AppraisalStatusPill, GradeBadge, OutcomeCell, ScoreCell } from './AppraisalBits';
 import { HeaderActions, TextArea } from './FormBits';
+import { AppraisalDatesCard } from './AppraisalDates';
+import { CHOICE_CARD_CSS, ChoiceCard } from './ChoiceCard';
+
+/** Ticked recommendations that are applied from a date (confirmation date, promotion, new salary). */
+const DATED_ACTIONS: AppraisalAction[] = ['CONFIRM', 'INCREMENT', 'PROMOTION'];
 
 const KPI_ROWS: { key: ScoredKpi; label: string }[] = [
   { key: 'utilisation', label: 'Utilisation' },
@@ -208,6 +217,9 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
     for (const f of TEXT_FIELDS) t[f] = view[f] ?? '';
     return t;
   });
+  const savedEffMode: EffectiveDateMode = view.effectiveDateMode ?? view.effective?.mode ?? 'APPROVAL_DATE';
+  const [effMode, setEffMode] = useState<EffectiveDateMode>(savedEffMode);
+  const [effCustom, setEffCustom] = useState(view.effectiveDateMode === 'CUSTOM' ? (view.effectiveDate ?? '') : '');
   const [formError, setFormError] = useState('');
   const [downloading, setDownloading] = useState(false);
 
@@ -221,6 +233,14 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
   const grade = signedOff ? view.score.grade : live.grade;
   const policy = grade ? gradePolicy(grade) : null;
   const separation = actions.includes('TERMINATION') || actions.includes('DISMISSAL');
+  const dated = actions.some((a) => DATED_ACTIONS.includes(a));
+  const today = dhakaToday();
+  // Signed off: the frozen date. Before: what signing off today with this choice would use.
+  const effective = signedOff
+    ? view.effective
+    : effectivePreview({ mode: effMode, customDate: effCustom, dueDate: view.dueDate, periodStart: view.periodStart, today, decision, actions });
+  // The server's default when nothing is chosen: the due date once late (past the 3-day grace).
+  const suggested: EffectiveDateMode = view.dueDate && view.timing?.status === 'OPEN_OVERDUE' ? 'DUE_DATE' : 'APPROVAL_DATE';
 
   function changes(): UpdateAppraisalBody | { error: string } {
     const body: UpdateAppraisalBody = {};
@@ -243,6 +263,15 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
       if (rounded !== view.incrementPercent) body.incrementPercent = rounded;
     }
     if (can('approvalDecision') && decision !== view.approvalDecision) body.approvalDecision = decision;
+    if (can('effectiveDateMode') && dated) {
+      const customChanged = effMode === 'CUSTOM' && effCustom !== (view.effectiveDateMode === 'CUSTOM' ? (view.effectiveDate ?? '') : '');
+      if (effMode !== savedEffMode || customChanged) {
+        if (effMode === 'CUSTOM' && !effCustom) return { error: 'Choose the date the outcome takes effect from.' };
+        if (effMode === 'CUSTOM' && effCustom < view.periodStart) return { error: 'The effective date cannot be before the review period starts.' };
+        body.effectiveDateMode = effMode;
+        body.effectiveDate = effMode === 'CUSTOM' ? effCustom : null;
+      }
+    }
     return body;
   }
 
@@ -270,6 +299,18 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
 
   async function onSave() {
     if (await save()) toast.success('Saved');
+  }
+
+  /** Saves pending edits first (the page remounts on every save), then the adjusted dates. */
+  async function saveDates(body: UpdateAppraisalBody): Promise<boolean> {
+    if (!(await save())) return false;
+    try {
+      await m.save.mutateAsync(body);
+      toast.success('Dates updated');
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async function onRefreshKpis() {
@@ -583,6 +624,56 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
                 </Button>
               ))}
             </div>
+            {dated && (view.status === 'FINAL_APPROVAL' || signedOff) && (
+              <div style={{ marginBottom: 14 }}>
+                <style>{CHOICE_CARD_CSS}</style>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>Effective from</div>
+                {!signedOff && (
+                  <div role="radiogroup" aria-label="Effective from" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: 8 }}>
+                    <ChoiceCard
+                      name="effective-from"
+                      checked={effMode === 'DUE_DATE'}
+                      title="The due date (backdated)"
+                      badge={suggested === 'DUE_DATE' ? 'Suggested' : undefined}
+                      hint={view.dueDate ? `From ${formatDate(view.dueDate)}, when the appraisal was due.` : 'This appraisal has no due date.'}
+                      disabled={!can('effectiveDateMode') || busy || !view.dueDate}
+                      onSelect={() => setEffMode('DUE_DATE')}
+                    />
+                    <ChoiceCard
+                      name="effective-from"
+                      checked={effMode === 'APPROVAL_DATE'}
+                      title="The approval date"
+                      badge={suggested === 'APPROVAL_DATE' ? 'Suggested' : undefined}
+                      hint="From the day it is signed off."
+                      disabled={!can('effectiveDateMode') || busy}
+                      onSelect={() => setEffMode('APPROVAL_DATE')}
+                    />
+                    <ChoiceCard
+                      name="effective-from"
+                      checked={effMode === 'CUSTOM'}
+                      title="Another date"
+                      hint="Not before the review period starts."
+                      disabled={!can('effectiveDateMode') || busy}
+                      onSelect={() => setEffMode('CUSTOM')}
+                    />
+                  </div>
+                )}
+                {!signedOff && effMode === 'CUSTOM' && (
+                  <div style={{ marginTop: 8, maxWidth: 200 }}>
+                    <Field label="Effective date" required>
+                      <Input type="date" min={view.periodStart} value={effCustom} disabled={!can('effectiveDate') || busy} onChange={(e) => setEffCustom(e.target.value)} />
+                    </Field>
+                  </div>
+                )}
+                {effective && (
+                  <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 8 }}>
+                    <span style={{ color: 'var(--text)', fontWeight: 500 }}>{effectiveSentence(effective)}</span>
+                    {!signedOff && effective.date === today && ' (if signed off today)'}
+                    {decision === 'APPROVED' && arrearsText(effective.arrearsMonths) && <div>{arrearsText(effective.arrearsMonths)}</div>}
+                  </div>
+                )}
+              </div>
+            )}
             <Field label="Comments">
               <TextArea value={text.approvalComment} disabled={!can('approvalComment') || busy} onChange={setT('approvalComment')} maxLength={5000} />
             </Field>
@@ -591,6 +682,8 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
         </div>
 
         <div style={{ flex: '0 1 320px', minWidth: 260, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <AppraisalDatesCard view={view} busy={busy} onSave={saveDates} />
+
           <Card title="Total marks">
             {total == null ? (
               <div style={{ fontSize: 14, color: 'var(--text-muted)' }}>Nothing rated yet.</div>

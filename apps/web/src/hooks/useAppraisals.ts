@@ -27,6 +27,11 @@ export function useDueAppraisals(params: { type: AppraisalType; from: string; to
   });
 }
 
+/** Everyone overdue for any appraisal type as of today. */
+export function useOverdueAppraisals() {
+  return useQuery({ queryKey: [...ROOT, 'overdue'], queryFn: appraisalsApi.overdue });
+}
+
 export function useCycleAppraisals(cycleId: string | null) {
   return useQuery({
     queryKey: [...ROOT, 'cycle', cycleId, 'appraisals'],
@@ -73,6 +78,23 @@ export function useCreateCycle() {
 export function useUpdateCycle(id: string) {
   const invalidate = useInvalidate();
   return useMutation({ mutationFn: (b: UpdateCycleBody) => appraisalsApi.updateCycle(id, b), onSuccess: invalidate });
+}
+
+/** Creates a cycle and launches it for the given employees in one go (the create dialog's "Create and launch"). */
+export function useCreateAndLaunch() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ body, employeeIds }: { body: CreateCycleBody; employeeIds: string[] }) => {
+      const cycle = await appraisalsApi.createCycle(body);
+      try {
+        return { cycle, result: await appraisalsApi.launch(cycle.id, employeeIds) };
+      } finally {
+        // Even when the launch fails the cycle exists: refresh so it shows up.
+        void invalidate();
+      }
+    },
+    onSuccess: invalidate,
+  });
 }
 
 export function useLaunchCycle(id: string) {

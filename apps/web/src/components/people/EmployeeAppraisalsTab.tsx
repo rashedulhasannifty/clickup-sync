@@ -6,7 +6,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { QueryError } from '../ui/QueryError';
 import { TableSkeleton } from '../ui/TableSkeleton';
 import { APPRAISAL_TYPE_LABEL, td, th } from '../../lib/appraisals';
-import { AppraisalStatusPill, OutcomeCell, ScoreCell } from './AppraisalBits';
+import { AppraisalStatusPill, OutcomeCell, ScoreCell, TimingChip } from './AppraisalBits';
 
 /** The Appraisals tab on an employee's page: one row per cycle, linking to the form. */
 export function EmployeeAppraisalsTab({ employeeId }: { employeeId: string }) {
@@ -48,7 +48,12 @@ export function EmployeeAppraisalsTab({ employeeId }: { employeeId: string }) {
                   </td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>
                     {formatDate(r.periodStart)} – {formatDate(r.periodEnd)}
-                    {r.dueDate && <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>Due {formatDate(r.dueDate)}</div>}
+                    {r.dueDate && (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 11.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                        Due {formatDate(r.dueDate)}
+                        <TimingChip timing={r.timing} />
+                      </div>
+                    )}
                   </td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>{APPRAISAL_TYPE_LABEL[r.appraisalType]}</td>
                   <td style={td}>

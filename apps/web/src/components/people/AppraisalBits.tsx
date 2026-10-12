@@ -1,6 +1,7 @@
 import type {
   AppraisalAction,
   AppraisalStatus,
+  AppraisalTiming,
   ApprovalDecision,
   CycleStatus,
   FormGrade,
@@ -17,6 +18,8 @@ import {
   cycleStatusTone,
   gradeTone,
   statusLabel,
+  timingLabel,
+  timingTone,
 } from '../../lib/appraisals';
 import { Pill } from '../ui/Pill';
 
@@ -134,5 +137,15 @@ export function ScoreCell({ score }: { score: ScoreView }) {
         </Pill>
       )}
     </span>
+  );
+}
+
+/** On time / early / late against the appraisal's own due date. Nothing for a calendar cycle. */
+export function TimingChip({ timing }: { timing: AppraisalTiming | null }) {
+  if (!timing) return null;
+  return (
+    <Pill tone={timingTone(timing)} size="xs">
+      {timingLabel(timing)}
+    </Pill>
   );
 }
