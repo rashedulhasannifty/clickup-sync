@@ -52,6 +52,18 @@ describe('suggestShifts', () => {
     expect(s.proposedShiftId).toBe('f');
   });
 
+  it('never puts a regular arriver on an untracked shift, even when its start is nearer', () => {
+    const withFlex = [
+      ...shifts,
+      { id: 'f', name: 'Flexible', startMinutes: 9 * 60, trackPunctuality: false },
+    ];
+    const [s] = suggestShifts(
+      [{ id: '1', fullName: 'Test E', shiftId: null, firstIns: times(9.1, 9.15, 9.2, 9.1, 9.25) }],
+      withFlex,
+    );
+    expect(s).toMatchObject({ proposedShiftId: 'm', irregular: false });
+  });
+
   it('measures distance around the clock', () => {
     expect(clockDistance(23 * 60 + 50, 10)).toBe(20);
     expect(clockDistance(600, 660)).toBe(60);

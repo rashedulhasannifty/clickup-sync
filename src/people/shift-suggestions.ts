@@ -78,7 +78,15 @@ export function suggestShifts(
     const spread = quantile(sorted, 0.75) - quantile(sorted, 0.25);
     const irregular = spread > IRREGULAR_SPREAD_MINUTES;
     const untracked = shifts.filter((s) => !s.trackPunctuality);
-    const pool = irregular && untracked.length > 0 ? untracked : shifts;
+    const tracked = shifts.filter((s) => s.trackPunctuality);
+    // A regular arriver belongs on a tracked shift: an untracked one only "wins" by its start
+    // time being nearest, which would silently switch punctuality off for a punctual person.
+    const pool =
+      irregular && untracked.length > 0
+        ? untracked
+        : tracked.length > 0
+          ? tracked
+          : shifts;
     const best = [...pool].sort(
       (a, b) =>
         clockDistance(med, a.startMinutes) - clockDistance(med, b.startMinutes) ||
