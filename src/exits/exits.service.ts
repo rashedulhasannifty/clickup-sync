@@ -22,13 +22,16 @@ import type {
 import {
   ACTIVE_EXIT_STATUSES,
   DEFAULT_CLEARANCE_ITEMS,
+  EXIT_INTERVIEW_ITEM_KEY,
   canDo,
   evaluateCompletion,
+  isResolved,
   nextStatus,
   statusBeforeExit,
   validateExitDates,
   type EmployeeStatusName,
   type ExitAction,
+  type ExitChecklistGroupValue,
   type ExitTypeValue,
 } from './exit-status';
 import { buildLetter, LETTER_DOC_TYPE, type LetterKind } from './letter-content';
@@ -150,7 +153,7 @@ export class ExitsService {
           employee.confirmationDate,
         ),
         createdBy: actorId(principal),
-        clearanceLabels: DEFAULT_CLEARANCE_ITEMS,
+        clearanceItems: DEFAULT_CLEARANCE_ITEMS,
       });
     } catch (e) {
       // The partial unique index: two starts raced past the check above.
@@ -217,6 +220,13 @@ export class ExitsService {
       interviewBy: actorId(principal),
       interviewAt: new Date(),
     });
+    // The checklist's "Conduct exit interview" line follows the interview: tick it if still open.
+    // Matched by key, so a renamed label still works; a removed or N/A item is left alone.
+    await this.repo.markKeyedItemDone(
+      id,
+      EXIT_INTERVIEW_ITEM_KEY,
+      actorId(principal),
+    );
     return this.reload(principal.orgId, id);
   }
 
@@ -226,12 +236,13 @@ export class ExitsService {
     orgId: string,
     id: string,
     label: string,
+    group: ExitChecklistGroupValue = 'PROCESS',
   ): Promise<ExitView> {
     const row = await this.require(orgId, id);
     this.assertCan(row, 'edit');
     const clean = label.trim();
     if (!clean) throw new BadRequestException('label must not be blank');
-    await this.repo.addItem(id, clean);
+    await this.repo.addItem(id, clean, group);
     return this.reload(orgId, id);
   }
 
@@ -241,17 +252,39 @@ export class ExitsService {
     itemId: string,
     dto: UpdateClearanceItemDto,
   ): Promise<ExitView> {
+    if (dto.done === true && dto.notApplicable === true)
+      throw new BadRequestException(
+        'An item is either done or not applicable, not both',
+      );
     const row = await this.require(principal.orgId, id);
     this.assertCan(row, 'edit');
     await this.requireItem(id, itemId);
+    const actor = actorId(principal);
+    const now = new Date();
+    const clearDone = { done: false, doneBy: null, doneAt: null };
+    const clearNa = {
+      notApplicable: false,
+      notApplicableBy: null,
+      notApplicableAt: null,
+    };
+    // Done and N/A are mutually exclusive: setting one clears the other. Unsetting one touches
+    // only its own fields. `null` (let through by @IsOptional) means "no change", like undefined.
     await this.repo.updateItem(itemId, {
       ...(dto.label !== undefined ? { label: dto.label.trim() } : {}),
       ...(dto.note !== undefined ? { note: blankToNull(dto.note) } : {}),
+      ...(dto.done === false ? clearDone : {}),
+      ...(dto.notApplicable === false ? clearNa : {}),
       ...(dto.done === true
-        ? { done: true, doneBy: actorId(principal), doneAt: new Date() }
-        : dto.done === false
-          ? { done: false, doneBy: null, doneAt: null }
-          : {}),
+        ? { done: true, doneBy: actor, doneAt: now, ...clearNa }
+        : {}),
+      ...(dto.notApplicable === true
+        ? {
+            notApplicable: true,
+            notApplicableBy: actor,
+            notApplicableAt: now,
+            ...clearDone,
+          }
+        : {}),
     });
     return this.reload(principal.orgId, id);
   }
@@ -344,7 +377,7 @@ export class ExitsService {
     const verdict = evaluateCompletion(row.items, overrideNote);
     if (!verdict.ok)
       throw new BadRequestException(
-        `${verdict.open} clearance item${verdict.open === 1 ? ' is' : 's are'} still open. Finish ${verdict.open === 1 ? 'it' : 'them'}, or complete with an override note.`,
+        `${verdict.open} clearance item${verdict.open === 1 ? ' is' : 's are'} still open. Mark ${verdict.open === 1 ? 'it' : 'them'} done or not applicable, or complete with an override note.`,
       );
 
     const userId = row.employee.userId;
@@ -452,8 +485,12 @@ export class ExitsService {
 
   private async toView(orgId: string, row: ExitRow): Promise<ExitView> {
     const actorIds = new Set<string>();
-    for (const i of row.items) if (i.doneBy) actorIds.add(i.doneBy);
+    for (const i of row.items) {
+      if (i.doneBy) actorIds.add(i.doneBy);
+      if (i.notApplicableBy) actorIds.add(i.notApplicableBy);
+    }
     if (row.interviewBy) actorIds.add(row.interviewBy);
+    if (row.completedBy) actorIds.add(row.completedBy);
     const [docs, users] = await Promise.all([
       this.documents.currentInCategory(orgId, row.employeeId, 'EXIT'),
       this.repo.userNames([...actorIds]),
@@ -504,13 +541,20 @@ export class ExitsService {
       clearance: {
         items: row.items.map((i) => ({
           id: i.id,
+          group: i.group,
+          key: i.key,
           label: i.label,
           done: i.done,
           doneAt: i.doneAt?.toISOString() ?? null,
           doneByName: name(i.doneBy),
+          notApplicable: i.notApplicable,
+          notApplicableAt: i.notApplicableAt?.toISOString() ?? null,
+          notApplicableByName: name(i.notApplicableBy),
           note: i.note,
         })),
         done: row.items.filter((i) => i.done).length,
+        notApplicable: row.items.filter((i) => i.notApplicable).length,
+        resolved: row.items.filter(isResolved).length,
         total: row.items.length,
       },
       documents: docs.map(toDocumentView),
@@ -524,6 +568,7 @@ export class ExitsService {
       overrideNote: row.overrideNote,
       loginDisabled: row.loginDisabled,
       completedAt: row.completedAt?.toISOString() ?? null,
+      completedByName: name(row.completedBy),
       cancelledAt: row.cancelledAt?.toISOString() ?? null,
       cancelNote: row.cancelNote,
       createdAt: row.createdAt.toISOString(),
@@ -568,7 +613,7 @@ function toListRow(r: ExitListItem): ExitListRow {
     status: r.status,
     noticeDate: dateColumnToIso(r.noticeDate),
     lastWorkingDay: dateColumnToIso(r.lastWorkingDay),
-    clearanceDone: r.items.filter((i) => i.done).length,
+    clearanceResolved: r.items.filter(isResolved).length,
     clearanceTotal: r.items.length,
     createdAt: r.createdAt.toISOString(),
   };

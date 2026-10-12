@@ -19,13 +19,21 @@ export type ExitInterviewReasonValue =
 export type ExitAnswerValue = 'YES' | 'MAYBE' | 'NO';
 export type LetterKind = 'experience' | 'release';
 export type ExitListFilter = 'active' | ExitStatusValue;
+export type ExitChecklistGroup = 'PROCESS' | 'ASSETS';
 
 export type ClearanceItemView = {
   id: string;
+  group: ExitChecklistGroup;
+  /** Stable id of a seeded item (e.g. `exit_interview`); null for a custom item. */
+  key: string | null;
   label: string;
   done: boolean;
   doneAt: string | null;
   doneByName: string | null;
+  /** Never true together with `done`. Done or N/A = resolved. */
+  notApplicable: boolean;
+  notApplicableAt: string | null;
+  notApplicableByName: string | null;
   note: string | null;
 };
 
@@ -82,12 +90,15 @@ export type ExitView = {
   lastWorkingDay: string;
   reason: string | null;
   interview: ExitInterviewView | null;
-  clearance: { items: ClearanceItemView[]; done: number; total: number };
+  /** `resolved` = done + notApplicable: the items that no longer block completion. */
+  clearance: { items: ClearanceItemView[]; done: number; notApplicable: number; resolved: number; total: number };
   documents: ExitDocumentView[];
   allowed: ExitAllowed;
   overrideNote: string | null;
   loginDisabled: boolean;
   completedAt: string | null;
+  /** Who completed (approved) the exit; null for a machine credential or a deleted user. */
+  completedByName: string | null;
   cancelledAt: string | null;
   cancelNote: string | null;
   createdAt: string;
@@ -105,7 +116,8 @@ export type ExitListRow = {
   status: ExitStatusValue;
   noticeDate: string;
   lastWorkingDay: string;
-  clearanceDone: number;
+  /** Items done or not applicable. */
+  clearanceResolved: number;
   clearanceTotal: number;
   createdAt: string;
 };
@@ -138,7 +150,8 @@ export type InterviewBody = {
   notes?: string;
 };
 
-export type ClearanceItemPatch = { done?: boolean; label?: string; note?: string | null };
+/** `done: true` clears N/A and `notApplicable: true` clears done; never send both as true. */
+export type ClearanceItemPatch = { done?: boolean; notApplicable?: boolean; label?: string; note?: string | null };
 export type CompleteExitBody = { disableLogin?: boolean; overrideNote?: string };
 
 export const EXIT_TYPE_LABEL: Record<ExitTypeValue, string> = {
@@ -164,6 +177,11 @@ export const EXIT_STATUS_TONE: Record<ExitStatusValue, 'gray' | 'green' | 'amber
   CANCELLED: 'gray',
 };
 
+export const CHECKLIST_GROUP_LABEL: Record<ExitChecklistGroup, string> = {
+  PROCESS: 'Process tasks',
+  ASSETS: 'Company assets',
+};
+
 export const INTERVIEW_REASON_LABEL: Record<ExitInterviewReasonValue, string> = {
   CAREER_GROWTH: 'Career growth',
   COMPENSATION: 'Compensation',
@@ -186,8 +204,8 @@ export const exitsApi = {
   update: (id: string, body: UpdateExitBody) => apiClient.patch<ExitView>(base(id), body).then((r) => r.data),
   saveInterview: (id: string, body: InterviewBody) =>
     apiClient.put<ExitView>(`${base(id)}/interview`, body).then((r) => r.data),
-  addItem: (id: string, label: string) =>
-    apiClient.post<ExitView>(`${base(id)}/clearance-items`, { label }).then((r) => r.data),
+  addItem: (id: string, label: string, group: ExitChecklistGroup) =>
+    apiClient.post<ExitView>(`${base(id)}/clearance-items`, { label, group }).then((r) => r.data),
   updateItem: (id: string, itemId: string, body: ClearanceItemPatch) =>
     apiClient.patch<ExitView>(`${base(id)}/clearance-items/${encodeURIComponent(itemId)}`, body).then((r) => r.data),
   removeItem: (id: string, itemId: string) =>

@@ -72,7 +72,7 @@ const COLUMNS: Column<ExitListRow>[] = [
     sortable: false,
     render: (r) => (
       <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {r.clearanceDone} / {r.clearanceTotal}
+        {r.clearanceResolved} / {r.clearanceTotal}
       </span>
     ),
   },

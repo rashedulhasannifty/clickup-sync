@@ -3,6 +3,7 @@ import {
   exitsApi,
   type ClearanceItemPatch,
   type CompleteExitBody,
+  type ExitChecklistGroup,
   type ExitListFilter,
   type InterviewBody,
   type LetterKind,
@@ -57,7 +58,10 @@ export function useSaveInterview(id: string) {
 
 export function useAddClearanceItem(id: string) {
   const refresh = useRefresh();
-  return useMutation({ mutationFn: (label: string) => exitsApi.addItem(id, label), onSuccess: refresh });
+  return useMutation({
+    mutationFn: ({ label, group }: { label: string; group: ExitChecklistGroup }) => exitsApi.addItem(id, label, group),
+    onSuccess: refresh,
+  });
 }
 
 export function useUpdateClearanceItem(id: string) {

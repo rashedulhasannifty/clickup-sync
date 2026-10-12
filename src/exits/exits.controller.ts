@@ -104,11 +104,14 @@ export class ExitsController {
     @Param('id') id: string,
     @Body() dto: AddClearanceItemDto,
   ): Promise<ExitView> {
-    return this.exits.addClearanceItem(user.orgId, id, dto.label);
+    return this.exits.addClearanceItem(user.orgId, id, dto.label, dto.group);
   }
 
   @Patch('exits/:id/clearance-items/:itemId')
-  @ApiOperation({ summary: 'Tick or untick an item, or edit its label or note' })
+  @ApiOperation({
+    summary:
+      'Mark an item done or not applicable (or reopen it), or edit its label or note',
+  })
   updateItem(
     @CurrentUser() user: AuthPrincipal,
     @Param('id') id: string,

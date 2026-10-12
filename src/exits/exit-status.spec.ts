@@ -1,9 +1,11 @@
 import {
   ACTIVE_EXIT_STATUSES,
   DEFAULT_CLEARANCE_ITEMS,
+  EXIT_INTERVIEW_ITEM_KEY,
   canDo,
   evaluateCompletion,
   isActiveStatus,
+  isResolved,
   nextStatus,
   statusBeforeExit,
   validateExitDates,
@@ -52,9 +54,21 @@ describe('statusBeforeExit (what CANCELLED restores)', () => {
   });
 });
 
+describe('isResolved', () => {
+  it('is true for done or not applicable, false only for an open item', () => {
+    expect(isResolved({ done: true, notApplicable: false })).toBe(true);
+    expect(isResolved({ done: false, notApplicable: true })).toBe(true);
+    expect(isResolved({ done: false, notApplicable: false })).toBe(false);
+  });
+});
+
 describe('evaluateCompletion', () => {
+  const done = { done: true, notApplicable: false };
+  const na = { done: false, notApplicable: true };
+  const open = { done: false, notApplicable: false };
+
   it('passes when every item is done, with or without a note', () => {
-    expect(evaluateCompletion([{ done: true }, { done: true }], null)).toEqual({
+    expect(evaluateCompletion([done, done], null)).toEqual({
       ok: true,
       overridden: false,
       open: 0,
@@ -65,20 +79,29 @@ describe('evaluateCompletion', () => {
       open: 0,
     });
   });
+  it('counts a not-applicable item as resolved, so a mix of done and N/A needs no override', () => {
+    expect(evaluateCompletion([done, na, na], null)).toEqual({
+      ok: true,
+      overridden: false,
+      open: 0,
+    });
+  });
   it('refuses while items are open and there is no override note', () => {
-    expect(evaluateCompletion([{ done: true }, { done: false }], null)).toEqual({
+    expect(evaluateCompletion([done, na, open], null)).toEqual({
       ok: false,
       open: 1,
     });
-    expect(evaluateCompletion([{ done: false }], '   ')).toEqual({
+    expect(evaluateCompletion([open], '   ')).toEqual({
       ok: false,
       open: 1,
     });
   });
   it('accepts open items with a non-blank override note and says it overrode', () => {
-    expect(
-      evaluateCompletion([{ done: false }, { done: false }], 'Laptop is in transit'),
-    ).toEqual({ ok: true, overridden: true, open: 2 });
+    expect(evaluateCompletion([open, open, na], 'Laptop is in transit')).toEqual({
+      ok: true,
+      overridden: true,
+      open: 2,
+    });
   });
 });
 
@@ -97,13 +120,35 @@ describe('validateExitDates', () => {
 });
 
 describe('DEFAULT_CLEARANCE_ITEMS', () => {
-  it('is the spec list, in order', () => {
-    expect(DEFAULT_CLEARANCE_ITEMS).toEqual([
-      'Laptop & charger returned',
-      'ClickUp access removed',
-      'Nifty Timer account disabled',
-      'Handover of open tasks',
-      'Final settlement / leave encashment',
+  it('is the company exit checklist: 15 process tasks, then 6 company assets, in order', () => {
+    const process = DEFAULT_CLEARANCE_ITEMS.filter((i) => i.group === 'PROCESS');
+    const assets = DEFAULT_CLEARANCE_ITEMS.filter((i) => i.group === 'ASSETS');
+    expect(process).toHaveLength(15);
+    expect(process[0].label).toBe('Ensure termination paperwork is complete');
+    expect(process[14].label).toBe('Update organizational chart');
+    expect(assets.map((i) => i.label)).toEqual([
+      'Laptop',
+      'Phone',
+      'Monitor',
+      'Mouse and keyboard',
+      'ID/Access card',
+      'Company vehicle',
     ]);
+    // Groups are contiguous: every process task comes before every asset.
+    expect(DEFAULT_CLEARANCE_ITEMS.slice(0, 15).every((i) => i.group === 'PROCESS')).toBe(true);
+  });
+
+  it('folds ClickUp and Nifty Timer into the software-access line', () => {
+    const access = DEFAULT_CLEARANCE_ITEMS.find((i) => i.key === 'remove_software_access');
+    for (const tool of ['WhatsApp', 'Teams', 'Slack', 'Face lock', 'Outlook', 'Time Doctor', 'ClickUp', 'Nifty Timer'])
+      expect(access?.label).toContain(tool);
+  });
+
+  it('gives every item a unique key, including the exit interview the interview step ticks', () => {
+    const keys = DEFAULT_CLEARANCE_ITEMS.map((i) => i.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(DEFAULT_CLEARANCE_ITEMS.find((i) => i.key === EXIT_INTERVIEW_ITEM_KEY)?.label).toBe(
+      'Conduct exit interview',
+    );
   });
 });

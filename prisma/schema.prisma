@@ -1134,7 +1134,7 @@ model EmployeeExit {
   /// User ids of actors; null for a machine credential. Deliberately no FK.
   interviewBy        String?              @map("interview_by")
   interviewAt        DateTime?            @map("interview_at")
-  /// Why the exit was completed with clearance items still open.
+  /// Why the exit was completed with clearance items still open (neither done nor N/A).
   overrideNote       String?              @map("override_note")
   loginDisabled      Boolean              @default(false) @map("login_disabled")
   completedAt        DateTime?            @map("completed_at")
@@ -1154,18 +1154,34 @@ model EmployeeExit {
   @@map("employee_exits")
 }
 
+/// The two sections of the company's exit checklist: process tasks, and company assets to collect.
+enum ExitChecklistGroup {
+  PROCESS
+  ASSETS
+}
+
+/// One line of an exit's checklist. It is resolved when done OR not applicable; the two are
+/// mutually exclusive (the service clears one when it sets the other).
 model ExitClearanceItem {
-  id       String    @id @default(cuid())
-  exitId   String    @map("exit_id")
-  label    String
-  position Int
-  done     Boolean   @default(false)
-  doneBy   String?   @map("done_by")
-  doneAt   DateTime? @map("done_at")
-  note     String?
+  id              String             @id @default(cuid())
+  exitId          String             @map("exit_id")
+  group           ExitChecklistGroup @default(PROCESS) @map("group_kind")
+  /// Stable id of a seeded item (e.g. `exit_interview`), so code can find it whatever its label
+  /// says. Null for custom items.
+  key             String?
+  label           String
+  position        Int
+  done            Boolean            @default(false)
+  doneBy          String?            @map("done_by")
+  doneAt          DateTime?          @map("done_at")
+  notApplicable   Boolean            @default(false) @map("not_applicable")
+  notApplicableBy String?            @map("not_applicable_by")
+  notApplicableAt DateTime?          @map("not_applicable_at")
+  note            String?
 
   exit EmployeeExit @relation(fields: [exitId], references: [id], onDelete: Cascade)
 
+  @@unique([exitId, key])
   @@index([exitId, position])
   @@map("exit_clearance_items")
 }

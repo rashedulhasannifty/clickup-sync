@@ -1,11 +1,15 @@
 import { useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Check, Download, Eye, FileText, LogOut, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Check, Download, Eye, FileText, LogOut, Minus, Plus, RefreshCw, StickyNote, Trash2, X } from 'lucide-react';
 import {
+  CHECKLIST_GROUP_LABEL,
   EXIT_STATUS_LABEL,
   EXIT_TYPE_LABEL,
   INTERVIEW_REASON_LABEL,
+  type ClearanceItemPatch,
+  type ClearanceItemView,
   type ExitAnswerValue,
+  type ExitChecklistGroup,
   type ExitInterviewReasonValue,
   type ExitTypeValue,
   type ExitView,
@@ -38,6 +42,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Field } from '../components/ui/Field';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
+import { Pill } from '../components/ui/Pill';
 import { Select } from '../components/ui/Select';
 import { Switch } from '../components/ui/Switch';
 import { useToast } from '../components/ui/Toast';
@@ -68,8 +73,8 @@ function currentStep(exit: ExitView): number {
     case 'INTERVIEW':
       return 2;
     case 'CLEARANCE':
-      // "Final documents" is the part of clearance after the checklist is ticked off.
-      return exit.clearance.total > 0 && exit.clearance.done === exit.clearance.total ? 4 : 3;
+      // "Final documents" is the part of clearance after every item is done or N/A.
+      return exit.clearance.total > 0 && exit.clearance.resolved === exit.clearance.total ? 4 : 3;
     case 'COMPLETED':
       return 6;
     default:
@@ -344,81 +349,212 @@ function InterviewCard({ exit }: { exit: ExitView }) {
 
 // -- clearance --------------------------------------------------------------
 
-function ClearanceCard({ exit }: { exit: ExitView }) {
+const GROUP_OPTIONS = (Object.keys(CHECKLIST_GROUP_LABEL) as ExitChecklistGroup[]).map((g) => ({
+  value: g,
+  label: CHECKLIST_GROUP_LABEL[g],
+}));
+
+/** "5 Oct 2026 · Hana", or just the date when nobody is recorded. */
+function resolvedMeta(at: string | null, by: string | null): string | null {
+  if (!at) return null;
+  return `${formatDate(at.slice(0, 10))}${by ? ` · ${by}` : ''}`;
+}
+
+/** One checklist line: Done and N/A (mutually exclusive), a note, and remove. */
+function ClearanceRow({ exit, item }: { exit: ExitView; item: ClearanceItemView }) {
   const toast = useToast();
   const update = useUpdateClearanceItem(exit.id);
-  const add = useAddClearanceItem(exit.id);
   const remove = useRemoveClearanceItem(exit.id);
-  const [label, setLabel] = useState('');
   const editable = exit.allowed.edit;
+  const [noteDraft, setNoteDraft] = useState<string | null>(null);
+
+  const patch = (body: ClearanceItemPatch, onSuccess?: () => void) =>
+    update.mutate(
+      { itemId: item.id, patch: body },
+      { onSuccess, onError: (e) => toast.error(`Could not update the item. ${errText(e)}`) },
+    );
+
+  function saveNote() {
+    if (noteDraft === null) return;
+    const next = noteDraft.trim();
+    if (next === (item.note ?? '')) return setNoteDraft(null);
+    patch({ note: next || null }, () => setNoteDraft(null));
+  }
+
+  const meta = item.done
+    ? resolvedMeta(item.doneAt, item.doneByName)
+    : item.notApplicable
+      ? resolvedMeta(item.notApplicableAt, item.notApplicableByName)
+      : null;
+  const state = item.done ? 'done' : item.notApplicable ? 'not applicable' : 'open';
 
   return (
-    <Card title="Clearance checklist" subtitle={`${exit.clearance.done} of ${exit.clearance.total} done`}>
-      <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-        {exit.clearance.items.map((item) => (
-          <li
-            key={item.id}
-            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}
-          >
-            {editable ? (
-              <Checkbox
-                checked={item.done}
-                label={`${item.label}: ${item.done ? 'done' : 'open'}`}
-                onChange={() =>
-                  update.mutate(
-                    { itemId: item.id, patch: { done: !item.done } },
-                    { onError: (e) => toast.error(`Could not update the item. ${errText(e)}`) },
-                  )
-                }
-              />
-            ) : item.done ? (
-              <Check size={15} style={{ color: 'var(--green)' }} aria-label="done" />
-            ) : (
-              <X size={15} style={{ color: 'var(--text-faint)' }} aria-label="open" />
-            )}
-            <span style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
-              <span style={{ textDecoration: item.done ? 'line-through' : undefined, color: item.done ? 'var(--text-muted)' : undefined }}>
-                {item.label}
-              </span>
-              {item.done && item.doneAt && (
-                <small style={{ display: 'block', color: 'var(--text-faint)' }}>
-                  {formatDate(item.doneAt.slice(0, 10))}
-                  {item.doneByName ? ` · ${item.doneByName}` : ''}
-                </small>
-              )}
-            </span>
-            {editable && (
-              <Button
-                size="iconSm"
-                variant="ghost"
-                aria-label={`Remove ${item.label}`}
-                icon={<Trash2 size={13} />}
-                onClick={() =>
-                  remove.mutate(item.id, { onError: (e) => toast.error(`Could not remove the item. ${errText(e)}`) })
-                }
-              />
-            )}
-          </li>
-        ))}
-        {exit.clearance.items.length === 0 && (
-          <li style={{ fontSize: 13, color: 'var(--text-muted)', padding: '8px 0' }}>No items. Add what has to be returned or closed.</li>
+    <li style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+      <span style={{ paddingTop: 1 }}>
+        {editable ? (
+          <Checkbox
+            checked={item.done}
+            label={`${item.label}: ${state}. Mark ${item.done ? 'open' : 'done'}`}
+            onChange={() => patch({ done: !item.done })}
+          />
+        ) : item.done ? (
+          <Check size={15} style={{ color: 'var(--green)' }} aria-label="done" />
+        ) : item.notApplicable ? (
+          <Minus size={15} style={{ color: 'var(--text-muted)' }} aria-label="not applicable" />
+        ) : (
+          <X size={15} style={{ color: 'var(--text-faint)' }} aria-label="open" />
         )}
-      </ul>
+      </span>
+      <span style={{ flex: 1, minWidth: 0, fontSize: 13 }}>
+        <span
+          style={{
+            textDecoration: item.done ? 'line-through' : undefined,
+            color: item.done || item.notApplicable ? 'var(--text-muted)' : undefined,
+          }}
+        >
+          {item.label}
+        </span>
+        {item.notApplicable && (
+          <span style={{ marginLeft: 6 }}>
+            <Pill tone="gray" size="xs">
+              N/A
+            </Pill>
+          </span>
+        )}
+        {meta && <small style={{ display: 'block', color: 'var(--text-faint)' }}>{meta}</small>}
+        {noteDraft !== null ? (
+          <span style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <Input
+                autoFocus
+                value={noteDraft}
+                maxLength={1000}
+                placeholder="Note"
+                aria-label={`Note for ${item.label}`}
+                onChange={(e) => setNoteDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    saveNote();
+                  } else if (e.key === 'Escape') setNoteDraft(null);
+                }}
+              />
+            </span>
+            <Button size="sm" variant="accent" loading={update.isPending} onClick={saveNote}>
+              Save
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setNoteDraft(null)}>
+              Cancel
+            </Button>
+          </span>
+        ) : (
+          item.note && (
+            <small style={{ display: 'block', color: 'var(--text-muted)', whiteSpace: 'pre-wrap', marginTop: 2 }}>
+              Note: {item.note}
+            </small>
+          )
+        )}
+      </span>
+      {editable && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          <Button
+            size="sm"
+            variant={item.notApplicable ? 'accent' : 'ghost'}
+            aria-pressed={item.notApplicable}
+            aria-label={`${item.label}: ${item.notApplicable ? 'not applicable. Mark open' : 'mark not applicable'}`}
+            title="Not applicable"
+            onClick={() => patch({ notApplicable: !item.notApplicable })}
+          >
+            N/A
+          </Button>
+          <Button
+            size="iconSm"
+            variant="ghost"
+            aria-label={`${item.note ? 'Edit' : 'Add'} note for ${item.label}`}
+            title={item.note ? 'Edit note' : 'Add note'}
+            icon={<StickyNote size={13} />}
+            onClick={() => setNoteDraft(item.note ?? '')}
+          />
+          <Button
+            size="iconSm"
+            variant="ghost"
+            aria-label={`Remove ${item.label}`}
+            icon={<Trash2 size={13} />}
+            onClick={() => remove.mutate(item.id, { onError: (e) => toast.error(`Could not remove the item. ${errText(e)}`) })}
+          />
+        </span>
+      )}
+    </li>
+  );
+}
+
+function ClearanceCard({ exit }: { exit: ExitView }) {
+  const toast = useToast();
+  const add = useAddClearanceItem(exit.id);
+  const [label, setLabel] = useState('');
+  const [group, setGroup] = useState<ExitChecklistGroup>('PROCESS');
+  const editable = exit.allowed.edit;
+  const { resolved, total, notApplicable } = exit.clearance;
+
+  return (
+    <Card
+      title="Clearance checklist"
+      subtitle={`${resolved} of ${total} resolved${notApplicable > 0 ? ` · ${notApplicable} not applicable` : ''}`}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {GROUP_OPTIONS.map(({ value: g, label: groupLabel }) => {
+          const items = exit.clearance.items.filter((i) => i.group === g);
+          const groupResolved = items.filter((i) => i.done || i.notApplicable).length;
+          return (
+            <section key={g} aria-label={groupLabel}>
+              <div style={{ ...LABEL_STYLE, display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 2 }}>
+                <span>{groupLabel}</span>
+                <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+                  {groupResolved} / {items.length}
+                </span>
+              </div>
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                {items.map((item) => (
+                  <ClearanceRow key={item.id} exit={exit} item={item} />
+                ))}
+                {items.length === 0 && (
+                  <li style={{ fontSize: 13, color: 'var(--text-muted)', padding: '8px 0' }}>No items.</li>
+                )}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
       {editable && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
             const text = label.trim();
             if (!text) return;
-            add.mutate(text, {
-              onSuccess: () => setLabel(''),
-              onError: (err) => toast.error(`Could not add the item. ${errText(err)}`),
-            });
+            add.mutate(
+              { label: text, group },
+              {
+                onSuccess: () => setLabel(''),
+                onError: (err) => toast.error(`Could not add the item. ${errText(err)}`),
+              },
+            );
           }}
-          style={{ display: 'flex', gap: 8, marginTop: 12 }}
+          style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}
         >
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <Input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={200} placeholder="Add an item, e.g. Return access card" aria-label="New clearance item" />
+          <Select
+            ariaLabel="Section for the new item"
+            options={GROUP_OPTIONS}
+            value={group}
+            onChange={(v) => setGroup(v as ExitChecklistGroup)}
+          />
+          <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+            <Input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              maxLength={200}
+              placeholder={group === 'ASSETS' ? 'Add an asset, e.g. Headset' : 'Add a task, e.g. Revoke VPN certificate'}
+              aria-label="New clearance item"
+            />
           </div>
           <Button type="submit" variant="default" loading={add.isPending} icon={<Plus size={13} />}>
             Add
@@ -530,6 +666,12 @@ function DocumentsCard({ exit }: { exit: ExitView }) {
 
 // -- details, complete, cancel ---------------------------------------------
 
+/** "Approved by Hana on 31 Oct 2026": the sign-off line of the company's exit checklist. */
+function approvedLine(exit: ExitView): string {
+  const on = exit.completedAt ? ` on ${formatDate(exit.completedAt.slice(0, 10))}` : '';
+  return exit.completedByName ? `Approved by ${exit.completedByName}${on}` : `Approved${on}`;
+}
+
 function DetailsCard({ exit }: { exit: ExitView }) {
   const [editing, setEditing] = useState(false);
   return (
@@ -560,6 +702,11 @@ function DetailsCard({ exit }: { exit: ExitView }) {
         )}
         {exit.status === 'COMPLETED' && (
           <>
+            <dt style={{ color: 'var(--text-muted)' }}>Approved by</dt>
+            <dd style={{ margin: 0 }}>
+              {exit.completedByName ?? '—'}
+              {exit.completedAt ? ` on ${formatDate(exit.completedAt.slice(0, 10))}` : ''}
+            </dd>
             <dt style={{ color: 'var(--text-muted)' }}>Login</dt>
             <dd style={{ margin: 0 }}>
               {exit.loginDisabled ? 'Disabled and signed out' : exit.employee.hasLogin ? 'Left active' : 'None linked'}
@@ -649,7 +796,7 @@ function EditDetailsModal({ exit, onClose }: { exit: ExitView; onClose: () => vo
 function CompleteModal({ exit, onClose }: { exit: ExitView; onClose: () => void }) {
   const toast = useToast();
   const complete = useCompleteExit(exit.id);
-  const open = exit.clearance.total - exit.clearance.done;
+  const open = exit.clearance.total - exit.clearance.resolved;
   const [disableLogin, setDisableLogin] = useState(true);
   const [overrideNote, setOverrideNote] = useState('');
   const [formError, setFormError] = useState('');
@@ -710,7 +857,7 @@ function CompleteModal({ exit, onClose }: { exit: ExitView; onClose: () => void 
           <Field
             label={`${open} clearance item${open === 1 ? ' is' : 's are'} still open`}
             required
-            hint="Completing anyway needs a note. It is kept on the exit."
+            hint="Neither done nor marked N/A. Completing anyway needs a note. It is kept on the exit."
           >
             <TextArea value={overrideNote} onChange={(e) => setOverrideNote(e.target.value)} maxLength={2000} placeholder="e.g. Laptop is in transit" />
           </Field>
@@ -890,7 +1037,7 @@ export function ExitPage() {
       )}
       {exit.status === 'COMPLETED' && (
         <div role="status" style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--muted-bg)', fontSize: 13 }}>
-          Completed{exit.completedAt ? ` on ${formatDate(exit.completedAt.slice(0, 10))}` : ''}. The profile is a read-only former employee; history, KPIs and documents are kept.
+          Completed. {approvedLine(exit)}. The profile is a read-only former employee; history, KPIs and documents are kept.
         </div>
       )}
 
