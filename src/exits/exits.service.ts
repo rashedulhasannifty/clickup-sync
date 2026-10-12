@@ -9,6 +9,7 @@ import { UsersService } from '../auth/users.service';
 import type { AuthPrincipal } from '../auth/auth.types';
 import { DocumentsService } from '../documents/documents.service';
 import { EmployeesService } from '../people/employees.service';
+import { OnboardingService } from '../people/onboarding.service';
 import { dateColumnToIso, dhakaDateOf } from '../people/people-dates';
 import type {
   CancelExitDto,
@@ -21,9 +22,9 @@ import type {
 } from './dto/exit.dto';
 import {
   ACTIVE_EXIT_STATUSES,
-  DEFAULT_CLEARANCE_ITEMS,
   EXIT_INTERVIEW_ITEM_KEY,
   canDo,
+  clearanceItemsFor,
   evaluateCompletion,
   isResolved,
   nextStatus,
@@ -97,6 +98,7 @@ export class ExitsService {
     private readonly employees: EmployeesService,
     private readonly documents: DocumentsService,
     private readonly users: UsersService,
+    private readonly onboarding: OnboardingService,
   ) {}
 
   // -- reads ----------------------------------------------------------------
@@ -140,6 +142,10 @@ export class ExitsService {
     if (await this.repo.hasActive(employeeId)) throw activeExists();
 
     const reason = blankToNull(dto.reason);
+    // What was handed over at joining is on the list of things to collect back.
+    const clearanceItems = clearanceItemsFor(
+      await this.onboarding.issuedEquipment(employeeId),
+    );
     let created: ExitRow;
     try {
       created = await this.repo.create({
@@ -153,7 +159,7 @@ export class ExitsService {
           employee.confirmationDate,
         ),
         createdBy: actorId(principal),
-        clearanceItems: DEFAULT_CLEARANCE_ITEMS,
+        clearanceItems,
       });
     } catch (e) {
       // The partial unique index: two starts raced past the check above.

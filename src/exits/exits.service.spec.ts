@@ -103,6 +103,7 @@ function make(
     employees?: Record<string, jest.Mock>;
     users?: Record<string, jest.Mock>;
     documents?: Record<string, jest.Mock>;
+    onboarding?: Record<string, jest.Mock>;
   } = {},
 ) {
   const repo = {
@@ -139,13 +140,18 @@ function make(
     storeGenerated: jest.fn().mockResolvedValue(docView()),
     ...over.documents,
   };
+  const onboarding = {
+    issuedEquipment: jest.fn().mockResolvedValue([]),
+    ...over.onboarding,
+  };
   const svc = new ExitsService(
     repo as never,
     employees as never,
     documents as never,
     users as never,
+    onboarding as never,
   );
-  return { svc, repo, employees, users, documents };
+  return { svc, repo, employees, users, documents, onboarding };
 }
 
 describe('start', () => {
@@ -179,6 +185,30 @@ describe('start', () => {
       type: 'NOTICE_GIVEN',
       effectiveDate: '2026-10-01',
       notes: 'Resignation: Moving abroad',
+    });
+  });
+
+  it('adds the equipment issued at joining to the assets to collect', async () => {
+    const { svc, repo, onboarding } = make(undefined, {
+      onboarding: {
+        issuedEquipment: jest.fn().mockResolvedValue([
+          { key: 'eq_laptop', label: 'Laptop', detail: 'SN-123' },
+          { key: 'eq_headphone', label: 'Headphone', detail: null },
+        ]),
+      },
+    });
+    await svc.start(admin, 'e1', dto);
+    expect(onboarding.issuedEquipment).toHaveBeenCalledWith('e1');
+    const items = repo.create.mock.calls[0][0].clearanceItems;
+    expect(items).toContainEqual({
+      group: 'ASSETS',
+      key: 'asset_laptop',
+      label: 'Laptop — SN-123',
+    });
+    expect(items).toContainEqual({
+      group: 'ASSETS',
+      key: 'issued_eq_headphone',
+      label: 'Headphone (issued at joining)',
     });
   });
 

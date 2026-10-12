@@ -225,3 +225,62 @@ export const DEFAULT_CLEARANCE_ITEMS: readonly DefaultClearanceItem[] = [
   { group: 'ASSETS', key: 'asset_id_card', label: 'ID/Access card' },
   { group: 'ASSETS', key: 'asset_vehicle', label: 'Company vehicle' },
 ];
+
+/** Equipment handed over at joining, as the onboarding checklist records it. */
+export interface IssuedItem {
+  key: string | null;
+  label: string;
+  detail: string | null;
+}
+
+export interface SeedClearanceItem {
+  group: ExitChecklistGroupValue;
+  key: string | null;
+  label: string;
+}
+
+/** Joining equipment that IS one of the standard assets: its detail (serial etc.) is added there. */
+const ISSUED_TO_ASSET: Record<string, string> = {
+  eq_laptop: 'asset_laptop',
+  eq_keyboard: 'asset_mouse_keyboard',
+  eq_mouse: 'asset_mouse_keyboard',
+};
+
+/** Consumables handed over at joining; nobody collects a used notebook back. */
+const NOT_COLLECTED = new Set(['eq_stationery']);
+
+/**
+ * The checklist a new exit starts with: the company sheet, plus every piece of equipment the
+ * joining checklist says was issued, so nothing handed over is forgotten at the exit. Issued items
+ * matching a standard asset add their detail to its label; the rest become extra ASSETS lines
+ * (seeded ones keyed `issued_<key>`, custom ones unkeyed).
+ */
+export function clearanceItemsFor(
+  issued: readonly IssuedItem[],
+): SeedClearanceItem[] {
+  const details = new Map<string, string[]>();
+  const extra: SeedClearanceItem[] = [];
+  for (const item of issued) {
+    if (item.key && NOT_COLLECTED.has(item.key)) continue;
+    const detail = item.detail?.trim() || null;
+    const asset = item.key ? ISSUED_TO_ASSET[item.key] : undefined;
+    if (asset) {
+      if (detail) details.set(asset, [...(details.get(asset) ?? []), detail]);
+      continue;
+    }
+    extra.push({
+      group: 'ASSETS',
+      key: item.key ? `issued_${item.key}` : null,
+      label: `${item.label} (issued at joining)${detail ? ` — ${detail}` : ''}`,
+    });
+  }
+  const seeded = DEFAULT_CLEARANCE_ITEMS.map((d): SeedClearanceItem => {
+    const found = details.get(d.key);
+    return {
+      group: d.group,
+      key: d.key,
+      label: found ? `${d.label} — ${found.join(', ')}` : d.label,
+    };
+  });
+  return [...seeded, ...extra];
+}

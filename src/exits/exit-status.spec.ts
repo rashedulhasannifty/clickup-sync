@@ -1,6 +1,7 @@
 import {
   ACTIVE_EXIT_STATUSES,
   DEFAULT_CLEARANCE_ITEMS,
+  clearanceItemsFor,
   EXIT_INTERVIEW_ITEM_KEY,
   canDo,
   evaluateCompletion,
@@ -150,5 +151,52 @@ describe('DEFAULT_CLEARANCE_ITEMS', () => {
     expect(DEFAULT_CLEARANCE_ITEMS.find((i) => i.key === EXIT_INTERVIEW_ITEM_KEY)?.label).toBe(
       'Conduct exit interview',
     );
+  });
+});
+
+describe('clearanceItemsFor', () => {
+  it('is the company sheet when nothing was recorded at joining', () => {
+    expect(clearanceItemsFor([])).toEqual(
+      DEFAULT_CLEARANCE_ITEMS.map((d) => ({
+        group: d.group,
+        key: d.key,
+        label: d.label,
+      })),
+    );
+  });
+
+  it('adds serials to the matching standard asset, several onto one line', () => {
+    const items = clearanceItemsFor([
+      { key: 'eq_laptop', label: 'Laptop', detail: ' SN-1 ' },
+      { key: 'eq_keyboard', label: 'Keyboard', detail: 'K-9' },
+      { key: 'eq_mouse', label: 'Mouse', detail: 'M-2' },
+    ]);
+    expect(items).toHaveLength(DEFAULT_CLEARANCE_ITEMS.length);
+    const label = (k: string) => items.find((i) => i.key === k)?.label;
+    expect(label('asset_laptop')).toBe('Laptop — SN-1');
+    expect(label('asset_mouse_keyboard')).toBe('Mouse and keyboard — K-9, M-2');
+  });
+
+  it('leaves a standard asset unchanged when the issued item has no detail', () => {
+    const items = clearanceItemsFor([
+      { key: 'eq_laptop', label: 'Laptop', detail: '  ' },
+    ]);
+    expect(items.find((i) => i.key === 'asset_laptop')?.label).toBe('Laptop');
+  });
+
+  it('adds other issued equipment as extra assets, skipping stationery', () => {
+    const items = clearanceItemsFor([
+      { key: 'eq_sim', label: 'SIM card', detail: '01700000000' },
+      { key: 'eq_stationery', label: 'Stationery', detail: null },
+      { key: null, label: 'Projector', detail: null },
+    ]);
+    expect(items.slice(DEFAULT_CLEARANCE_ITEMS.length)).toEqual([
+      {
+        group: 'ASSETS',
+        key: 'issued_eq_sim',
+        label: 'SIM card (issued at joining) — 01700000000',
+      },
+      { group: 'ASSETS', key: null, label: 'Projector (issued at joining)' },
+    ]);
   });
 });
