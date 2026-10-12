@@ -1,4 +1,5 @@
 import type {
+  EmployeeStatusValue,
   EmploymentEventTypeValue,
   Kpis,
   OverallScore,
@@ -14,6 +15,14 @@ import type {
 export type AppraisalCycleStatusValue = 'DRAFT' | 'OPEN' | 'CLOSED';
 /** Which paper form a cycle is: Half Yearly, Confirmation or Yearly. */
 export type AppraisalTypeValue = 'HALF_YEARLY' | 'CONFIRMATION' | 'YEARLY';
+/**
+ * How a cycle's period is read. `CALENDAR`: the cycle's period is everyone's
+ * review period (cycles created before 0032). `JOIN_DATE`: appraisals are
+ * counted from each employee's join date; the cycle's period is the window
+ * the due dates fall in, and each appraisal carries its own review period and
+ * due date (`src/appraisals/appraisal-schedule.ts`).
+ */
+export type AppraisalPeriodBasisValue = 'CALENDAR' | 'JOIN_DATE';
 /**
  * How a cycle scores. `FORM_100` is the company's paper form (10 criteria x 10
  * marks, graded A-F); the KPI score is shown beside it as a reference only.
@@ -124,8 +133,10 @@ export interface CycleCounts {
 export interface CycleView {
   id: string;
   name: string;
+  /** CALENDAR: the review period. JOIN_DATE: the window the due dates fall in ("due between"). */
   periodStart: string;
   periodEnd: string;
+  periodBasis: AppraisalPeriodBasisValue;
   status: AppraisalCycleStatusValue;
   type: AppraisalTypeValue;
   scoringMode: ScoringModeValue;
@@ -142,11 +153,50 @@ export interface LaunchResult {
   created: number;
   /** Selected employees who already had an appraisal in the cycle. */
   skipped: number;
+  /**
+   * JOIN_DATE cycles, explicit selection: employees left out because no
+   * appraisal of the cycle's type is due by the end of its window (joined too
+   * recently), or because they have exited. Always empty for calendar cycles.
+   */
+  notDue: LaunchNotDue[];
+}
+
+export interface LaunchNotDue {
+  employeeId: string;
+  employeeName: string;
+  reason: 'NOT_YET_DUE' | 'EXITED';
+  /** NOT_YET_DUE: when the first appraisal of the cycle's type falls due. */
+  firstDueDate: string | null;
+}
+
+/**
+ * The review period one appraisal covers. JOIN_DATE cycles: the employee's own
+ * period and due date. Calendar cycles (and appraisals created before 0032):
+ * the cycle's period, and no due date.
+ */
+export interface AppraisalPeriod {
+  periodStart: string;
+  periodEnd: string;
+  dueDate: string | null;
+}
+
+/** `GET /people/appraisal-cycles/due`: one employee due an appraisal in the window. */
+export interface DueEmployeeRow {
+  employeeId: string;
+  fullName: string;
+  designation: string;
+  teamName: string | null;
+  status: EmployeeStatusValue;
+  joinDate: string;
+  type: AppraisalTypeValue;
+  dueDate: string;
+  periodStart: string;
+  periodEnd: string;
 }
 
 /** Stored when an appraisal enters lead review, and on refresh; frozen at sign-off. */
 export interface KpiSnapshot {
-  /** The period the KPIs were computed over (the cycle period, clipped to today). */
+  /** The period the KPIs were computed over (the appraisal's review period, clipped to today). */
   period: { from: string; to: string };
   computedAt: string;
   kpis: Kpis;
@@ -198,6 +248,11 @@ export interface AppraisalListRow {
   reviewerName: string | null;
   status: AppraisalStatusValue;
   scoringMode: ScoringModeValue;
+  /** This appraisal's own review period (the cycle's for calendar cycles). */
+  periodStart: string;
+  periodEnd: string;
+  /** JOIN_DATE cycles: when it fell due. Null for calendar cycles. */
+  dueDate: string | null;
   score: ScoreView;
   recommendation: AppraisalRecommendationValue | null;
   actions: AppraisalActionValue[];
@@ -211,8 +266,11 @@ export interface EmployeeAppraisalRow {
   id: string;
   cycleId: string;
   cycleName: string;
+  /** This appraisal's own review period (the cycle's for calendar cycles). */
   periodStart: string;
   periodEnd: string;
+  /** JOIN_DATE cycles: when it fell due. Null for calendar cycles. */
+  dueDate: string | null;
   status: AppraisalStatusValue;
   scoringMode: ScoringModeValue;
   appraisalType: AppraisalTypeValue;
@@ -267,6 +325,11 @@ export interface AppraisalView {
   };
   reviewerId: string | null;
   reviewerName: string | null;
+  /** This appraisal's own review period (the cycle's for calendar cycles). */
+  periodStart: string;
+  periodEnd: string;
+  /** JOIN_DATE cycles: when it fell due. Null for calendar cycles. */
+  dueDate: string | null;
   status: AppraisalStatusValue;
   selfRatings: RatingMap;
   selfComment: string | null;

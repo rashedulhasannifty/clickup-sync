@@ -36,7 +36,10 @@ function latest(events: HeaderEvent[], type: EmploymentEventTypeValue) {
 }
 
 /**
- * The form's header block. Pure: `today` is the Dhaka date of capture. Last
+ * The form's header block. Pure: `today` is the Dhaka date of capture.
+ * Experience in the company runs to `asOf` when given (a join-date appraisal's
+ * due date, so a confirmation reads 6 months however late it is signed off),
+ * else to `today`; never past the exit date. Last
  * increment amount and last promotion date come from the employment timeline
  * (INCREMENT and PROMOTED events), never typed. An INCREMENT whose amounts are
  * not whole numbers (hand-edited data) gives no amount rather than a guess.
@@ -47,9 +50,12 @@ export function buildFormHeader(args: {
   companyName: string;
   today: string;
   capturedAt: string;
+  /** Measure experience to this date instead of `today` (`YYYY-MM-DD`). */
+  asOf?: string | null;
 }): FormHeader {
-  const { employee: e, events, today } = args;
-  const end = e.exitDate && e.exitDate < today ? e.exitDate : today;
+  const { employee: e, events } = args;
+  const base = args.asOf ?? args.today;
+  const end = e.exitDate && e.exitDate < base ? e.exitDate : base;
   const inCompany = tenureMonths(e.joinDate, end);
 
   const increment = latest(

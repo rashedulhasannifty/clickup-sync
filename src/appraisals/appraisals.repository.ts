@@ -4,6 +4,7 @@ import { PrismaService } from '../database/prisma.service';
 import { isoToDateColumn } from '../people/people-dates';
 import type {
   AppraisalCycleStatusValue,
+  AppraisalPeriodBasisValue,
   AppraisalStatusValue,
   AppraisalTypeValue,
   Competency,
@@ -32,6 +33,7 @@ export interface NewCycle {
   competencies: Competency[];
   type: AppraisalTypeValue;
   scoringMode: ScoringModeValue;
+  periodBasis: AppraisalPeriodBasisValue;
   createdBy: string | null;
 }
 
@@ -42,6 +44,7 @@ export interface CycleUpdate {
   kpiWeight?: number;
   competencies?: Competency[];
   type?: AppraisalTypeValue;
+  periodBasis?: AppraisalPeriodBasisValue;
   status?: AppraisalCycleStatusValue;
 }
 
@@ -50,7 +53,24 @@ export interface LaunchCandidate {
   managerId: string | null;
   /** FORM_100 cycles: the header captured at launch. */
   formHeader?: FormHeader | null;
+  /** JOIN_DATE cycles: this employee's own review period and due date (`YYYY-MM-DD`). */
+  period?: { periodStart: string; periodEnd: string; dueDate: string } | null;
 }
+
+/** What launch and the due preview read about an employee. */
+const CANDIDATE_SELECT = {
+  id: true,
+  managerId: true,
+  fullName: true,
+  designation: true,
+  status: true,
+  joinDate: true,
+  team: { select: { name: true } },
+} satisfies Prisma.EmployeeSelect;
+
+export type CandidateRow = Prisma.EmployeeGetPayload<{
+  select: typeof CANDIDATE_SELECT;
+}>;
 
 /** What the form header is built from: the employee row and its salary/promotion history. */
 const HEADER_SELECT = {
@@ -114,6 +134,7 @@ export class AppraisalsRepository {
         competencies: data.competencies as unknown as Prisma.InputJsonValue,
         type: data.type,
         scoringMode: data.scoringMode,
+        periodBasis: data.periodBasis,
         createdBy: data.createdBy,
       },
     });
@@ -138,6 +159,7 @@ export class AppraisalsRepository {
             }
           : {}),
         ...(data.type ? { type: data.type } : {}),
+        ...(data.periodBasis ? { periodBasis: data.periodBasis } : {}),
         ...(data.status ? { status: data.status } : {}),
       },
     });
@@ -170,13 +192,15 @@ export class AppraisalsRepository {
 
   /**
    * The employees a launch covers. With explicit ids: those that exist in the
-   * org. Without: every non-EXITED employee who joined on or before the period end.
+   * org. Without: every non-EXITED employee who joined on or before the period
+   * end (for a JOIN_DATE cycle the caller then keeps only those with a due
+   * date in the window). Also the due preview's source, by name.
    */
   launchCandidates(
     orgId: string,
     periodEnd: string,
     employeeIds?: string[],
-  ): Promise<LaunchCandidate[]> {
+  ): Promise<CandidateRow[]> {
     return this.prisma.employee.findMany({
       where: employeeIds
         ? { orgId, id: { in: employeeIds } }
@@ -185,7 +209,8 @@ export class AppraisalsRepository {
             status: { not: 'EXITED' },
             joinDate: { lte: isoToDateColumn(periodEnd) },
           },
-      select: { id: true, managerId: true },
+      select: CANDIDATE_SELECT,
+      orderBy: [{ fullName: 'asc' }, { id: 'asc' }],
     });
   }
 
@@ -204,6 +229,13 @@ export class AppraisalsRepository {
           cycleId,
           employeeId: r.id,
           reviewerId: r.managerId,
+          ...(r.period
+            ? {
+                periodStart: isoToDateColumn(r.period.periodStart),
+                periodEnd: isoToDateColumn(r.period.periodEnd),
+                dueDate: isoToDateColumn(r.period.dueDate),
+              }
+            : {}),
           ...(r.formHeader
             ? {
                 formHeader: r.formHeader as unknown as Prisma.InputJsonValue,

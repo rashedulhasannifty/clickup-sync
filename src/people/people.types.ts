@@ -5,6 +5,8 @@
  * BigInt/Decimal), and nullable means "not known" not "zero".
  */
 
+import type { NextAppraisal } from '../appraisals/appraisal-schedule';
+
 export type EmployeeStatusValue = 'PROBATION' | 'ACTIVE' | 'NOTICE' | 'EXITED';
 export type EmploymentEventTypeValue =
   | 'JOINED'
@@ -67,6 +69,16 @@ export interface EmployeeProfile {
   startingSalary: number | null;
   /** Present gross salary, whole taka (BDT). Moves with INCREMENT events. Sensitive. */
   grossSalary: number | null;
+  /**
+   * The next appraisal counted from the join date (`nextDue` in
+   * `src/appraisals/appraisal-schedule.ts`): the confirmation while on
+   * probation (flagged `overdue` once its date has passed), else the earlier
+   * of the next half-yearly and the next yearly. Null once exited. Computed
+   * from the join date alone; it does not look at appraisals already launched.
+   */
+  nextAppraisal: NextAppraisal | null;
+  /** Everything `nextDue` lists, earliest first (both the half-yearly and the yearly once confirmed). */
+  upcomingAppraisals: NextAppraisal[];
 }
 
 /** State of an employee today, as shown in the directory and the door log. */

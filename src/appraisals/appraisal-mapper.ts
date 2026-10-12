@@ -13,6 +13,8 @@ import type { AppraisalRow, CycleRow } from './appraisals.repository';
 import type {
   AppraisalActionValue,
   AppraisalListRow,
+  AppraisalPeriod,
+  AppraisalPeriodBasisValue,
   AppraisalRecommendationValue,
   AppraisalStatusValue,
   AppraisalView,
@@ -72,6 +74,7 @@ export function toCycleView(row: CycleRow, counts: CycleCounts): CycleView {
     name: row.name,
     periodStart: dateColumnToIso(row.periodStart),
     periodEnd: dateColumnToIso(row.periodEnd),
+    periodBasis: row.periodBasis,
     status: row.status,
     type: row.type,
     scoringMode: row.scoringMode,
@@ -79,6 +82,33 @@ export function toCycleView(row: CycleRow, counts: CycleCounts): CycleView {
     competencies: competenciesOf(row),
     counts,
     createdAt: row.createdAt.toISOString(),
+  };
+}
+
+export const basisOf = (cycle: Pick<CycleRow, 'periodBasis'>) =>
+  // Rows built without the column (older fixtures) read as the pre-0032 behaviour.
+  (cycle.periodBasis ?? 'CALENDAR') as AppraisalPeriodBasisValue;
+
+/**
+ * The period one appraisal reviews: its own (JOIN_DATE cycles) or, when it
+ * has none (calendar cycles, appraisals created before 0032), the cycle's.
+ */
+export function periodOf(
+  row: Pick<AppraisalRow, 'periodStart' | 'periodEnd' | 'dueDate'> & {
+    cycle: Pick<CycleRow, 'periodStart' | 'periodEnd'>;
+  },
+): AppraisalPeriod {
+  if (row.periodStart && row.periodEnd) {
+    return {
+      periodStart: dateColumnToIso(row.periodStart),
+      periodEnd: dateColumnToIso(row.periodEnd),
+      dueDate: row.dueDate ? dateColumnToIso(row.dueDate) : null,
+    };
+  }
+  return {
+    periodStart: dateColumnToIso(row.cycle.periodStart),
+    periodEnd: dateColumnToIso(row.cycle.periodEnd),
+    dueDate: null,
   };
 }
 
@@ -187,6 +217,7 @@ export function toListRow(row: AppraisalRow): AppraisalListRow {
     reviewerName: row.reviewer?.fullName ?? null,
     status: row.status,
     scoringMode: modeOf(row),
+    ...periodOf(row),
     score: scoreOf(row),
     recommendation: row.recommendation,
     actions: actionsOf(row),
@@ -201,8 +232,7 @@ export function toEmployeeRow(row: AppraisalRow): EmployeeAppraisalRow {
     id: row.id,
     cycleId: row.cycleId,
     cycleName: row.cycle.name,
-    periodStart: dateColumnToIso(row.cycle.periodStart),
-    periodEnd: dateColumnToIso(row.cycle.periodEnd),
+    ...periodOf(row),
     status: row.status,
     scoringMode: modeOf(row),
     appraisalType: row.cycle.type,
@@ -302,6 +332,7 @@ export function toAppraisalView(
     },
     reviewerId: row.reviewerId,
     reviewerName: row.reviewer?.fullName ?? null,
+    ...periodOf(row),
     status,
     selfRatings: cleanRatings(row.selfRatings, keys, mode),
     selfComment: row.selfComment,

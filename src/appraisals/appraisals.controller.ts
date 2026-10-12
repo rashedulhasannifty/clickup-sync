@@ -22,11 +22,13 @@ import type {
   AppraisalListRow,
   AppraisalView,
   CycleView,
+  DueEmployeeRow,
   EmployeeAppraisalRow,
   LaunchResult,
 } from './appraisals.types';
 import {
   CreateCycleDto,
+  DueQuery,
   LaunchCycleDto,
   UpdateCycleDto,
 } from './dto/cycle.dto';
@@ -57,6 +59,19 @@ export class AppraisalsController {
     return this.appraisals.createCycle(user, dto);
   }
 
+  // Declared before `appraisal-cycles/:id`, which would otherwise take "due" as an id.
+  @Get('appraisal-cycles/due')
+  @ApiOperation({
+    summary:
+      'Employees due an appraisal of a type between two dates, counted from each join date, with their due date and review period',
+  })
+  due(
+    @CurrentUser() user: AuthPrincipal,
+    @Query() q: DueQuery,
+  ): Promise<DueEmployeeRow[]> {
+    return this.appraisals.dueEmployees(user.orgId, q);
+  }
+
   @Get('appraisal-cycles/:id')
   @ApiOperation({ summary: 'One cycle' })
   getCycle(
@@ -83,7 +98,7 @@ export class AppraisalsController {
   @HttpCode(201)
   @ApiOperation({
     summary:
-      'Create one appraisal per selected employee (default: everyone not exited who joined by the period end) and open the cycle',
+      'Create one appraisal per selected employee and open the cycle. Default: calendar cycles, everyone not exited who joined by the period end; join-date cycles, everyone due in the window, each with their own review period',
   })
   launch(
     @CurrentUser() user: AuthPrincipal,

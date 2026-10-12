@@ -26,6 +26,7 @@ const cycle = (over: Record<string, unknown> = {}) => ({
   periodEnd: new Date('2026-12-31T00:00:00Z'),
   status: 'OPEN',
   type: 'YEARLY',
+  periodBasis: 'CALENDAR',
   scoringMode: 'KPI_BLEND',
   kpiWeight: 70,
   competencies: COMPETENCIES,
@@ -985,5 +986,291 @@ describe('AppraisalsService FORM_100 outcome retry', () => {
         toValue: '90400',
       }),
     ]);
+  });
+});
+
+describe('AppraisalsService join-date cycles', () => {
+  const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
+  const person = (
+    id: string,
+    joinDate: string,
+    status = 'ACTIVE',
+    fullName = id,
+  ) => ({
+    id,
+    managerId: 'm1',
+    fullName,
+    designation: 'Developer',
+    status,
+    joinDate: day(joinDate),
+    team: { name: 'Core' },
+  });
+  // Half-yearly appraisals due in October 2026.
+  const octCycle = (over: Record<string, unknown> = {}) =>
+    cycle({
+      periodBasis: 'JOIN_DATE',
+      type: 'HALF_YEARLY',
+      periodStart: day('2026-10-01'),
+      periodEnd: day('2026-10-31'),
+      status: 'DRAFT',
+      ...over,
+    });
+  const people = [
+    person('jahid', '2025-04-15'), // due 15 Oct 2026
+    person('new', '2026-09-01'), // first half-yearly Sep 2027
+    person('mira', '2024-10-31'), // due 31 Oct 2026 (also 30 Apr 2026, outside)
+    person('prob', '2026-04-10', 'PROBATION'), // half-yearly not before Apr 2027
+  ];
+
+  it('new cycles default to JOIN_DATE; an explicit CALENDAR is kept', async () => {
+    const { svc, repo } = make({ current: null });
+    await svc.createCycle(admin, {
+      name: 'October 2026 appraisals',
+      periodStart: '2026-10-01',
+      periodEnd: '2026-10-31',
+      type: 'HALF_YEARLY',
+    });
+    expect(repo.createCycle.mock.calls[0][0].periodBasis).toBe('JOIN_DATE');
+    await svc.createCycle(admin, {
+      name: 'H2',
+      periodStart: '2026-07-01',
+      periodEnd: '2026-12-31',
+      periodBasis: 'CALENDAR',
+    });
+    expect(repo.createCycle.mock.calls[1][0].periodBasis).toBe('CALENDAR');
+  });
+
+  it('locks the basis once appraisals exist', async () => {
+    const { svc } = make(
+      { current: null },
+      {
+        statusCounts: jest
+          .fn()
+          .mockResolvedValue([
+            { cycleId: 'c1', status: 'SELF_REVIEW', count: 1 },
+          ]),
+      },
+    );
+    await expect(
+      svc.updateCycle('org', 'c1', { periodBasis: 'JOIN_DATE' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('a default launch takes everyone due in the window, each with their own period', async () => {
+    const { svc, repo } = make(
+      { current: null },
+      {
+        findCycle: jest.fn().mockResolvedValue(octCycle()),
+        launchCandidates: jest.fn().mockResolvedValue(people),
+        createAppraisals: jest.fn().mockResolvedValue(2),
+      },
+    );
+    const r = await svc.launch('org', 'c1', {});
+    const rows = repo.createAppraisals.mock.calls[0][1];
+    expect(
+      rows.map((x: { id: string; period: unknown }) => [x.id, x.period]),
+    ).toEqual([
+      [
+        'jahid',
+        {
+          periodStart: '2026-04-15',
+          periodEnd: '2026-10-14',
+          dueDate: '2026-10-15',
+        },
+      ],
+      [
+        'mira',
+        {
+          periodStart: '2026-04-30',
+          periodEnd: '2026-10-30',
+          dueDate: '2026-10-31',
+        },
+      ],
+    ]);
+    expect(r).toMatchObject({ created: 2, skipped: 0, notDue: [] });
+  });
+
+  it('a confirmation cycle only takes employees still on probation', async () => {
+    const { svc, repo } = make(
+      { current: null },
+      {
+        findCycle: jest
+          .fn()
+          .mockResolvedValue(octCycle({ type: 'CONFIRMATION' })),
+        launchCandidates: jest
+          .fn()
+          .mockResolvedValue([
+            person('p1', '2026-04-03', 'PROBATION'),
+            person('a1', '2026-04-20', 'ACTIVE'),
+          ]),
+      },
+    );
+    await svc.launch('org', 'c1', {});
+    const rows = repo.createAppraisals.mock.calls[0][1];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: 'p1',
+      period: {
+        periodStart: '2026-04-03',
+        periodEnd: '2026-10-02',
+        dueDate: '2026-10-03',
+      },
+    });
+  });
+
+  it('an explicit selection uses each latest due date by the window end and reports who is not due', async () => {
+    const { svc, repo } = make(
+      { current: null },
+      {
+        findCycle: jest.fn().mockResolvedValue(octCycle()),
+        launchCandidates: jest
+          .fn()
+          .mockResolvedValue([
+            person('late', '2025-01-20'),
+            person('new', '2026-09-01', 'PROBATION', 'Newbie'),
+            person('gone', '2024-01-01', 'EXITED', 'Gone'),
+          ]),
+        createAppraisals: jest.fn().mockResolvedValue(1),
+      },
+    );
+    const r = await svc.launch('org', 'c1', {
+      employeeIds: ['late', 'new', 'gone'],
+    });
+    const rows = repo.createAppraisals.mock.calls[0][1];
+    // Joined 20 Jan 2025: last half-yearly by 31 Oct 2026 was 20 Jul 2026 (a late appraisal).
+    expect(rows).toEqual([
+      expect.objectContaining({
+        id: 'late',
+        period: {
+          periodStart: '2026-01-20',
+          periodEnd: '2026-07-19',
+          dueDate: '2026-07-20',
+        },
+      }),
+    ]);
+    expect(r.skipped).toBe(0);
+    expect(r.notDue).toEqual([
+      {
+        employeeId: 'new',
+        employeeName: 'Newbie',
+        reason: 'NOT_YET_DUE',
+        firstDueDate: '2027-09-01',
+      },
+      {
+        employeeId: 'gone',
+        employeeName: 'Gone',
+        reason: 'EXITED',
+        firstDueDate: null,
+      },
+    ]);
+  });
+
+  it('refuses a launch with nobody due rather than opening an empty cycle', async () => {
+    const { svc, repo } = make(
+      { current: null },
+      {
+        findCycle: jest.fn().mockResolvedValue(octCycle()),
+        launchCandidates: jest
+          .fn()
+          .mockResolvedValue([person('new', '2026-09-01')]),
+      },
+    );
+    await expect(svc.launch('org', 'c1', {})).rejects.toThrow(/Nobody is due/);
+    expect(repo.createAppraisals).not.toHaveBeenCalled();
+  });
+
+  it('measures the form header’s experience to the due date', async () => {
+    const { svc, repo } = make(
+      { current: null },
+      {
+        findCycle: jest
+          .fn()
+          .mockResolvedValue(
+            octCycle({ type: 'CONFIRMATION', scoringMode: 'FORM_100' }),
+          ),
+        launchCandidates: jest
+          .fn()
+          .mockResolvedValue([person('e1', '2026-04-03', 'PROBATION')]),
+        headerSources: jest.fn().mockResolvedValue([
+          {
+            ...headerSource('e1'),
+            joinDate: day('2026-04-03'),
+          },
+        ]),
+      },
+    );
+    await svc.launch('org', 'c1', {});
+    const rows = repo.createAppraisals.mock.calls[0][1];
+    expect(rows[0].formHeader.experienceInCompanyMonths).toBe(6);
+  });
+
+  it('lists who is due in a window, by due date', async () => {
+    const { svc, repo } = make(
+      { current: null },
+      { launchCandidates: jest.fn().mockResolvedValue(people) },
+    );
+    const r = await svc.dueEmployees('org', {
+      type: 'HALF_YEARLY',
+      from: '2026-10-01',
+      to: '2026-10-31',
+    });
+    expect(repo.launchCandidates).toHaveBeenCalledWith('org', '2026-10-31');
+    expect(r).toEqual([
+      {
+        employeeId: 'jahid',
+        fullName: 'jahid',
+        designation: 'Developer',
+        teamName: 'Core',
+        status: 'ACTIVE',
+        joinDate: '2025-04-15',
+        type: 'HALF_YEARLY',
+        dueDate: '2026-10-15',
+        periodStart: '2026-04-15',
+        periodEnd: '2026-10-14',
+      },
+      expect.objectContaining({ employeeId: 'mira', dueDate: '2026-10-31' }),
+    ]);
+    await expect(
+      svc.dueEmployees('org', {
+        type: 'YEARLY',
+        from: '2026-10-31',
+        to: '2026-10-01',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('snapshots the KPIs over the appraisal’s own period', async () => {
+    const rows = {
+      current: appraisal({
+        cycle: octCycle({ status: 'OPEN' }),
+        periodStart: day('2026-04-15'),
+        periodEnd: day('2026-10-14'),
+        dueDate: day('2026-10-15'),
+      }),
+    };
+    const { svc, summaries } = make(rows);
+    const v = await svc.advance(admin, 'a1');
+    expect(summaries.kpisForPeriod).toHaveBeenCalledWith('org', 'e1', {
+      from: '2026-04-15',
+      to: expect.any(String),
+    });
+    expect(v).toMatchObject({
+      periodStart: '2026-04-15',
+      periodEnd: '2026-10-14',
+      dueDate: '2026-10-15',
+      cycle: { periodBasis: 'JOIN_DATE' },
+    });
+  });
+
+  it('a calendar appraisal reads the cycle’s period and has no due date', async () => {
+    const rows = { current: appraisal() };
+    const { svc } = make(rows);
+    const v = await svc.getAppraisal('org', 'a1');
+    expect(v).toMatchObject({
+      periodStart: '2026-07-01',
+      periodEnd: '2026-12-31',
+      dueDate: null,
+      cycle: { periodBasis: 'CALENDAR' },
+    });
   });
 });

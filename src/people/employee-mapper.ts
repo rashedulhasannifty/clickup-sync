@@ -1,3 +1,4 @@
+import { nextDue } from '../appraisals/appraisal-schedule';
 import type { EmployeeRow } from './employees.repository';
 import { dateColumnToIso, tenureMonths } from './people-dates';
 import type { EmployeeProfile } from './people.types';
@@ -7,6 +8,7 @@ export function toProfile(row: EmployeeRow, today: string): EmployeeProfile {
   const joinDate = dateColumnToIso(row.joinDate);
   const exitDate = row.exitDate ? dateColumnToIso(row.exitDate) : null;
   const end = exitDate && exitDate < today ? exitDate : today;
+  const upcoming = nextDue(joinDate, row.status, today);
   return {
     id: row.id,
     fullName: row.fullName,
@@ -34,5 +36,7 @@ export function toProfile(row: EmployeeRow, today: string): EmployeeProfile {
     experienceBeforeJoiningMonths: row.experienceBeforeJoiningMonths,
     startingSalary: row.startingSalary,
     grossSalary: row.grossSalary,
+    nextAppraisal: upcoming[0] ?? null,
+    upcomingAppraisals: upcoming,
   };
 }

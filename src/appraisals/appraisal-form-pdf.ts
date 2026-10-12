@@ -242,7 +242,7 @@ export function renderAppraisalFormPdf(input: FormPdfInput): Promise<Buffer> {
     regular(9)
       .fillColor(FAINT)
       .text(
-        `${view.cycle.name} · review period ${dateText(view.cycle.periodStart)} – ${dateText(view.cycle.periodEnd)}`,
+        `${view.cycle.name} · review period ${dateText(view.periodStart)} – ${dateText(view.periodEnd)}${view.dueDate ? ` · due ${dateText(view.dueDate)}` : ''}`,
         { width, align: 'center' },
       );
     doc.fillColor('#000000');

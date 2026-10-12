@@ -1,6 +1,6 @@
-import { addDays } from "../people/people-dates";
-import type { EmployeeStatusValue } from "../people/people.types";
-import type { AppraisalTypeValue } from "./appraisals.types";
+import { addDays } from '../people/people-dates';
+import type { EmployeeStatusValue } from '../people/people.types';
+import type { AppraisalTypeValue } from './appraisals.types';
 
 /**
  * When appraisals fall due, counted from each employee's join date. Pure: no
@@ -30,7 +30,7 @@ export function addMonthsClamped(iso: string, n: number): string {
   const nm0 = idx - ny * 12;
   const lastDay = new Date(Date.UTC(ny, nm0 + 1, 0)).getUTCDate();
   const day = Math.min(d, lastDay);
-  return `${String(ny).padStart(4, "0")}-${String(nm0 + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return `${String(ny).padStart(4, '0')}-${String(nm0 + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 /** Months between milestones of a type. */
@@ -163,11 +163,11 @@ export interface ScheduleEmployee {
  * exited, and a confirmation only while still on probation.
  */
 export function inScope(
-  e: Pick<ScheduleEmployee, "status">,
+  e: Pick<ScheduleEmployee, 'status'>,
   type: AppraisalTypeValue,
 ): boolean {
-  if (e.status === "EXITED") return false;
-  return type !== "CONFIRMATION" || e.status === "PROBATION";
+  if (e.status === 'EXITED') return false;
+  return type !== 'CONFIRMATION' || e.status === 'PROBATION';
 }
 
 /**
@@ -211,14 +211,14 @@ export function nextDue(
   status: EmployeeStatusValue,
   today: string,
 ): NextAppraisal[] {
-  if (status === "EXITED") return [];
-  if (status === "PROBATION") {
-    const dueDate = milestoneAt(joinDate, "CONFIRMATION", 1);
+  if (status === 'EXITED') return [];
+  if (status === 'PROBATION') {
+    const dueDate = milestoneAt(joinDate, 'CONFIRMATION', 1);
     return [
       {
-        type: "CONFIRMATION",
+        type: 'CONFIRMATION',
         dueDate,
-        ...reviewPeriod(joinDate, "CONFIRMATION", dueDate),
+        ...reviewPeriod(joinDate, 'CONFIRMATION', dueDate),
         overdue: dueDate < today,
       },
     ];
@@ -226,7 +226,7 @@ export function nextDue(
   const out: NextAppraisal[] = [];
   // Far enough ahead to always hold the next yearly milestone (a future join date included).
   const horizon = addMonthsClamped(joinDate > today ? joinDate : today, 13);
-  for (const type of ["YEARLY", "HALF_YEARLY"] as const) {
+  for (const type of ['YEARLY', 'HALF_YEARLY'] as const) {
     const [dueDate] = milestones(joinDate, type, today, horizon);
     if (dueDate)
       out.push({

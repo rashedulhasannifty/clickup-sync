@@ -45,6 +45,7 @@ export const APPRAISAL_TYPES = [
   'YEARLY',
 ] as const;
 export const SCORING_MODES = ['FORM_100', 'KPI_BLEND'] as const;
+export const PERIOD_BASES = ['JOIN_DATE', 'CALENDAR'] as const;
 
 export class CreateCycleDto {
   @ApiProperty({ example: 'H2 2026' })
@@ -67,6 +68,16 @@ export class CreateCycleDto {
   @IsOptional()
   @IsIn(APPRAISAL_TYPES)
   type?: (typeof APPRAISAL_TYPES)[number];
+
+  @ApiPropertyOptional({
+    enum: PERIOD_BASES,
+    default: 'JOIN_DATE',
+    description:
+      'JOIN_DATE: appraisals are counted from each employee’s join date and periodStart/periodEnd mean "due between"; each appraisal gets its own review period. CALENDAR: the period is everyone’s review period.',
+  })
+  @IsOptional()
+  @IsIn(PERIOD_BASES)
+  periodBasis?: (typeof PERIOD_BASES)[number];
 
   @ApiPropertyOptional({
     enum: SCORING_MODES,
@@ -144,6 +155,14 @@ export class UpdateCycleDto {
   @IsIn(APPRAISAL_TYPES)
   type?: (typeof APPRAISAL_TYPES)[number];
 
+  @ApiPropertyOptional({
+    enum: PERIOD_BASES,
+    description: 'Locked once appraisals have been launched.',
+  })
+  @IsOptional()
+  @IsIn(PERIOD_BASES)
+  periodBasis?: (typeof PERIOD_BASES)[number];
+
   @ApiPropertyOptional({ enum: ['DRAFT', 'OPEN', 'CLOSED'] })
   @IsOptional()
   @IsIn(['DRAFT', 'OPEN', 'CLOSED'])
@@ -154,11 +173,28 @@ export class LaunchCycleDto {
   @ApiPropertyOptional({
     type: [String],
     description:
-      'Default: every non-EXITED employee who joined on or before the period end.',
+      'Default: calendar cycles, every non-EXITED employee who joined on or before the period end; join-date cycles, everyone due in the window. An explicit selection on a join-date cycle uses each employee’s latest due date on or before the period end; anyone with none is reported in notDue.',
   })
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(2000)
   @IsString({ each: true })
   employeeIds?: string[];
+}
+
+/** `GET /people/appraisal-cycles/due`: who is due a `type` appraisal between `from` and `to`. */
+export class DueQuery {
+  @ApiProperty({ enum: APPRAISAL_TYPES })
+  @IsIn(APPRAISAL_TYPES)
+  type!: (typeof APPRAISAL_TYPES)[number];
+
+  @ApiProperty({ example: '2026-10-01' })
+  @Matches(DATE_ONLY, { message: 'from must be a YYYY-MM-DD date' })
+  @IsISO8601({ strict: true })
+  from!: string;
+
+  @ApiProperty({ example: '2026-10-31' })
+  @Matches(DATE_ONLY, { message: 'to must be a YYYY-MM-DD date' })
+  @IsISO8601({ strict: true })
+  to!: string;
 }

@@ -13,6 +13,12 @@ import { assertNotExited } from '../people/employee-readonly';
 import { addDays, dateColumnToIso, dhakaDateOf } from '../people/people-dates';
 import { PeopleSummaryService } from '../people/people-summary.service';
 import { buildFormHeader } from './appraisal-header';
+import {
+  dueBetween,
+  dueOnOrBefore,
+  milestones,
+  addMonthsClamped,
+} from './appraisal-schedule';
 import { formPdfFileName, renderAppraisalFormPdf } from './appraisal-form-pdf';
 import {
   cycleStatusAllowed,
@@ -34,11 +40,13 @@ import {
   validateCompetencies,
 } from './appraisal-score';
 import {
+  basisOf,
   blockersOf,
   competenciesOf,
   emptyCounts,
   headerOf,
   modeOf,
+  periodOf,
   scoreOf,
   stepActorIds,
   toAppraisalView,
@@ -49,6 +57,7 @@ import {
 import {
   AppraisalsRepository,
   type AppraisalRow,
+  type CandidateRow,
   type CycleRow,
   type HeaderSourceRow,
   type LaunchCandidate,
@@ -61,13 +70,16 @@ import type {
   AppraisalView,
   CycleCounts,
   CycleView,
+  DueEmployeeRow,
   EmployeeAppraisalRow,
   FormHeader,
   KpiSnapshot,
+  LaunchNotDue,
   LaunchResult,
 } from './appraisals.types';
 import {
   CreateCycleDto,
+  DueQuery,
   LaunchCycleDto,
   UpdateCycleDto,
 } from './dto/cycle.dto';
@@ -168,6 +180,7 @@ export class AppraisalsService {
       competencies,
       type: dto.type ?? 'YEARLY',
       scoringMode,
+      periodBasis: dto.periodBasis ?? 'JOIN_DATE',
       createdBy: actorId(principal),
     });
     return toCycleView(row, emptyCounts());
@@ -186,18 +199,19 @@ export class AppraisalsService {
     this.assertPeriod(periodStart, periodEnd);
     if (dto.competencies) this.assertCompetencies(dto.competencies);
 
-    // Weights, period, type and competencies decide every score in the cycle:
-    // once appraisals exist they can no longer move underneath them.
+    // Weights, period, its basis, type and competencies decide every score in
+    // the cycle: once appraisals exist they can no longer move underneath them.
     const structural =
       periodStart !== view.periodStart ||
       periodEnd !== view.periodEnd ||
       (dto.type !== undefined && dto.type !== view.type) ||
+      (dto.periodBasis !== undefined && dto.periodBasis !== view.periodBasis) ||
       (dto.kpiWeight !== undefined && dto.kpiWeight !== view.kpiWeight) ||
       (dto.competencies !== undefined &&
         JSON.stringify(dto.competencies) !== JSON.stringify(view.competencies));
     if (structural && view.counts.total > 0) {
       throw new ConflictException(
-        'The period, type, KPI weight and competencies are locked once appraisals have been launched',
+        'The period, its basis, type, KPI weight and competencies are locked once appraisals have been launched',
       );
     }
     if (dto.status && !cycleStatusAllowed(cycle.status, dto.status)) {
@@ -213,6 +227,9 @@ export class AppraisalsService {
             periodStart,
             periodEnd,
             ...(dto.type !== undefined ? { type: dto.type } : {}),
+            ...(dto.periodBasis !== undefined
+              ? { periodBasis: dto.periodBasis }
+              : {}),
             ...(dto.kpiWeight !== undefined && cycle.scoringMode === 'KPI_BLEND'
               ? { kpiWeight: dto.kpiWeight }
               : {}),
@@ -245,21 +262,40 @@ export class AppraisalsService {
     if (wanted && candidates.length !== wanted.length)
       throw new BadRequestException('Unknown employee in the selection');
 
-    let rows: LaunchCandidate[] = candidates;
+    const { eligible, notDue } =
+      basisOf(cycle) === 'JOIN_DATE'
+        ? this.joinDateSelection(cycle, candidates, !!wanted)
+        : {
+            eligible: candidates.map(
+              (c): LaunchCandidate => ({ id: c.id, managerId: c.managerId }),
+            ),
+            notDue: [] as LaunchNotDue[],
+          };
+    if (basisOf(cycle) === 'JOIN_DATE' && eligible.length === 0) {
+      throw new BadRequestException(
+        wanted
+          ? 'None of the selected employees has an appraisal of this type due by the end of the window'
+          : 'Nobody is due an appraisal of this type in this window',
+      );
+    }
+
+    let rows: LaunchCandidate[] = eligible;
     if (cycle.scoringMode === 'FORM_100') {
       const [sources, companyName] = await Promise.all([
         this.repo.headerSources(
           orgId,
-          candidates.map((c) => c.id),
+          eligible.map((c) => c.id),
         ),
         this.repo.organisationName(orgId),
       ]);
       const byId = new Map(sources.map((s) => [s.id, s]));
-      rows = candidates.map((c) => {
+      rows = eligible.map((c) => {
         const src = byId.get(c.id);
         return {
           ...c,
-          formHeader: src ? this.header(src, companyName) : null,
+          formHeader: src
+            ? this.header(src, companyName, c.period?.dueDate ?? null)
+            : null,
         };
       });
     }
@@ -268,8 +304,119 @@ export class AppraisalsService {
     return {
       cycle: await this.getCycle(orgId, id),
       created,
-      skipped: candidates.length - created,
+      // Only the employees actually attempted; the not-due ones are reported separately.
+      skipped: eligible.length - created,
+      notDue,
     };
+  }
+
+  /**
+   * Who is due a `type` appraisal with a due date in [from, to], each with
+   * their latest such due date and its review period. The same selection a
+   * default launch of a JOIN_DATE cycle over that window makes.
+   */
+  async dueEmployees(orgId: string, q: DueQuery): Promise<DueEmployeeRow[]> {
+    this.assertPeriod(q.from, q.to);
+    const candidates = await this.repo.launchCandidates(orgId, q.to);
+    return dueBetween(
+      candidates.map((c) => ({ ...c, joinDate: dateColumnToIso(c.joinDate) })),
+      q.type,
+      q.from,
+      q.to,
+    )
+      .map(
+        ({ employee: e, due }): DueEmployeeRow => ({
+          employeeId: e.id,
+          fullName: e.fullName,
+          designation: e.designation,
+          teamName: e.team?.name ?? null,
+          status: e.status,
+          joinDate: e.joinDate,
+          type: due.type,
+          dueDate: due.dueDate,
+          periodStart: due.periodStart,
+          periodEnd: due.periodEnd,
+        }),
+      )
+      .sort((a, b) =>
+        a.dueDate !== b.dueDate
+          ? a.dueDate < b.dueDate
+            ? -1
+            : 1
+          : a.fullName.localeCompare(b.fullName),
+      );
+  }
+
+  /**
+   * JOIN_DATE launch. Default: everyone due in the cycle's window (latest due
+   * date in it). Explicit selection: each employee's latest due date on or
+   * before the window's end; anyone with none yet, or who has exited, is
+   * left out and reported. An explicit pick may predate the window (a late
+   * appraisal) and, for a confirmation, need not still be on probation.
+   */
+  private joinDateSelection(
+    cycle: CycleRow,
+    candidates: CandidateRow[],
+    explicit: boolean,
+  ): { eligible: LaunchCandidate[]; notDue: LaunchNotDue[] } {
+    const from = dateColumnToIso(cycle.periodStart);
+    const to = dateColumnToIso(cycle.periodEnd);
+    const people = candidates.map((c) => ({
+      ...c,
+      joinDate: dateColumnToIso(c.joinDate),
+    }));
+    const toCandidate = (
+      c: (typeof people)[number],
+      due: { periodStart: string; periodEnd: string; dueDate: string },
+    ): LaunchCandidate => ({
+      id: c.id,
+      managerId: c.managerId,
+      period: {
+        periodStart: due.periodStart,
+        periodEnd: due.periodEnd,
+        dueDate: due.dueDate,
+      },
+    });
+
+    if (!explicit) {
+      return {
+        eligible: dueBetween(people, cycle.type, from, to).map((x) =>
+          toCandidate(x.employee, x.due),
+        ),
+        notDue: [],
+      };
+    }
+    const eligible: LaunchCandidate[] = [];
+    const notDue: LaunchNotDue[] = [];
+    for (const c of people) {
+      if (c.status === 'EXITED') {
+        notDue.push({
+          employeeId: c.id,
+          employeeName: c.fullName,
+          reason: 'EXITED',
+          firstDueDate: null,
+        });
+        continue;
+      }
+      const due = dueOnOrBefore(c.joinDate, cycle.type, to);
+      if (due) {
+        eligible.push(toCandidate(c, due));
+        continue;
+      }
+      const [first] = milestones(
+        c.joinDate,
+        cycle.type,
+        c.joinDate,
+        addMonthsClamped(c.joinDate, 12),
+      );
+      notDue.push({
+        employeeId: c.id,
+        employeeName: c.fullName,
+        reason: 'NOT_YET_DUE',
+        firstDueDate: first ?? null,
+      });
+    }
+    return { eligible, notDue };
   }
 
   // --- appraisals ---------------------------------------------------------
@@ -561,12 +708,18 @@ export class AppraisalsService {
       this.repo.organisationName(orgId),
     ]);
     if (!sources[0]) throw new NotFoundException('Employee not found');
-    return this.header(sources[0], companyName);
+    return this.header(sources[0], companyName, periodOf(row).dueDate);
   }
 
-  private header(src: HeaderSourceRow, companyName: string): FormHeader {
+  /** `asOf`: a join-date appraisal's due date; experience is measured to it rather than today. */
+  private header(
+    src: HeaderSourceRow,
+    companyName: string,
+    asOf: string | null = null,
+  ): FormHeader {
     const now = new Date();
     return buildFormHeader({
+      asOf,
       employee: {
         fullName: src.fullName,
         concernName: src.concernName,
@@ -591,11 +744,13 @@ export class AppraisalsService {
     });
   }
 
-  /** KPIs over the cycle period, clipped to today so future days don't count as available. */
+  /**
+   * KPIs over the appraisal's review period (its own for a join-date cycle,
+   * else the cycle's), clipped to today so future days don't count as available.
+   */
   private async snapshot(row: AppraisalRow): Promise<KpiSnapshot> {
     const today = dhakaDateOf(new Date());
-    const from = dateColumnToIso(row.cycle.periodStart);
-    const end = dateColumnToIso(row.cycle.periodEnd);
+    const { periodStart: from, periodEnd: end } = periodOf(row);
     let to = end < today ? end : today;
     if (to < from) to = from;
     const c = await this.summaries.kpisForPeriod(
