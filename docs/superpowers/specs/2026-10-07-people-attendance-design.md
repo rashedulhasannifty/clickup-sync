@@ -367,15 +367,100 @@ For a JOIN_DATE cycle the cycle's periodStart/periodEnd mean **"due between"**:
   behave exactly as before (experience to the capture date).
 
 `GET /people/appraisal-cycles/due?type=&from=&to=` (Owner/Admin, read-only)
-lists who is due in a window, each with due date and review period, sorted by
-due date. It runs the same pure selector (`dueBetween`) as the default launch,
-so the preview and the launch never disagree. The employee profile (detail,
-summary and directory rows) carries `nextAppraisal`, from `nextDue`: the
-confirmation while on PROBATION (even once its date has passed, flagged
-`overdue`), otherwise the earlier of the next half-yearly and next yearly on or
-after today (on an anniversary both fall due the same day and the yearly is
-listed first); null once EXITED. `upcomingAppraisals` lists both. It is
-computed from the join date alone and does not look at launched appraisals.
+returns `{ due, overdue, upcoming }` (see the next section), each row with due
+date, review period and `daysLate`/`daysEarly`, sorted by due date. It runs
+the same pure selector (`selectDue`) as the default launch, so the preview and
+the launch never disagree. The employee profile (detail, summary and directory
+rows) carries `nextAppraisal`: the oldest **overdue** one first
+(`overdueAppraisals`, flagged `overdue`), else `nextDue` (the confirmation
+while on PROBATION, otherwise the earlier of the next half-yearly and next
+yearly on or after today; on an anniversary both fall due the same day and the
+yearly is listed first); null once EXITED. `upcomingAppraisals` lists the
+`nextDue` schedule; a past confirmation in it is flagged `overdue` only while
+no appraisal covers it.
+
+### Flexible timing: overdue, early, late, backdated (0033)
+
+Decided with the product owner 2026-10-12: an appraisal may happen on time,
+early, late, or late with its outcome backdated. **The schedule anchor never
+moves**: due dates always come from the join date, so an early or late
+appraisal never shifts the next due date. Pure rules live in
+`appraisal-schedule.ts` (selection) and `appraisal-timing.ts` (timing,
+effective date, date edits).
+
+**Already appraised.** An appraisal (any cycle, any status) covers the
+milestone of its cycle's type **nearest its due date**, plus its exact due
+date; so one whose due date was adjusted by a few days, or hand-picked, still
+counts for the milestone it was launched for, and moving a due date earlier
+never brings its milestone back. On a join anniversary the half-yearly and
+yearly milestones coincide, and an appraisal of either type covers both.
+Calendar-cycle appraisals (no due date) cover no milestone. A covered due date
+is skipped by the preview and by every launch, and a due-date edit onto a
+milestone another appraisal of the employee covers is a 409: nobody is
+appraised twice for the same due date.
+
+**Groups** for a cycle of `type` due in [from, to] (`classifyDue`; at most one
+per employee, in this priority):
+
+- `due`: the latest milestone in the window, unless covered.
+- `overdue`: the latest milestone **before the window start**, and only that
+  one (if it is covered, older misses do not resurface). It must be after the
+  employee's last appraisal of the type (that appraisal's covered milestone,
+  or for a calendar-cycle appraisal its period end). CONFIRMATION: only while
+  on PROBATION, with no lookback limit (it is still owed). HALF_YEARLY /
+  YEARLY: never while on PROBATION, never before the confirmation date (a null
+  confirmation date only applies the lookback), and only within
+  `OVERDUE_LOOKBACK_MONTHS` = **12 months before today**, so people confirmed
+  in bulk before this existed do not all show as years overdue.
+- `upcoming`: the first milestone in (to, to + `UPCOMING_DAYS` = 60 days],
+  unless covered.
+- `daysLate` / `daysEarly` count from today (Dhaka) to the due date.
+
+**Launch.** Default (JOIN_DATE): `due` + `overdue`; `upcoming` only when
+picked. Explicit `employeeIds`, per employee: due, else overdue, else coming
+up, else the latest due date on or before the window end (as before); anyone
+whose resolved due date is already covered is left out and reported in
+`notDue` as `ALREADY_APPRAISED` (with `dueDate`). The UI ticks due and overdue
+and leaves coming up unticked ("Include early").
+
+`GET /people/appraisal-cycles/overdue` lists everyone overdue across all types
+as of today (`overdueAppraisals`: the confirmation while on probation, else the
+yearly and half-yearly, the yearly only once on an anniversary), oldest first.
+
+**Adjusting dates.** Until sign-off (any step, cycle open, employee not
+exited) `PATCH /people/appraisals/:id` accepts `dueDate`, `periodStart`,
+`periodEnd`, merged with what is stored and validated as a whole
+(`dateEditError`): start ≤ end; start not before the join date; the due date
+not before the join date; **the period ends on or before the due date** (a
+period reviews the time before the appraisal falls due); at most about two
+years. When the period changes and a KPI snapshot exists, it is recomputed over
+the new period in the same write; for the form the header is recaptured too
+(experience is measured to the due date). Calendar-cycle appraisals can be
+given their own dates the same way.
+
+**Timing** (`appraisalTiming`, on the view, list rows, employee history and
+the PDF): compares the sign-off date (Dhaka) — or today while open — with the
+due date. `ON_TIME` within ±`TIMING_GRACE_DAYS` = 3; else `EARLY` / `LATE`;
+open: `OPEN_OVERDUE` past the grace, else `OPEN` (days until due). Null for
+calendar cycles. Shown as e.g. "Due 15 Jan 2026 · signed off 3 Mar 2026
+(47 days late)".
+
+**Outcome effective date.** Migration `0033_appraisal_effective_date` adds
+`appraisals.effective_date_mode` `DUE_DATE | APPROVAL_DATE | CUSTOM`
+(nullable; rows before 0033 backfilled APPROVAL_DATE) and `effective_date`
+(`@db.Date`; backfilled to the Dhaka date of `signed_off_at` for signed-off
+rows). Chosen at FINAL_APPROVAL with the decision; null means the default,
+**DUE_DATE when signing off today would be LATE** (the same rule as the label),
+else APPROVAL_DATE. CUSTOM needs a date not before the review period start;
+DUE_DATE needs a due date; both are re-checked as advance blockers (the period
+can move after the choice). At sign-off the mode and date are resolved once and
+stored in the same write as SIGNED_OFF; the CONFIRMED / PROMOTED / INCREMENT
+events (and so the confirmation date) use that stored date, so a retry on a
+later day writes the same date. Legacy KPI_BLEND cycles always use the
+approval date. When backdated, the page and the PDF say "Effective from 15 Jan
+2026 (backdated to the due date)"; for an approved, backdated increment they
+show the whole months of arrears between the effective date and the approval
+date, as information only (no money is computed).
 
 ### The form (FORM_100)
 
@@ -430,7 +515,10 @@ comment block is editable only in its own step:
 | LEAD_REVIEW | ratings, supervisor's comments, recommendations, increment %, new designation, training / development plan | an unrated criterion; no recommendation; Promotion without a designation; Increment without a percent; Termination/Dismissal ticked with Confirm/Increment/Promotion |
 | DEPT_HEAD_REVIEW | department head comments; may adjust recommendations, increment %, designation, training plan | same as above |
 | HR_REVIEW | HR comments | nothing |
-| FINAL_APPROVAL | decision `APPROVED | NOT_APPROVED`, comment | no decision; an approved Increment when the employee has no present gross salary |
+| FINAL_APPROVAL | decision `APPROVED | NOT_APPROVED`, comment, effective date (mode, custom date) | no decision; an approved Increment when the employee has no present gross salary; an unusable effective date |
+
+The appraisal's own `dueDate`, `periodStart` and `periodEnd` are editable in
+every step until sign-off (see "Flexible timing" above).
 
 **Recommendations** (`actions`, multi-select): Confirm, Increment,
 Promotion, Termination, Dismissal, Training / Transfer. `incrementPercent` is
@@ -442,6 +530,9 @@ Sign-off freezes `finalScore` (the total), `finalGrade` and the header. The
 outcome is applied once (`outcomeAppliedAt`), **only when the decision is
 APPROVED**, as one transaction (`EmployeesService.recordAppraisalOutcome`), so
 a retry never writes half an outcome twice:
+
+Every event is dated with the effective date resolved at sign-off (see
+"Outcome effective date" above).
 
 - **Confirm** → `CONFIRMED` event (status → ACTIVE, confirmation date set),
   only while the employee is on PROBATION; otherwise it is skipped, because a
@@ -504,9 +595,19 @@ only for the legacy mode), launch (join-date cycles preselect everyone due,
 with each one's due date and review period, and allow adding others),
 per-cycle progress by that cycle's steps. A join-date cycle's subtitle and
 list line read "Due 1–31 Oct 2026 · counted from join dates" and its table
-has Due and Review period columns. The form and the employee's Appraisals tab
-show the employee's own review period and due date; the employee page shows
-"Next appraisal: Half-yearly due 15 Oct 2026". `/people/appraisals/:appraisalId`: FORM_100
+has Due, Review period and Timing columns. The form and the employee's Appraisals tab
+show the employee's own review period and due date with a timing chip; the employee page shows
+"Next appraisal: Half-yearly due 15 Oct 2026", or in amber "Half-yearly overdue
+since 15 Jan 2026" when that due date has no appraisal. The create and launch
+dialogs list **Due**, **Overdue** (amber, "27 days late") and **Coming up**
+("Include early") with a "3 due · 2 overdue · 4 coming up" line; the create
+dialog can "Create and launch" the ticked people. An **Overdue appraisals**
+callout above the cycles lists everyone overdue by type with "Launch now",
+which opens the create dialog on that type and this month's window (the overdue
+people come ticked). The appraisal page has a **Dates** card (due, review
+period, timing, "Adjust dates" before sign-off) and, at final approval when
+Confirm/Increment/Promotion is ticked, an **Effective from** choice (due date
+(backdated) / approval date / another date). `/people/appraisals/:appraisalId`: FORM_100
 renders the form (header block, criteria with the five labelled ratings,
 live total /100 with grade badge and policy line such as "Proposed: increment
 13–14%, service confirmation", KPI reference card, recommendations, increment
