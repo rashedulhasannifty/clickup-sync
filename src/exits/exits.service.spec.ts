@@ -17,11 +17,16 @@ const admin = {
 const item = (over: Record<string, unknown> = {}) => ({
   id: 'i1',
   exitId: 'x1',
+  group: 'ASSETS',
+  key: 'asset_laptop',
   label: 'Laptop',
   position: 0,
   done: true,
   doneBy: null,
   doneAt: null,
+  notApplicable: false,
+  notApplicableBy: null,
+  notApplicableAt: null,
   note: null,
   ...over,
 });
@@ -111,6 +116,7 @@ function make(
     saveInterview: jest.fn().mockResolvedValue(undefined),
     claim: jest.fn().mockResolvedValue(true),
     addItem: jest.fn().mockResolvedValue(undefined),
+    markKeyedItemDone: jest.fn().mockResolvedValue(true),
     findItem: jest.fn().mockResolvedValue(item()),
     updateItem: jest.fn().mockResolvedValue(undefined),
     deleteItem: jest.fn().mockResolvedValue(undefined),
@@ -162,7 +168,13 @@ describe('start', () => {
       reason: 'Moving abroad',
       previousStatus: 'ACTIVE',
     });
-    expect(created.clearanceLabels).toHaveLength(5);
+    expect(created.clearanceItems).toHaveLength(21);
+    expect(created.clearanceItems.filter((i: { group: string }) => i.group === 'ASSETS')).toHaveLength(6);
+    expect(created.clearanceItems).toContainEqual({
+      group: 'PROCESS',
+      key: 'exit_interview',
+      label: 'Conduct exit interview',
+    });
     expect(employees.recordExitEvent).toHaveBeenCalledWith(admin, 'e1', {
       type: 'NOTICE_GIVEN',
       effectiveDate: '2026-10-01',
@@ -266,6 +278,15 @@ describe('complete', () => {
     await expect(svc.complete(admin, 'x1', {})).rejects.toBeInstanceOf(BadRequestException);
     expect(repo.claim).not.toHaveBeenCalled();
     expect(employees.recordExitEvent).not.toHaveBeenCalled();
+  });
+
+  it('completes without an override when every open item is done or not applicable', async () => {
+    const { svc, repo, employees } = make(
+      exitRow({ items: [item(), item({ id: 'i2', done: false, notApplicable: true })] }),
+    );
+    await svc.complete(admin, 'x1', {});
+    expect(repo.claim.mock.calls[0][2].overrideNote).toBeNull();
+    expect(employees.recordExitEvent.mock.calls[0][2].notes).toBe('Offboarding completed');
   });
 
   it('completes with open items when an override note is given, and keeps the note', async () => {
@@ -400,7 +421,11 @@ describe('edits and clearance items', () => {
   it('refuses edits once the exit is no longer active', async () => {
     const { svc, repo } = make(exitRow({ status: 'COMPLETED' }));
     await expect(svc.update('org', 'x1', { reason: 'x' })).rejects.toBeInstanceOf(ConflictException);
-    await expect(svc.addClearanceItem('org', 'x1', 'Badge')).rejects.toBeInstanceOf(ConflictException);
+    await expect(svc.addClearanceItem('org', 'x1', 'Badge', 'ASSETS')).rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      svc.updateClearanceItem(admin, 'x1', 'i1', { notApplicable: true }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(repo.updateItem).not.toHaveBeenCalled();
     await expect(svc.saveInterview(admin, 'x1', {})).rejects.toBeInstanceOf(ConflictException);
     expect(repo.updateDetails).not.toHaveBeenCalled();
   });
@@ -416,6 +441,63 @@ describe('edits and clearance items', () => {
     expect(repo.updateItem.mock.calls[0][1]).toMatchObject({ done: true, doneBy: 'u-admin' });
     await svc.updateClearanceItem(admin, 'x1', 'i1', { done: false });
     expect(repo.updateItem.mock.calls[1][1]).toEqual({ done: false, doneBy: null, doneAt: null });
+  });
+
+  it('ticking done clears Not applicable, and marking N/A clears done', async () => {
+    const { svc, repo } = make();
+    await svc.updateClearanceItem(admin, 'x1', 'i1', { done: true });
+    expect(repo.updateItem.mock.calls[0][1]).toMatchObject({
+      done: true,
+      doneBy: 'u-admin',
+      notApplicable: false,
+      notApplicableBy: null,
+      notApplicableAt: null,
+    });
+    await svc.updateClearanceItem(admin, 'x1', 'i1', { notApplicable: true });
+    const na = repo.updateItem.mock.calls[1][1];
+    expect(na).toMatchObject({
+      notApplicable: true,
+      notApplicableBy: 'u-admin',
+      done: false,
+      doneBy: null,
+      doneAt: null,
+    });
+    expect(na.notApplicableAt).toBeInstanceOf(Date);
+  });
+
+  it('un-marking N/A clears only the N/A fields', async () => {
+    const { svc, repo } = make();
+    await svc.updateClearanceItem(admin, 'x1', 'i1', { notApplicable: false });
+    expect(repo.updateItem.mock.calls[0][1]).toEqual({
+      notApplicable: false,
+      notApplicableBy: null,
+      notApplicableAt: null,
+    });
+  });
+
+  it('refuses done and not applicable together, before touching anything', async () => {
+    const { svc, repo } = make();
+    await expect(
+      svc.updateClearanceItem(admin, 'x1', 'i1', { done: true, notApplicable: true }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(repo.updateItem).not.toHaveBeenCalled();
+  });
+
+  it('treats null flags as no change and still saves a note', async () => {
+    const { svc, repo } = make();
+    await svc.updateClearanceItem(admin, 'x1', 'i1', {
+      done: null,
+      notApplicable: null,
+      note: ' Courier tracking 123 ',
+    } as never);
+    expect(repo.updateItem.mock.calls[0][1]).toEqual({ note: 'Courier tracking 123' });
+  });
+
+  it('adds a custom item to the chosen group', async () => {
+    const { svc, repo } = make();
+    await svc.addClearanceItem('org', 'x1', '  Parking pass ', 'ASSETS');
+    expect(repo.addItem).toHaveBeenCalledWith('x1', 'Parking pass', 'ASSETS');
+    await expect(svc.addClearanceItem('org', 'x1', '   ', 'PROCESS')).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("will not touch another exit's item", async () => {
@@ -434,6 +516,36 @@ describe('edits and clearance items', () => {
     expect(repo.saveInterview.mock.calls[0][1]).toMatchObject({ interviewReason: 'CAREER_GROWTH', ratingRole: 4, ratingGrowth: null });
     expect(repo.findById).toHaveBeenCalledWith('org', 'x1');
     expect(view.interview).toBeNull(); // the mocked reload row has no interviewAt
+  });
+
+  it('saving the interview ticks the "Conduct exit interview" item by key, as the interviewer', async () => {
+    const { svc, repo } = make(exitRow({ status: 'INTERVIEW' }));
+    await svc.saveInterview(admin, 'x1', {});
+    expect(repo.markKeyedItemDone).toHaveBeenCalledWith('x1', 'exit_interview', 'u-admin');
+    expect(repo.saveInterview.mock.invocationCallOrder[0]).toBeLessThan(
+      repo.markKeyedItemDone.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('saving the interview still succeeds when the item is already resolved or was removed', async () => {
+    const { svc, repo } = make(exitRow({ status: 'INTERVIEW' }), {
+      repo: { markKeyedItemDone: jest.fn().mockResolvedValue(false) },
+    });
+    await expect(svc.saveInterview(admin, 'x1', {})).resolves.toBeDefined();
+    expect(repo.saveInterview).toHaveBeenCalled();
+  });
+
+  it('a machine credential ticks the interview item with no actor', async () => {
+    const machine = { ...(admin as object), isMachine: true } as never;
+    const { svc, repo } = make(exitRow({ status: 'INTERVIEW' }));
+    await svc.saveInterview(machine, 'x1', {});
+    expect(repo.markKeyedItemDone).toHaveBeenCalledWith('x1', 'exit_interview', null);
+  });
+
+  it('does not tick anything when the interview cannot be saved on a closed exit', async () => {
+    const { svc, repo } = make(exitRow({ status: 'COMPLETED' }));
+    await expect(svc.saveInterview(admin, 'x1', {})).rejects.toBeInstanceOf(ConflictException);
+    expect(repo.markKeyedItemDone).not.toHaveBeenCalled();
   });
 
   it('is a 404 for an exit in another org', async () => {
@@ -457,6 +569,60 @@ describe('forEmployee', () => {
     expect(exit?.employee.hasLogin).toBe(true);
     expect(exit?.clearance).toMatchObject({ done: 1, total: 1 });
   });
+
+  it('counts done, N/A and resolved separately, and names who resolved each item', async () => {
+    const row = exitRow({
+      items: [
+        item({ doneBy: 'u1', doneAt: new Date('2026-10-05T00:00:00Z') }),
+        item({
+          id: 'i2',
+          done: false,
+          notApplicable: true,
+          notApplicableBy: 'u2',
+          notApplicableAt: new Date('2026-10-06T00:00:00Z'),
+        }),
+        item({ id: 'i3', group: 'PROCESS', key: null, done: false }),
+      ],
+    });
+    const { svc, repo } = make(row, {
+      repo: {
+        userNames: jest.fn().mockResolvedValue([
+          { id: 'u1', name: 'Hana', email: 'h@x' },
+          { id: 'u2', name: null, email: 'nb@x' },
+        ]),
+      },
+    });
+    const { exit } = await svc.forEmployee('org', 'e1');
+    expect(exit?.clearance).toMatchObject({ done: 1, notApplicable: 1, resolved: 2, total: 3 });
+    expect(exit?.clearance.items[1]).toMatchObject({
+      group: 'ASSETS',
+      notApplicable: true,
+      notApplicableAt: '2026-10-06T00:00:00.000Z',
+      notApplicableByName: 'nb@x',
+      done: false,
+      doneByName: null,
+    });
+    expect(exit?.clearance.items[2]).toMatchObject({ group: 'PROCESS', key: null, notApplicable: false });
+    expect(exit?.clearance.items[0].doneByName).toBe('Hana');
+    expect(repo.userNames.mock.calls[0][0]).toEqual(expect.arrayContaining(['u1', 'u2']));
+  });
+
+  it('names who completed (approved) the exit', async () => {
+    const { svc } = make(
+      exitRow({ status: 'COMPLETED', completedBy: 'u9', completedAt: new Date('2026-10-31T10:00:00Z') }),
+      { repo: { userNames: jest.fn().mockResolvedValue([{ id: 'u9', name: 'Rashed', email: 'r@x' }]) } },
+    );
+    const { exit } = await svc.forEmployee('org', 'e1');
+    expect(exit?.completedByName).toBe('Rashed');
+    expect(exit?.completedAt).toBe('2026-10-31T10:00:00.000Z');
+  });
+
+  it('leaves the approver unnamed for a machine credential or a deleted user', async () => {
+    const machineDone = make(exitRow({ status: 'COMPLETED', completedBy: null, completedAt: new Date() }));
+    expect((await machineDone.svc.forEmployee('org', 'e1')).exit?.completedByName).toBeNull();
+    const deleted = make(exitRow({ status: 'COMPLETED', completedBy: 'gone', completedAt: new Date() }));
+    expect((await deleted.svc.forEmployee('org', 'e1')).exit?.completedByName).toBeNull();
+  });
 });
 
 describe('list', () => {
@@ -466,5 +632,24 @@ describe('list', () => {
     expect(repo.list).toHaveBeenCalledWith('org', ['NOTICE', 'INTERVIEW', 'CLEARANCE']);
     await svc.list('org', {});
     expect(repo.list).toHaveBeenLastCalledWith('org', undefined);
+  });
+
+  it('counts resolved (done or N/A) items in each row', async () => {
+    const { svc } = make(exitRow(), {
+      repo: {
+        list: jest.fn().mockResolvedValue([
+          {
+            ...exitRow(),
+            items: [
+              { done: true, notApplicable: false },
+              { done: false, notApplicable: true },
+              { done: false, notApplicable: false },
+            ],
+          },
+        ]),
+      },
+    });
+    const [row] = await svc.list('org', {});
+    expect(row).toMatchObject({ clearanceResolved: 2, clearanceTotal: 3 });
   });
 });

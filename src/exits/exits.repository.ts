@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type {
   EmployeeStatus,
   ExitAnswer,
+  ExitChecklistGroup,
   ExitInterviewReason,
   ExitStatus,
   ExitType,
@@ -40,7 +41,7 @@ const LIST_INCLUDE = {
       team: { select: { name: true } },
     },
   },
-  items: { select: { done: true } },
+  items: { select: { done: true, notApplicable: true } },
 } satisfies Prisma.EmployeeExitInclude;
 
 export type ExitListItem = Prisma.EmployeeExitGetPayload<{
@@ -59,7 +60,11 @@ export interface NewExit {
   reason: string | null;
   previousStatus: EmployeeStatus;
   createdBy: string | null;
-  clearanceLabels: readonly string[];
+  clearanceItems: readonly {
+    group: ExitChecklistGroup;
+    key: string | null;
+    label: string;
+  }[];
 }
 
 export interface ExitDetailsUpdate {
@@ -105,6 +110,9 @@ export interface ItemPatch {
   done?: boolean;
   doneBy?: string | null;
   doneAt?: Date | null;
+  notApplicable?: boolean;
+  notApplicableBy?: string | null;
+  notApplicableAt?: Date | null;
 }
 
 /**
@@ -176,8 +184,10 @@ export class ExitsRepository {
         previousStatus: data.previousStatus,
         createdBy: data.createdBy,
         items: {
-          create: data.clearanceLabels.map((label, position) => ({
-            label,
+          create: data.clearanceItems.map((item, position) => ({
+            group: item.group,
+            key: item.key,
+            label: item.label,
             position,
           })),
         },
@@ -225,14 +235,35 @@ export class ExitsRepository {
     return res.count === 1;
   }
 
-  async addItem(exitId: string, label: string): Promise<void> {
+  /** A custom item (no key), placed after every existing item; the UI groups by `group`. */
+  async addItem(
+    exitId: string,
+    label: string,
+    group: ExitChecklistGroup,
+  ): Promise<void> {
     const last = await this.prisma.exitClearanceItem.aggregate({
       where: { exitId },
       _max: { position: true },
     });
     await this.prisma.exitClearanceItem.create({
-      data: { exitId, label, position: (last._max.position ?? -1) + 1 },
+      data: { exitId, label, group, position: (last._max.position ?? -1) + 1 },
     });
+  }
+
+  /**
+   * Ticks the seeded item with this key as done, only if it is still open (neither done nor N/A).
+   * One conditional update, so it is atomic and idempotent; a removed item is simply not matched.
+   */
+  async markKeyedItemDone(
+    exitId: string,
+    key: string,
+    doneBy: string | null,
+  ): Promise<boolean> {
+    const res = await this.prisma.exitClearanceItem.updateMany({
+      where: { exitId, key, done: false, notApplicable: false },
+      data: { done: true, doneBy, doneAt: new Date() },
+    });
+    return res.count > 0;
   }
 
   /** The item, only if it belongs to this exit. */

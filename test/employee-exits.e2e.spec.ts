@@ -30,7 +30,10 @@ describe('Employee exits (e2e)', () => {
       reason: null,
       previousStatus: 'ACTIVE',
       createdBy: null,
-      clearanceLabels: ['A', 'B'],
+      clearanceItems: [
+        { group: 'PROCESS', key: 'a', label: 'A' },
+        { group: 'ASSETS', key: null, label: 'B' },
+      ],
     });
 
   beforeAll(async () => {
@@ -68,6 +71,23 @@ describe('Employee exits (e2e)', () => {
   it('seeds the clearance items in order and scopes lookups to the org', async () => {
     const exit = await start();
     expect(exit.items.map((i) => i.label)).toEqual(['A', 'B']);
+    expect(exit.items.map((i) => [i.group, i.key, i.notApplicable])).toEqual([
+      ['PROCESS', 'a', false],
+      ['ASSETS', null, false],
+    ]);
+    // The keyed tick only touches an open item with that key, and only once.
+    expect(await repo.markKeyedItemDone(exit.id, 'a', null)).toBe(true);
+    expect(await repo.markKeyedItemDone(exit.id, 'a', null)).toBe(false);
+    expect(await repo.markKeyedItemDone(exit.id, 'missing', null)).toBe(false);
+    await repo.addItem(exit.id, 'C', 'ASSETS');
+    await repo.addItem(exit.id, 'D', 'PROCESS'); // a second NULL key is allowed
+    const reloaded = await repo.findById(orgId, exit.id);
+    expect(reloaded?.items.map((i) => [i.label, i.group, i.done])).toEqual([
+      ['A', 'PROCESS', true],
+      ['B', 'ASSETS', false],
+      ['C', 'ASSETS', false],
+      ['D', 'PROCESS', false],
+    ]);
     expect(await repo.findById(orgId, exit.id)).not.toBeNull();
     expect(await repo.findById('some-other-org', exit.id)).toBeNull();
     await repo.claim(exit.id, ['NOTICE'], { status: 'CANCELLED' });

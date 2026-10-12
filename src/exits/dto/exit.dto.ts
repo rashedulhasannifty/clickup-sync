@@ -12,7 +12,12 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { EXIT_TYPES, type ExitTypeValue } from '../exit-status';
+import {
+  EXIT_CHECKLIST_GROUPS,
+  EXIT_TYPES,
+  type ExitChecklistGroupValue,
+  type ExitTypeValue,
+} from '../exit-status';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DATE_MESSAGE = 'must be a YYYY-MM-DD date';
@@ -154,13 +159,32 @@ export class AddClearanceItemDto {
   @IsNotEmpty()
   @MaxLength(200)
   label!: string;
+
+  @ApiPropertyOptional({
+    enum: EXIT_CHECKLIST_GROUPS,
+    default: 'PROCESS',
+    description: 'Which section of the checklist: process tasks or company assets.',
+  })
+  @IsOptional()
+  @IsIn(EXIT_CHECKLIST_GROUPS)
+  group?: ExitChecklistGroupValue;
 }
 
 export class UpdateClearanceItemDto {
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    description: 'true marks the item done and clears Not applicable.',
+  })
   @IsOptional()
   @IsBoolean()
   done?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'true marks the item not applicable and clears done. Cannot be true together with `done: true`.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  notApplicable?: boolean;
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -86,15 +86,22 @@ export type CompletionVerdict =
   | { ok: true; overridden: boolean; open: number }
   | { ok: false; open: number };
 
+/** An item is resolved when it is done or marked not applicable. Only unresolved items are open. */
+export const isResolved = (i: {
+  done: boolean;
+  notApplicable: boolean;
+}): boolean => i.done || i.notApplicable;
+
 /**
- * Completion needs every clearance item done, or an explicit override with a non-blank note.
- * The note is what makes an override a decision rather than a click; it is kept on the exit.
+ * Completion needs every clearance item resolved (done or N/A), or an explicit override with a
+ * non-blank note. The note is what makes an override a decision rather than a click; it is kept
+ * on the exit.
  */
 export function evaluateCompletion(
-  items: readonly { done: boolean }[],
+  items: readonly { done: boolean; notApplicable: boolean }[],
   overrideNote: string | null | undefined,
 ): CompletionVerdict {
-  const open = items.filter((i) => !i.done).length;
+  const open = items.filter((i) => !isResolved(i)).length;
   if (open === 0) return { ok: true, overridden: false, open };
   return overrideNote?.trim()
     ? { ok: true, overridden: true, open }
@@ -114,11 +121,107 @@ export function validateExitDates(args: {
   return null;
 }
 
-/** Seeded on every new exit; editable afterwards (add/remove). Order is the display order. */
-export const DEFAULT_CLEARANCE_ITEMS: readonly string[] = [
-  'Laptop & charger returned',
-  'ClickUp access removed',
-  'Nifty Timer account disabled',
-  'Handover of open tasks',
-  'Final settlement / leave encashment',
+export type ExitChecklistGroupValue = 'PROCESS' | 'ASSETS';
+export const EXIT_CHECKLIST_GROUPS: readonly ExitChecklistGroupValue[] = [
+  'PROCESS',
+  'ASSETS',
+];
+
+export interface DefaultClearanceItem {
+  group: ExitChecklistGroupValue;
+  /** Stable id, so code (e.g. the interview auto-tick) never matches on a label. */
+  key: string;
+  label: string;
+}
+
+/** The key of the "Conduct exit interview" item, ticked when the interview is saved. */
+export const EXIT_INTERVIEW_ITEM_KEY = 'exit_interview';
+
+/**
+ * Seeded on every new exit; editable afterwards (add/remove). This is the company's manual
+ * Employee-Exit-Checklist: the process tasks, then the company assets to collect. Order is the
+ * display order within each group.
+ */
+export const DEFAULT_CLEARANCE_ITEMS: readonly DefaultClearanceItem[] = [
+  {
+    group: 'PROCESS',
+    key: 'termination_paperwork',
+    label: 'Ensure termination paperwork is complete',
+  },
+  {
+    group: 'PROCESS',
+    key: 'inform_stakeholders',
+    label:
+      'Inform key stakeholders (payroll, IT, operations, legal and senior management) to prepare for the exit process',
+  },
+  {
+    group: 'PROCESS',
+    key: 'communicate_internally',
+    label: 'Communicate the employee exit internally',
+  },
+  {
+    group: 'PROCESS',
+    key: 'communicate_clients',
+    label: 'Communicate the employee exit externally to clients',
+  },
+  {
+    group: 'PROCESS',
+    key: 'handover_document',
+    label:
+      'Ensure a handover document is created and shared with relevant stakeholders',
+  },
+  { group: 'PROCESS', key: 'collect_assets', label: 'Collect company assets' },
+  {
+    group: 'PROCESS',
+    key: 'remove_software_access',
+    label:
+      'Remove software access (WhatsApp, Teams, Slack, Face lock, Outlook, Time Doctor, ClickUp, Nifty Timer)',
+  },
+  {
+    group: 'PROCESS',
+    key: 'final_payments',
+    label: 'Arrange final payments & benefits',
+  },
+  {
+    group: 'PROCESS',
+    key: 'binding_agreements',
+    label: 'Review binding agreements',
+  },
+  {
+    group: 'PROCESS',
+    key: EXIT_INTERVIEW_ITEM_KEY,
+    label: 'Conduct exit interview',
+  },
+  {
+    group: 'PROCESS',
+    key: 'thank_employee',
+    label: 'Thank employee on final day',
+  },
+  {
+    group: 'PROCESS',
+    key: 'contact_linkedin',
+    label:
+      "Collect exiting employee's contact information and connect on LinkedIn",
+  },
+  {
+    group: 'PROCESS',
+    key: 'check_in_team',
+    label: 'Check in with remaining team members',
+  },
+  {
+    group: 'PROCESS',
+    key: 'recruit_replacement',
+    label: 'Initiate recruiting for a replacement',
+  },
+  {
+    group: 'PROCESS',
+    key: 'update_org_chart',
+    label: 'Update organizational chart',
+  },
+  { group: 'ASSETS', key: 'asset_laptop', label: 'Laptop' },
+  { group: 'ASSETS', key: 'asset_phone', label: 'Phone' },
+  { group: 'ASSETS', key: 'asset_monitor', label: 'Monitor' },
+  { group: 'ASSETS', key: 'asset_mouse_keyboard', label: 'Mouse and keyboard' },
+  { group: 'ASSETS', key: 'asset_id_card', label: 'ID/Access card' },
+  { group: 'ASSETS', key: 'asset_vehicle', label: 'Company vehicle' },
 ];

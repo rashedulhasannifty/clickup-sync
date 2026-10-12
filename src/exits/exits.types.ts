@@ -6,12 +6,18 @@
 
 import type {
   EmployeeStatusName,
+  ExitChecklistGroupValue,
   ExitStatusValue,
   ExitTypeValue,
 } from './exit-status';
 import type { LetterKind } from './letter-content';
 
-export type { ExitStatusValue, ExitTypeValue, LetterKind };
+export type {
+  ExitChecklistGroupValue,
+  ExitStatusValue,
+  ExitTypeValue,
+  LetterKind,
+};
 
 export type ExitInterviewReasonValue =
   | 'CAREER_GROWTH'
@@ -26,11 +32,19 @@ export type ExitAnswerValue = 'YES' | 'MAYBE' | 'NO';
 
 export interface ClearanceItemView {
   id: string;
+  /** PROCESS = process tasks, ASSETS = company assets to collect. */
+  group: ExitChecklistGroupValue;
+  /** Stable id of a seeded item (e.g. `exit_interview`); null for a custom item. */
+  key: string | null;
   label: string;
   done: boolean;
   doneAt: string | null;
   /** Name (or email) of whoever ticked it; null when open, for a machine credential or a deleted user. */
   doneByName: string | null;
+  /** Marked not applicable. Never true together with `done`. */
+  notApplicable: boolean;
+  notApplicableAt: string | null;
+  notApplicableByName: string | null;
   note: string | null;
 }
 
@@ -99,6 +113,9 @@ export interface ExitView {
   clearance: {
     items: ClearanceItemView[];
     done: number;
+    notApplicable: number;
+    /** done + notApplicable: the items that no longer block completion. */
+    resolved: number;
     total: number;
   };
   documents: ExitDocumentView[];
@@ -108,6 +125,8 @@ export interface ExitView {
   /** The linked login was disabled when the exit completed. */
   loginDisabled: boolean;
   completedAt: string | null;
+  /** Who completed (approved) the exit; null for a machine credential or a deleted user. */
+  completedByName: string | null;
   cancelledAt: string | null;
   cancelNote: string | null;
   createdAt: string;
@@ -128,7 +147,8 @@ export interface ExitListRow {
   status: ExitStatusValue;
   noticeDate: string;
   lastWorkingDay: string;
-  clearanceDone: number;
+  /** Items done or not applicable. */
+  clearanceResolved: number;
   clearanceTotal: number;
   createdAt: string;
 }
