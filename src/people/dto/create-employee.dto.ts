@@ -99,6 +99,23 @@ export class CreateEmployeeDto {
   clickupUserId?: string;
 
   @ApiPropertyOptional({
+    description:
+      'Stellar HRM User ID (the office door / attendance system). Attendance and leave imports match on it.',
+  })
+  @IsOptional()
+  @Matches(/^\d{1,20}$/, {
+    message: 'attendanceId must be a numeric Stellar HRM user id',
+  })
+  attendanceId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Working shift id. Unset: the 09:30 office default.',
+  })
+  @IsOptional()
+  @IsString()
+  shiftId?: string;
+
+  @ApiPropertyOptional({
     description: 'Company within the group (the form field "Concern name").',
   })
   @IsOptional()

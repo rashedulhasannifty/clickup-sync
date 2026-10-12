@@ -90,6 +90,22 @@ export class UpdateEmployeeDto {
   clickupUserId?: string | null;
 
   @ApiPropertyOptional({
+    description: 'Stellar HRM User ID; null clears.',
+  })
+  @IsOptional()
+  @Matches(/^\d{1,20}$/, {
+    message: 'attendanceId must be a numeric Stellar HRM user id',
+  })
+  attendanceId?: string | null;
+
+  @ApiPropertyOptional({
+    description: 'Working shift id; null = the 09:30 office default.',
+  })
+  @IsOptional()
+  @IsString()
+  shiftId?: string | null;
+
+  @ApiPropertyOptional({
     description: 'Company within the group (the form field "Concern name").',
   })
   @IsOptional()

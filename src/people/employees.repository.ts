@@ -68,6 +68,8 @@ export interface NewEmployee {
   employeeCode: string | null;
   userId: string | null;
   clickupUserId: string | null;
+  attendanceId?: string | null;
+  shiftId?: string | null;
   designation: string;
   grade: string | null;
   department: string | null;
@@ -93,6 +95,8 @@ export interface EmployeeProfileUpdate {
   email?: string;
   employeeCode?: string | null;
   clickupUserId?: string | null;
+  attendanceId?: string | null;
+  shiftId?: string | null;
   userId?: string | null;
   designation?: string;
   grade?: string | null;
@@ -225,6 +229,8 @@ export class EmployeesRepository {
         employeeCode: data.employeeCode,
         userId: data.userId,
         clickupUserId: data.clickupUserId,
+        attendanceId: data.attendanceId ?? null,
+        shiftId: data.shiftId ?? null,
         designation: data.designation,
         grade: data.grade,
         department: data.department,
@@ -367,6 +373,13 @@ export class EmployeesRepository {
     return this.prisma.employmentEvent.findMany({
       where: { employeeId },
       orderBy: [{ effectiveDate: 'desc' }, { id: 'desc' }],
+    });
+  }
+
+  findShiftInOrg(orgId: string, shiftId: string) {
+    return this.prisma.workShift.findFirst({
+      where: { id: shiftId, orgId },
+      select: { id: true },
     });
   }
 

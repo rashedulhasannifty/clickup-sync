@@ -25,6 +25,9 @@ import { PeopleSummaryService } from './people-summary.service';
 import { PeopleSyncProcessor } from './people-sync.processor';
 import { PeopleScheduler } from './people-sync.scheduler';
 import { PeopleSyncService } from './people-sync.service';
+import { PeopleShiftsController } from './people-shifts.controller';
+import { ShiftsRepository } from './shifts.repository';
+import { ShiftsService } from './shifts.service';
 
 @Module({
   // AuditLogInterceptor/AuditLogRepository come from AdminModule (see its exports).
@@ -33,6 +36,7 @@ import { PeopleSyncService } from './people-sync.service';
     PeopleEmployeesController,
     PeopleAttendanceController,
     PeopleOnboardingController,
+    PeopleShiftsController,
   ],
   providers: [
     EmployeesRepository,
@@ -44,6 +48,8 @@ import { PeopleSyncService } from './people-sync.service';
     PeopleSummaryService,
     PeopleAttendanceService,
     PeopleSyncService,
+    ShiftsRepository,
+    ShiftsService,
     {
       // The provider is chosen by env, not by code: ATTENDANCE_PROVIDER=dummy|none|stellar.
       provide: ATTENDANCE_PROVIDER,

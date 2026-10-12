@@ -151,6 +151,7 @@ export class EmployeesService {
     });
     if (lifecycle) throw new BadRequestException(lifecycle);
     if (dto.teamId) await this.requireTeam(orgId, dto.teamId);
+    if (dto.shiftId) await this.requireShift(orgId, dto.shiftId);
     if (dto.managerId) await this.requireManager(orgId, dto.managerId, null);
 
     // Linking is by email: an existing login in this org with the same address.
@@ -165,6 +166,8 @@ export class EmployeesService {
         employeeCode: dto.employeeCode?.trim() || null,
         userId: linkable?.id ?? null,
         clickupUserId: dto.clickupUserId ?? linkable?.clickupUserId ?? null,
+        attendanceId: dto.attendanceId ?? null,
+        shiftId: dto.shiftId ?? null,
         designation: dto.designation.trim(),
         grade: dto.grade?.trim() || null,
         department: dto.department?.trim() || null,
@@ -207,6 +210,11 @@ export class EmployeesService {
     if (dto.department !== undefined)
       data.department = dto.department?.trim() || null;
     if (dto.clickupUserId !== undefined) data.clickupUserId = dto.clickupUserId;
+    if (dto.attendanceId !== undefined) data.attendanceId = dto.attendanceId;
+    if (dto.shiftId !== undefined) {
+      if (dto.shiftId !== null) await this.requireShift(orgId, dto.shiftId);
+      data.shiftId = dto.shiftId;
+    }
     if (dto.joinDate !== undefined) data.joinDate = dto.joinDate;
     Object.assign(data, this.lifecycleUpdate(current, dto));
     if (dto.concernName !== undefined)
@@ -618,6 +626,11 @@ export class EmployeesService {
     return row;
   }
 
+  private async requireShift(orgId: string, shiftId: string): Promise<void> {
+    if (!(await this.repo.findShiftInOrg(orgId, shiftId)))
+      throw new BadRequestException('Unknown shift');
+  }
+
   private async requireTeam(orgId: string, teamId: string): Promise<void> {
     if (!(await this.repo.findTeamInOrg(orgId, teamId)))
       throw new BadRequestException('Unknown team');
@@ -651,6 +664,8 @@ export class EmployeesService {
           ? 'employee code'
           : /clickup/.test(target)
             ? 'ClickUp user'
+            : /attendance_?id/i.test(target)
+              ? 'Stellar ID'
             : /user_id/.test(target)
               ? 'login'
               : 'value';
