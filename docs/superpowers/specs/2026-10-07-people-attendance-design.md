@@ -15,7 +15,7 @@ glance" with KPIs. The end goal is tracking KPIs for every employee.
 |---|---|---|
 | **1** | Employee records, employment events, attendance + leave from a **dummy provider**, directory, employee summary, attendance & leave page | done |
 | 2 | Documents, stored in MinIO (see "Slice 2 — documents" below) | done |
-| 3 | Appraisal cycle (see "Slice 3 — appraisals") | done |
+| 3 | Appraisal cycle, on the paper appraisal form (see "Slice 3 — appraisals") | done |
 | 4 | Exit (see "Slice 4 — exit") | done |
 | 5 | Nifty Timer sync (activity %, timer hours, idle) | later; Nifty Timer has no API key auth today |
 | 6 | Configurable KPI targets/weights per designation; lead visibility | later |
@@ -54,6 +54,8 @@ implementation so the UI and KPIs can be built now.
 9. **Leave entitlement** (constants for now): casual 10 / year, sick 14 / year,
    calendar-year reset.
 10. **No PII beyond work identity** in slice 1: no NID, address, phone, salary.
+    (Superseded for salary by migration 0031: the appraisal form needs starting
+    and present gross salary; see "Slice 3 — appraisals".)
 
 ## Data model (migration `0025_people_attendance`)
 
@@ -284,37 +286,165 @@ Decided 2026-10-07: documents live in **MinIO**, reached through the S3 API
 Owner/Admin only, like every People route. Until slice 6, an Owner/Admin
 fills in every step, including the self review on the employee's behalf.
 
-- **Cycle** (`appraisal_cycles`): name, periodStart, periodEnd (dates),
-  status `DRAFT | OPEN | CLOSED`, `kpiWeight` (0–100, default 70; the rest is
-  competencies), competencies (JSON list of `{ key, label }`; default
-  technical skill, communication & collaboration, ownership & initiative,
-  mentoring). Launching an OPEN cycle creates one appraisal per selected
-  employee (default: every non-EXITED employee who joined before periodEnd).
-- **Appraisal** (`appraisals`, unique `(cycle_id, employee_id)`): reviewer
-  (defaults to the employee's manager), status
-  `SELF_REVIEW → LEAD_REVIEW → CALIBRATION → SIGNED_OFF`, forward only one
-  step at a time, with a "send back" one step for corrections before
-  sign-off. Fields: self ratings + self comments, lead ratings, strengths,
-  improvements, goals, recommendation
-  `PROMOTE | RAISE | NO_CHANGE | IMPROVEMENT_PLAN`, `newDesignation`
-  (required for PROMOTE), calibration note, optional calibrated score.
-- **KPI section is computed, never typed.** On entering LEAD_REVIEW the
-  cycle period's KPIs are computed with the slice-1 KPI code and stored as a
-  snapshot; it can be refreshed until SIGNED_OFF, then it is frozen.
-- **Score (0–5):** `kpiPart = overallKpiScore / 20` (0–100 → 0–5);
-  `competencyPart` = mean of lead ratings;
-  `final = kpiPart × kpiWeight% + competencyPart × (100 − kpiWeight)%`, 1 dp.
-  If the KPI score is partial or null, the final score is flagged partial
-  (same rule as the overall score). A calibrated score, when set, wins.
-- **Sign-off applies the outcome once** (idempotent): PROMOTE writes a
-  `PROMOTED` employment event (which updates designation); RAISE writes a
-  `NOTE` event ("Salary increase recommended — appraisal <cycle>");
-  IMPROVEMENT_PLAN writes a `NOTE` event. Signed-off appraisals are
-  read-only.
-- **UI:** `/people/appraisals` (cycles list, create cycle, launch, per-cycle
-  progress by status), `/people/appraisals/:appraisalId` (the form, stepper
-  as in mockup tab 5, previous appraisals sidebar), and an Appraisals tab on
-  the employee page (history: cycle, score, recommendation, status).
+Reworked 2026-10-12 (migration `0031_appraisal_form`) to follow the company's
+paper form **"Performance Appraisal Form – Asst. Managers and above"**.
+Decided with the product owner: **the form's 100-mark total and A–F grade are
+the official result; the KPI score is shown beside it as a separate reference
+number and is never blended in.** Cycles created before 0031 were backfilled
+`KPI_BLEND` and keep the original rules and their frozen scores (see "Legacy
+KPI_BLEND cycles" below).
+
+### Cycles
+
+`appraisal_cycles`: name, periodStart, periodEnd (dates), status
+`DRAFT | OPEN | CLOSED`, **type** `HALF_YEARLY | CONFIRMATION | YEARLY`
+(existing rows → YEARLY), **scoringMode** `FORM_100 | KPI_BLEND` (existing rows
+→ KPI_BLEND; new cycles default to FORM_100), `kpiWeight` (KPI_BLEND only;
+stored 0 for FORM_100), and competencies, a JSON list of
+`{ key, label, description? }`. A new FORM_100 cycle starts with the form's
+10 criteria and their printed descriptions (`FORM_CRITERIA` in
+`src/appraisals/appraisal-score.ts`), editable until launch: Job Knowledge,
+Customer Orientation, Decision Making, Planning and Organizing, Building and
+Leading Teams, Developing People, Communication, Influencing, Commitment to
+Excel, Integrity. Period, type, weight and criteria lock once appraisals
+exist. Launching an OPEN cycle creates one appraisal per selected employee
+(default: every non-EXITED employee who joined before periodEnd) and, for
+FORM_100, captures each one's **form header**.
+
+### The form (FORM_100)
+
+- **Rating scale:** Outstanding 10, Good 8, Fair 6, Average 4, Below
+  Average 2. Ratings outside {2, 4, 6, 8, 10} are a 400.
+- **Total:** the sum of the supervisor's (lead) ratings, normalised to 100
+  when a cycle does not have 10 criteria: `sum / (10 × n) × 100`, 1 dp. An
+  unrated criterion counts 0 in the live total; there is **no grade until
+  every criterion is rated**.
+- **Grade and evaluation metrics** (`GRADE_TABLE`, pure):
+
+  | Grade | Marks | Promotion | Increment | Training | Transfer | Termination |
+  |---|---|---|---|---|---|---|
+  | A | 91–100 | YES | 15% | | | |
+  | B | 81–90 | | 13–14% | | | |
+  | C | 71–80 | | 11–12% | | | |
+  | D | 61–70 | | 9–10% | Yes | | |
+  | E | 51–60 | | 7–8% | Yes | Yes | |
+  | F | 0–50 | | 0% | | Yes | Yes |
+
+  Terms: A proposed for promotion (eligible if the next position is vacant);
+  B, C, D for service confirmation; E for increment with a training plan
+  (extension of probation); F for possible transfer with a development plan,
+  or separation. A fractional total must reach a band's printed minimum
+  (90.5 is a B, 50.5 an F); with 10 criteria totals are always even.
+- **Header** (`formHeader` JSON): name, concern name, designation,
+  department, date of joining, academic qualification, experience in the
+  company (tenure), total experience (experience before joining + tenure),
+  starting salary, present gross salary, last increment amount and last
+  promotion date. The last two are derived from the latest `INCREMENT` and
+  `PROMOTED` employment events, never typed. Captured at launch, refreshed
+  with the KPIs and on every step, and **frozen at sign-off, before any
+  outcome is applied** (so it shows the salary the appraisal was made
+  against).
+- **KPI snapshot** is still computed on entering LEAD_REVIEW, refreshable
+  until sign-off, frozen after, and shown as "KPI score (reference)".
+
+### Workflow (FORM_100)
+
+`SELF_REVIEW → LEAD_REVIEW (supervisor) → DEPT_HEAD_REVIEW → HR_REVIEW →
+FINAL_APPROVAL (CTO/COO) → SIGNED_OFF`, forward one step at a time, send back
+one step before sign-off. The sequence is `stepsFor(scoringMode)`. Each step
+records who completed it and when as it is left (`leadReviewBy/At`,
+`deptHeadBy/At`, `hrBy/At`, `approvalBy/At`, then `signedOffBy/At`). Each
+comment block is editable only in its own step:
+
+| Step | Editable | Blocks the next step |
+|---|---|---|
+| SELF_REVIEW (optional) | self ratings, self comment | nothing |
+| LEAD_REVIEW | ratings, supervisor's comments, recommendations, increment %, new designation, training / development plan | an unrated criterion; no recommendation; Promotion without a designation; Increment without a percent; Termination/Dismissal ticked with Confirm/Increment/Promotion |
+| DEPT_HEAD_REVIEW | department head comments; may adjust recommendations, increment %, designation, training plan | same as above |
+| HR_REVIEW | HR comments | nothing |
+| FINAL_APPROVAL | decision `APPROVED | NOT_APPROVED`, comment | no decision; an approved Increment when the employee has no present gross salary |
+
+**Recommendations** (`actions`, multi-select): Confirm, Increment,
+Promotion, Termination, Dismissal, Training / Transfer. `incrementPercent` is
+prefilled in the UI from the bottom of the grade's range and editable.
+
+### Sign-off and outcomes (FORM_100)
+
+Sign-off freezes `finalScore` (the total), `finalGrade` and the header. The
+outcome is applied once (`outcomeAppliedAt`), **only when the decision is
+APPROVED**, as one transaction (`EmployeesService.recordAppraisalOutcome`), so
+a retry never writes half an outcome twice:
+
+- **Confirm** → `CONFIRMED` event (status → ACTIVE, confirmation date set),
+  only while the employee is on PROBATION; otherwise it is skipped, because a
+  CONFIRMED event would cancel a notice period or rewrite an earlier
+  confirmation.
+- **Promotion** → `PROMOTED` event (designation moves).
+- **Increment** → `INCREMENT` event, `fromValue`/`toValue` = old/new gross
+  salary (whole taka, rounded), notes `"<pct>%"`; the employee's gross salary
+  moves. `INCREMENT` cannot be added by hand (its toValue would put a salary
+  into the audit log).
+- **Termination / Dismissal** are never automatic: the form shows a "Start
+  offboarding" link to `/people/:id/exit`. **Training / Transfer** is
+  recorded on the form only.
+- **NOT_APPROVED** signs off with no outcome.
+
+### The form as a PDF
+
+`GET /people/appraisals/:id/form-pdf` renders the filled form with pdfkit,
+laid out like the paper form (appraisal type, header table, criteria table
+with the five rating columns, total and grade, evaluation-metrics table,
+recommendations ticked, comment blocks with who/when, CTO/COO decision),
+using the exit letters' embedded Hind Siliguri font. Before sign-off it is a
+preview (not stored); after, it renders the frozen result. At sign-off the
+PDF is filed as an `APPRAISAL / APPRAISAL_FORM` employee document via
+`DocumentsService.storeGenerated` (`replaces` = this appraisal's own
+`formDocumentId`, so another cycle's form is never versioned over).
+**Best-effort:** sign-off never fails because documents are not configured or
+the store is down; calling advance on a signed-off appraisal retries a
+missing PDF (and a missing outcome).
+
+### Employee fields (0031)
+
+`employees` gains `concern_name`, `academic_qualification`,
+`experience_before_joining_months`, `starting_salary` and `gross_salary`
+(BDT, whole taka). This supersedes decision 10 for salary. They are on the
+create/edit DTOs and the Overview tab, behind the exited read-only guard.
+Salary is sensitive: every `/people` route is Owner/Admin, the audit log
+redacts any `*salary*` request-body key, and nothing logs them (a failed PDF
+filing logs only the appraisal id and the error message).
+
+### Legacy KPI_BLEND cycles
+
+Unchanged: status `SELF_REVIEW → LEAD_REVIEW → CALIBRATION → SIGNED_OFF`;
+lead ratings 1–5; score 0–5 =
+`kpiPart × kpiWeight% + competencyPart × (100 − kpiWeight)%` with
+`kpiPart = overallKpiScore / 20`, partial when the KPI score is partial or
+missing, a calibrated score wins; single `recommendation`
+`PROMOTE | RAISE | NO_CHANGE | IMPROVEMENT_PLAN` (PROMOTE → `PROMOTED`, RAISE /
+IMPROVEMENT_PLAN → `NOTE`). Their frozen `finalScore` stays on the 0–5 scale;
+`ScoreView.outOf` (5 or 100) and `mode` tell the UI which is which.
+
+### UI
+
+`/people/appraisals`: cycles list, create cycle (type, scoring, criteria
+with descriptions; KPI weight only for the legacy mode), launch, per-cycle
+progress by that cycle's steps. `/people/appraisals/:appraisalId`: FORM_100
+renders the form (header block, criteria with the five labelled ratings,
+live total /100 with grade badge and policy line such as "Proposed: increment
+13–14%, service confirmation", KPI reference card, recommendations, increment
+%, new designation, comment blocks, final approval, "Download form (PDF)");
+legacy cycles render the original form. The employee page's Appraisals tab
+shows type, marks/score and grade, recommendations and status.
+
+### Not done / follow-ups
+
+- Steps are not role-gated: until slice 6 an Owner/Admin fills every step,
+  and the recorded who/when is that user.
+- The form has no "Training need" ↔ grade enforcement (e.g. D/E ticking
+  Training / Transfer); the policy line only proposes.
+- A CONFIRM skipped because the employee was not on probation is visible on
+  the employee's timeline (no CONFIRMED event), not called out on the form.
 
 ## Slice 4 — exit
 
