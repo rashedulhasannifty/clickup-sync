@@ -211,6 +211,7 @@ export const EVENT_LABEL: Record<EmploymentEventTypeValue, string> = {
   NOTICE_GIVEN: 'Notice given',
   EXITED: 'Exited',
   NOTE: 'Note',
+  INCREMENT: 'Salary increment',
 };
 
 /** Order shown in the "Add event" picker. `JOINED`, `NOTICE_GIVEN` and `EXITED` are not hand-addable. */
@@ -259,6 +260,10 @@ export function eventTitle(e: {
       return e.toLabel ? `Moved to ${e.toLabel}` : 'Transferred';
     case 'JOINED':
       return e.toLabel ? `Joined as ${e.toLabel}` : 'Joined';
+    case 'INCREMENT':
+      return e.fromLabel && e.toLabel
+        ? `Salary increment: BDT ${Number(e.fromLabel).toLocaleString('en-US')} → ${Number(e.toLabel).toLocaleString('en-US')}`
+        : 'Salary increment';
     default:
       return EVENT_LABEL[e.type];
   }

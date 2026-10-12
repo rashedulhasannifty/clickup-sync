@@ -18,12 +18,14 @@ export type EmploymentEventTypeValue =
   | 'TRANSFERRED'
   | 'NOTICE_GIVEN'
   | 'EXITED'
-  | 'NOTE';
+  | 'NOTE'
+  /** Written by an approved appraisal: from/to are the old/new gross salary (whole taka), notes the percent. */
+  | 'INCREMENT';
 /**
  * `JOINED` is written by creating the employee; `NOTICE_GIVEN` and `EXITED` by the offboarding
- * flow. None of them can be added by hand (the API rejects the last two).
+ * flow; `INCREMENT` by an approved appraisal. None of them can be added by hand.
  */
-export type ManualEventType = Exclude<EmploymentEventTypeValue, 'JOINED' | 'NOTICE_GIVEN' | 'EXITED'>;
+export type ManualEventType = Exclude<EmploymentEventTypeValue, 'JOINED' | 'NOTICE_GIVEN' | 'EXITED' | 'INCREMENT'>;
 export type LeaveTypeValue = 'SICK' | 'CASUAL' | 'ANNUAL' | 'UNPAID' | 'OTHER';
 export type LeaveStatusValue = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
 
@@ -62,6 +64,15 @@ export type EmployeeProfile = {
   clickupUserId: string | null;
   userId: string | null;
   linked: EmployeeLinks;
+  /** Company within the group (the appraisal form's concern name). */
+  concernName: string | null;
+  academicQualification: string | null;
+  /** Months of experience before joining; total = this + tenure. */
+  experienceBeforeJoiningMonths: number | null;
+  /** Whole taka. Sensitive. */
+  startingSalary: number | null;
+  /** Present gross salary, whole taka; an approved appraisal increment moves it. Sensitive. */
+  grossSalary: number | null;
 };
 
 export type DirectoryRow = EmployeeProfile & {
@@ -243,6 +254,11 @@ export type CreateEmployeeBody = {
   managerId?: string;
   joinDate: string;
   clickupUserId?: string;
+  concernName?: string;
+  academicQualification?: string;
+  experienceBeforeJoiningMonths?: number;
+  startingSalary?: number;
+  grossSalary?: number;
 };
 
 /** For the nullable fields `null` clears the value and omitting leaves it alone. */
@@ -257,6 +273,11 @@ export type UpdateEmployeeBody = {
   managerId?: string | null;
   joinDate?: string;
   clickupUserId?: string | null;
+  concernName?: string | null;
+  academicQualification?: string | null;
+  experienceBeforeJoiningMonths?: number | null;
+  startingSalary?: number | null;
+  grossSalary?: number | null;
 };
 
 export type AddEventBody = {

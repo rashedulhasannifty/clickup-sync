@@ -37,6 +37,7 @@ import { EmployeeDocumentsTab } from '../components/people/EmployeeDocumentsTab'
 import { EmployeeAppraisalsTab } from '../components/people/EmployeeAppraisalsTab';
 import { StartOffboardingButton } from '../components/people/StartOffboardingButton';
 import { EmployeeFormModal } from '../components/people/EmployeeFormModal';
+import { monthsText, takaText } from '../lib/appraisals';
 import { HeaderActions } from '../components/people/FormBits';
 import { KpiTile } from '../components/people/KpiTile';
 import { LeaveBalanceCard } from '../components/people/LeaveBalanceCard';
@@ -373,6 +374,39 @@ export function EmployeeDetailPage() {
               <CareerTimeline events={summary.events} />
             </Card>
           </div>
+
+          <Card
+            title="Appraisal form details"
+            subtitle="Shown in the header of the appraisal form. Salaries are visible to Owners and Admins only."
+            action={
+              readOnly ? undefined : (
+                <Button size="sm" variant="ghost" icon={<Pencil size={12} />} onClick={() => setEditing(true)}>
+                  Edit
+                </Button>
+              )
+            }
+          >
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '10px 18px' }}>
+              {(
+                [
+                  ['Concern name', e.concernName ?? '—'],
+                  ['Academic qualification', e.academicQualification ?? '—'],
+                  ['Experience before joining', monthsText(e.experienceBeforeJoiningMonths)],
+                  [
+                    'Total experience',
+                    e.experienceBeforeJoiningMonths == null ? '—' : monthsText(e.experienceBeforeJoiningMonths + e.tenureMonths),
+                  ],
+                  ['Starting salary', takaText(e.startingSalary)],
+                  ['Present gross salary', takaText(e.grossSalary)],
+                ] as [string, string][]
+              ).map(([k, v]) => (
+                <div key={k} style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>{k}</div>
+                  <div style={{ fontSize: 13.5, overflowWrap: 'anywhere' }}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
 
           {summary.attendanceSource === 'none' && (
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>

@@ -18,6 +18,7 @@ import { Pill } from '../components/ui/Pill';
 import { useToast } from '../components/ui/Toast';
 import { AppraisalStatusPill, RecommendationText, ScoreCell } from '../components/people/AppraisalBits';
 import { HeaderActions, TextArea } from '../components/people/FormBits';
+import { Form100Appraisal } from '../components/people/AppraisalForm100';
 
 const KPI_ROWS: { key: ScoredKpi; label: string }[] = [
   { key: 'utilisation', label: 'Utilisation' },
@@ -119,8 +120,8 @@ function mean(map: Record<string, number>): number | null {
   return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
 }
 
-/** Draft state seeded once from the saved view; the parent remounts it (via `key`) when the saved view changes. */
-function AppraisalForm({ view }: { view: AppraisalView }) {
+/** KPI_BLEND (legacy) cycles. Draft state seeded once from the saved view; the parent remounts it (via `key`) when the saved view changes. */
+function LegacyAppraisalForm({ view }: { view: AppraisalView }) {
   const toast = useToast();
   const m = useAppraisalMutations(view.id);
 
@@ -530,5 +531,6 @@ export function AppraisalFormPage() {
   if (query.isError || !query.data) return <QueryError query={query} what="appraisal" />;
 
   // Remount on every saved change so the draft re-seeds from the server's view.
-  return <AppraisalForm key={`${query.data.id}:${query.data.updatedAt}:${query.data.status}`} view={query.data} />;
+  const key = `${query.data.id}:${query.data.updatedAt}:${query.data.status}`;
+  return query.data.cycle.scoringMode === 'FORM_100' ? <Form100Appraisal key={key} view={query.data} /> : <LegacyAppraisalForm key={key} view={query.data} />;
 }
