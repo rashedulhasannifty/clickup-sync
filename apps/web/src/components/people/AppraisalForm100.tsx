@@ -8,6 +8,7 @@ import {
   type ApprovalDecision,
   type EditableField,
   type EffectiveDateMode,
+  type InternshipOutcome,
   type UpdateAppraisalBody,
 } from '../../api/appraisals';
 import type { KpiResult, ScoredKpi } from '../../api/people';
@@ -17,6 +18,8 @@ import {
   ACTIONS,
   APPRAISAL_TYPE_LABEL,
   FORM_RATINGS,
+  INTERNSHIP_OUTCOME_LABEL,
+  INTERNSHIP_OUTCOMES,
   arrearsText,
   draftFormScore,
   effectivePreview,
@@ -61,6 +64,22 @@ const NEXT_LABEL: Partial<Record<AppraisalView['status'], string>> = {
   HR_REVIEW: 'Send for CTO/COO approval',
   FINAL_APPROVAL: 'Sign off',
 };
+
+/** Internship reviews: supervisor, then HR comments and decides. */
+const INTERNSHIP_NEXT_LABEL: Partial<Record<AppraisalView['status'], string>> = {
+  SELF_REVIEW: 'Submit to supervisor',
+  LEAD_REVIEW: 'Send to HR',
+  HR_REVIEW: 'Sign off',
+};
+
+const INTERNSHIP_OUTCOME_HINT: Record<InternshipOutcome, string> = {
+  MOVE_TO_PROBATION: 'Probation starts on the chosen date; the confirmation falls due 6 months later.',
+  EXTEND_INTERNSHIP: 'The internship ends later; another internship review falls due then.',
+  END_INTERNSHIP: 'Nothing changes automatically: start offboarding once signed off.',
+};
+
+/** The day after `ymd`. */
+const nextDay = (ymd: string) => new Date(Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +ymd.slice(8, 10) + 1)).toISOString().slice(0, 10);
 
 const TEXT_FIELDS = ['selfComment', 'leadComment', 'deptHeadComment', 'hrComment', 'trainingPlan', 'approvalComment', 'newDesignation'] as const;
 type TextField = (typeof TEXT_FIELDS)[number];
@@ -166,20 +185,26 @@ function HeaderGrid({ view }: { view: AppraisalView }) {
       </p>
     );
   }
-  const items: [string, string][] = [
+  const basic: [string, string][] = [
     ['Name', h.name],
     ['Concern name', h.concernName ?? '—'],
     ['Designation', h.designation],
     ['Department', h.department ?? '—'],
     ['Date of joining', formatDate(h.joinDate)],
     ['Academic qualification', h.academicQualification ?? '—'],
+  ];
+  // An internship review keeps it simple: no experience or salary.
+  const items: [string, string][] = view.internship
+    ? [...basic, ['Internship ends', formatDate(view.internship.currentEndDate)]]
+    : [
+    ...basic,
     [`Experience in ${h.companyName || 'the company'}`, monthsText(h.experienceInCompanyMonths)],
     ['Total years of experience', monthsText(h.totalExperienceMonths)],
     ['Starting salary', takaText(h.startingSalary)],
     ['Present gross salary', takaText(h.grossSalary)],
     ['Last year increment amount', takaText(h.lastIncrementAmount)],
     ['Last promotion date', h.lastPromotionDate ? formatDate(h.lastPromotionDate) : '—'],
-  ];
+      ];
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))', gap: '10px 18px' }}>
       {items.map(([k, v]) => (
@@ -222,6 +247,10 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
   const [effCustom, setEffCustom] = useState(view.effectiveDateMode === 'CUSTOM' ? (view.effectiveDate ?? '') : '');
   const [formError, setFormError] = useState('');
   const [downloading, setDownloading] = useState(false);
+  const intern = view.cycle.type === 'INTERNSHIP';
+  const [outcome, setOutcome] = useState<InternshipOutcome | null>(view.internshipOutcome);
+  const [probStart, setProbStart] = useState(view.proposedProbationStart ?? view.internship?.defaultProbationStart ?? '');
+  const [newEnd, setNewEnd] = useState(view.proposedInternshipEnd ?? '');
 
   const can = (f: EditableField) => view.editableFields.includes(f);
   const signedOff = view.status === 'SIGNED_OFF';
@@ -263,6 +292,20 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
       if (rounded !== view.incrementPercent) body.incrementPercent = rounded;
     }
     if (can('approvalDecision') && decision !== view.approvalDecision) body.approvalDecision = decision;
+    if (intern && can('internshipOutcome')) {
+      if (outcome !== view.internshipOutcome) body.internshipOutcome = outcome;
+      const current = view.internship?.currentEndDate ?? '';
+      if (outcome === 'MOVE_TO_PROBATION' && probStart !== (view.proposedProbationStart ?? '')) {
+        if (!probStart) return { error: 'Choose the date probation starts.' };
+        body.internshipOutcome = outcome;
+        body.proposedProbationStart = probStart;
+      }
+      if (outcome === 'EXTEND_INTERNSHIP' && newEnd !== (view.proposedInternshipEnd ?? '')) {
+        if (newEnd && newEnd <= current) return { error: `The new internship end must be after ${formatDate(current)}.` };
+        body.internshipOutcome = outcome;
+        body.proposedInternshipEnd = newEnd || null;
+      }
+    }
     if (can('effectiveDateMode') && dated) {
       const customChanged = effMode === 'CUSTOM' && effCustom !== (view.effectiveDateMode === 'CUSTOM' ? (view.effectiveDate ?? '') : '');
       if (effMode !== savedEffMode || customChanged) {
@@ -323,6 +366,17 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
   }
 
   async function onAdvance() {
+    if (intern && view.status === 'HR_REVIEW') {
+      const what =
+        decision !== 'APPROVED'
+          ? 'Nothing is applied to the employee’s record because it was not approved.'
+          : outcome === 'MOVE_TO_PROBATION'
+            ? `The intern moves to probation from ${formatDate(probStart)}.`
+            : outcome === 'EXTEND_INTERNSHIP'
+              ? `The internship is extended to ${formatDate(newEnd)}.`
+              : 'Nothing changes automatically; start offboarding afterwards.';
+      if (!window.confirm(`Sign off this internship review? It becomes read-only. ${what}`)) return;
+    }
     if (view.status === 'FINAL_APPROVAL') {
       const what =
         decision === 'APPROVED'
@@ -333,7 +387,7 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
     if (!(await save())) return;
     try {
       await m.advance.mutateAsync();
-      toast.success(view.status === 'FINAL_APPROVAL' ? 'Signed off' : 'Moved to the next step');
+      toast.success(view.status === 'FINAL_APPROVAL' || (intern && view.status === 'HR_REVIEW') ? 'Signed off' : 'Moved to the next step');
     } catch {
       /* shown inline */
     }
@@ -348,7 +402,7 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Appraisal form - ${view.employee.fullName} - ${view.cycle.name}.pdf`;
+      a.download = `${intern ? 'Internship review' : 'Appraisal form'} - ${view.employee.fullName} - ${view.cycle.name}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -383,7 +437,7 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
             {view.cycle.name}
           </span>
         }
-        title={`Performance appraisal · ${view.cycle.name}`}
+        title={`${intern ? 'Internship review' : 'Performance appraisal'} · ${view.cycle.name}`}
         badge={
           <>
             <AppraisalStatusPill status={view.status} mode="FORM_100" />
@@ -396,7 +450,7 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
         actions={
           <HeaderActions>
             <Button icon={<Download size={13} />} loading={downloading} disabled={busy} onClick={onDownload}>
-              {signedOff ? 'Download form (PDF)' : 'Preview form (PDF)'}
+              {signedOff ? (intern ? 'Download review (PDF)' : 'Download form (PDF)') : intern ? 'Preview review (PDF)' : 'Preview form (PDF)'}
             </Button>
             {!signedOff && cycleOpen && (
               <>
@@ -409,7 +463,7 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
                   Save
                 </Button>
                 <Button variant="accent" icon={<Check size={13} />} loading={m.advance.isPending} disabled={busy || (!dirty && blockers.length > 0)} onClick={onAdvance}>
-                  {NEXT_LABEL[view.status]}
+                  {(intern ? INTERNSHIP_NEXT_LABEL : NEXT_LABEL)[view.status]}
                 </Button>
               </>
             )}
@@ -454,8 +508,14 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
             <Link to={`/people/${encodeURIComponent(view.employee.id)}/exit`}>Start offboarding</Link>
           </Callout>
         )}
+        {signedOff && intern && view.approvalDecision === 'APPROVED' && view.internshipOutcome === 'END_INTERNSHIP' && (
+          <Callout tone="warning" icon={<LogOut size={15} />}>
+            HR approved ending the internship. Nothing changes automatically.{' '}
+            <Link to={`/people/${encodeURIComponent(view.employee.id)}/exit`}>Start offboarding</Link>
+          </Callout>
+        )}
         {signedOff && view.approvalDecision === 'NOT_APPROVED' && (
-          <Callout tone="neutral">Not approved by the CTO/COO: signed off with no change to the employee’s record.</Callout>
+          <Callout tone="neutral">Not approved by {intern ? 'HR' : 'the CTO/COO'}: signed off with no change to the employee’s record.</Callout>
         )}
         {!signedOff && cycleOpen && !dirty && blockers.length > 0 && view.status !== 'SELF_REVIEW' && (
           <Callout tone="info">To move on: {blockers.join(' · ')}.</Callout>
@@ -531,6 +591,44 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
             </div>
           </Card>
 
+          {intern ? (
+            <Card title="Recommendation by supervisor" subtitle="Choose one. Applied to the employee’s record only if HR approves.">
+              <style>{CHOICE_CARD_CSS}</style>
+              <div role="radiogroup" aria-label="Recommendation" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 190px), 1fr))', gap: 8 }}>
+                {INTERNSHIP_OUTCOMES.map((o) => (
+                  <ChoiceCard
+                    key={o}
+                    name="internship-outcome"
+                    checked={outcome === o}
+                    title={INTERNSHIP_OUTCOME_LABEL[o]}
+                    hint={INTERNSHIP_OUTCOME_HINT[o]}
+                    disabled={!can('internshipOutcome') || busy}
+                    onSelect={() => setOutcome(o)}
+                  />
+                ))}
+              </div>
+              {outcome === 'MOVE_TO_PROBATION' && (
+                <div style={{ marginTop: 12, maxWidth: 220 }}>
+                  <Field label="Probation starts" required hint={view.dueDate ? `Default: the day after the due date (${formatDate(nextDay(view.dueDate))}).` : undefined}>
+                    <Input type="date" value={probStart} disabled={!can('proposedProbationStart') || busy} onChange={(e) => setProbStart(e.target.value)} />
+                  </Field>
+                </div>
+              )}
+              {outcome === 'EXTEND_INTERNSHIP' && view.internship && (
+                <div style={{ marginTop: 12, maxWidth: 220 }}>
+                  <Field label="New internship end" required hint={`Currently ends ${formatDate(view.internship.currentEndDate)}.`}>
+                    <Input
+                      type="date"
+                      min={nextDay(view.internship.currentEndDate)}
+                      value={newEnd}
+                      disabled={!can('proposedInternshipEnd') || busy}
+                      onChange={(e) => setNewEnd(e.target.value)}
+                    />
+                  </Field>
+                </div>
+              )}
+            </Card>
+          ) : (
           <Card title="Recommendations by supervisor / department head" subtitle="Applied to the employee’s record only if the CTO/COO approves.">
             <div role="group" aria-label="Recommendations" style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 12 }}>
               {ACTIONS.map((a) => (
@@ -580,6 +678,7 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
               </Field>
             </div>
           </Card>
+          )}
 
           <Card title="Comments">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -587,27 +686,29 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
                 <TextArea value={text.selfComment} disabled={!can('selfComment') || busy} onChange={setT('selfComment')} maxLength={5000} />
               </Field>
               <div>
-                <Field label="Supervisor’s comments" hint="Specifically mention salary raise and promotion, if any.">
+                <Field label="Supervisor’s comments" hint={intern ? undefined : 'Specifically mention salary raise and promotion, if any.'}>
                   <TextArea value={text.leadComment} disabled={!can('leadComment') || busy} onChange={setT('leadComment')} maxLength={5000} />
                 </Field>
                 <Signature view={view} step="LEAD_REVIEW" />
               </div>
-              <div>
-                <Field label="Department head comments">
-                  <TextArea value={text.deptHeadComment} disabled={!can('deptHeadComment') || busy} onChange={setT('deptHeadComment')} maxLength={5000} />
-                </Field>
-                <Signature view={view} step="DEPT_HEAD_REVIEW" />
-              </div>
+              {!intern && (
+                <div>
+                  <Field label="Department head comments">
+                    <TextArea value={text.deptHeadComment} disabled={!can('deptHeadComment') || busy} onChange={setT('deptHeadComment')} maxLength={5000} />
+                  </Field>
+                  <Signature view={view} step="DEPT_HEAD_REVIEW" />
+                </div>
+              )}
               <div>
                 <Field label="HR department comments">
                   <TextArea value={text.hrComment} disabled={!can('hrComment') || busy} onChange={setT('hrComment')} maxLength={5000} />
                 </Field>
-                <Signature view={view} step="HR_REVIEW" />
+                {!intern && <Signature view={view} step="HR_REVIEW" />}
               </div>
             </div>
           </Card>
 
-          <Card title="Approval & comments by CTO/COO">
+          <Card title={intern ? 'HR decision' : 'Approval & comments by CTO/COO'}>
             <div role="radiogroup" aria-label="Approval decision" style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
               {(['APPROVED', 'NOT_APPROVED'] as ApprovalDecision[]).map((d) => (
                 <Button
@@ -624,7 +725,7 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
                 </Button>
               ))}
             </div>
-            {dated && (view.status === 'FINAL_APPROVAL' || signedOff) && (
+            {!intern && dated && (view.status === 'FINAL_APPROVAL' || signedOff) && (
               <div style={{ marginBottom: 14 }}>
                 <style>{CHOICE_CARD_CSS}</style>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>Effective from</div>
@@ -677,7 +778,7 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
             <Field label="Comments">
               <TextArea value={text.approvalComment} disabled={!can('approvalComment') || busy} onChange={setT('approvalComment')} maxLength={5000} />
             </Field>
-            <Signature view={view} step="FINAL_APPROVAL" />
+            <Signature view={view} step={intern ? 'HR_REVIEW' : 'FINAL_APPROVAL'} />
           </Card>
         </div>
 
@@ -698,7 +799,7 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
             )}
             <div style={{ fontSize: 12.5, color: 'var(--text-muted)', marginTop: 6 }}>
               {!signedOff && live.rated < keys.length && `${live.rated} of ${keys.length} criteria rated; the grade appears once all are rated.`}
-              {policy && (
+              {policy && !intern && (
                 <>
                   <div style={{ color: 'var(--text)', fontWeight: 500 }}>{policyLine(policy)}</div>
                   <div>{policy.proposal}.</div>
@@ -708,6 +809,7 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
             {dirty && !signedOff && <div style={{ fontSize: 11.5, color: 'var(--text-faint)', marginTop: 6 }}>Unsaved changes are included above; save to keep them.</div>}
           </Card>
 
+          {!intern && (
           <Card
             title="KPI score (reference)"
             subtitle="Not part of the 100 marks."
@@ -760,6 +862,7 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
               <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Computed from tracked work and attendance when the appraisal reaches the supervisor.</div>
             )}
           </Card>
+          )}
 
           <Card title="Previous appraisals">
             {view.previous.length === 0 ? (
@@ -777,7 +880,15 @@ export function Form100Appraisal({ view }: { view: AppraisalView }) {
                       <ScoreCell score={p.score} />
                     </span>
                     <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                      <OutcomeCell mode={p.scoringMode} recommendation={p.recommendation} actions={p.actions} decision={p.approvalDecision} designation={p.newDesignation} />
+                      <OutcomeCell
+                        mode={p.scoringMode}
+                        recommendation={p.recommendation}
+                        actions={p.actions}
+                        decision={p.approvalDecision}
+                        designation={p.newDesignation}
+                        internship={p.appraisalType === 'INTERNSHIP'}
+                        internshipOutcome={p.internshipOutcome}
+                      />
                     </span>
                   </Link>
                 ))}

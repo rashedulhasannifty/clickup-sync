@@ -17,6 +17,7 @@ import {
   formatMonth,
   formatShortDate,
   formatTenure,
+  lifecycleText,
 } from '../lib/people';
 import { PageHeader } from '../components/ui/PageHeader';
 import { QueryError } from '../components/ui/QueryError';
@@ -219,6 +220,7 @@ export function EmployeeDetailPage() {
   const e = summary.employee;
   // A former employee's record is read-only: the API refuses every write, so don't offer them.
   const readOnly = e.status === 'EXITED';
+  const lifecycle = lifecycleText(e);
   const sub = [e.designation, e.teamName, e.managerName ? `reports to ${e.managerName}` : null].filter(Boolean).join(' · ');
 
   return (
@@ -270,16 +272,17 @@ export function EmployeeDetailPage() {
             <Chip>
               Joined {formatDate(e.joinDate)} · {formatTenure(e.tenureMonths)}
             </Chip>
+            {lifecycle && <Chip>{lifecycle}</Chip>}
             {e.nextAppraisal && (
               <Chip
                 tone={e.nextAppraisal.overdue ? 'amber' : undefined}
-                title={`Reviews ${formatDate(e.nextAppraisal.periodStart)} – ${formatDate(e.nextAppraisal.periodEnd)}, counted from the join date`}
+                title={`Reviews ${formatDate(e.nextAppraisal.periodStart)} – ${formatDate(e.nextAppraisal.periodEnd)}, ${e.nextAppraisal.type === 'INTERNSHIP' ? 'due at the end of the internship' : 'counted from the probation start'}`}
               >
                 Next appraisal: {APPRAISAL_TYPE_PHRASE[e.nextAppraisal.type]} {e.nextAppraisal.overdue ? 'overdue since' : 'due'} {formatDate(e.nextAppraisal.dueDate)}
               </Chip>
             )}
             {e.exitDate && <Chip>Exit {formatDate(e.exitDate)}</Chip>}
-            {e.confirmationDate && <Chip>Confirmed {formatDate(e.confirmationDate)}</Chip>}
+            {e.confirmationDate && e.status !== 'ACTIVE' && <Chip>Confirmed {formatDate(e.confirmationDate)}</Chip>}
             {e.grade && <Chip>Grade {e.grade}</Chip>}
             {e.department && <Chip>{e.department}</Chip>}
             {e.employeeCode && <Chip>#{e.employeeCode}</Chip>}
@@ -402,6 +405,10 @@ export function EmployeeDetailPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '10px 18px' }}>
               {(
                 [
+                  [
+                    'Probation start',
+                    e.status === 'INTERN' ? `Not yet (intern until ${formatDate(e.internshipEndDate)})` : formatDate(e.probationStartDate ?? e.joinDate),
+                  ],
                   ['Concern name', e.concernName ?? '—'],
                   ['Academic qualification', e.academicQualification ?? '—'],
                   ['Experience before joining', monthsText(e.experienceBeforeJoiningMonths)],

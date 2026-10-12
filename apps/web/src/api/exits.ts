@@ -81,7 +81,7 @@ export type ExitView = {
     department: string | null;
     teamName: string | null;
     joinDate: string;
-    status: 'PROBATION' | 'ACTIVE' | 'NOTICE' | 'EXITED';
+    status: 'INTERN' | 'PROBATION' | 'ACTIVE' | 'NOTICE' | 'EXITED';
     hasLogin: boolean;
   };
   type: ExitTypeValue;

@@ -66,6 +66,8 @@ export function EmployeeAppraisalsTab({ employeeId }: { employeeId: string }) {
                       actions={r.actions}
                       decision={r.approvalDecision}
                       designation={r.newDesignation}
+                      internship={r.appraisalType === 'INTERNSHIP'}
+                      internshipOutcome={r.internshipOutcome}
                     />
                   </td>
                   <td style={td}>

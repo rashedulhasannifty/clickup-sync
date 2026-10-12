@@ -9,6 +9,7 @@ import type {
   AppraisalType,
   Competency,
   CycleStatus,
+  InternshipOutcome,
   FormGrade,
   GradePolicy,
   Recommendation,
@@ -30,9 +31,56 @@ export const FORM_STEPS: AppraisalStatus[] = [
   'SIGNED_OFF',
 ];
 
-export function stepsFor(mode: ScoringMode): AppraisalStatus[] {
+/** INTERNSHIP steps: supervisor, then HR comments and decides (mirrors the server). */
+export const INTERNSHIP_STEPS: AppraisalStatus[] = ['SELF_REVIEW', 'LEAD_REVIEW', 'HR_REVIEW', 'SIGNED_OFF'];
+
+/** The step sequence is a function of the cycle's scoring mode and type. */
+export function stepsFor(mode: ScoringMode, type?: AppraisalType): AppraisalStatus[] {
+  if (type === 'INTERNSHIP') return INTERNSHIP_STEPS;
   return mode === 'FORM_100' ? FORM_STEPS : STATUS_STEPS;
 }
+
+export const INTERNSHIP_OUTCOME_LABEL: Record<InternshipOutcome, string> = {
+  MOVE_TO_PROBATION: 'Move to probation',
+  EXTEND_INTERNSHIP: 'Extend internship',
+  END_INTERNSHIP: 'End internship',
+};
+
+export const INTERNSHIP_OUTCOMES: InternshipOutcome[] = ['MOVE_TO_PROBATION', 'EXTEND_INTERNSHIP', 'END_INTERNSHIP'];
+
+/** The internship review's six default criteria (mirrors INTERNSHIP_CRITERIA on the server). */
+export const INTERNSHIP_CRITERIA: Competency[] = [
+  {
+    key: 'learning_ability',
+    label: 'Learning ability',
+    description: 'Picks up new tools, concepts and feedback quickly and applies them without repeated instruction.',
+  },
+  {
+    key: 'job_knowledge',
+    label: 'Job knowledge',
+    description: 'Understands the tasks, tools and standards of the role well enough to work with growing independence.',
+  },
+  {
+    key: 'quality_of_work',
+    label: 'Quality of work',
+    description: 'Delivers work that is accurate, complete and needs little rework, within the agreed time.',
+  },
+  {
+    key: 'communication',
+    label: 'Communication',
+    description: 'Shares progress and problems clearly and on time, listens, and asks questions when something is unclear.',
+  },
+  {
+    key: 'attendance_discipline',
+    label: 'Attendance & discipline',
+    description: 'Is punctual and present, follows office rules and policies, and manages leave responsibly.',
+  },
+  {
+    key: 'attitude_teamwork',
+    label: 'Attitude & teamwork',
+    description: 'Shows a positive, respectful attitude, takes ownership and works well with colleagues.',
+  },
+];
 
 export const APPRAISAL_STATUS_LABEL: Record<AppraisalStatus, string> = {
   SELF_REVIEW: 'Self review',
@@ -75,6 +123,7 @@ export const APPRAISAL_TYPE_LABEL: Record<AppraisalType, string> = {
   HALF_YEARLY: 'Half yearly',
   CONFIRMATION: 'Confirmation',
   YEARLY: 'Yearly',
+  INTERNSHIP: 'Internship review',
 };
 
 export const SCORING_MODE_LABEL: Record<ScoringMode, string> = {
@@ -335,6 +384,7 @@ export const APPRAISAL_TYPE_PHRASE: Record<AppraisalType, string> = {
   HALF_YEARLY: 'Half-yearly',
   CONFIRMATION: 'Confirmation',
   YEARLY: 'Yearly',
+  INTERNSHIP: 'Internship review',
 };
 
 // --- Timing and the effective date (mirrors src/appraisals/appraisal-timing.ts) ---

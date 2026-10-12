@@ -5,6 +5,7 @@ import type {
   ApprovalDecision,
   CycleStatus,
   FormGrade,
+  InternshipOutcome,
   Recommendation,
   ScoreView,
   ScoringMode,
@@ -13,6 +14,7 @@ import {
   ACTION_LABEL,
   ACTIONS,
   CYCLE_STATUS_LABEL,
+  INTERNSHIP_OUTCOME_LABEL,
   RECOMMENDATION_LABEL,
   appraisalStatusTone,
   cycleStatusTone,
@@ -75,23 +77,42 @@ export function ActionsText({
   return (
     <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
       <span>{text || '—'}</span>
-      {decision && (
-        <Pill tone={decision === 'APPROVED' ? 'green' : 'red'} size="xs">
-          {decision === 'APPROVED' ? 'Approved' : 'Not approved'}
-        </Pill>
-      )}
+      {decision && <DecisionPill decision={decision} />}
     </span>
   );
 }
 
-/** The outcome column of a list: legacy recommendation or the form's recommendations. */
+function DecisionPill({ decision }: { decision: ApprovalDecision }) {
+  return (
+    <Pill tone={decision === 'APPROVED' ? 'green' : 'red'} size="xs">
+      {decision === 'APPROVED' ? 'Approved' : 'Not approved'}
+    </Pill>
+  );
+}
+
+/** An internship review's single recommendation, plus HR's decision once made. */
+export function InternshipOutcomeText({ outcome, decision }: { outcome: InternshipOutcome | null; decision?: ApprovalDecision | null }) {
+  if (!outcome && !decision) return <span style={{ color: 'var(--text-faint)' }}>—</span>;
+  return (
+    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+      <span>{outcome ? INTERNSHIP_OUTCOME_LABEL[outcome] : '—'}</span>
+      {decision && <DecisionPill decision={decision} />}
+    </span>
+  );
+}
+
+/** The outcome column of a list: legacy recommendation, the form's recommendations, or an internship review's one. */
 export function OutcomeCell(props: {
   mode: ScoringMode;
   recommendation: Recommendation | null;
   actions: AppraisalAction[];
   decision: ApprovalDecision | null;
   designation?: string | null;
+  /** Set (even to null) for an internship review. */
+  internshipOutcome?: InternshipOutcome | null;
+  internship?: boolean;
 }) {
+  if (props.internship) return <InternshipOutcomeText outcome={props.internshipOutcome ?? null} decision={props.decision} />;
   return props.mode === 'FORM_100' ? (
     <ActionsText actions={props.actions} decision={props.decision} designation={props.designation} />
   ) : (

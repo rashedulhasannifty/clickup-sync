@@ -23,6 +23,7 @@ import {
   dueWindowPresets,
   FORM_CRITERIA,
   FORM_RATINGS,
+  INTERNSHIP_CRITERIA,
   statusLabel,
   stepsFor,
   td,
@@ -64,11 +65,19 @@ function withKeys(list: Competency[]): Competency[] {
   });
 }
 
-const TYPE_CHOICES: { value: AppraisalType; hint: string; joinHint: string }[] = [
-  { value: 'HALF_YEARLY', hint: 'January–June or July–December', joinHint: 'Every 6 months from the join date' },
-  { value: 'YEARLY', hint: 'The full calendar year', joinHint: 'On each join anniversary' },
-  { value: 'CONFIRMATION', hint: 'At the end of probation', joinHint: '6 months after joining' },
+/** Most cycles are yearly. The internship review only exists counted from each intern's own dates. */
+const TYPE_CHOICES: { value: AppraisalType; hint: string; joinHint: string; joinOnly?: boolean }[] = [
+  { value: 'YEARLY', hint: 'The full calendar year', joinHint: 'Each year from the probation start date' },
+  { value: 'CONFIRMATION', hint: 'At the end of probation', joinHint: '6 months after probation starts' },
+  { value: 'INTERNSHIP', hint: 'At the end of the internship', joinHint: 'At the end of the internship', joinOnly: true },
+  { value: 'HALF_YEARLY', hint: 'January–June or July–December (less common)', joinHint: 'Every 6 months from the probation start (less common)' },
 ];
+
+/** The criteria a new cycle starts with: the internship review's, the company form's, or the legacy competencies. */
+function criteriaFor(mode: ScoringMode, type: AppraisalType): Competency[] {
+  if (mode !== 'FORM_100') return DEFAULT_COMPETENCIES;
+  return type === 'INTERNSHIP' ? INTERNSHIP_CRITERIA : FORM_CRITERIA;
+}
 
 /** The value after it has stopped changing for `ms`. */
 function useDebounced<T>(value: T, ms: number): T {
@@ -281,7 +290,7 @@ function monthsBetween(start: string, end: string): number | null {
 /** "Due 1–31 Oct 2026 · counted from join dates", or the calendar review period. */
 function cyclePeriodText(c: CycleView): string {
   return c.periodBasis === 'JOIN_DATE'
-    ? `Due ${dateRangeText(c.periodStart, c.periodEnd)} · counted from join dates`
+    ? `Due ${dateRangeText(c.periodStart, c.periodEnd)} · counted from each employee’s dates`
     : `${formatDate(c.periodStart)} – ${formatDate(c.periodEnd)}`;
 }
 
@@ -308,14 +317,15 @@ function CreateCycleModal({
   const [name, setName] = useState(windows[0].name);
   const [periodStart, setPeriodStart] = useState(windows[0].start);
   const [periodEnd, setPeriodEnd] = useState(windows[0].end);
-  const [type, setType] = useState<AppraisalType>(presetType ?? 'HALF_YEARLY');
+  const [type, setType] = useState<AppraisalType>(presetType ?? 'YEARLY');
   const [mode, setMode] = useState<ScoringMode>('FORM_100');
   const [kpiWeight, setKpiWeight] = useState('70');
-  const [competencies, setCompetencies] = useState<Competency[]>(FORM_CRITERIA.map((c) => ({ ...c })));
+  const [competencies, setCompetencies] = useState<Competency[]>(() => criteriaFor('FORM_100', presetType ?? 'YEARLY').map((c) => ({ ...c })));
   const [editing, setEditing] = useState<number | null>(null);
   const [formError, setFormError] = useState('');
   const form = mode === 'FORM_100';
-  const defaults = form ? FORM_CRITERIA : DEFAULT_COMPETENCIES;
+  const defaults = criteriaFor(mode, type);
+  const internship = type === 'INTERNSHIP';
   const changed = JSON.stringify(competencies.map((c) => [c.label, c.description ?? ''])) !== JSON.stringify(defaults.map((c) => [c.label, c.description ?? '']));
   const months = monthsBetween(periodStart, periodEnd);
   const byJoin = basis === 'JOIN_DATE';
@@ -328,7 +338,7 @@ function CreateCycleModal({
   function pick(p: (typeof presets)[number]) {
     setPreset(p.label);
     setName(p.name);
-    setType(p.type);
+    switchType(p.type);
     setPeriodStart(p.start);
     setPeriodEnd(p.end);
   }
@@ -348,12 +358,24 @@ function CreateCycleModal({
     else pick(presets[0]);
   }
 
+  /** Choosing a type swaps in its default criteria, like the scoring mode does. An internship review is on the form. */
+  function switchType(next: AppraisalType) {
+    if (next === type) return;
+    setType(next);
+    const nextMode: ScoringMode = next === 'INTERNSHIP' ? 'FORM_100' : mode;
+    if (nextMode !== mode) setMode(nextMode);
+    if ((next === 'INTERNSHIP') !== (type === 'INTERNSHIP') || nextMode !== mode) {
+      setEditing(null);
+      setCompetencies(criteriaFor(nextMode, next).map((c) => ({ ...c })));
+    }
+  }
+
   function switchMode(next: ScoringMode) {
     if (next === mode) return;
     setMode(next);
     setEditing(null);
     // Each mode starts from its own defaults; the criteria are editable from there.
-    setCompetencies((next === 'FORM_100' ? FORM_CRITERIA : DEFAULT_COMPETENCIES).map((c) => ({ ...c })));
+    setCompetencies(criteriaFor(next, type).map((c) => ({ ...c })));
   }
 
   const setAt = (i: number, patch: Partial<Competency>) => setCompetencies(competencies.map((x, j) => (j === i ? { ...x, ...patch } : x)));
@@ -442,8 +464,8 @@ function CreateCycleModal({
           <div style={sectionTitle}>How appraisals are counted</div>
           <div role="radiogroup" aria-label="How appraisals are counted" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 8 }}>
             <ChoiceCard
-              name="cycle-basis" checked={byJoin} title="Counted from each employee’s join date" badge="Recommended"
-              hint="Everyone on their own schedule: confirmation 6 months after joining, then every 6 or 12 months. Each appraisal reviews the months before its due date."
+              name="cycle-basis" checked={byJoin} title="Counted from each employee’s own dates" badge="Recommended"
+              hint="Everyone on their own schedule: the internship review when an internship ends, confirmation 6 months after probation starts, then every year from the probation start. Each appraisal reviews the months before its due date."
               onSelect={() => switchBasis('JOIN_DATE')}
             />
             <ChoiceCard
@@ -497,12 +519,12 @@ function CreateCycleModal({
         <section>
           <div style={sectionTitle}>Appraisal type</div>
           <div role="radiogroup" aria-label="Appraisal type" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 190px), 1fr))', gap: 8 }}>
-            {TYPE_CHOICES.map((t) => (
+            {TYPE_CHOICES.filter((t) => byJoin || !t.joinOnly).map((t) => (
               <ChoiceCard
                 key={t.value} name="cycle-type" checked={type === t.value}
                 title={APPRAISAL_TYPE_LABEL[t.value]} hint={byJoin ? t.joinHint : t.hint}
                 // A calendar quick pick sets the type, so changing it there leaves the pick; a due window does not.
-                onSelect={() => { setType(t.value); if (!byJoin) setPreset(null); }}
+                onSelect={() => { switchType(t.value); if (!byJoin) setPreset(null); }}
               />
             ))}
           </div>
@@ -516,12 +538,19 @@ function CreateCycleModal({
               hint="Supervisor rates each criterion out of 10. Total out of 100 with grade A–F; KPIs shown alongside."
               onSelect={() => switchMode('FORM_100')}
             />
-            <ChoiceCard
-              name="cycle-mode" checked={!form} title="KPI blend"
-              hint="Older method: KPIs blended with 1–5 competency ratings into a score out of 5."
-              onSelect={() => switchMode('KPI_BLEND')}
-            />
+            {!internship && (
+              <ChoiceCard
+                name="cycle-mode" checked={!form} title="KPI blend"
+                hint="Older method: KPIs blended with 1–5 competency ratings into a score out of 5."
+                onSelect={() => switchMode('KPI_BLEND')}
+              />
+            )}
           </div>
+          {internship && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+              Internship reviews use the form: six criteria, a total out of 100 with a grade. No KPIs, increment or promotion.
+            </div>
+          )}
           {!form && (
             <div style={{ marginTop: 12, maxWidth: 260 }}>
               <Field label="KPI weight (%)" required hint={`KPIs ${kpiWeight || 0}%, competencies ${100 - (Number(kpiWeight) || 0)}%`}>
@@ -539,7 +568,7 @@ function CreateCycleModal({
             </div>
             {changed && (
               <Button type="button" size="sm" variant="ghost" onClick={() => { setCompetencies(defaults.map((c) => ({ ...c }))); setEditing(null); }}>
-                {form ? 'Restore company criteria' : 'Restore defaults'}
+                {internship ? 'Restore internship criteria' : form ? 'Restore company criteria' : 'Restore defaults'}
               </Button>
             )}
           </div>
@@ -653,7 +682,11 @@ function launchSummary(r: LaunchResult): string {
             ? `${n.employeeName} (exited)`
             : n.reason === 'ALREADY_APPRAISED'
               ? `${n.employeeName} (already appraised for ${n.dueDate ? formatDate(n.dueDate) : 'that due date'})`
-              : `${n.employeeName} (first due ${n.firstDueDate ? formatDate(n.firstDueDate) : 'later'})`,
+              : n.reason === 'NOT_AN_INTERN'
+                ? `${n.employeeName} (not an intern)`
+                : n.reason === 'STILL_INTERN'
+                  ? `${n.employeeName} (still an intern)`
+                  : `${n.employeeName} (first due ${n.firstDueDate ? formatDate(n.firstDueDate) : 'later'})`,
         )
         .join(', ')}`
     : '';
@@ -746,7 +779,14 @@ function JoinDateLaunchModal({ cycle, onClose }: { cycle: CycleView; onClose: ()
   }, [due.data]);
 
   const selected = existing.data ? selectedIds(due.data, selection, already) : [];
-  const others = (employees.data ?? []).filter((e) => e.status !== 'EXITED' && !listed.has(e.id) && !already.has(e.id));
+  // An internship review is for interns only, and an intern has no other review.
+  const others = (employees.data ?? []).filter(
+    (e) =>
+      e.status !== 'EXITED' &&
+      (cycle.type === 'INTERNSHIP') === (e.status === 'INTERN') &&
+      !listed.has(e.id) &&
+      !already.has(e.id),
+  );
   const options = others.map((e) => ({ value: e.id, label: `${e.fullName} · ${e.designation}` }));
   const ids = [...selected, ...extra];
 
@@ -765,7 +805,7 @@ function JoinDateLaunchModal({ cycle, onClose }: { cycle: CycleView; onClose: ()
     <Modal
       onClose={onClose}
       title={`Launch ${cycle.name}`}
-      subtitle={`${APPRAISAL_TYPE_LABEL[cycle.type]} appraisals due ${dateRangeText(cycle.periodStart, cycle.periodEnd)}, counted from each join date. Each starts at the self review.`}
+      subtitle={`${APPRAISAL_TYPE_LABEL[cycle.type]} appraisals due ${dateRangeText(cycle.periodStart, cycle.periodEnd)}, counted from each employee’s dates. Each starts at the self review.`}
       width={640}
       onSubmit={submit}
       footer={
@@ -850,7 +890,7 @@ function CycleDetail({ cycle }: { cycle: CycleView }) {
       )}
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-        {stepsFor(cycle.scoringMode).map((s) => (
+        {stepsFor(cycle.scoringMode, cycle.type).map((s) => (
           <div
             key={s}
             style={{ flex: '1 1 110px', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', background: 'var(--muted-bg)' }}
@@ -920,7 +960,14 @@ function CycleDetail({ cycle }: { cycle: CycleView }) {
                     <ScoreCell score={a.score} />
                   </td>
                   <td style={td}>
-                    <OutcomeCell mode={a.scoringMode} recommendation={a.recommendation} actions={a.actions} decision={a.approvalDecision} />
+                    <OutcomeCell
+                      mode={a.scoringMode}
+                      recommendation={a.recommendation}
+                      actions={a.actions}
+                      decision={a.approvalDecision}
+                      internship={cycle.type === 'INTERNSHIP'}
+                      internshipOutcome={a.internshipOutcome}
+                    />
                   </td>
                 </tr>
               ))}
@@ -934,7 +981,7 @@ function CycleDetail({ cycle }: { cycle: CycleView }) {
   );
 }
 
-const TYPE_ORDER: AppraisalType[] = ['CONFIRMATION', 'HALF_YEARLY', 'YEARLY'];
+const TYPE_ORDER: AppraisalType[] = ['INTERNSHIP', 'CONFIRMATION', 'HALF_YEARLY', 'YEARLY'];
 
 /**
  * Everyone overdue across all types (a missed due date with no appraisal), above the cycles.

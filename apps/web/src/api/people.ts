@@ -9,7 +9,9 @@ import { apiClient } from './client';
  * `{ [key: string]: unknown }` constraint.
  */
 
-export type EmployeeStatusValue = 'PROBATION' | 'ACTIVE' | 'NOTICE' | 'EXITED';
+export type EmployeeStatusValue = 'INTERN' | 'PROBATION' | 'ACTIVE' | 'NOTICE' | 'EXITED';
+/** What a new employee can start as; NOTICE and EXITED come from the offboarding flow. */
+export type StartingStatus = 'INTERN' | 'PROBATION' | 'ACTIVE';
 export type EmploymentEventTypeValue =
   | 'JOINED'
   | 'CONFIRMED'
@@ -20,7 +22,11 @@ export type EmploymentEventTypeValue =
   | 'EXITED'
   | 'NOTE'
   /** Written by an approved appraisal: from/to are the old/new gross salary (whole taka), notes the percent. */
-  | 'INCREMENT';
+  | 'INCREMENT'
+  /** An intern moved to probation: the effective date is the probation start. */
+  | 'PROBATION_STARTED'
+  /** from/to: the old/new internship end date (YYYY-MM-DD). */
+  | 'INTERNSHIP_EXTENDED';
 /**
  * `JOINED` is written by creating the employee; `NOTICE_GIVEN` and `EXITED` by the offboarding
  * flow; `INCREMENT` by an approved appraisal. None of them can be added by hand.
@@ -45,11 +51,11 @@ export type EmployeeLinks = {
 
 /** Mirrors `NextAppraisal` in `src/appraisals/appraisal-schedule.ts`. */
 export type NextAppraisal = {
-  type: 'HALF_YEARLY' | 'CONFIRMATION' | 'YEARLY';
+  type: 'HALF_YEARLY' | 'CONFIRMATION' | 'YEARLY' | 'INTERNSHIP';
   dueDate: string;
   periodStart: string;
   periodEnd: string;
-  /** The due date has passed (only a probation employee's confirmation can be). */
+  /** The due date has passed (only an intern's internship review or a probation employee's confirmation can be). */
   overdue: boolean;
 };
 
@@ -66,6 +72,10 @@ export type EmployeeProfile = {
   managerId: string | null;
   managerName: string | null;
   joinDate: string;
+  /** When probation started: the anchor of the confirmation and yearly schedule. Null for an intern. */
+  probationStartDate: string | null;
+  /** The expected internship end; never null for an intern (join + 3 months by default). */
+  internshipEndDate: string | null;
   confirmationDate: string | null;
   exitDate: string | null;
   status: EmployeeStatusValue;
@@ -83,7 +93,7 @@ export type EmployeeProfile = {
   startingSalary: number | null;
   /** Present gross salary, whole taka; an approved appraisal increment moves it. Sensitive. */
   grossSalary: number | null;
-  /** The next appraisal counted from the join date: the confirmation while on probation, else the earlier of the next half-yearly and yearly. Null once exited. */
+  /** The next appraisal, counted from the probation start: the internship review for an intern, the confirmation while on probation, else the earlier of the next half-yearly and yearly. Null once exited. */
   nextAppraisal: NextAppraisal | null;
   /** Earliest first: both the next half-yearly and the next yearly once confirmed. */
   upcomingAppraisals: NextAppraisal[];
@@ -269,6 +279,12 @@ export type CreateEmployeeBody = {
   teamId?: string;
   managerId?: string;
   joinDate: string;
+  /** Default PROBATION. */
+  status?: StartingStatus;
+  /** PROBATION/ACTIVE: default the join date. */
+  probationStartDate?: string;
+  /** INTERN: default join + 3 months. */
+  internshipEndDate?: string;
   clickupUserId?: string;
   concernName?: string;
   academicQualification?: string;
@@ -288,6 +304,10 @@ export type UpdateEmployeeBody = {
   teamId?: string | null;
   managerId?: string | null;
   joinDate?: string;
+  /** Not for an intern; null resets it to the join date. */
+  probationStartDate?: string | null;
+  /** Intern only; null resets it to join + 3 months. */
+  internshipEndDate?: string | null;
   clickupUserId?: string | null;
   concernName?: string | null;
   academicQualification?: string | null;
@@ -300,7 +320,7 @@ export type AddEventBody = {
   type: ManualEventType;
   effectiveDate: string;
   fromValue?: string;
-  /** New designation (PROMOTED, DESIGNATION_CHANGED) or team id (TRANSFERRED). */
+  /** New designation (PROMOTED, DESIGNATION_CHANGED), team id (TRANSFERRED) or the new internship end (INTERNSHIP_EXTENDED). */
   toValue?: string;
   notes?: string;
 };

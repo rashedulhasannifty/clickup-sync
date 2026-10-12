@@ -6,16 +6,22 @@ import { Input } from '../ui/Input';
 import { Select } from '../ui/Select';
 import { Button } from '../ui/Button';
 import type { AddEventBody, EmployeeProfile, ManualEventType } from '../../api/people';
-import { EVENT_EFFECT, EVENT_LABEL, MANUAL_EVENT_TYPES, dhakaToday } from '../../lib/people';
+import { EVENT_EFFECT, EVENT_LABEL, MANUAL_EVENT_TYPES, dhakaToday, eventAllowed, formatDate } from '../../lib/people';
 import type { PickOption } from './EmployeeFormModal';
 import { FormRow, TextArea } from './FormBits';
 
 const NEEDS_DESIGNATION: ManualEventType[] = ['PROMOTED', 'DESIGNATION_CHANGED'];
 
+/** The day after `ymd`. */
+const nextDay = (ymd: string) => new Date(Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +ymd.slice(8, 10) + 1)).toISOString().slice(0, 10);
+
 /**
  * Add an employment event. Mount only while open (state is seeded once).
  * A promotion or designation change asks for the new designation, and a
  * transfer for the destination team: those become the employee's new value.
+ * Only the events that fit the employee's stage are offered (the server checks
+ * the same): an intern can be moved to probation or have the internship
+ * extended, and is never confirmed directly.
  */
 export function AddEventModal({
   employee,
@@ -32,8 +38,12 @@ export function AddEventModal({
   onClose: () => void;
   onSubmit: (body: AddEventBody) => void;
 }) {
-  const [type, setType] = useState<ManualEventType>('PROMOTED');
-  const [effectiveDate, setEffectiveDate] = useState(dhakaToday());
+  const choices = MANUAL_EVENT_TYPES.filter((t) => eventAllowed(t, employee.status));
+  const intern = employee.status === 'INTERN';
+  const currentEnd = employee.internshipEndDate;
+  const [type, setType] = useState<ManualEventType>(intern ? 'PROBATION_STARTED' : 'PROMOTED');
+  const [effectiveDate, setEffectiveDate] = useState(intern && currentEnd ? nextDay(currentEnd) : dhakaToday());
+  const [newEnd, setNewEnd] = useState('');
   const [designation, setDesignation] = useState('');
   const [teamId, setTeamId] = useState('');
   const [notes, setNotes] = useState('');
@@ -41,6 +51,7 @@ export function AddEventModal({
 
   const needsDesignation = NEEDS_DESIGNATION.includes(type);
   const needsTeam = type === 'TRANSFERRED';
+  const needsEnd = type === 'INTERNSHIP_EXTENDED';
   // Moving someone to the team they are already on is a no-op the API would accept, so don't offer it.
   const teamChoices = teams.filter((t) => t.value !== employee.teamId);
 
@@ -48,11 +59,14 @@ export function AddEventModal({
     if (!effectiveDate) return setFormError('Set the effective date.');
     if (needsDesignation && !designation.trim()) return setFormError('Enter the new designation.');
     if (needsTeam && !teamId) return setFormError('Choose the team the employee moves to.');
+    if (needsEnd && !newEnd) return setFormError('Choose the new internship end date.');
+    if (needsEnd && currentEnd && newEnd <= currentEnd) return setFormError(`The new end must be after ${formatDate(currentEnd)}.`);
+    if (type === 'PROBATION_STARTED' && effectiveDate < employee.joinDate) return setFormError('Probation cannot start before the join date.');
     setFormError('');
     onSubmit({
       type,
       effectiveDate,
-      toValue: needsDesignation ? designation.trim() : needsTeam ? teamId : undefined,
+      toValue: needsDesignation ? designation.trim() : needsTeam ? teamId : needsEnd ? newEnd : undefined,
       notes: notes.trim() || undefined,
     });
   }
@@ -87,15 +101,19 @@ export function AddEventModal({
           <Field label="Event" required hint={EVENT_EFFECT[type]}>
             <Select
               fullWidth
-              options={MANUAL_EVENT_TYPES.map((t) => ({ value: t, label: EVENT_LABEL[t] }))}
+              options={choices.map((t) => ({ value: t, label: EVENT_LABEL[t] }))}
               value={type}
               onChange={(x) => {
-                setType(x as ManualEventType);
+                const next = x as ManualEventType;
+                setType(next);
+                // Moving to probation defaults to the day after the internship ends.
+                if (next === 'PROBATION_STARTED' && currentEnd) setEffectiveDate(nextDay(currentEnd));
+                else if (type === 'PROBATION_STARTED') setEffectiveDate(dhakaToday());
                 setFormError('');
               }}
             />
           </Field>
-          <Field label="Effective date" required>
+          <Field label={type === 'PROBATION_STARTED' ? 'Probation starts' : 'Effective date'} required>
             <Input type="date" value={effectiveDate} onChange={(e) => setEffectiveDate(e.target.value)} />
           </Field>
         </FormRow>
@@ -112,6 +130,11 @@ export function AddEventModal({
               maxLength={200}
               placeholder="e.g. Senior Developer"
             />
+          </Field>
+        )}
+        {needsEnd && (
+          <Field label="New internship end" required hint={currentEnd ? `Currently ends ${formatDate(currentEnd)}. A new internship review falls due on the new date.` : undefined}>
+            <Input type="date" min={currentEnd ? nextDay(currentEnd) : undefined} value={newEnd} onChange={(e) => setNewEnd(e.target.value)} />
           </Field>
         )}
         {needsTeam && (

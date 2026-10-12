@@ -19,7 +19,9 @@ export type AppraisalStatus =
   | 'FINAL_APPROVAL'
   | 'SIGNED_OFF';
 export type Recommendation = 'PROMOTE' | 'RAISE' | 'NO_CHANGE' | 'IMPROVEMENT_PLAN';
-export type AppraisalType = 'HALF_YEARLY' | 'CONFIRMATION' | 'YEARLY';
+export type AppraisalType = 'HALF_YEARLY' | 'CONFIRMATION' | 'YEARLY' | 'INTERNSHIP';
+/** An internship review's single recommendation. */
+export type InternshipOutcome = 'MOVE_TO_PROBATION' | 'EXTEND_INTERNSHIP' | 'END_INTERNSHIP';
 export type ScoringMode = 'KPI_BLEND' | 'FORM_100';
 /** CALENDAR: the cycle's period is everyone's review period. JOIN_DATE: counted from each join date; the cycle's period is "due between". */
 export type PeriodBasis = 'CALENDAR' | 'JOIN_DATE';
@@ -116,7 +118,8 @@ export type LaunchNotDue = {
   employeeId: string;
   employeeName: string;
   /** ALREADY_APPRAISED: the due date the pick resolved to already has an appraisal (any cycle). */
-  reason: 'NOT_YET_DUE' | 'EXITED' | 'ALREADY_APPRAISED';
+  /** NOT_AN_INTERN: picked for an internship review. STILL_INTERN: an intern picked for another review. */
+  reason: 'NOT_YET_DUE' | 'EXITED' | 'ALREADY_APPRAISED' | 'NOT_AN_INTERN' | 'STILL_INTERN';
   /** NOT_YET_DUE: when the first appraisal of the cycle's type falls due. */
   firstDueDate: string | null;
   /** ALREADY_APPRAISED: the covered due date. */
@@ -131,7 +134,7 @@ export type DueEmployee = {
   fullName: string;
   designation: string;
   teamName: string | null;
-  status: 'PROBATION' | 'ACTIVE' | 'NOTICE' | 'EXITED';
+  status: 'INTERN' | 'PROBATION' | 'ACTIVE' | 'NOTICE' | 'EXITED';
   joinDate: string;
   type: AppraisalType;
   dueDate: string;
@@ -196,6 +199,7 @@ export type AppraisalListRow = {
   score: ScoreView;
   recommendation: Recommendation | null;
   actions: AppraisalAction[];
+  internshipOutcome: InternshipOutcome | null;
   approvalDecision: ApprovalDecision | null;
   signedOffAt: string | null;
   timing: AppraisalTiming | null;
@@ -216,6 +220,7 @@ export type EmployeeAppraisalRow = {
   score: ScoreView;
   recommendation: Recommendation | null;
   actions: AppraisalAction[];
+  internshipOutcome: InternshipOutcome | null;
   approvalDecision: ApprovalDecision | null;
   newDesignation: string | null;
   signedOffAt: string | null;
@@ -245,7 +250,10 @@ export type EditableField =
   | 'periodStart'
   | 'periodEnd'
   | 'effectiveDateMode'
-  | 'effectiveDate';
+  | 'effectiveDate'
+  | 'internshipOutcome'
+  | 'proposedProbationStart'
+  | 'proposedInternshipEnd';
 
 export type AppraisalView = {
   id: string;
@@ -284,6 +292,12 @@ export type AppraisalView = {
   hrComment: string | null;
   approvalDecision: ApprovalDecision | null;
   approvalComment: string | null;
+  /** INTERNSHIP cycles: the single recommendation and its date. */
+  internshipOutcome: InternshipOutcome | null;
+  proposedProbationStart: string | null;
+  proposedInternshipEnd: string | null;
+  /** INTERNSHIP cycles: what the recommendation is checked against. */
+  internship: { currentEndDate: string; defaultProbationStart: string; isIntern: boolean } | null;
   formHeader: FormHeader | null;
   /** This mode's step sequence with who/when once completed. */
   steps: StepRecord[];
@@ -346,6 +360,9 @@ export type UpdateAppraisalBody = {
   approvalComment?: string | null;
   effectiveDateMode?: EffectiveDateMode | null;
   effectiveDate?: string | null;
+  internshipOutcome?: InternshipOutcome | null;
+  proposedProbationStart?: string | null;
+  proposedInternshipEnd?: string | null;
   dueDate?: string;
   periodStart?: string;
   periodEnd?: string;

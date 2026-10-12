@@ -1,6 +1,7 @@
 import type {
   AttendanceDayState,
   Band,
+  EmployeeProfile,
   EmployeeStatusValue,
   EmploymentEventTypeValue,
   KpiResult,
@@ -137,6 +138,7 @@ export function bandColor(band: Band): string {
 }
 
 export const STATUS_LABEL: Record<EmployeeStatusValue, string> = {
+  INTERN: 'Intern',
   PROBATION: 'Probation',
   ACTIVE: 'Active',
   NOTICE: 'Notice period',
@@ -147,6 +149,7 @@ export function statusTone(s: EmployeeStatusValue): PillTone {
   switch (s) {
     case 'ACTIVE': return 'green';
     case 'PROBATION': return 'blue';
+    case 'INTERN': return 'purple';
     case 'NOTICE': return 'amber';
     default: return 'gray';
   }
@@ -212,10 +215,14 @@ export const EVENT_LABEL: Record<EmploymentEventTypeValue, string> = {
   EXITED: 'Exited',
   NOTE: 'Note',
   INCREMENT: 'Salary increment',
+  PROBATION_STARTED: 'Moved to probation',
+  INTERNSHIP_EXTENDED: 'Internship extended',
 };
 
 /** Order shown in the "Add event" picker. `JOINED`, `NOTICE_GIVEN` and `EXITED` are not hand-addable. */
 export const MANUAL_EVENT_TYPES: ManualEventType[] = [
+  'PROBATION_STARTED',
+  'INTERNSHIP_EXTENDED',
   'CONFIRMED',
   'PROMOTED',
   'DESIGNATION_CHANGED',
@@ -260,6 +267,10 @@ export function eventTitle(e: {
       return e.toLabel ? `Moved to ${e.toLabel}` : 'Transferred';
     case 'JOINED':
       return e.toLabel ? `Joined as ${e.toLabel}` : 'Joined';
+    case 'INTERNSHIP_EXTENDED':
+      return e.toLabel && /^\d{4}-\d{2}-\d{2}$/.test(e.toLabel)
+        ? `Internship extended to ${formatDate(e.toLabel)}`
+        : 'Internship extended';
     case 'INCREMENT':
       return e.fromLabel && e.toLabel
         ? `Salary increment: BDT ${Number(e.fromLabel).toLocaleString('en-US')} → ${Number(e.toLabel).toLocaleString('en-US')}`
@@ -276,4 +287,42 @@ export const EVENT_EFFECT: Record<ManualEventType, string> = {
   DESIGNATION_CHANGED: 'Changes the employee’s designation.',
   TRANSFERRED: 'Moves the employee to another team.',
   NOTE: 'Adds a note to the timeline. Nothing else changes.',
+  PROBATION_STARTED:
+    'Moves the intern to Probation from this date. The confirmation falls due 6 months later, and yearly appraisals count from it.',
+  INTERNSHIP_EXTENDED: 'Moves the internship end. A new internship review falls due on the new date.',
 };
+
+/**
+ * Which hand-added events make sense for an employee's status (the server enforces the same):
+ * the two internship events only for an intern, and an intern is never confirmed directly.
+ */
+export function eventAllowed(type: ManualEventType, status: EmployeeStatusValue): boolean {
+  if (type === 'PROBATION_STARTED' || type === 'INTERNSHIP_EXTENDED') return status === 'INTERN';
+  if (type === 'CONFIRMED') return status !== 'INTERN';
+  return true;
+}
+
+/** Statuses counted as currently employed (headcount). */
+export const EMPLOYED_STATUSES: EmployeeStatusValue[] = ['INTERN', 'PROBATION', 'ACTIVE'];
+
+/**
+ * The lifecycle stage in one line: "Intern since 1 Jan 2026 · internship ends 31 Mar 2026",
+ * "Probation since 1 Apr 2026 · confirmation due 1 Oct 2026", "Permanent since 1 Oct 2026".
+ * Null on notice or exited (their own chips say so).
+ */
+export function lifecycleText(
+  e: Pick<EmployeeProfile, 'status' | 'joinDate' | 'probationStartDate' | 'internshipEndDate' | 'confirmationDate' | 'upcomingAppraisals'>,
+): string | null {
+  switch (e.status) {
+    case 'INTERN':
+      return `Intern since ${formatDate(e.joinDate)}${e.internshipEndDate ? ` · internship ends ${formatDate(e.internshipEndDate)}` : ''}`;
+    case 'PROBATION': {
+      const confirmation = e.upcomingAppraisals.find((a) => a.type === 'CONFIRMATION');
+      return `Probation since ${formatDate(e.probationStartDate ?? e.joinDate)}${confirmation ? ` · confirmation due ${formatDate(confirmation.dueDate)}` : ''}`;
+    }
+    case 'ACTIVE':
+      return e.confirmationDate ? `Permanent since ${formatDate(e.confirmationDate)}` : 'Permanent';
+    default:
+      return null;
+  }
+}
