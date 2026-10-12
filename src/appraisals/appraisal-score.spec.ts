@@ -146,7 +146,10 @@ describe('status machine', () => {
 
 describe('editableFields', () => {
   it('gives each step its own fields', () => {
-    expect(editableFields('SELF_REVIEW')).toEqual(['selfRatings', 'selfComment']);
+    expect(editableFields('SELF_REVIEW')).toEqual([
+      'selfRatings',
+      'selfComment',
+    ]);
     expect(editableFields('LEAD_REVIEW')).toContain('leadRatings');
     expect(editableFields('LEAD_REVIEW')).not.toContain('calibratedScore');
     expect(editableFields('CALIBRATION')).toContain('calibratedScore');
@@ -325,7 +328,11 @@ describe('outcomePlan', () => {
   });
   it('NO_CHANGE and no recommendation write nothing', () => {
     expect(
-      outcomePlan({ ...base, recommendation: 'NO_CHANGE', newDesignation: null }),
+      outcomePlan({
+        ...base,
+        recommendation: 'NO_CHANGE',
+        newDesignation: null,
+      }),
     ).toBeNull();
     expect(
       outcomePlan({ ...base, recommendation: null, newDesignation: null }),
