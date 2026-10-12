@@ -13,8 +13,27 @@ import type {
  */
 
 export type AppraisalCycleStatusValue = 'DRAFT' | 'OPEN' | 'CLOSED';
-/** Which paper form a cycle is: Half Yearly, Confirmation or Yearly. */
-export type AppraisalTypeValue = 'HALF_YEARLY' | 'CONFIRMATION' | 'YEARLY';
+/**
+ * Which paper form a cycle is: Half Yearly, Confirmation, Yearly, or the
+ * internship review (0034: interns only, due at the internship end).
+ */
+export type AppraisalTypeValue =
+  | 'HALF_YEARLY'
+  | 'CONFIRMATION'
+  | 'YEARLY'
+  | 'INTERNSHIP';
+/** The types counted from the probation start date in fixed steps of months. */
+export type RegularAppraisalType = Exclude<AppraisalTypeValue, 'INTERNSHIP'>;
+/**
+ * An internship review's single recommendation (0034). MOVE_TO_PROBATION
+ * needs `proposedProbationStart`; EXTEND_INTERNSHIP needs
+ * `proposedInternshipEnd` (later than the current end); END_INTERNSHIP writes
+ * nothing (the page offers "Start offboarding").
+ */
+export type InternshipOutcomeValue =
+  | 'MOVE_TO_PROBATION'
+  | 'EXTEND_INTERNSHIP'
+  | 'END_INTERNSHIP';
 /**
  * How a cycle's period is read. `CALENDAR`: the cycle's period is everyone's
  * review period (cycles created before 0032). `JOIN_DATE`: appraisals are
@@ -34,6 +53,8 @@ export type ScoringModeValue = 'KPI_BLEND' | 'FORM_100';
  * KPI_BLEND: SELF_REVIEW -> LEAD_REVIEW -> CALIBRATION -> SIGNED_OFF.
  * FORM_100: SELF_REVIEW -> LEAD_REVIEW (supervisor) -> DEPT_HEAD_REVIEW ->
  * HR_REVIEW -> FINAL_APPROVAL (CTO/COO) -> SIGNED_OFF.
+ * INTERNSHIP (FORM_100): SELF_REVIEW -> LEAD_REVIEW (supervisor) -> HR_REVIEW
+ * (comment and the approval decision) -> SIGNED_OFF.
  */
 export type AppraisalStatusValue =
   | 'SELF_REVIEW'
@@ -202,10 +223,17 @@ export interface LaunchNotDue {
   employeeId: string;
   employeeName: string;
   /**
-   * NOT_YET_DUE: joined too recently. EXITED. ALREADY_APPRAISED: the due date
-   * the pick resolved to already has an appraisal (in any cycle).
+   * NOT_YET_DUE: joined (or started probation) too recently. EXITED.
+   * ALREADY_APPRAISED: the due date the pick resolved to already has an
+   * appraisal (in any cycle). NOT_AN_INTERN: picked for an internship review
+   * but not an intern. STILL_INTERN: an intern picked for any other review.
    */
-  reason: 'NOT_YET_DUE' | 'EXITED' | 'ALREADY_APPRAISED';
+  reason:
+    | 'NOT_YET_DUE'
+    | 'EXITED'
+    | 'ALREADY_APPRAISED'
+    | 'NOT_AN_INTERN'
+    | 'STILL_INTERN';
   /** NOT_YET_DUE: when the first appraisal of the cycle's type falls due. */
   firstDueDate: string | null;
   /** ALREADY_APPRAISED: the due date that is already covered. */
@@ -315,6 +343,8 @@ export interface AppraisalListRow {
   score: ScoreView;
   recommendation: AppraisalRecommendationValue | null;
   actions: AppraisalActionValue[];
+  /** INTERNSHIP cycles: the single recommendation. */
+  internshipOutcome: InternshipOutcomeValue | null;
   approvalDecision: ApprovalDecisionValue | null;
   signedOffAt: string | null;
   timing: AppraisalTiming | null;
@@ -337,6 +367,8 @@ export interface EmployeeAppraisalRow {
   score: ScoreView;
   recommendation: AppraisalRecommendationValue | null;
   actions: AppraisalActionValue[];
+  /** INTERNSHIP cycles: the single recommendation. */
+  internshipOutcome: InternshipOutcomeValue | null;
   approvalDecision: ApprovalDecisionValue | null;
   newDesignation: string | null;
   signedOffAt: string | null;
@@ -367,7 +399,10 @@ export type AppraisalEditableField =
   | 'periodStart'
   | 'periodEnd'
   | 'effectiveDateMode'
-  | 'effectiveDate';
+  | 'effectiveDate'
+  | 'internshipOutcome'
+  | 'proposedProbationStart'
+  | 'proposedInternshipEnd';
 
 /** Who completed a step and when (recorded as the appraisal leaves it). */
 export interface StepRecord {
@@ -416,6 +451,14 @@ export interface AppraisalView {
   hrComment: string | null;
   approvalDecision: ApprovalDecisionValue | null;
   approvalComment: string | null;
+  /** INTERNSHIP cycles: the single recommendation and its date. */
+  internshipOutcome: InternshipOutcomeValue | null;
+  /** MOVE_TO_PROBATION: the chosen probation start. */
+  proposedProbationStart: string | null;
+  /** EXTEND_INTERNSHIP: the new internship end. */
+  proposedInternshipEnd: string | null;
+  /** INTERNSHIP cycles: the facts the recommendation is checked against. Null for other types. */
+  internship: InternshipContext | null;
   formHeader: FormHeader | null;
   /** The step sequence for this cycle's scoring mode, each with who/when once completed. */
   steps: StepRecord[];
@@ -444,14 +487,29 @@ export interface AppraisalView {
   updatedAt: string;
 }
 
+/** What an internship review's recommendation is checked against. */
+export interface InternshipContext {
+  /** The employee's current expected internship end (join + 3 months when not stored). */
+  currentEndDate: string;
+  /** The probation start MOVE_TO_PROBATION defaults to: the day after the due date. */
+  defaultProbationStart: string;
+  /** The employee is still an INTERN (the outcome applies only then). */
+  isIntern: boolean;
+}
+
 /** What sign-off writes to the employment timeline for a recommendation. */
 export interface OutcomeEventPlan {
   type: Extract<
     EmploymentEventTypeValue,
-    'PROMOTED' | 'NOTE' | 'CONFIRMED' | 'INCREMENT'
+    | 'PROMOTED'
+    | 'NOTE'
+    | 'CONFIRMED'
+    | 'INCREMENT'
+    | 'PROBATION_STARTED'
+    | 'INTERNSHIP_EXTENDED'
   >;
   effectiveDate: string;
-  /** INCREMENT: the old gross salary. Otherwise left to the event's default. */
+  /** INCREMENT: the old gross salary; INTERNSHIP_EXTENDED: the old end date. Otherwise left to the event's default. */
   fromValue?: string | null;
   toValue: string | null;
   notes: string;

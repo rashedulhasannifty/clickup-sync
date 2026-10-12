@@ -39,6 +39,12 @@ export const EFFECTIVE_DATE_MODES = [
   'CUSTOM',
 ] as const;
 
+export const INTERNSHIP_OUTCOMES = [
+  'MOVE_TO_PROBATION',
+  'EXTEND_INTERNSHIP',
+  'END_INTERNSHIP',
+] as const;
+
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 const TEXT = 5000;
@@ -192,6 +198,44 @@ export class UpdateAppraisalDto {
   @Matches(DATE_ONLY, { message: 'effectiveDate must be a YYYY-MM-DD date' })
   @IsISO8601({ strict: true })
   effectiveDate?: string | null;
+
+  // --- INTERNSHIP reviews ---
+
+  @ApiPropertyOptional({
+    enum: INTERNSHIP_OUTCOMES,
+    nullable: true,
+    description:
+      'Internship reviews only, at LEAD_REVIEW: exactly one recommendation. Choosing MOVE_TO_PROBATION defaults proposedProbationStart to the day after the due date.',
+  })
+  @IsOptional()
+  @IsIn(INTERNSHIP_OUTCOMES)
+  internshipOutcome?: (typeof INTERNSHIP_OUTCOMES)[number] | null;
+
+  @ApiPropertyOptional({
+    example: '2026-04-01',
+    nullable: true,
+    description:
+      'MOVE_TO_PROBATION only: when probation starts (not before the join date).',
+  })
+  @IsOptional()
+  @Matches(DATE_ONLY, {
+    message: 'proposedProbationStart must be a YYYY-MM-DD date',
+  })
+  @IsISO8601({ strict: true })
+  proposedProbationStart?: string | null;
+
+  @ApiPropertyOptional({
+    example: '2026-05-31',
+    nullable: true,
+    description:
+      'EXTEND_INTERNSHIP only: the new internship end, later than the current one.',
+  })
+  @IsOptional()
+  @Matches(DATE_ONLY, {
+    message: 'proposedInternshipEnd must be a YYYY-MM-DD date',
+  })
+  @IsISO8601({ strict: true })
+  proposedInternshipEnd?: string | null;
 
   // --- the appraisal's own dates (any step before sign-off) ---
 

@@ -200,3 +200,9 @@ describe('clearanceItemsFor', () => {
     ]);
   });
 });
+
+describe('statusBeforeExit: interns (0034)', () => {
+  it('an intern goes back to being an intern', () => {
+    expect(statusBeforeExit('INTERN', null)).toBe('INTERN');
+  });
+});

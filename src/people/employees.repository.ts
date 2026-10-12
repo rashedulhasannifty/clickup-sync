@@ -10,6 +10,18 @@ import type {
 } from './people.types';
 
 /**
+ * The latest INTERNSHIP_EXTENDED event: its `fromValue` (the end date before
+ * the extension) is where the current internship term starts, for the
+ * internship review's period and "already reviewed" (0034).
+ */
+export const LATEST_EXTENSION = {
+  where: { type: 'INTERNSHIP_EXTENDED' },
+  select: { fromValue: true },
+  orderBy: [{ effectiveDate: 'desc' }, { id: 'desc' }],
+  take: 1,
+} satisfies Prisma.Employee$eventsArgs;
+
+/**
  * The relations every profile needs: team and manager names, and the
  * employee's appraisals as the schedule sees them (type, due date, reviewed
  * period end), so `nextAppraisal` can tell a missed due date from one that
@@ -25,6 +37,7 @@ const PROFILE_INCLUDE = {
       cycle: { select: { type: true, periodEnd: true } },
     },
   },
+  events: LATEST_EXTENSION,
 } satisfies Prisma.EmployeeInclude;
 
 export type EmployeeRow = Prisma.EmployeeGetPayload<{
@@ -52,6 +65,10 @@ export interface NewEmployee {
   /** `YYYY-MM-DD` */
   joinDate: string;
   status?: EmployeeStatusValue;
+  /** Default: the join date, except for an INTERN (null until probation starts). */
+  probationStartDate?: string | null;
+  /** INTERN: the expected internship end. */
+  internshipEndDate?: string | null;
   createdBy: string | null;
   concernName?: string | null;
   academicQualification?: string | null;
@@ -72,6 +89,8 @@ export interface EmployeeProfileUpdate {
   teamId?: string | null;
   managerId?: string | null;
   joinDate?: string;
+  probationStartDate?: string | null;
+  internshipEndDate?: string | null;
   concernName?: string | null;
   academicQualification?: string | null;
   experienceBeforeJoiningMonths?: number | null;
@@ -103,6 +122,12 @@ function patchData(patch: EmployeePatch): Prisma.EmployeeUncheckedUpdateInput {
     ...(patch.teamId ? { teamId: patch.teamId } : {}),
     ...(patch.grossSalary !== undefined
       ? { grossSalary: patch.grossSalary }
+      : {}),
+    ...(patch.probationStartDate
+      ? { probationStartDate: isoToDateColumn(patch.probationStartDate) }
+      : {}),
+    ...(patch.internshipEndDate
+      ? { internshipEndDate: isoToDateColumn(patch.internshipEndDate) }
       : {}),
   };
 }
@@ -195,6 +220,18 @@ export class EmployeesRepository {
         teamId: data.teamId,
         managerId: data.managerId,
         joinDate: isoToDateColumn(data.joinDate),
+        probationStartDate: ((): Date | null => {
+          const start =
+            data.probationStartDate !== undefined
+              ? data.probationStartDate
+              : data.status === 'INTERN'
+                ? null
+                : data.joinDate;
+          return start ? isoToDateColumn(start) : null;
+        })(),
+        internshipEndDate: data.internshipEndDate
+          ? isoToDateColumn(data.internshipEndDate)
+          : null,
         concernName: data.concernName ?? null,
         academicQualification: data.academicQualification ?? null,
         experienceBeforeJoiningMonths: data.experienceBeforeJoiningMonths ?? null,
@@ -215,12 +252,19 @@ export class EmployeesRepository {
   }
 
   update(id: string, data: EmployeeProfileUpdate): Promise<EmployeeRow> {
-    const { joinDate, ...rest } = data;
+    const { joinDate, probationStartDate, internshipEndDate, ...rest } = data;
+    const date = (v: string | null) => (v ? isoToDateColumn(v) : null);
     return this.prisma.employee.update({
       where: { id },
       data: {
         ...rest,
         ...(joinDate ? { joinDate: isoToDateColumn(joinDate) } : {}),
+        ...(probationStartDate !== undefined
+          ? { probationStartDate: date(probationStartDate) }
+          : {}),
+        ...(internshipEndDate !== undefined
+          ? { internshipEndDate: date(internshipEndDate) }
+          : {}),
       },
       include: PROFILE_INCLUDE,
     });

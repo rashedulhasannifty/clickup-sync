@@ -1,4 +1,6 @@
-import { dateColumnToIso, dhakaDateOf } from '../people/people-dates';
+import { scheduleFieldsOf } from '../people/employee-mapper';
+import { addDays, dateColumnToIso, dhakaDateOf } from '../people/people-dates';
+import { internshipDueDate } from './appraisal-schedule';
 import {
   appraisalTiming,
   effectiveDateError,
@@ -9,10 +11,13 @@ import {
   cleanRatings,
   computeScore,
   editableFields,
+  flowOf,
   formScore,
   gradePolicy,
+  internshipAdvanceBlockers,
   previousStatus,
   stepsFor,
+  type AppraisalFlow,
 } from './appraisal-score';
 import type { AppraisalRow, CycleRow } from './appraisals.repository';
 import type {
@@ -32,6 +37,8 @@ import type {
   EmployeeAppraisalRow,
   FormGrade,
   FormHeader,
+  InternshipContext,
+  InternshipOutcomeValue,
   KpiSnapshot,
   ScoreView,
   ScoringModeValue,
@@ -62,6 +69,30 @@ export function competenciesOf(
 
 export const modeOf = (row: { cycle: Pick<CycleRow, 'scoringMode'> }) =>
   row.cycle.scoringMode as ScoringModeValue;
+
+/** The workflow an appraisal follows: its cycle's type and scoring mode. */
+export const flowOfRow = (row: {
+  cycle: Pick<CycleRow, 'scoringMode' | 'type'>;
+}): AppraisalFlow => flowOf(modeOf(row), row.cycle.type);
+
+const dateOrNull = (d: Date | null | undefined) =>
+  d ? dateColumnToIso(d) : null;
+
+/** Internship reviews: what the recommendation is checked against. Null for other types. */
+export function internshipContextOf(
+  row: AppraisalRow,
+): InternshipContext | null {
+  if (row.cycle.type !== 'INTERNSHIP') return null;
+  const period = periodOf(row);
+  return {
+    currentEndDate: internshipDueDate(scheduleFieldsOf(row.employee)),
+    defaultProbationStart: addDays(
+      period.dueDate ?? addDays(period.periodEnd, 1),
+      1,
+    ),
+    isIntern: row.employee.status === 'INTERN',
+  };
+}
 
 export function emptyCounts(): CycleCounts {
   return {
@@ -261,6 +292,9 @@ export function scoreOf(row: AppraisalRow): ScoreView {
 const actionsOf = (row: AppraisalRow): AppraisalActionValue[] =>
   (row.actions ?? []) as AppraisalActionValue[];
 
+const internshipOutcomeOf = (row: AppraisalRow) =>
+  (row.internshipOutcome ?? null) as InternshipOutcomeValue | null;
+
 export function toListRow(
   row: AppraisalRow,
   today: string = dhakaDateOf(new Date()),
@@ -280,6 +314,7 @@ export function toListRow(
     score: scoreOf(row),
     recommendation: row.recommendation,
     actions: actionsOf(row),
+    internshipOutcome: internshipOutcomeOf(row),
     approvalDecision: row.approvalDecision,
     signedOffAt: row.signedOffAt?.toISOString() ?? null,
     timing: timingOf(row, today),
@@ -302,6 +337,7 @@ export function toEmployeeRow(
     score: scoreOf(row),
     recommendation: row.recommendation,
     actions: actionsOf(row),
+    internshipOutcome: internshipOutcomeOf(row),
     approvalDecision: row.approvalDecision,
     newDesignation: row.newDesignation,
     signedOffAt: row.signedOffAt?.toISOString() ?? null,
@@ -312,6 +348,21 @@ export function toEmployeeRow(
 export function blockersOf(row: AppraisalRow): string[] {
   const mode = modeOf(row);
   const keys = competenciesOf(row.cycle).map((c) => c.key);
+  const internship = internshipContextOf(row);
+  if (internship) {
+    // Checked against the employee as they stand now: their internship end may have moved.
+    return internshipAdvanceBlockers({
+      status: row.status,
+      leadRatings: cleanRatings(row.leadRatings, keys, mode),
+      competencyKeys: keys,
+      approvalDecision: row.approvalDecision,
+      outcome: internshipOutcomeOf(row),
+      probationStart: dateOrNull(row.proposedProbationStart),
+      newEndDate: dateOrNull(row.proposedInternshipEnd),
+      currentEndDate: internship.currentEndDate,
+      joinDate: dateColumnToIso(row.employee.joinDate),
+    });
+  }
   const out = advanceBlockers({
     mode,
     status: row.status,
@@ -353,7 +404,7 @@ export function stepRecords(
     byName: by ? (names.get(by) ?? null) : null,
     at: at?.toISOString() ?? null,
   });
-  return stepsFor(modeOf(row)).map((s) => {
+  return stepsFor(flowOfRow(row)).map((s) => {
     switch (s) {
       case 'LEAD_REVIEW':
         return rec(s, row.leadReviewBy, row.leadReviewAt);
@@ -390,6 +441,7 @@ export function toAppraisalView(
   today: string = dhakaDateOf(new Date()),
 ): AppraisalView {
   const mode = modeOf(row);
+  const flow = flowOfRow(row);
   const keys = competenciesOf(row.cycle).map((c) => c.key);
   const status: AppraisalStatusValue = row.status;
   // Mirrors the service's assertOpen: an exited employee's appraisal is as
@@ -429,22 +481,27 @@ export function toAppraisalView(
     hrComment: row.hrComment,
     approvalDecision: row.approvalDecision,
     approvalComment: row.approvalComment,
+    internshipOutcome: internshipOutcomeOf(row),
+    proposedProbationStart: dateOrNull(row.proposedProbationStart),
+    proposedInternshipEnd: dateOrNull(row.proposedInternshipEnd),
+    internship: internshipContextOf(row),
     formHeader: headerOf(row),
     steps: stepRecords(row, names),
     formDocumentId: row.formDocumentId,
     kpiSnapshot: snapshotOf(row),
     score: scoreOf(row),
     // A closed (or draft) cycle is read-only until it is reopened.
-    editableFields: open ? editableFields(status, mode) : [],
+    editableFields: open ? editableFields(status, flow) : [],
     advanceBlockers: open
       ? blockersOf(row)
       : [exited ? 'This employee has exited' : 'This cycle is not open'],
-    canSendBack: open && previousStatus(status, mode) !== null,
+    canSendBack: open && previousStatus(status, flow) !== null,
     signedOffAt: row.signedOffAt?.toISOString() ?? null,
     timing: timingOf(row, today),
     effectiveDateMode: effectiveModeOf(row),
     effectiveDate: storedEffectiveDate(row),
-    effective: modeOf(row) === 'FORM_100' ? effectiveOf(row, today) : null,
+    // The internship outcome is dated by its own choice (the probation start), not this.
+    effective: flow === 'FORM_100' ? effectiveOf(row, today) : null,
     outcomeApplied: row.outcomeAppliedAt !== null,
     previous,
     createdAt: row.createdAt.toISOString(),

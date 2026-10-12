@@ -13,6 +13,7 @@ import type {
   AppraisalView,
   EffectiveDateView,
   FormHeader,
+  InternshipOutcomeValue,
   StepRecord,
 } from './appraisals.types';
 
@@ -26,13 +27,26 @@ import type {
  * Bengali name renders; it throws if the font is missing rather than falling
  * back to Helvetica. What goes on the form is decided by the appraisal view;
  * this only draws it.
+ *
+ * An internship review (0034) is a short version in the same style: no
+ * salary or experience rows, no KPI reference or evaluation-metrics table,
+ * the single recommendation, and the supervisor's and HR's blocks with HR's
+ * decision.
  */
 
 const TYPE_LABEL: Record<AppraisalTypeValue, string> = {
   HALF_YEARLY: 'Half Yearly',
   CONFIRMATION: 'Confirmation',
   YEARLY: 'Yearly',
+  INTERNSHIP: 'Internship review',
 };
+
+export const INTERNSHIP_OUTCOME_LABEL: Record<InternshipOutcomeValue, string> =
+  {
+    MOVE_TO_PROBATION: 'Move to probation',
+    EXTEND_INTERNSHIP: 'Extend internship',
+    END_INTERNSHIP: 'End internship',
+  };
 
 export const ACTION_LABEL: Record<AppraisalActionValue, string> = {
   CONFIRM: 'Confirm',
@@ -125,7 +139,9 @@ export function arrearsLine(months: number): string | null {
 export function formPdfFileName(
   view: Pick<AppraisalView, 'employee' | 'cycle'>,
 ): string {
-  return `Appraisal form - ${view.employee.fullName} - ${view.cycle.name}.pdf`;
+  const kind =
+    view.cycle.type === 'INTERNSHIP' ? 'Internship review' : 'Appraisal form';
+  return `${kind} - ${view.employee.fullName} - ${view.cycle.name}.pdf`;
 }
 
 export interface FormPdfInput {
@@ -141,13 +157,17 @@ export function renderAppraisalFormPdf(input: FormPdfInput): Promise<Buffer> {
   const fonts = loadLetterFonts();
   const { view, header } = input;
   const signedOff = view.status === 'SIGNED_OFF';
+  const intern = view.cycle.type === 'INTERNSHIP';
+  const formTitle = intern
+    ? 'Internship Review'
+    : 'Performance Appraisal Form – Asst. Managers and above';
 
   return new Promise<Buffer>((resolve, reject) => {
     const doc = new PDFDocument({
       size: 'A4',
       margins: { top: MARGIN, bottom: MARGIN, left: MARGIN, right: MARGIN },
       info: {
-        Title: `Performance Appraisal Form – ${view.employee.fullName} – ${view.cycle.name}`,
+        Title: `${formTitle} – ${view.employee.fullName} – ${view.cycle.name}`,
         Author: header.companyName,
         Creator: header.companyName,
       },
@@ -284,7 +304,7 @@ export function renderAppraisalFormPdf(input: FormPdfInput): Promise<Buffer> {
       width,
       align: 'center',
     });
-    bold(12).text('Performance Appraisal Form – Asst. Managers and above', {
+    bold(12).text(formTitle, {
       width,
       align: 'center',
     });
@@ -311,37 +331,52 @@ export function renderAppraisalFormPdf(input: FormPdfInput): Promise<Buffer> {
     doc.y += 8;
 
     // ── Appraisal type ───────────────────────────────────────────────────────
-    regular(9.5).text('Appraisal type:', left, doc.y);
-    doc.y += 2;
-    checkRow(
-      (['HALF_YEARLY', 'CONFIRMATION', 'YEARLY'] as AppraisalTypeValue[]).map(
-        (t) => ({
-          label: TYPE_LABEL[t],
-          on: view.cycle.type === t,
-        }),
-      ),
-    );
+    if (!intern) {
+      regular(9.5).text('Appraisal type:', left, doc.y);
+      doc.y += 2;
+      checkRow(
+        (['HALF_YEARLY', 'CONFIRMATION', 'YEARLY'] as AppraisalTypeValue[]).map(
+          (t) => ({
+            label: TYPE_LABEL[t],
+            on: view.cycle.type === t,
+          }),
+        ),
+      );
+    }
 
     // ── Header ───────────────────────────────────────────────────────────────
     const half = width / 2;
     const labelW = 120;
-    const pairs: [string, string][] = [
+    const internPairs: [string, string][] = [
       ['Name', header.name],
       ['Concern name', header.concernName ?? '—'],
       ['Designation', header.designation],
       ['Department', header.department ?? '—'],
       ['Date of joining', dateText(header.joinDate)],
       ['Academic qualification', header.academicQualification ?? '—'],
-      [
-        `Experience in ${header.companyName || 'the company'}`,
-        monthsText(header.experienceInCompanyMonths),
-      ],
-      ['Total years of experience', monthsText(header.totalExperienceMonths)],
-      ['Starting salary', takaText(header.startingSalary)],
-      ['Present gross salary', takaText(header.grossSalary)],
-      ['Last year increment amount', takaText(header.lastIncrementAmount)],
-      ['Last promotion date', dateText(header.lastPromotionDate)],
     ];
+    const pairs: [string, string][] = intern
+      ? internPairs
+      : [
+          ['Name', header.name],
+          ['Concern name', header.concernName ?? '—'],
+          ['Designation', header.designation],
+          ['Department', header.department ?? '—'],
+          ['Date of joining', dateText(header.joinDate)],
+          ['Academic qualification', header.academicQualification ?? '—'],
+          [
+            `Experience in ${header.companyName || 'the company'}`,
+            monthsText(header.experienceInCompanyMonths),
+          ],
+          [
+            'Total years of experience',
+            monthsText(header.totalExperienceMonths),
+          ],
+          ['Starting salary', takaText(header.startingSalary)],
+          ['Present gross salary', takaText(header.grossSalary)],
+          ['Last year increment amount', takaText(header.lastIncrementAmount)],
+          ['Last promotion date', dateText(header.lastPromotionDate)],
+        ];
     for (let i = 0; i < pairs.length; i += 2) {
       const [a, b] = [pairs[i], pairs[i + 1]];
       row([
@@ -451,7 +486,7 @@ export function renderAppraisalFormPdf(input: FormPdfInput): Promise<Buffer> {
         );
       doc.fillColor('#000000');
     }
-    if (s.kpiReference !== null) {
+    if (!intern && s.kpiReference !== null) {
       regular(8)
         .fillColor(FAINT)
         .text(
@@ -461,6 +496,12 @@ export function renderAppraisalFormPdf(input: FormPdfInput): Promise<Buffer> {
           { width },
         );
       doc.fillColor('#000000');
+    }
+
+    if (intern) {
+      renderInternshipEnd();
+      doc.end();
+      return;
     }
 
     // ── Evaluation metrics ───────────────────────────────────────────────────
@@ -595,20 +636,72 @@ export function renderAppraisalFormPdf(input: FormPdfInput): Promise<Buffer> {
         .text(approval, left, doc.y + 2, { width, align: 'right' });
     }
 
-    // ── Footer ───────────────────────────────────────────────────────────────
-    ensure(24);
-    doc.y += 10;
-    regular(7.5)
-      .fillColor(FAINT)
-      .text(
-        signedOff
-          ? `Signed off ${dateText(view.signedOffAt)}. Generated ${dateText(input.generatedOn)}.`
-          : `Preview generated ${dateText(input.generatedOn)}; the appraisal is at ${view.status.replace(/_/g, ' ').toLowerCase()}.`,
-        left,
-        doc.y,
-        { width, align: 'center' },
-      );
-
+    footer();
     doc.end();
+
+    // ── Footer ───────────────────────────────────────────────────────────────
+    function footer() {
+      ensure(24);
+      doc.y += 10;
+      regular(7.5)
+        .fillColor(FAINT)
+        .text(
+          signedOff
+            ? `Signed off ${dateText(view.signedOffAt)}. Generated ${dateText(input.generatedOn)}.`
+            : `Preview generated ${dateText(input.generatedOn)}; the appraisal is at ${view.status.replace(/_/g, ' ').toLowerCase()}.`,
+          left,
+          doc.y,
+          { width, align: 'center' },
+        );
+    }
+
+    /** The internship review's recommendation, the two comment blocks and HR's decision. */
+    function renderInternshipEnd() {
+      sectionTitle('Recommendation by Supervisor');
+      checkRow(
+        (Object.keys(INTERNSHIP_OUTCOME_LABEL) as InternshipOutcomeValue[]).map(
+          (o) => ({
+            label: INTERNSHIP_OUTCOME_LABEL[o],
+            on: view.internshipOutcome === o,
+          }),
+        ),
+      );
+      const detail =
+        view.internshipOutcome === 'MOVE_TO_PROBATION'
+          ? `Probation starts: ${dateText(view.proposedProbationStart)}`
+          : view.internshipOutcome === 'EXTEND_INTERNSHIP'
+            ? `Internship extended to: ${dateText(view.proposedInternshipEnd)}${view.internship ? ` (currently ends ${dateText(view.internship.currentEndDate)})` : ''}`
+            : null;
+      if (detail) regular(9).text(detail, left, doc.y, { width });
+
+      commentBlock(
+        "Supervisor's comments",
+        view.leadComment,
+        signature('LEAD_REVIEW'),
+      );
+      commentBlock('HR department comments', view.hrComment);
+
+      ensure(80);
+      sectionTitle('HR decision');
+      checkRow([
+        { label: 'Approved', on: view.approvalDecision === 'APPROVED' },
+        {
+          label: 'NOT Approved',
+          on: view.approvalDecision === 'NOT_APPROVED',
+        },
+      ]);
+      if (view.approvalComment?.trim())
+        row([{ text: view.approvalComment.trim(), w: width, size: 9 }], {
+          minH: 24,
+          pad: 5,
+        });
+      const hr = signature('HR_REVIEW');
+      if (hr) {
+        regular(7.5)
+          .fillColor(FAINT)
+          .text(hr, left, doc.y + 2, { width, align: 'right' });
+      }
+      footer();
+    }
   });
 }

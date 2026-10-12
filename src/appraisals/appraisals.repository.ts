@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
+import { LATEST_EXTENSION } from '../people/employees.repository';
 import { isoToDateColumn } from '../people/people-dates';
 import type {
   AppraisalCycleStatusValue,
@@ -14,7 +15,9 @@ import type {
 
 const APPRAISAL_INCLUDE = {
   cycle: true,
-  employee: { include: { team: { select: { name: true } } } },
+  employee: {
+    include: { team: { select: { name: true } }, events: LATEST_EXTENSION },
+  },
   reviewer: { select: { id: true, fullName: true } },
 } satisfies Prisma.AppraisalInclude;
 
@@ -66,6 +69,9 @@ const CANDIDATE_SELECT = {
   status: true,
   joinDate: true,
   confirmationDate: true,
+  probationStartDate: true,
+  internshipEndDate: true,
+  events: LATEST_EXTENSION,
   team: { select: { name: true } },
 } satisfies Prisma.EmployeeSelect;
 

@@ -18,7 +18,12 @@ export type ExitTypeValue =
   | 'TERMINATION'
   | 'CONTRACT_END'
   | 'OTHER';
-export type EmployeeStatusName = 'PROBATION' | 'ACTIVE' | 'NOTICE' | 'EXITED';
+export type EmployeeStatusName =
+  | 'INTERN'
+  | 'PROBATION'
+  | 'ACTIVE'
+  | 'NOTICE'
+  | 'EXITED';
 
 export const EXIT_TYPES: readonly ExitTypeValue[] = [
   'RESIGNATION',
@@ -69,16 +74,20 @@ export function canDo(s: ExitStatusValue, action: ExitAction): boolean {
   }
 }
 
+/** The statuses a cancelled exit can put an employee back on. */
+export type RestorableStatus = 'INTERN' | 'PROBATION' | 'ACTIVE';
+
 /**
- * The employee status to restore if the exit is cancelled. An employee who was already on NOTICE
- * (a manual NOTICE_GIVEN event) has no earlier status recorded, so fall back to what their dates
- * imply: confirmed means ACTIVE, otherwise still on probation.
+ * The employee status to restore if the exit is cancelled: an intern stays an intern. An employee
+ * who was already on NOTICE (a manual NOTICE_GIVEN event) has no earlier status recorded, so fall
+ * back to what their dates imply: confirmed means ACTIVE, otherwise still on probation.
  */
 export function statusBeforeExit(
   current: EmployeeStatusName,
   confirmationDate: string | null,
-): 'PROBATION' | 'ACTIVE' {
-  if (current === 'PROBATION' || current === 'ACTIVE') return current;
+): RestorableStatus {
+  if (current === 'INTERN' || current === 'PROBATION' || current === 'ACTIVE')
+    return current;
   return confirmationDate ? 'ACTIVE' : 'PROBATION';
 }
 

@@ -43,6 +43,7 @@ export const APPRAISAL_TYPES = [
   'HALF_YEARLY',
   'CONFIRMATION',
   'YEARLY',
+  'INTERNSHIP',
 ] as const;
 export const SCORING_MODES = ['FORM_100', 'KPI_BLEND'] as const;
 export const PERIOD_BASES = ['JOIN_DATE', 'CALENDAR'] as const;
@@ -64,7 +65,12 @@ export class CreateCycleDto {
   @IsISO8601({ strict: true })
   periodEnd!: string;
 
-  @ApiPropertyOptional({ enum: APPRAISAL_TYPES, default: 'YEARLY' })
+  @ApiPropertyOptional({
+    enum: APPRAISAL_TYPES,
+    default: 'YEARLY',
+    description:
+      'INTERNSHIP: interns only, due at the internship end; needs scoringMode FORM_100 and periodBasis JOIN_DATE.',
+  })
   @IsOptional()
   @IsIn(APPRAISAL_TYPES)
   type?: (typeof APPRAISAL_TYPES)[number];
@@ -102,7 +108,7 @@ export class CreateCycleDto {
   @ApiPropertyOptional({
     type: [CompetencyDto],
     description:
-      'Default: the paper form 10 criteria (FORM_100) or the four legacy competencies (KPI_BLEND).',
+      'Default: the six internship criteria (INTERNSHIP), the paper form 10 criteria (FORM_100) or the four legacy competencies (KPI_BLEND).',
   })
   @IsOptional()
   @IsArray()

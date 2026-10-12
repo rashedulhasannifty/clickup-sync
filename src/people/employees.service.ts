@@ -9,8 +9,13 @@ import { AddEmploymentEventDto } from './dto/add-employment-event.dto';
 import { assertNotExited } from './employee-readonly';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
-import { toProfile } from './employee-mapper';
-import { EVENT_REQUIRES_TO_VALUE, eventEffects } from './employment-events';
+import { defaultInternshipEnd } from '../appraisals/appraisal-schedule';
+import { scheduleFieldsOf, toProfile } from './employee-mapper';
+import {
+  EVENT_REQUIRES_TO_VALUE,
+  eventEffects,
+  eventPreconditionError,
+} from './employment-events';
 import {
   EmployeesRepository,
   type EmployeeListFilter,
@@ -50,7 +55,13 @@ export interface ExitLifecycleEvent {
 
 /** What an approved appraisal may write to the timeline (see `recordAppraisalOutcome`). */
 export interface AppraisalOutcomeEvent {
-  type: 'CONFIRMED' | 'PROMOTED' | 'INCREMENT' | 'NOTE';
+  type:
+    | 'CONFIRMED'
+    | 'PROMOTED'
+    | 'INCREMENT'
+    | 'NOTE'
+    | 'PROBATION_STARTED'
+    | 'INTERNSHIP_EXTENDED';
   effectiveDate: string;
   /** Omitted: the event's default (the replaced designation for PROMOTED). */
   fromValue?: string | null;
@@ -62,6 +73,36 @@ const EXIT_LIFECYCLE_TYPES: ReadonlySet<string> = new Set([
   'NOTICE_GIVEN',
   'EXITED',
 ]);
+
+/** The employee's current expected internship end: stored, else join + 3 months. */
+const currentInternshipEnd = (row: EmployeeRow): string => {
+  const s = scheduleFieldsOf(row);
+  return s.internshipEndDate ?? defaultInternshipEnd(s.joinDate);
+};
+
+/**
+ * The lifecycle dates of a new or edited employee (0034), validated as a
+ * whole: an intern has an internship end after the join date and no
+ * probation start; anyone else has a probation start on or after the join
+ * date and no internship end of their own to set.
+ */
+function lifecycleError(a: {
+  status: string;
+  joinDate: string;
+  probationStartDate: string | null;
+  internshipEndDate: string | null;
+}): string | null {
+  if (a.status === 'INTERN') {
+    if (a.probationStartDate)
+      return 'An intern has no probation start date yet: record "Moved to probation" when it starts';
+    if (a.internshipEndDate !== null && a.internshipEndDate <= a.joinDate)
+      return 'The internship end must be after the join date';
+    return null;
+  }
+  if (a.probationStartDate !== null && a.probationStartDate < a.joinDate)
+    return 'Probation cannot start before the join date';
+  return null;
+}
 
 /** A machine credential is not a user row; never store its synthetic id as an actor. */
 const actorId = (p: AuthPrincipal): string | null =>
@@ -93,6 +134,22 @@ export class EmployeesService {
   ): Promise<EmployeeProfile> {
     const orgId = principal.orgId;
     const email = normaliseEmail(dto.email);
+    const status = dto.status ?? 'PROBATION';
+    if (status !== 'INTERN' && dto.internshipEndDate)
+      throw new BadRequestException(
+        'internshipEndDate is only for an INTERN',
+      );
+    const internshipEndDate =
+      status === 'INTERN'
+        ? (dto.internshipEndDate ?? defaultInternshipEnd(dto.joinDate))
+        : null;
+    const lifecycle = lifecycleError({
+      status,
+      joinDate: dto.joinDate,
+      probationStartDate: dto.probationStartDate ?? null,
+      internshipEndDate,
+    });
+    if (lifecycle) throw new BadRequestException(lifecycle);
     if (dto.teamId) await this.requireTeam(orgId, dto.teamId);
     if (dto.managerId) await this.requireManager(orgId, dto.managerId, null);
 
@@ -114,6 +171,12 @@ export class EmployeesService {
         teamId: dto.teamId ?? null,
         managerId: dto.managerId ?? null,
         joinDate: dto.joinDate,
+        status,
+        // Defaults to the join date in the repository (null for an intern).
+        ...(dto.probationStartDate
+          ? { probationStartDate: dto.probationStartDate }
+          : {}),
+        internshipEndDate,
         createdBy: actorId(principal),
         concernName: dto.concernName?.trim() || null,
         academicQualification: dto.academicQualification?.trim() || null,
@@ -145,6 +208,7 @@ export class EmployeesService {
       data.department = dto.department?.trim() || null;
     if (dto.clickupUserId !== undefined) data.clickupUserId = dto.clickupUserId;
     if (dto.joinDate !== undefined) data.joinDate = dto.joinDate;
+    Object.assign(data, this.lifecycleUpdate(current, dto));
     if (dto.concernName !== undefined)
       data.concernName = dto.concernName?.trim() || null;
     if (dto.academicQualification !== undefined)
@@ -191,6 +255,60 @@ export class EmployeesService {
     } catch (e) {
       throw this.translate(e);
     }
+  }
+
+  /**
+   * The lifecycle date changes of an edit (0034). An intern's internship end
+   * and anyone else's probation start may be corrected; the other one is
+   * refused. A probation start that equalled the join date (the default)
+   * moves with a corrected join date, so fixing a join date still moves the
+   * schedule the way it did before 0034.
+   */
+  private lifecycleUpdate(
+    current: EmployeeRow,
+    dto: UpdateEmployeeDto,
+  ): Pick<EmployeeProfileUpdate, 'probationStartDate' | 'internshipEndDate'> {
+    const s = scheduleFieldsOf(current);
+    const intern = current.status === 'INTERN';
+    if (intern && dto.probationStartDate !== undefined)
+      throw new BadRequestException(
+        'An intern has no probation start date yet: record "Moved to probation" when it starts',
+      );
+    if (!intern && dto.internshipEndDate !== undefined)
+      throw new BadRequestException('internshipEndDate is only for an INTERN');
+    const joinDate = dto.joinDate ?? s.joinDate;
+    const out: Pick<
+      EmployeeProfileUpdate,
+      'probationStartDate' | 'internshipEndDate'
+    > = {};
+    let probationStartDate = s.probationStartDate ?? null;
+    if (dto.probationStartDate !== undefined) {
+      probationStartDate = dto.probationStartDate ?? joinDate;
+      out.probationStartDate = probationStartDate;
+    } else if (
+      !intern &&
+      dto.joinDate !== undefined &&
+      (probationStartDate === null || probationStartDate === s.joinDate)
+    ) {
+      probationStartDate = dto.joinDate;
+      out.probationStartDate = probationStartDate;
+    }
+    let internshipEndDate = intern
+      ? (s.internshipEndDate ?? defaultInternshipEnd(joinDate))
+      : null;
+    if (dto.internshipEndDate !== undefined) {
+      internshipEndDate =
+        dto.internshipEndDate ?? defaultInternshipEnd(joinDate);
+      out.internshipEndDate = internshipEndDate;
+    }
+    const error = lifecycleError({
+      status: current.status,
+      joinDate,
+      probationStartDate: intern ? null : probationStartDate,
+      internshipEndDate,
+    });
+    if (error) throw new BadRequestException(error);
+    return out;
   }
 
   async listEvents(orgId: string, id: string): Promise<EmploymentEventView[]> {
@@ -246,9 +364,18 @@ export class EmployeesService {
     const toValue = dto.toValue?.trim() || null;
     if (EVENT_REQUIRES_TO_VALUE.has(type) && !toValue) {
       throw new BadRequestException(
-        `${type} needs a toValue (${type === 'TRANSFERRED' ? 'the team id' : 'the new designation'})`,
+        `${type} needs a toValue (${type === 'TRANSFERRED' ? 'the team id' : type === 'INTERNSHIP_EXTENDED' ? 'the new internship end date' : 'the new designation'})`,
       );
     }
+    const precondition = eventPreconditionError({
+      type,
+      effectiveDate: dto.effectiveDate,
+      toValue,
+      status: employee.status,
+      joinDate: dateColumnToIso(employee.joinDate),
+      internshipEndDate: currentInternshipEnd(employee),
+    });
+    if (precondition) throw new BadRequestException(precondition);
 
     // TRANSFERRED carries a team id; if it does not resolve to a team in this org
     // the event is still recorded (history is not lost) but the employee keeps their team.
@@ -273,7 +400,11 @@ export class EmployeesService {
       employeeId: id,
       type,
       effectiveDate: dto.effectiveDate,
-      fromValue: dto.fromValue?.trim() || defaultFrom,
+      // The old end date is where the next internship term starts: never typed.
+      fromValue:
+        type === 'INTERNSHIP_EXTENDED'
+          ? currentInternshipEnd(employee)
+          : dto.fromValue?.trim() || defaultFrom,
       toValue,
       notes: dto.notes?.trim() || null,
       createdBy: actorId(principal),
@@ -301,6 +432,15 @@ export class EmployeesService {
       const toValue = e.toValue?.trim() || null;
       if (EVENT_REQUIRES_TO_VALUE.has(e.type) && !toValue)
         throw new BadRequestException(`${e.type} needs a toValue`);
+      const precondition = eventPreconditionError({
+        type: e.type,
+        effectiveDate: e.effectiveDate,
+        toValue,
+        status: employee.status,
+        joinDate: dateColumnToIso(employee.joinDate),
+        internshipEndDate: currentInternshipEnd(employee),
+      });
+      if (precondition) throw new BadRequestException(precondition);
       const patch = eventEffects({
         type: e.type,
         effectiveDate: e.effectiveDate,
@@ -327,13 +467,14 @@ export class EmployeesService {
   }
 
   /**
-   * Puts an employee back on PROBATION/ACTIVE with a NOTE event in the same transaction. Used when
-   * an offboarding is cancelled: no event type restores a status, and NOTE alone changes nothing.
+   * Puts an employee back on INTERN/PROBATION/ACTIVE with a NOTE event in the same transaction.
+   * Used when an offboarding is cancelled: no event type restores a status, and NOTE alone changes
+   * nothing.
    */
   async restoreStatus(
     principal: AuthPrincipal,
     id: string,
-    status: 'PROBATION' | 'ACTIVE',
+    status: 'INTERN' | 'PROBATION' | 'ACTIVE',
     notes: string,
   ): Promise<void> {
     const employee = await this.require(principal.orgId, id);

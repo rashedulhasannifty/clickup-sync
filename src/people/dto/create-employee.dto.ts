@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsEmail,
+  IsIn,
   IsInt,
   IsISO8601,
   IsNotEmpty,
@@ -13,6 +14,9 @@ import {
 } from 'class-validator';
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The statuses an employee can start in; NOTICE and EXITED come from the offboarding flow. */
+export const STARTING_STATUSES = ['INTERN', 'PROBATION', 'ACTIVE'] as const;
 
 export class CreateEmployeeDto {
   @ApiProperty() @IsString() @IsNotEmpty() @MaxLength(200) fullName!: string;
@@ -49,6 +53,40 @@ export class CreateEmployeeDto {
   @Matches(DATE_ONLY, { message: 'joinDate must be a YYYY-MM-DD date' })
   @IsISO8601({ strict: true })
   joinDate!: string;
+
+  @ApiPropertyOptional({
+    enum: STARTING_STATUSES,
+    default: 'PROBATION',
+    description:
+      'INTERN: before probation, only the internship review applies. Later moves go through employment events.',
+  })
+  @IsOptional()
+  @IsIn(STARTING_STATUSES)
+  status?: (typeof STARTING_STATUSES)[number];
+
+  @ApiPropertyOptional({
+    example: '2026-01-15',
+    description:
+      'PROBATION/ACTIVE: when probation started, the anchor of the confirmation and yearly schedule. Default: the join date. Not for an INTERN.',
+  })
+  @IsOptional()
+  @Matches(DATE_ONLY, {
+    message: 'probationStartDate must be a YYYY-MM-DD date',
+  })
+  @IsISO8601({ strict: true })
+  probationStartDate?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-04-15',
+    description:
+      'INTERN only: the expected internship end (when the internship review falls due). Default: join + 3 months; must be after the join date.',
+  })
+  @IsOptional()
+  @Matches(DATE_ONLY, {
+    message: 'internshipEndDate must be a YYYY-MM-DD date',
+  })
+  @IsISO8601({ strict: true })
+  internshipEndDate?: string;
 
   @ApiPropertyOptional({
     description:

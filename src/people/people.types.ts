@@ -7,7 +7,12 @@
 
 import type { NextAppraisal } from '../appraisals/appraisal-schedule';
 
-export type EmployeeStatusValue = 'PROBATION' | 'ACTIVE' | 'NOTICE' | 'EXITED';
+export type EmployeeStatusValue =
+  | 'INTERN'
+  | 'PROBATION'
+  | 'ACTIVE'
+  | 'NOTICE'
+  | 'EXITED';
 export type EmploymentEventTypeValue =
   | 'JOINED'
   | 'CONFIRMED'
@@ -18,7 +23,11 @@ export type EmploymentEventTypeValue =
   | 'EXITED'
   | 'NOTE'
   /** Salary increment: fromValue/toValue are the old/new gross salary (whole taka), notes the percent. */
-  | 'INCREMENT';
+  | 'INCREMENT'
+  /** An intern moved to probation: the effective date is the probation start. */
+  | 'PROBATION_STARTED'
+  /** fromValue/toValue: the old/new internship end date (`YYYY-MM-DD`). */
+  | 'INTERNSHIP_EXTENDED';
 export type LeaveTypeValue = 'SICK' | 'CASUAL' | 'ANNUAL' | 'UNPAID' | 'OTHER';
 export type LeaveStatusValue =
   | 'PENDING'
@@ -52,6 +61,18 @@ export interface EmployeeProfile {
   managerId: string | null;
   managerName: string | null;
   joinDate: string;
+  /**
+   * When probation started: the anchor of the confirmation, yearly and
+   * half-yearly schedule. The join date when not stored. Null for an intern
+   * who has not started probation yet.
+   */
+  probationStartDate: string | null;
+  /**
+   * The expected internship end (the internship review's due date). For an
+   * INTERN it is never null (join + 3 months when not stored); otherwise the
+   * stored value, if any.
+   */
+  internshipEndDate: string | null;
   confirmationDate: string | null;
   exitDate: string | null;
   status: EmployeeStatusValue;
@@ -70,11 +91,13 @@ export interface EmployeeProfile {
   /** Present gross salary, whole taka (BDT). Moves with INCREMENT events. Sensitive. */
   grossSalary: number | null;
   /**
-   * The next appraisal counted from the join date. The oldest overdue one
-   * first (`overdueAppraisals` in `src/appraisals/appraisal-schedule.ts`: a
-   * missed due date with no appraisal in any cycle, flagged `overdue`); else
-   * `nextDue`: the confirmation while on probation, else the earlier of the
-   * next half-yearly and the next yearly. Null once exited.
+   * The next appraisal, counted from the probation start date (the
+   * internship end for an intern). The oldest overdue one first
+   * (`overdueAppraisals` in `src/appraisals/appraisal-schedule.ts`: a missed
+   * due date with no appraisal in any cycle, flagged `overdue`); else
+   * `nextDue`: the internship review for an intern, the confirmation while on
+   * probation, else the earlier of the next half-yearly and the next yearly.
+   * Null once exited.
    */
   nextAppraisal: NextAppraisal | null;
   /** Everything `nextDue` lists, earliest first (both the half-yearly and the yearly once confirmed). */

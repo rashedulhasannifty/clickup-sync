@@ -18,6 +18,8 @@ export const MANUAL_EVENT_TYPES = [
   'DESIGNATION_CHANGED',
   'TRANSFERRED',
   'NOTE',
+  'PROBATION_STARTED',
+  'INTERNSHIP_EXTENDED',
 ] as const;
 
 export type ManualEventType = (typeof MANUAL_EVENT_TYPES)[number];
@@ -47,7 +49,7 @@ export class AddEmploymentEventDto {
 
   @ApiPropertyOptional({
     description:
-      'New designation (PROMOTED, DESIGNATION_CHANGED) or team id (TRANSFERRED).',
+      'New designation (PROMOTED, DESIGNATION_CHANGED), team id (TRANSFERRED) or the new internship end date YYYY-MM-DD (INTERNSHIP_EXTENDED). PROBATION_STARTED takes none: the effective date is the probation start.',
   })
   @IsOptional()
   @IsString()

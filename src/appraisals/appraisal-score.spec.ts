@@ -13,6 +13,12 @@ import {
   previousStatus,
   signOffAction,
   validateCompetencies,
+  defaultCriteria,
+  flowOf,
+  INTERNSHIP_CRITERIA,
+  internshipAdvanceBlockers,
+  internshipOutcomePlan,
+  stepsFor,
 } from './appraisal-score';
 
 const KEYS = ['a', 'b', 'c', 'd'];
@@ -340,5 +346,147 @@ describe('outcomePlan', () => {
     expect(
       outcomePlan({ ...base, recommendation: null, newDesignation: null }),
     ).toBeNull();
+  });
+});
+
+describe('internship reviews (0034)', () => {
+  it('the flow is a function of type and mode; internship has its own steps', () => {
+    expect(flowOf('FORM_100', 'INTERNSHIP')).toBe('INTERNSHIP');
+    expect(flowOf('FORM_100', 'YEARLY')).toBe('FORM_100');
+    expect(stepsFor('INTERNSHIP')).toEqual([
+      'SELF_REVIEW',
+      'LEAD_REVIEW',
+      'HR_REVIEW',
+      'SIGNED_OFF',
+    ]);
+    expect(nextStatus('LEAD_REVIEW', 'INTERNSHIP')).toBe('HR_REVIEW');
+    expect(nextStatus('HR_REVIEW', 'INTERNSHIP')).toBe('SIGNED_OFF');
+    expect(previousStatus('HR_REVIEW', 'INTERNSHIP')).toBe('LEAD_REVIEW');
+  });
+
+  it('internship steps never offer the normal actions, and normal steps never offer the internship ones', () => {
+    const lead = editableFields('LEAD_REVIEW', 'INTERNSHIP');
+    expect(lead).toEqual(
+      expect.arrayContaining(['leadRatings', 'internshipOutcome']),
+    );
+    expect(lead).not.toContain('actions');
+    expect(lead).not.toContain('incrementPercent');
+    expect(editableFields('HR_REVIEW', 'INTERNSHIP')).toEqual(
+      expect.arrayContaining(['hrComment', 'approvalDecision']),
+    );
+    for (const s of [
+      'LEAD_REVIEW',
+      'DEPT_HEAD_REVIEW',
+      'FINAL_APPROVAL',
+    ] as const)
+      expect(editableFields(s, 'FORM_100')).not.toContain('internshipOutcome');
+  });
+
+  it('default criteria: six internship criteria, each with a description', () => {
+    const c = defaultCriteria('FORM_100', 'INTERNSHIP');
+    expect(c.map((x) => x.label)).toEqual([
+      'Learning ability',
+      'Job knowledge',
+      'Quality of work',
+      'Communication',
+      'Attendance & discipline',
+      'Attitude & teamwork',
+    ]);
+    expect(INTERNSHIP_CRITERIA.every((x) => !!x.description)).toBe(true);
+    expect(defaultCriteria('FORM_100', 'YEARLY')).toHaveLength(10);
+  });
+
+  const choice = {
+    status: 'LEAD_REVIEW' as const,
+    leadRatings: { a: 8 },
+    competencyKeys: ['a'],
+    approvalDecision: null,
+    outcome: null,
+    probationStart: null,
+    newEndDate: null,
+    currentEndDate: '2026-03-31',
+    joinDate: '2026-01-01',
+  };
+
+  it('blockers: ratings, exactly one recommendation with its date, then HR’s decision', () => {
+    expect(
+      internshipAdvanceBlockers({ ...choice, status: 'SELF_REVIEW' }),
+    ).toEqual([]);
+    expect(internshipAdvanceBlockers({ ...choice, leadRatings: {} })).toEqual([
+      'Rate every criterion (1 left)',
+      'Choose a recommendation',
+    ]);
+    expect(
+      internshipAdvanceBlockers({ ...choice, outcome: 'MOVE_TO_PROBATION' }),
+    ).toEqual(['Choose the probation start date']);
+    expect(
+      internshipAdvanceBlockers({
+        ...choice,
+        outcome: 'EXTEND_INTERNSHIP',
+        newEndDate: '2026-03-01',
+      }),
+    ).toEqual([
+      'The new internship end must be after the current one (2026-03-31)',
+    ]);
+    expect(
+      internshipAdvanceBlockers({ ...choice, outcome: 'END_INTERNSHIP' }),
+    ).toEqual([]);
+    expect(
+      internshipAdvanceBlockers({
+        ...choice,
+        status: 'HR_REVIEW',
+        outcome: 'END_INTERNSHIP',
+      }),
+    ).toEqual(['Record the approval decision']);
+  });
+
+  const plan = (over: Partial<Parameters<typeof internshipOutcomePlan>[0]>) =>
+    internshipOutcomePlan({
+      decision: 'APPROVED',
+      outcome: 'MOVE_TO_PROBATION',
+      probationStart: '2026-04-01',
+      newEndDate: null,
+      employeeStatus: 'INTERN',
+      currentEndDate: '2026-03-31',
+      cycleName: 'Interns Q1',
+      effectiveDate: '2026-04-02',
+      ...over,
+    });
+
+  it('outcome: only when approved and still an intern; a retry never extends twice', () => {
+    expect(plan({}).events).toEqual([
+      {
+        type: 'PROBATION_STARTED',
+        effectiveDate: '2026-04-01',
+        toValue: null,
+        notes: 'Internship review Interns Q1 outcome',
+      },
+    ]);
+    expect(plan({ decision: 'NOT_APPROVED' })).toEqual({
+      events: [],
+      notApplied: [],
+    });
+    expect(plan({ employeeStatus: 'PROBATION' }).events).toEqual([]);
+    expect(plan({ employeeStatus: 'PROBATION' }).notApplied).toHaveLength(1);
+    expect(
+      plan({ outcome: 'EXTEND_INTERNSHIP', newEndDate: '2026-05-31' }).events,
+    ).toEqual([
+      expect.objectContaining({
+        type: 'INTERNSHIP_EXTENDED',
+        effectiveDate: '2026-04-02',
+        fromValue: '2026-03-31',
+        toValue: '2026-05-31',
+      }),
+    ]);
+    expect(
+      plan({
+        outcome: 'EXTEND_INTERNSHIP',
+        newEndDate: '2026-05-31',
+        currentEndDate: '2026-05-31',
+      }).events,
+    ).toEqual([]);
+    const end = plan({ outcome: 'END_INTERNSHIP' });
+    expect(end.events).toEqual([]);
+    expect(end.notApplied[0].reason).toMatch(/start offboarding/);
   });
 });

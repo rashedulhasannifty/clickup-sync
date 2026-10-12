@@ -65,6 +65,10 @@ function view(over: Partial<AppraisalView> = {}): AppraisalView {
     hrComment: 'Within band.',
     approvalDecision: 'APPROVED',
     approvalComment: 'Approved.',
+    internshipOutcome: null,
+    proposedProbationStart: null,
+    proposedInternshipEnd: null,
+    internship: null,
     formHeader: null,
     steps: [
       { status: 'SELF_REVIEW', byUserId: null, byName: null, at: null },
@@ -217,6 +221,33 @@ describe('renderAppraisalFormPdf', () => {
     const pages = (pdf.toString('latin1').match(/\/Type \/Page\b/g) ?? [])
       .length;
     expect(pages).toBeGreaterThan(1);
+  });
+
+  it('renders a short internship review without salary or the metrics table', async () => {
+    const v = view({
+      cycle: {
+        ...view().cycle,
+        type: 'INTERNSHIP',
+        name: 'Interns Q1',
+      },
+      actions: [],
+      internshipOutcome: 'EXTEND_INTERNSHIP',
+      proposedInternshipEnd: '2026-05-31',
+      internship: {
+        currentEndDate: '2026-03-31',
+        defaultProbationStart: '2026-04-01',
+        isIntern: true,
+      },
+    });
+    const pdf = await renderAppraisalFormPdf({
+      view: v,
+      header: header(),
+      generatedOn: '2026-12-04',
+    });
+    expect(sniffFileType(pdf)?.contentType).toBe('application/pdf');
+    expect(formPdfFileName(v)).toBe(
+      'Internship review - Ada Lovelace - Interns Q1.pdf',
+    );
   });
 
   it('names the file after the employee and cycle', () => {

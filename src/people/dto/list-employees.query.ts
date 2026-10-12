@@ -11,10 +11,12 @@ export class ListEmployeesQuery {
   @MaxLength(100)
   search?: string;
 
-  @ApiPropertyOptional({ enum: ['PROBATION', 'ACTIVE', 'NOTICE', 'EXITED'] })
+  @ApiPropertyOptional({
+    enum: ['INTERN', 'PROBATION', 'ACTIVE', 'NOTICE', 'EXITED'],
+  })
   @IsOptional()
-  @IsIn(['PROBATION', 'ACTIVE', 'NOTICE', 'EXITED'])
-  status?: 'PROBATION' | 'ACTIVE' | 'NOTICE' | 'EXITED';
+  @IsIn(['INTERN', 'PROBATION', 'ACTIVE', 'NOTICE', 'EXITED'])
+  status?: 'INTERN' | 'PROBATION' | 'ACTIVE' | 'NOTICE' | 'EXITED';
 
   @ApiPropertyOptional() @IsOptional() @IsString() teamId?: string;
 }

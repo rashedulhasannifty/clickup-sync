@@ -5,10 +5,12 @@ import type {
   AppraisalEditableField,
   AppraisalRecommendationValue,
   AppraisalStatusValue,
+  AppraisalTypeValue,
   ApprovalDecisionValue,
   Competency,
   FormGrade,
   GradePolicy,
+  InternshipOutcomeValue,
   OutcomeEventPlan,
   RatingMap,
   ScoringModeValue,
@@ -115,6 +117,60 @@ export const FORM_CRITERIA: readonly Competency[] = [
       'Strict adherence to moral code, reflected in transparent honesty and complete harmony in what one thinks, says, and does. Displays extremely high standards of ethical conduct and can coach and counsel others on the impact of violating these.',
   },
 ];
+
+/**
+ * The internship review's default criteria (0034), rated on the same
+ * 2/4/6/8/10 scale and normalised to 100. Editable per cycle until launch.
+ */
+export const INTERNSHIP_CRITERIA: readonly Competency[] = [
+  {
+    key: 'learning_ability',
+    label: 'Learning ability',
+    description:
+      'Picks up new tools, concepts and feedback quickly and applies them without repeated instruction.',
+  },
+  {
+    key: 'job_knowledge',
+    label: 'Job knowledge',
+    description:
+      'Understands the tasks, tools and standards of the role well enough to work with growing independence.',
+  },
+  {
+    key: 'quality_of_work',
+    label: 'Quality of work',
+    description:
+      'Delivers work that is accurate, complete and needs little rework, within the agreed time.',
+  },
+  {
+    key: 'communication',
+    label: 'Communication',
+    description:
+      'Shares progress and problems clearly and on time, listens, and asks questions when something is unclear.',
+  },
+  {
+    key: 'attendance_discipline',
+    label: 'Attendance & discipline',
+    description:
+      'Is punctual and present, follows office rules and policies, and manages leave responsibly.',
+  },
+  {
+    key: 'attitude_teamwork',
+    label: 'Attitude & teamwork',
+    description:
+      'Shows a positive, respectful attitude, takes ownership and works well with colleagues.',
+  },
+];
+
+/** The criteria a new cycle starts with: by type for the form, else the legacy competencies. */
+export function defaultCriteria(
+  mode: ScoringModeValue,
+  type: AppraisalTypeValue,
+): Competency[] {
+  if (mode !== 'FORM_100') return DEFAULT_COMPETENCIES.map((c) => ({ ...c }));
+  return (type === 'INTERNSHIP' ? INTERNSHIP_CRITERIA : FORM_CRITERIA).map(
+    (c) => ({ ...c }),
+  );
+}
 
 /**
  * The form's evaluation-metrics table, highest band first. Bands are inclusive
@@ -231,19 +287,49 @@ export const FORM_STEPS: readonly AppraisalStatusValue[] = [
   'SIGNED_OFF',
 ];
 
-/** The step sequence is a function of the cycle's scoring mode. */
-export function stepsFor(
+/**
+ * INTERNSHIP step sequence (0034): the supervisor rates and recommends, HR
+ * comments and records the approval decision. No department head or CTO/COO.
+ */
+export const INTERNSHIP_STEPS: readonly AppraisalStatusValue[] = [
+  'SELF_REVIEW',
+  'LEAD_REVIEW',
+  'HR_REVIEW',
+  'SIGNED_OFF',
+];
+
+/**
+ * Which workflow an appraisal follows: a function of its cycle's type and
+ * scoring mode. Internship reviews are always on the form (FORM_100).
+ */
+export type AppraisalFlow = ScoringModeValue | 'INTERNSHIP';
+
+export function flowOf(
   mode: ScoringModeValue,
-): readonly AppraisalStatusValue[] {
-  return mode === 'FORM_100' ? FORM_STEPS : APPRAISAL_STEPS;
+  type: AppraisalTypeValue,
+): AppraisalFlow {
+  return type === 'INTERNSHIP' ? 'INTERNSHIP' : mode;
 }
 
-/** Forward one step at a time. Nothing follows SIGNED_OFF (or a status outside the mode). */
+/** The scoring scale a flow rates on. */
+export const scaleOf = (flow: AppraisalFlow): ScoringModeValue =>
+  flow === 'KPI_BLEND' ? 'KPI_BLEND' : 'FORM_100';
+
+/** The step sequence is a function of the cycle's type and scoring mode (`flowOf`). */
+export function stepsFor(flow: AppraisalFlow): readonly AppraisalStatusValue[] {
+  return flow === 'INTERNSHIP'
+    ? INTERNSHIP_STEPS
+    : flow === 'FORM_100'
+      ? FORM_STEPS
+      : APPRAISAL_STEPS;
+}
+
+/** Forward one step at a time. Nothing follows SIGNED_OFF (or a status outside the flow). */
 export function nextStatus(
   s: AppraisalStatusValue,
-  mode: ScoringModeValue = 'KPI_BLEND',
+  flow: AppraisalFlow = 'KPI_BLEND',
 ): AppraisalStatusValue | null {
-  const steps = stepsFor(mode);
+  const steps = stepsFor(flow);
   const i = steps.indexOf(s);
   return i >= 0 && i < steps.length - 1 ? steps[i + 1] : null;
 }
@@ -251,10 +337,10 @@ export function nextStatus(
 /** Send back one step for corrections. Not from the first step, and never after sign-off. */
 export function previousStatus(
   s: AppraisalStatusValue,
-  mode: ScoringModeValue = 'KPI_BLEND',
+  flow: AppraisalFlow = 'KPI_BLEND',
 ): AppraisalStatusValue | null {
   if (s === 'SIGNED_OFF') return null;
-  const steps = stepsFor(mode);
+  const steps = stepsFor(flow);
   const i = steps.indexOf(s);
   return i > 0 ? steps[i - 1] : null;
 }
@@ -314,6 +400,26 @@ const FORM_EDITABLE: Record<AppraisalStatusValue, AppraisalEditableField[]> = {
   SIGNED_OFF: [],
 };
 
+/** INTERNSHIP: the supervisor recommends; HR comments and decides. */
+const INTERNSHIP_EDITABLE: Record<
+  AppraisalStatusValue,
+  AppraisalEditableField[]
+> = {
+  SELF_REVIEW: ['selfRatings', 'selfComment'],
+  LEAD_REVIEW: [
+    'leadRatings',
+    'leadComment',
+    'internshipOutcome',
+    'proposedProbationStart',
+    'proposedInternshipEnd',
+  ],
+  HR_REVIEW: ['hrComment', 'approvalDecision', 'approvalComment'],
+  DEPT_HEAD_REVIEW: [],
+  FINAL_APPROVAL: [],
+  CALIBRATION: [],
+  SIGNED_OFF: [],
+};
+
 /**
  * An appraisal's own due date and review period can be adjusted at any step
  * until sign-off (an early or late appraisal), in either mode.
@@ -327,9 +433,15 @@ export const DATE_FIELDS: readonly AppraisalEditableField[] = [
 /** The fields a step accepts. Signed-off appraisals are read-only. */
 export function editableFields(
   s: AppraisalStatusValue,
-  mode: ScoringModeValue = 'KPI_BLEND',
+  flow: AppraisalFlow = 'KPI_BLEND',
 ): AppraisalEditableField[] {
-  const step = (mode === 'FORM_100' ? FORM_EDITABLE : EDITABLE)[s];
+  const step = (
+    flow === 'INTERNSHIP'
+      ? INTERNSHIP_EDITABLE
+      : flow === 'FORM_100'
+        ? FORM_EDITABLE
+        : EDITABLE
+  )[s];
   return s === 'SIGNED_OFF' ? [...step] : [...step, ...DATE_FIELDS];
 }
 
@@ -777,6 +889,8 @@ export interface FormOutcome {
 }
 
 const EVENT_ORDER: Record<OutcomeEventPlan['type'], number> = {
+  PROBATION_STARTED: 0,
+  INTERNSHIP_EXTENDED: 0,
   CONFIRMED: 0,
   PROMOTED: 1,
   INCREMENT: 2,
@@ -860,5 +974,151 @@ export function formOutcomePlan(a: {
   }
   // A fixed order however the boxes were ticked: confirm, promote, then pay.
   out.events.sort((x, y) => EVENT_ORDER[x.type] - EVENT_ORDER[y.type]);
+  return out;
+}
+
+// --- INTERNSHIP reviews (0034) ---------------------------------------------
+
+export interface InternshipChoice {
+  outcome: InternshipOutcomeValue | null;
+  /** MOVE_TO_PROBATION. */
+  probationStart: string | null;
+  /** EXTEND_INTERNSHIP. */
+  newEndDate: string | null;
+  /** The employee's current expected internship end. */
+  currentEndDate: string;
+  joinDate: string;
+}
+
+/**
+ * What is wrong with an internship recommendation (empty when it is
+ * complete): exactly one recommendation; moving to probation needs a start
+ * date on or after joining; an extension needs a new end date later than the
+ * current one.
+ */
+export function internshipChoiceBlockers(c: InternshipChoice): string[] {
+  const out: string[] = [];
+  switch (c.outcome) {
+    case null:
+      out.push('Choose a recommendation');
+      break;
+    case 'MOVE_TO_PROBATION':
+      if (!c.probationStart) out.push('Choose the probation start date');
+      else if (c.probationStart < c.joinDate)
+        out.push('The probation start cannot be before the employee joined');
+      break;
+    case 'EXTEND_INTERNSHIP':
+      if (!c.newEndDate) out.push('Choose the new internship end date');
+      else if (c.newEndDate <= c.currentEndDate)
+        out.push(
+          `The new internship end must be after the current one (${c.currentEndDate})`,
+        );
+      break;
+    case 'END_INTERNSHIP':
+      break;
+  }
+  return out;
+}
+
+/**
+ * What stops the next step of an internship review. Leaving the self review
+ * is always allowed. The supervisor's ratings and recommendation must be
+ * complete to leave LEAD_REVIEW and again at HR_REVIEW (the employee's
+ * internship end may have moved since), and HR_REVIEW needs a decision.
+ */
+export function internshipAdvanceBlockers(
+  a: InternshipChoice & {
+    status: AppraisalStatusValue;
+    leadRatings: RatingMap;
+    competencyKeys: readonly string[];
+    approvalDecision: ApprovalDecisionValue | null;
+  },
+): string[] {
+  if (a.status === 'SIGNED_OFF')
+    return ['This appraisal is already signed off'];
+  if (a.status === 'SELF_REVIEW') return [];
+  const out: string[] = [];
+  const unrated = a.competencyKeys.filter(
+    (k) => !isValidRating(a.leadRatings[k], 'FORM_100'),
+  );
+  if (unrated.length > 0)
+    out.push(`Rate every criterion (${unrated.length} left)`);
+  out.push(...internshipChoiceBlockers(a));
+  if (a.status === 'HR_REVIEW' && !a.approvalDecision)
+    out.push('Record the approval decision');
+  return out;
+}
+
+export interface InternshipOutcomePlan {
+  /** Written in one transaction. */
+  events: OutcomeEventPlan[];
+  /** Why the recommendation writes nothing (shown, never silently dropped). */
+  notApplied: { outcome: InternshipOutcomeValue; reason: string }[];
+}
+
+/**
+ * INTERNSHIP sign-off. Nothing is written unless HR APPROVED, and nothing once
+ * the employee is no longer an intern. MOVE_TO_PROBATION -> PROBATION_STARTED
+ * dated the chosen probation start (status PROBATION, probation start set).
+ * EXTEND_INTERNSHIP -> INTERNSHIP_EXTENDED from the current to the new end
+ * date, dated `effectiveDate` (the sign-off date); skipped once the end date
+ * already is the new one, so a retry never extends twice. END_INTERNSHIP is
+ * never automatic: the page offers "Start offboarding".
+ */
+export function internshipOutcomePlan(a: {
+  decision: ApprovalDecisionValue | null;
+  outcome: InternshipOutcomeValue | null;
+  probationStart: string | null;
+  newEndDate: string | null;
+  employeeStatus: EmployeeStatusValue;
+  currentEndDate: string;
+  cycleName: string;
+  effectiveDate: string;
+}): InternshipOutcomePlan {
+  const out: InternshipOutcomePlan = { events: [], notApplied: [] };
+  if (a.decision !== 'APPROVED' || !a.outcome) return out;
+  const notes = `Internship review ${a.cycleName} outcome`;
+  if (a.outcome === 'END_INTERNSHIP') {
+    out.notApplied.push({
+      outcome: a.outcome,
+      reason:
+        'Ending an internship is never automatic: start offboarding from the employee page',
+    });
+    return out;
+  }
+  if (a.employeeStatus !== 'INTERN') {
+    out.notApplied.push({
+      outcome: a.outcome,
+      reason: `Not applied: the employee is ${a.employeeStatus.toLowerCase()}, no longer an intern`,
+    });
+    return out;
+  }
+  if (a.outcome === 'MOVE_TO_PROBATION') {
+    if (!a.probationStart)
+      throw new Error('MOVE_TO_PROBATION needs a probation start date');
+    out.events.push({
+      type: 'PROBATION_STARTED',
+      effectiveDate: a.probationStart,
+      toValue: null,
+      notes,
+    });
+    return out;
+  }
+  if (!a.newEndDate)
+    throw new Error('EXTEND_INTERNSHIP needs a new internship end date');
+  if (a.currentEndDate >= a.newEndDate) {
+    out.notApplied.push({
+      outcome: a.outcome,
+      reason: `Not applied: the internship already ends on ${a.currentEndDate}`,
+    });
+    return out;
+  }
+  out.events.push({
+    type: 'INTERNSHIP_EXTENDED',
+    effectiveDate: a.effectiveDate,
+    fromValue: a.currentEndDate,
+    toValue: a.newEndDate,
+    notes,
+  });
   return out;
 }

@@ -19,6 +19,14 @@ import {
   reviewPeriod,
   selectDue,
   UPCOMING_DAYS,
+  anchorOf,
+  dueDateTaken,
+  dueOnOrBeforeFor,
+  firstDueFor,
+  internshipCovered,
+  internshipDueDate,
+  internshipReview,
+  isDueCovered,
   type AppraisalOnRecord,
   type OverdueEmployee,
 } from './appraisal-schedule';
@@ -257,7 +265,9 @@ describe('dueBetween', () => {
 
 describe('nextDue', () => {
   it('probation: the confirmation, flagged overdue once passed', () => {
-    expect(nextDue('2026-07-01', 'PROBATION', '2026-10-12')).toEqual([
+    expect(
+      nextDue({ joinDate: '2026-07-01', status: 'PROBATION' }, '2026-10-12'),
+    ).toEqual([
       {
         type: 'CONFIRMATION',
         dueDate: '2027-01-01',
@@ -266,7 +276,10 @@ describe('nextDue', () => {
         overdue: false,
       },
     ]);
-    const late = nextDue('2026-01-10', 'PROBATION', '2026-10-12');
+    const late = nextDue(
+      { joinDate: '2026-01-10', status: 'PROBATION' },
+      '2026-10-12',
+    );
     expect(late).toHaveLength(1);
     expect(late[0]).toMatchObject({
       type: 'CONFIRMATION',
@@ -276,7 +289,9 @@ describe('nextDue', () => {
   });
 
   it('confirmed: the next half-yearly and the next yearly, earliest first', () => {
-    expect(nextDue('2025-04-15', 'ACTIVE', '2026-10-12')).toEqual([
+    expect(
+      nextDue({ joinDate: '2025-04-15', status: 'ACTIVE' }, '2026-10-12'),
+    ).toEqual([
       {
         type: 'HALF_YEARLY',
         dueDate: '2026-10-15',
@@ -295,7 +310,10 @@ describe('nextDue', () => {
   });
 
   it('a due date of today is next; on an anniversary the yearly comes first', () => {
-    const r = nextDue('2025-10-12', 'ACTIVE', '2026-10-12');
+    const r = nextDue(
+      { joinDate: '2025-10-12', status: 'ACTIVE' },
+      '2026-10-12',
+    );
     expect(r.map((x) => [x.type, x.dueDate])).toEqual([
       ['YEARLY', '2026-10-12'],
       ['HALF_YEARLY', '2026-10-12'],
@@ -303,7 +321,10 @@ describe('nextDue', () => {
   });
 
   it('confirmed before 12 months: the first half-yearly is at 12 months', () => {
-    const r = nextDue('2026-03-01', 'ACTIVE', '2026-10-12');
+    const r = nextDue(
+      { joinDate: '2026-03-01', status: 'ACTIVE' },
+      '2026-10-12',
+    );
     expect(r.map((x) => [x.type, x.dueDate])).toEqual([
       ['YEARLY', '2027-03-01'],
       ['HALF_YEARLY', '2027-03-01'],
@@ -311,16 +332,23 @@ describe('nextDue', () => {
   });
 
   it('exited: nothing; notice: still scheduled', () => {
-    expect(nextDue('2025-04-15', 'EXITED', '2026-10-12')).toEqual([]);
-    expect(nextDue('2025-04-15', 'NOTICE', '2026-10-12')).toHaveLength(2);
+    expect(
+      nextDue({ joinDate: '2025-04-15', status: 'EXITED' }, '2026-10-12'),
+    ).toEqual([]);
+    expect(
+      nextDue({ joinDate: '2025-04-15', status: 'NOTICE' }, '2026-10-12'),
+    ).toHaveLength(2);
   });
 
   it('a join date in the future still gives the first milestones', () => {
-    expect(nextDue('2026-12-01', 'PROBATION', '2026-10-12')[0].dueDate).toBe(
-      '2027-06-01',
-    );
     expect(
-      nextDue('2026-12-01', 'ACTIVE', '2026-10-12').map((x) => x.dueDate),
+      nextDue({ joinDate: '2026-12-01', status: 'PROBATION' }, '2026-10-12')[0]
+        .dueDate,
+    ).toBe('2027-06-01');
+    expect(
+      nextDue({ joinDate: '2026-12-01', status: 'ACTIVE' }, '2026-10-12').map(
+        (x) => x.dueDate,
+      ),
     ).toEqual(['2027-12-01', '2027-12-01']);
   });
 });
@@ -614,5 +642,213 @@ describe('overdueAppraisals', () => {
     expect(overdueAppraisals(emp({ status: 'EXITED' }), '2026-10-12')).toEqual(
       [],
     );
+  });
+});
+
+// --- The intern lifecycle (0034) ---------------------------------------------
+
+describe('the probation start anchors the regular schedule (0034)', () => {
+  // Intern from 1 Jan 2025, probation from 1 Apr 2025.
+  const e = {
+    joinDate: '2025-01-01',
+    probationStartDate: '2025-04-01',
+  };
+
+  it('anchor: the probation start, else the join date', () => {
+    expect(anchorOf(e)).toBe('2025-04-01');
+    expect(anchorOf({ joinDate: '2025-01-01', probationStartDate: null })).toBe(
+      '2025-01-01',
+    );
+  });
+
+  it('confirmation due 1 Oct 2025; yearly 1 Apr 2026, 1 Apr 2027; reviews start at the anchor', () => {
+    expect(
+      nextDue({ ...e, status: 'PROBATION' }, '2025-06-01')[0],
+    ).toMatchObject({
+      type: 'CONFIRMATION',
+      dueDate: '2025-10-01',
+      periodStart: '2025-04-01',
+      periodEnd: '2025-09-30',
+    });
+    const active = nextDue({ ...e, status: 'ACTIVE' }, '2025-11-01');
+    expect(active.find((x) => x.type === 'YEARLY')).toMatchObject({
+      dueDate: '2026-04-01',
+      periodStart: '2025-04-01',
+      periodEnd: '2026-03-31',
+    });
+    expect(
+      nextDue({ ...e, status: 'ACTIVE' }, '2026-04-02').find(
+        (x) => x.type === 'YEARLY',
+      )?.dueDate,
+    ).toBe('2027-04-01');
+  });
+
+  it('overdue and the due groups count from the anchor', () => {
+    const p: OverdueEmployee = {
+      ...e,
+      status: 'PROBATION',
+      confirmationDate: null,
+      appraisals: [],
+    };
+    expect(overdueAppraisals(p, '2025-10-20')).toEqual([
+      expect.objectContaining({ type: 'CONFIRMATION', dueDate: '2025-10-01' }),
+    ]);
+    // Six months from joining (1 Jul) is not a milestone any more.
+    expect(
+      classifyDue(p, 'CONFIRMATION', {
+        from: '2025-07-01',
+        to: '2025-07-31',
+        today: '2025-07-01',
+      }),
+    ).toBeNull();
+  });
+});
+
+describe('interns and the internship review (0034)', () => {
+  const intern = (over: Partial<OverdueEmployee> = {}): OverdueEmployee => ({
+    joinDate: '2026-01-01',
+    status: 'INTERN',
+    probationStartDate: null,
+    internshipEndDate: null,
+    confirmationDate: null,
+    appraisals: [],
+    ...over,
+  });
+
+  it('due on the internship end, else join + 3 months (clamped, no day subtracted)', () => {
+    expect(internshipDueDate(intern())).toBe('2026-04-01');
+    expect(internshipDueDate({ joinDate: '2025-11-30' })).toBe('2026-02-28');
+    expect(internshipDueDate(intern({ internshipEndDate: '2026-03-31' }))).toBe(
+      '2026-03-31',
+    );
+  });
+
+  it('reviews join -> day before; after an extension, the previous end -> day before the new one', () => {
+    expect(
+      internshipReview(intern({ internshipEndDate: '2026-03-31' })),
+    ).toEqual({
+      type: 'INTERNSHIP',
+      dueDate: '2026-03-31',
+      periodStart: '2026-01-01',
+      periodEnd: '2026-03-30',
+    });
+    expect(
+      internshipReview(
+        intern({
+          internshipEndDate: '2026-05-31',
+          internshipTermStart: '2026-03-31',
+        }),
+      ),
+    ).toMatchObject({ periodStart: '2026-03-31', periodEnd: '2026-05-30' });
+  });
+
+  it('scope: an intern only for the internship review, which is for interns only', () => {
+    expect(inScope({ status: 'INTERN' }, 'INTERNSHIP')).toBe(true);
+    for (const t of ['YEARLY', 'HALF_YEARLY', 'CONFIRMATION'] as const)
+      expect(inScope({ status: 'INTERN' }, t)).toBe(false);
+    expect(inScope({ status: 'PROBATION' }, 'INTERNSHIP')).toBe(false);
+    expect(inScope({ status: 'ACTIVE' }, 'INTERNSHIP')).toBe(false);
+  });
+
+  it('nextDue: the internship review only, flagged overdue once passed', () => {
+    expect(nextDue(intern(), '2026-02-01')).toEqual([
+      {
+        type: 'INTERNSHIP',
+        dueDate: '2026-04-01',
+        periodStart: '2026-01-01',
+        periodEnd: '2026-03-31',
+        overdue: false,
+      },
+    ]);
+    expect(nextDue(intern(), '2026-05-01')[0].overdue).toBe(true);
+  });
+
+  it('due, overdue (no lookback) and coming up, unless the term has a review', () => {
+    const w = (from: string, to: string, today = from) => ({ from, to, today });
+    expect(
+      classifyDue(intern(), 'INTERNSHIP', w('2026-04-01', '2026-04-30'))?.group,
+    ).toBe('due');
+    expect(
+      classifyDue(intern(), 'INTERNSHIP', w('2027-06-01', '2027-06-30')),
+    ).toMatchObject({ group: 'overdue', dueDate: '2026-04-01' });
+    expect(
+      classifyDue(intern(), 'INTERNSHIP', w('2026-03-01', '2026-03-15'))?.group,
+    ).toBe('upcoming');
+    const reviewed = intern({
+      appraisals: [
+        { type: 'INTERNSHIP', dueDate: '2026-03-28', periodEnd: '2026-03-27' },
+      ],
+    });
+    expect(
+      classifyDue(reviewed, 'INTERNSHIP', w('2026-04-01', '2026-04-30')),
+    ).toBeNull();
+    expect(overdueAppraisals(reviewed, '2026-06-01')).toEqual([]);
+    expect(overdueAppraisals(intern(), '2026-06-01')).toEqual([
+      expect.objectContaining({ type: 'INTERNSHIP', dueDate: '2026-04-01' }),
+    ]);
+    expect(
+      selectDue([intern(), emp()], 'INTERNSHIP', w('2026-04-01', '2026-04-30'))
+        .due,
+    ).toHaveLength(1);
+  });
+
+  it('after an extension the old term’s review no longer covers the new end', () => {
+    const records: AppraisalOnRecord[] = [
+      { type: 'INTERNSHIP', dueDate: '2026-04-01', periodEnd: '2026-03-31' },
+    ];
+    const extended = intern({
+      internshipEndDate: '2026-06-01',
+      internshipTermStart: '2026-04-01',
+      appraisals: records,
+    });
+    expect(internshipCovered(intern(), records)).toBe(true);
+    expect(internshipCovered(extended, records)).toBe(false);
+    expect(isDueCovered(extended, 'INTERNSHIP', '2026-06-01')).toBe(false);
+    expect(
+      classifyDue(extended, 'INTERNSHIP', {
+        from: '2026-06-01',
+        to: '2026-06-30',
+        today: '2026-06-01',
+      }),
+    ).toMatchObject({
+      group: 'due',
+      dueDate: '2026-06-01',
+      periodStart: '2026-04-01',
+    });
+  });
+
+  it('an intern is never due or overdue a regular review', () => {
+    const old = intern({ joinDate: '2024-01-01' });
+    expect(overdueFor(old, 'YEARLY', '2026-06-01', '2026-06-01')).toBeNull();
+    expect(
+      overdueFor(old, 'CONFIRMATION', '2026-06-01', '2026-06-01'),
+    ).toBeNull();
+  });
+
+  it('explicit-pick helpers and due-date edits', () => {
+    expect(dueOnOrBeforeFor(intern(), 'INTERNSHIP', '2026-03-31')).toBeNull();
+    expect(
+      dueOnOrBeforeFor(intern(), 'INTERNSHIP', '2026-04-30')?.dueDate,
+    ).toBe('2026-04-01');
+    expect(firstDueFor(intern(), 'INTERNSHIP')).toBe('2026-04-01');
+    expect(
+      firstDueFor(
+        {
+          joinDate: '2025-01-01',
+          probationStartDate: '2025-04-01',
+          status: 'PROBATION',
+        },
+        'CONFIRMATION',
+      ),
+    ).toBe('2025-10-01');
+    const others: AppraisalOnRecord[] = [
+      { type: 'INTERNSHIP', dueDate: '2026-04-01', periodEnd: '2026-03-31' },
+    ];
+    expect(dueDateTaken(intern(), 'INTERNSHIP', '2026-04-01', others)).toBe(
+      '2026-04-01',
+    );
+    expect(
+      dueDateTaken(intern(), 'INTERNSHIP', '2026-06-01', others),
+    ).toBeNull();
   });
 });

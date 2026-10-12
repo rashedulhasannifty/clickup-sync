@@ -783,6 +783,8 @@ model InvitationTeam {
 // Spec: docs/superpowers/specs/2026-10-07-people-attendance-design.md
 
 enum EmployeeStatus {
+  /// An intern (0034): before probation. Only the internship review applies.
+  INTERN
   PROBATION
   ACTIVE
   NOTICE
@@ -800,6 +802,11 @@ enum EmploymentEventType {
   NOTE
   /// Salary increment: from/to are the old/new gross salary (whole taka), notes the percent.
   INCREMENT
+  /// An intern moved to probation (0034): effective date = the probation start; sets status
+  /// PROBATION and `probation_start_date`.
+  PROBATION_STARTED
+  /// An internship extended (0034): from/to are the old/new internship end dates (YYYY-MM-DD).
+  INTERNSHIP_EXTENDED
 }
 
 enum LeaveType {
@@ -835,6 +842,12 @@ model Employee {
   teamId                        String?        @map("team_id")
   managerId                     String?        @map("manager_id")
   joinDate                      DateTime       @map("join_date") @db.Date
+  /// When probation started (0034): the anchor of the confirmation, yearly and half-yearly
+  /// schedule. Null = the join date (rows before 0034 were backfilled to it); null for an intern
+  /// who has not started probation yet.
+  probationStartDate            DateTime?      @map("probation_start_date") @db.Date
+  /// INTERN: the expected internship end, when the internship review falls due (0034).
+  internshipEndDate             DateTime?      @map("internship_end_date") @db.Date
   confirmationDate              DateTime?      @map("confirmation_date") @db.Date
   exitDate                      DateTime?      @map("exit_date") @db.Date
   status                        EmployeeStatus @default(PROBATION)
@@ -1001,6 +1014,7 @@ enum AppraisalCycleStatus {
 }
 
 /// KPI_BLEND cycles: SELF_REVIEW -> LEAD_REVIEW -> CALIBRATION -> SIGNED_OFF.
+/// INTERNSHIP cycles: SELF_REVIEW -> LEAD_REVIEW (supervisor) -> HR_REVIEW (decision) -> SIGNED_OFF.
 /// FORM_100 cycles: SELF_REVIEW -> LEAD_REVIEW (supervisor) -> DEPT_HEAD_REVIEW -> HR_REVIEW
 /// -> FINAL_APPROVAL (CTO/COO) -> SIGNED_OFF.
 enum AppraisalStatus {
@@ -1026,6 +1040,15 @@ enum AppraisalType {
   HALF_YEARLY
   CONFIRMATION
   YEARLY
+  /// Internship review (0034): due at the internship end, interns only.
+  INTERNSHIP
+}
+
+/// The supervisor's single recommendation on an internship review (0034).
+enum InternshipOutcome {
+  MOVE_TO_PROBATION
+  EXTEND_INTERNSHIP
+  END_INTERNSHIP
 }
 
 /// How a cycle's period is read. CALENDAR: the cycle's period is everyone's review period.
@@ -1128,15 +1151,15 @@ model Appraisal {
   // --- FORM_100 (the paper form) ---
   /// Supervisor / department head recommendations. Required: PROMOTION -> newDesignation,
   /// INCREMENT -> incrementPercent.
-  actions          AppraisalAction[]  @default([])
+  actions           AppraisalAction[]       @default([])
   /// Prefilled in the UI from the grade's range; editable.
-  incrementPercent Float?             @map("increment_percent")
+  incrementPercent  Float?                  @map("increment_percent")
   /// "Training need / development plan (if any)".
-  trainingPlan     String?            @map("training_plan")
-  deptHeadComment  String?            @map("dept_head_comment")
-  hrComment        String?            @map("hr_comment")
-  approvalDecision AppraisalDecision? @map("approval_decision")
-  approvalComment  String?            @map("approval_comment")
+  trainingPlan      String?                 @map("training_plan")
+  deptHeadComment   String?                 @map("dept_head_comment")
+  hrComment         String?                 @map("hr_comment")
+  approvalDecision  AppraisalDecision?      @map("approval_decision")
+  approvalComment   String?                 @map("approval_comment")
   /// Chosen at final approval. Null = the default, resolved at sign-off: DUE_DATE when the
   /// appraisal is late, else APPROVAL_DATE. Rows before 0033 were backfilled APPROVAL_DATE.
   effectiveDateMode AppraisalEffectiveDate? @map("effective_date_mode")
@@ -1144,9 +1167,17 @@ model Appraisal {
   effectiveDate     DateTime?               @map("effective_date") @db.Date
   /// The form's header block (employee, experience, salary); captured at launch, refreshed
   /// with the KPIs and on every step, frozen at sign-off.
-  formHeader       Json?              @map("form_header")
+  formHeader        Json?                   @map("form_header")
   /// The stored PDF of the signed-off form (employee_documents.id, no FK: documents are soft-deleted).
-  formDocumentId   String?            @map("form_document_id")
+  formDocumentId    String?                 @map("form_document_id")
+
+  // --- INTERNSHIP reviews (0034) ---
+  /// Exactly one recommendation; internship reviews never use `actions`.
+  internshipOutcome      InternshipOutcome? @map("internship_outcome")
+  /// MOVE_TO_PROBATION: the chosen probation start date.
+  proposedProbationStart DateTime?          @map("proposed_probation_start") @db.Date
+  /// EXTEND_INTERNSHIP: the new internship end date.
+  proposedInternshipEnd  DateTime?          @map("proposed_internship_end") @db.Date
 
   /// Who completed each step and when (user ids; null for a machine credential). Deliberately no FK.
   leadReviewBy String?   @map("lead_review_by")

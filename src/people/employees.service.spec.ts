@@ -54,9 +54,26 @@ function make(over: Record<string, jest.Mock> = {}) {
         ...d,
         team: null,
         joinDate: new Date(`${d.joinDate}T00:00:00Z`),
+        probationStartDate: d.probationStartDate
+          ? new Date(`${d.probationStartDate}T00:00:00Z`)
+          : null,
+        internshipEndDate: d.internshipEndDate
+          ? new Date(`${d.internshipEndDate}T00:00:00Z`)
+          : null,
       }),
     ),
-    update: jest.fn().mockImplementation(async (_id, d) => row(d)),
+    update: jest.fn().mockImplementation(async (_id, d) =>
+      row(
+        Object.fromEntries(
+          Object.entries(d).map(([k, v]) => [
+            k,
+            typeof v === 'string' && /Date$/.test(k)
+              ? new Date(`${v}T00:00:00Z`)
+              : v,
+          ]),
+        ),
+      ),
+    ),
     addEvent: jest.fn().mockImplementation(async (a) => ({
       id: 7n,
       type: a.type,
@@ -472,5 +489,152 @@ describe('EmployeesService: the appraisal form profile fields', () => {
       startingSalary: 50000,
       grossSalary: null,
     });
+  });
+});
+
+describe('EmployeesService: the intern lifecycle (0034)', () => {
+  const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
+  const base = {
+    fullName: 'Ina',
+    email: 'ina@x.test',
+    designation: 'Intern',
+    joinDate: '2026-01-01',
+  };
+  const intern = (over: Record<string, unknown> = {}) =>
+    row({
+      status: 'INTERN',
+      joinDate: day('2026-01-01'),
+      probationStartDate: null,
+      internshipEndDate: day('2026-03-31'),
+      events: [],
+      ...over,
+    });
+
+  it('create: PROBATION by default; an INTERN gets join + 3 months as the internship end', async () => {
+    const { svc, repo } = make();
+    await svc.create(admin, base);
+    expect(repo.create.mock.calls[0][0]).toMatchObject({
+      status: 'PROBATION',
+      internshipEndDate: null,
+    });
+    const p = await svc.create(admin, { ...base, status: 'INTERN' });
+    expect(repo.create.mock.calls[1][0]).toMatchObject({
+      status: 'INTERN',
+      internshipEndDate: '2026-04-01',
+    });
+    expect(p).toMatchObject({
+      status: 'INTERN',
+      probationStartDate: null,
+      internshipEndDate: '2026-04-01',
+      nextAppraisal: expect.objectContaining({
+        type: 'INTERNSHIP',
+        dueDate: '2026-04-01',
+      }),
+    });
+  });
+
+  it('create: an internship end must follow the join date and is for interns only', async () => {
+    const { svc } = make();
+    await expect(
+      svc.create(admin, {
+        ...base,
+        status: 'INTERN',
+        internshipEndDate: '2026-01-01',
+      }),
+    ).rejects.toThrow(/after the join date/);
+    await expect(
+      svc.create(admin, { ...base, internshipEndDate: '2026-04-01' }),
+    ).rejects.toThrow(/only for an INTERN/);
+    await expect(
+      svc.create(admin, {
+        ...base,
+        status: 'INTERN',
+        probationStartDate: '2026-04-01',
+      }),
+    ).rejects.toThrow(/no probation start/);
+    await expect(
+      svc.create(admin, {
+        ...base,
+        status: 'ACTIVE',
+        probationStartDate: '2025-12-01',
+      }),
+    ).rejects.toThrow(/before the join date/);
+  });
+
+  it('update: a default probation start moves with a corrected join date; a set one stays', async () => {
+    const { svc, repo } = make({
+      findById: jest
+        .fn()
+        .mockResolvedValue(row({ probationStartDate: day('2025-01-01') })),
+    });
+    await svc.update('org', 'e1', { joinDate: '2025-02-01' });
+    expect(repo.update.mock.calls[0][1]).toMatchObject({
+      joinDate: '2025-02-01',
+      probationStartDate: '2025-02-01',
+    });
+    const other = make({
+      findById: jest
+        .fn()
+        .mockResolvedValue(row({ probationStartDate: day('2025-04-01') })),
+    });
+    await other.svc.update('org', 'e1', { joinDate: '2025-02-01' });
+    expect(other.repo.update.mock.calls[0][1]).not.toHaveProperty(
+      'probationStartDate',
+    );
+    await expect(
+      other.svc.update('org', 'e1', { joinDate: '2025-05-01' }),
+    ).rejects.toThrow(/before the join date/);
+  });
+
+  it('update: an intern’s end date can be corrected, a probation start cannot', async () => {
+    const { svc, repo } = make({
+      findById: jest.fn().mockResolvedValue(intern()),
+    });
+    await svc.update('org', 'e1', { internshipEndDate: '2026-04-15' });
+    expect(repo.update.mock.calls[0][1]).toMatchObject({
+      internshipEndDate: '2026-04-15',
+    });
+    await expect(
+      svc.update('org', 'e1', { probationStartDate: '2026-04-01' }),
+    ).rejects.toThrow(/no probation start/);
+  });
+
+  it('addEvent: moved to probation and internship extended, only for an intern', async () => {
+    const { svc, repo } = make({
+      findById: jest.fn().mockResolvedValue(intern()),
+    });
+    await svc.addEvent(admin, 'e1', {
+      type: 'PROBATION_STARTED',
+      effectiveDate: '2026-04-01',
+    });
+    expect(repo.addEvent.mock.calls[0][0]).toMatchObject({
+      type: 'PROBATION_STARTED',
+      patch: { status: 'PROBATION', probationStartDate: '2026-04-01' },
+    });
+    await svc.addEvent(admin, 'e1', {
+      type: 'INTERNSHIP_EXTENDED',
+      effectiveDate: '2026-03-31',
+      toValue: '2026-05-31',
+      fromValue: 'typed by hand',
+    });
+    expect(repo.addEvent.mock.calls[1][0]).toMatchObject({
+      fromValue: '2026-03-31',
+      toValue: '2026-05-31',
+      patch: { internshipEndDate: '2026-05-31' },
+    });
+    await expect(
+      svc.addEvent(admin, 'e1', {
+        type: 'CONFIRMED',
+        effectiveDate: '2026-04-01',
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    const active = make();
+    await expect(
+      active.svc.addEvent(admin, 'e1', {
+        type: 'PROBATION_STARTED',
+        effectiveDate: '2026-04-01',
+      }),
+    ).rejects.toThrow(/Only an intern/);
   });
 });

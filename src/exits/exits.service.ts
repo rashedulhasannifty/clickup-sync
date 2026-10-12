@@ -449,7 +449,9 @@ export class ExitsService {
         await this.employees.restoreStatus(
           principal,
           row.employeeId,
-          row.previousStatus === 'ACTIVE' ? 'ACTIVE' : 'PROBATION',
+          row.previousStatus === 'ACTIVE' || row.previousStatus === 'INTERN'
+            ? row.previousStatus
+            : 'PROBATION',
           `Offboarding cancelled: ${note}`,
         );
       }

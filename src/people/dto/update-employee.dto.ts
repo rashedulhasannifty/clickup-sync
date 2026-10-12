@@ -58,6 +58,30 @@ export class UpdateEmployeeDto {
   @IsISO8601({ strict: true })
   joinDate?: string;
 
+  @ApiPropertyOptional({
+    example: '2026-01-15',
+    description:
+      'Not for an INTERN (use the "Moved to probation" event). Correcting it moves the confirmation and yearly schedule. Not before the join date; `null` resets it to the join date.',
+  })
+  @IsOptional()
+  @Matches(DATE_ONLY, {
+    message: 'probationStartDate must be a YYYY-MM-DD date',
+  })
+  @IsISO8601({ strict: true })
+  probationStartDate?: string | null;
+
+  @ApiPropertyOptional({
+    example: '2026-04-15',
+    description:
+      'INTERN only: correct the expected internship end (an extension is better recorded as an "Internship extended" event). After the join date; `null` resets it to join + 3 months.',
+  })
+  @IsOptional()
+  @Matches(DATE_ONLY, {
+    message: 'internshipEndDate must be a YYYY-MM-DD date',
+  })
+  @IsISO8601({ strict: true })
+  internshipEndDate?: string | null;
+
   @ApiPropertyOptional({ description: 'ClickUp user id; null unlinks.' })
   @IsOptional()
   @Matches(/^\d+$/, {

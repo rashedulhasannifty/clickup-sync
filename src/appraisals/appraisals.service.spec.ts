@@ -1747,3 +1747,259 @@ describe('AppraisalsService outcome effective date (0033)', () => {
     );
   });
 });
+
+describe('AppraisalsService internship reviews (0034)', () => {
+  const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
+  const internCycle = (over: Record<string, unknown> = {}) =>
+    cycle({
+      periodBasis: 'JOIN_DATE',
+      type: 'INTERNSHIP',
+      scoringMode: 'FORM_100',
+      kpiWeight: 0,
+      competencies: [{ key: 'learning_ability', label: 'Learning ability' }],
+      ...over,
+    });
+  // Joined 1 Jan 2026, internship ends 31 Mar 2026: the review is due then.
+  const review = (over: Record<string, unknown> = {}) =>
+    appraisal({
+      cycle: internCycle(),
+      periodStart: day('2026-01-01'),
+      periodEnd: day('2026-03-30'),
+      dueDate: day('2026-03-31'),
+      status: 'LEAD_REVIEW',
+      internshipOutcome: null,
+      proposedProbationStart: null,
+      proposedInternshipEnd: null,
+      employee: {
+        ...appraisal().employee,
+        status: 'INTERN',
+        joinDate: day('2026-01-01'),
+        probationStartDate: null,
+        internshipEndDate: day('2026-03-31'),
+        events: [],
+      },
+      ...over,
+    });
+
+  it('creates an internship cycle with the six internship criteria; refuses KPI_BLEND or a calendar basis', async () => {
+    const { svc, repo } = make({ current: null });
+    await svc.createCycle(admin, {
+      name: 'Interns Q1',
+      periodStart: '2026-03-01',
+      periodEnd: '2026-03-31',
+      type: 'INTERNSHIP',
+    });
+    const arg = repo.createCycle.mock.calls[0][0];
+    expect(arg.competencies.map((c: { key: string }) => c.key)).toEqual([
+      'learning_ability',
+      'job_knowledge',
+      'quality_of_work',
+      'communication',
+      'attendance_discipline',
+      'attitude_teamwork',
+    ]);
+    await expect(
+      svc.createCycle(admin, {
+        name: 'x',
+        periodStart: '2026-03-01',
+        periodEnd: '2026-03-31',
+        type: 'INTERNSHIP',
+        scoringMode: 'KPI_BLEND',
+      }),
+    ).rejects.toThrow(/FORM_100/);
+    await expect(
+      svc.createCycle(admin, {
+        name: 'x',
+        periodStart: '2026-03-01',
+        periodEnd: '2026-03-31',
+        type: 'INTERNSHIP',
+        periodBasis: 'CALENDAR',
+      }),
+    ).rejects.toThrow(/JOIN_DATE/);
+  });
+
+  it('follows SELF -> LEAD -> HR -> SIGNED_OFF and offers only the internship fields', async () => {
+    const rows = { current: review() };
+    const { svc } = make(rows);
+    const v = await svc.getAppraisal('org', 'a1');
+    expect(v.steps.map((s) => s.status)).toEqual([
+      'SELF_REVIEW',
+      'LEAD_REVIEW',
+      'HR_REVIEW',
+      'SIGNED_OFF',
+    ]);
+    expect(v.editableFields).toEqual(
+      expect.arrayContaining([
+        'internshipOutcome',
+        'proposedProbationStart',
+        'proposedInternshipEnd',
+      ]),
+    );
+    expect(v.editableFields).not.toContain('actions');
+    expect(v.effective).toBeNull();
+    expect(v.internship).toEqual({
+      currentEndDate: '2026-03-31',
+      defaultProbationStart: '2026-04-01',
+      isIntern: true,
+    });
+    await expect(
+      svc.update('org', 'a1', { actions: ['CONFIRM'] }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('moving to probation defaults the start to the day after the due date; dates are checked', async () => {
+    const rows = { current: review() };
+    const { svc } = make(rows);
+    await svc.update('org', 'a1', { internshipOutcome: 'MOVE_TO_PROBATION' });
+    expect(rows.current.proposedProbationStart).toEqual(day('2026-04-01'));
+    await expect(
+      svc.update('org', 'a1', { proposedInternshipEnd: '2026-05-31' }),
+    ).rejects.toThrow(/only used with EXTEND_INTERNSHIP/);
+    await expect(
+      svc.update('org', 'a1', {
+        internshipOutcome: 'EXTEND_INTERNSHIP',
+        proposedInternshipEnd: '2026-03-31',
+      }),
+    ).rejects.toThrow(/after the current one/);
+    await svc.update('org', 'a1', {
+      internshipOutcome: 'EXTEND_INTERNSHIP',
+      proposedInternshipEnd: '2026-05-31',
+    });
+    expect(rows.current).toMatchObject({
+      internshipOutcome: 'EXTEND_INTERNSHIP',
+      proposedProbationStart: null,
+      proposedInternshipEnd: day('2026-05-31'),
+    });
+  });
+
+  it('HR must decide; an approved move to probation writes PROBATION_STARTED on the chosen date, once', async () => {
+    const rows = {
+      current: review({
+        status: 'HR_REVIEW',
+        leadRatings: { learning_ability: 8 },
+        internshipOutcome: 'MOVE_TO_PROBATION',
+        proposedProbationStart: day('2026-04-01'),
+      }),
+    };
+    const { svc, employees } = make(rows);
+    await expect(svc.advance(admin, 'a1')).rejects.toThrow(
+      /Record the approval decision/,
+    );
+    rows.current = { ...rows.current, approvalDecision: 'APPROVED' };
+    const v = await svc.advance(admin, 'a1');
+    expect(v.status).toBe('SIGNED_OFF');
+    expect(employees.recordAppraisalOutcome).toHaveBeenCalledTimes(1);
+    expect(employees.recordAppraisalOutcome.mock.calls[0][2]).toEqual([
+      expect.objectContaining({
+        type: 'PROBATION_STARTED',
+        effectiveDate: '2026-04-01',
+      }),
+    ]);
+    expect(rows.current.effectiveDate).toEqual(day('2026-04-01'));
+    await svc.advance(admin, 'a1');
+    expect(employees.recordAppraisalOutcome).toHaveBeenCalledTimes(1);
+  });
+
+  it('an approved extension writes INTERNSHIP_EXTENDED from the current to the new end', async () => {
+    const rows = {
+      current: review({
+        status: 'HR_REVIEW',
+        leadRatings: { learning_ability: 6 },
+        internshipOutcome: 'EXTEND_INTERNSHIP',
+        proposedInternshipEnd: day('2026-05-31'),
+        approvalDecision: 'APPROVED',
+      }),
+    };
+    const { svc, employees } = make(rows);
+    await svc.advance(admin, 'a1');
+    expect(employees.recordAppraisalOutcome.mock.calls[0][2]).toEqual([
+      expect.objectContaining({
+        type: 'INTERNSHIP_EXTENDED',
+        fromValue: '2026-03-31',
+        toValue: '2026-05-31',
+        effectiveDate: TODAY,
+      }),
+    ]);
+  });
+
+  it('ending the internship or not approving writes nothing', async () => {
+    for (const over of [
+      { internshipOutcome: 'END_INTERNSHIP', approvalDecision: 'APPROVED' },
+      {
+        internshipOutcome: 'MOVE_TO_PROBATION',
+        proposedProbationStart: day('2026-04-01'),
+        approvalDecision: 'NOT_APPROVED',
+      },
+    ]) {
+      const rows = {
+        current: review({
+          status: 'HR_REVIEW',
+          leadRatings: { learning_ability: 4 },
+          ...over,
+        }),
+      };
+      const { svc, employees } = make(rows);
+      const v = await svc.advance(admin, 'a1');
+      expect(v.status).toBe('SIGNED_OFF');
+      expect(v.outcomeApplied).toBe(true);
+      expect(employees.recordAppraisalOutcome).not.toHaveBeenCalled();
+    }
+  });
+
+  it('an explicit launch reports a non-intern as NOT_AN_INTERN', async () => {
+    const { svc, repo } = make(
+      { current: null },
+      {
+        findCycle: jest.fn().mockResolvedValue(
+          internCycle({
+            status: 'DRAFT',
+            periodStart: day('2026-03-01'),
+            periodEnd: day('2026-03-31'),
+          }),
+        ),
+        launchCandidates: jest.fn().mockResolvedValue([
+          {
+            id: 'i1',
+            managerId: 'm1',
+            fullName: 'Intern',
+            designation: 'Intern',
+            status: 'INTERN',
+            joinDate: day('2026-01-01'),
+            confirmationDate: null,
+            probationStartDate: null,
+            internshipEndDate: day('2026-03-31'),
+            events: [],
+            team: null,
+          },
+          {
+            id: 'a2',
+            managerId: 'm1',
+            fullName: 'Active',
+            designation: 'Dev',
+            status: 'ACTIVE',
+            joinDate: day('2025-01-01'),
+            confirmationDate: null,
+            probationStartDate: day('2025-01-01'),
+            internshipEndDate: null,
+            events: [],
+            team: null,
+          },
+        ]),
+      },
+    );
+    const r = await svc.launch('org', 'c1', { employeeIds: ['i1', 'a2'] });
+    expect(r.notDue).toEqual([
+      expect.objectContaining({ employeeId: 'a2', reason: 'NOT_AN_INTERN' }),
+    ]);
+    expect(repo.createAppraisals.mock.calls[0][1]).toEqual([
+      expect.objectContaining({
+        id: 'i1',
+        period: {
+          periodStart: '2026-01-01',
+          periodEnd: '2026-03-30',
+          dueDate: '2026-03-31',
+        },
+      }),
+    ]);
+  });
+});

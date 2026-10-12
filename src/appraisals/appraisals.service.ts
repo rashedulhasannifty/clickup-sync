@@ -10,6 +10,7 @@ import { AuthPrincipal } from '../auth/auth.types';
 import { DocumentsService } from '../documents/documents.service';
 import { EmployeesService } from '../people/employees.service';
 import { assertNotExited } from '../people/employee-readonly';
+import { scheduleFieldsOf } from '../people/employee-mapper';
 import {
   addDays,
   dateColumnToIso,
@@ -19,13 +20,11 @@ import {
 import { PeopleSummaryService } from '../people/people-summary.service';
 import { buildFormHeader } from './appraisal-header';
 import {
-  addMonthsClamped,
   classifyDue,
-  coveredMilestones,
-  dueOnOrBefore,
-  isCovered,
-  milestones,
-  nearestMilestone,
+  dueDateTaken,
+  dueOnOrBeforeFor,
+  firstDueFor,
+  isDueCovered,
   overdueAppraisals,
   selectDue,
   UPCOMING_DAYS,
@@ -42,12 +41,12 @@ import {
 import { formPdfFileName, renderAppraisalFormPdf } from './appraisal-form-pdf';
 import {
   cycleStatusAllowed,
-  DEFAULT_COMPETENCIES,
+  defaultCriteria,
   DEFAULT_KPI_WEIGHT,
   DEFAULT_SCORING_MODE,
   editableFields,
-  FORM_CRITERIA,
   formOutcomePlan,
+  internshipOutcomePlan,
   formScore,
   cleanRatings,
   isValidCalibratedScore,
@@ -65,7 +64,9 @@ import {
   effectiveOf,
   competenciesOf,
   emptyCounts,
+  flowOfRow,
   headerOf,
+  internshipContextOf,
   modeOf,
   periodOf,
   scoreOf,
@@ -88,6 +89,7 @@ import type {
   AppraisalActionValue,
   AppraisalEditableField,
   AppraisalEffectiveDateValue,
+  AppraisalPeriodBasisValue,
   AppraisalTypeValue,
   AppraisalListRow,
   AppraisalStatusValue,
@@ -98,9 +100,11 @@ import type {
   DueGroupsView,
   EmployeeAppraisalRow,
   FormHeader,
+  InternshipOutcomeValue,
   KpiSnapshot,
   LaunchNotDue,
   LaunchResult,
+  ScoringModeValue,
 } from './appraisals.types';
 import {
   CreateCycleDto,
@@ -145,7 +149,14 @@ const TEXT_FIELDS = [
 ] as const;
 
 /** A launch candidate as the schedule sees it. */
-type SchedulePerson = Omit<CandidateRow, 'joinDate' | 'confirmationDate'> &
+type SchedulePerson = Omit<
+  CandidateRow,
+  | 'joinDate'
+  | 'confirmationDate'
+  | 'probationStartDate'
+  | 'internshipEndDate'
+  | 'events'
+> &
   OverdueEmployee;
 
 const dueRow = (e: SchedulePerson, due: ClassifiedDue): DueEmployeeRow => ({
@@ -213,11 +224,10 @@ export class AppraisalsService {
     dto: CreateCycleDto,
   ): Promise<CycleView> {
     const scoringMode = dto.scoringMode ?? DEFAULT_SCORING_MODE;
-    const competencies =
-      dto.competencies ??
-      (scoringMode === 'FORM_100'
-        ? FORM_CRITERIA.map((c) => ({ ...c }))
-        : [...DEFAULT_COMPETENCIES]);
+    const type = dto.type ?? 'YEARLY';
+    const periodBasis = dto.periodBasis ?? 'JOIN_DATE';
+    this.assertTypeFits(type, scoringMode, periodBasis);
+    const competencies = dto.competencies ?? defaultCriteria(scoringMode, type);
     this.assertPeriod(dto.periodStart, dto.periodEnd);
     this.assertCompetencies(competencies);
     const row = await this.repo.createCycle({
@@ -229,9 +239,9 @@ export class AppraisalsService {
       kpiWeight:
         scoringMode === 'FORM_100' ? 0 : (dto.kpiWeight ?? DEFAULT_KPI_WEIGHT),
       competencies,
-      type: dto.type ?? 'YEARLY',
+      type,
       scoringMode,
-      periodBasis: dto.periodBasis ?? 'JOIN_DATE',
+      periodBasis,
       createdBy: actorId(principal),
     });
     return toCycleView(row, emptyCounts());
@@ -249,6 +259,11 @@ export class AppraisalsService {
     const periodEnd = dto.periodEnd ?? view.periodEnd;
     this.assertPeriod(periodStart, periodEnd);
     if (dto.competencies) this.assertCompetencies(dto.competencies);
+    this.assertTypeFits(
+      dto.type ?? view.type,
+      view.scoringMode,
+      dto.periodBasis ?? view.periodBasis,
+    );
 
     // Weights, period, its basis, type and competencies decide every score in
     // the cycle: once appraisals exist they can no longer move underneath them.
@@ -415,14 +430,29 @@ export class AppraisalsService {
       orgId,
       candidates.map((c) => c.id),
     );
-    return candidates.map((c) => ({
-      ...c,
-      joinDate: dateColumnToIso(c.joinDate),
-      confirmationDate: c.confirmationDate
-        ? dateColumnToIso(c.confirmationDate)
-        : null,
-      appraisals: records.get(c.id) ?? [],
-    }));
+    return candidates.map(
+      ({
+        joinDate,
+        confirmationDate,
+        probationStartDate,
+        internshipEndDate,
+        events,
+        ...c
+      }) => ({
+        ...c,
+        ...scheduleFieldsOf({
+          joinDate,
+          status: c.status,
+          probationStartDate,
+          internshipEndDate,
+          events,
+        }),
+        confirmationDate: confirmationDate
+          ? dateColumnToIso(confirmationDate)
+          : null,
+        appraisals: records.get(c.id) ?? [],
+      }),
+    );
   }
 
   private async recordsByEmployee(
@@ -450,7 +480,8 @@ export class AppraisalsService {
    * late appraisal outside the overdue rules); for a confirmation the
    * employee need not still be on probation. Exited employees, anyone with no
    * due date yet, and anyone whose due date already has an appraisal in any
-   * cycle are left out and reported.
+   * cycle are left out and reported; so are a non-intern picked for an
+   * internship review and an intern picked for any other review.
    */
   private async joinDateSelection(
     orgId: string,
@@ -487,40 +518,36 @@ export class AppraisalsService {
     const eligible: LaunchCandidate[] = [];
     const notDue: LaunchNotDue[] = [];
     for (const c of people) {
-      if (c.status === 'EXITED') {
+      const stage: LaunchNotDue['reason'] | null =
+        c.status === 'EXITED'
+          ? 'EXITED'
+          : cycle.type === 'INTERNSHIP' && c.status !== 'INTERN'
+            ? 'NOT_AN_INTERN'
+            : cycle.type !== 'INTERNSHIP' && c.status === 'INTERN'
+              ? 'STILL_INTERN'
+              : null;
+      if (stage) {
         notDue.push({
           employeeId: c.id,
           employeeName: c.fullName,
-          reason: 'EXITED',
+          reason: stage,
           firstDueDate: null,
         });
         continue;
       }
       const due =
         classifyDue(c, cycle.type, { from, to, today }) ??
-        dueOnOrBefore(c.joinDate, cycle.type, to);
+        dueOnOrBeforeFor(c, cycle.type, to);
       if (!due) {
-        const [first] = milestones(
-          c.joinDate,
-          cycle.type,
-          c.joinDate,
-          addMonthsClamped(c.joinDate, 12),
-        );
         notDue.push({
           employeeId: c.id,
           employeeName: c.fullName,
           reason: 'NOT_YET_DUE',
-          firstDueDate: first ?? null,
+          firstDueDate: firstDueFor(c, cycle.type),
         });
         continue;
       }
-      if (
-        isCovered(
-          coveredMilestones(c.joinDate, c.appraisals),
-          cycle.type,
-          due.dueDate,
-        )
-      ) {
+      if (isDueCovered(c, cycle.type, due.dueDate)) {
         notDue.push({
           employeeId: c.id,
           employeeName: c.fullName,
@@ -572,7 +599,7 @@ export class AppraisalsService {
     const mode = modeOf(row);
     const keys = competenciesOf(row.cycle).map((c) => c.key);
     const allowed = new Set<AppraisalEditableField>(
-      editableFields(row.status, mode),
+      editableFields(row.status, flowOfRow(row)),
     );
 
     const sent = (Object.keys(dto) as AppraisalEditableField[]).filter(
@@ -624,6 +651,7 @@ export class AppraisalsService {
     }
     if (dto.approvalDecision !== undefined)
       data.approvalDecision = dto.approvalDecision;
+    Object.assign(data, this.internshipChanges(row, dto));
     Object.assign(data, await this.dateChanges(row, dto));
     Object.assign(data, this.effectiveDateChanges(row, dto, data));
     if (dto.calibratedScore !== undefined) {
@@ -656,6 +684,7 @@ export class AppraisalsService {
     const orgId = principal.orgId;
     const row = await this.requireAppraisal(orgId, id);
     const mode = modeOf(row);
+    const flow = flowOfRow(row);
 
     if (row.status === 'SIGNED_OFF') {
       if (signOffAction(row) === 'apply-outcome')
@@ -668,7 +697,7 @@ export class AppraisalsService {
 
     const blockers = blockersOf(row);
     if (blockers.length > 0) throw new BadRequestException(blockers.join('; '));
-    const next = nextStatus(row.status, mode);
+    const next = nextStatus(row.status, flow);
     if (!next) throw new BadRequestException('Nothing follows sign-off');
 
     const now = new Date();
@@ -693,17 +722,20 @@ export class AppraisalsService {
       data.signedOffBy = actorId(principal);
       // Resolved once, here, and stored: the outcome (and any retry of it) uses this date.
       const period = periodOf(row);
-      const effective = resolveEffectiveDate({
-        scoringMode: mode,
-        mode: (row.effectiveDateMode ??
-          null) as AppraisalEffectiveDateValue | null,
-        customDate: row.effectiveDate
-          ? dateColumnToIso(row.effectiveDate)
-          : null,
-        dueDate: period.dueDate,
-        periodStart: period.periodStart,
-        approvalDate: this.today(),
-      });
+      const effective =
+        flow === 'INTERNSHIP'
+          ? this.internshipEffectiveDate(row)
+          : resolveEffectiveDate({
+              scoringMode: mode,
+              mode: (row.effectiveDateMode ??
+                null) as AppraisalEffectiveDateValue | null,
+              customDate: row.effectiveDate
+                ? dateColumnToIso(row.effectiveDate)
+                : null,
+              dueDate: period.dueDate,
+              periodStart: period.periodStart,
+              approvalDate: this.today(),
+            });
       if (!effective.ok) throw new BadRequestException(effective.error);
       data.effectiveDateMode = effective.mode;
       data.effectiveDate = isoToDateColumn(effective.date);
@@ -737,7 +769,7 @@ export class AppraisalsService {
   /** Back one step for corrections. Not from the first step, never after sign-off. */
   async sendBack(orgId: string, id: string): Promise<AppraisalView> {
     const row = await this.requireOpen(orgId, id);
-    const prev = previousStatus(row.status, modeOf(row));
+    const prev = previousStatus(row.status, flowOfRow(row));
     if (!prev) {
       throw new BadRequestException(
         row.status === 'SIGNED_OFF'
@@ -836,9 +868,13 @@ export class AppraisalsService {
           }),
         );
       const type = row.cycle.type as AppraisalTypeValue;
-      const milestone =
-        nearestMilestone(joinDate, type, next.dueDate) ?? next.dueDate;
-      if (isCovered(coveredMilestones(joinDate, others), type, milestone))
+      const milestone = dueDateTaken(
+        scheduleFieldsOf(row.employee),
+        type,
+        next.dueDate,
+        others,
+      );
+      if (milestone)
         throw new ConflictException(
           `Another appraisal already covers the ${milestone} due date for this employee`,
         );
@@ -873,6 +909,93 @@ export class AppraisalsService {
         ) as unknown as Prisma.InputJsonValue;
     }
     return data;
+  }
+
+  /**
+   * An internship review's recommendation and its date (LEAD_REVIEW). The
+   * date fields belong to their recommendation: a date for another one is a
+   * 400, and changing the recommendation clears the other date. Choosing
+   * MOVE_TO_PROBATION without a date defaults it to the day after the due
+   * date. A date that is set is checked now (start on or after joining; an
+   * extension later than the current end); completeness is an advance
+   * blocker.
+   */
+  private internshipChanges(
+    row: AppraisalRow,
+    dto: UpdateAppraisalDto,
+  ): Prisma.AppraisalUpdateManyMutationInput {
+    if (
+      dto.internshipOutcome === undefined &&
+      dto.proposedProbationStart === undefined &&
+      dto.proposedInternshipEnd === undefined
+    )
+      return {};
+    const ctx = internshipContextOf(row);
+    if (!ctx)
+      throw new BadRequestException(
+        'Only an internship review takes an internship recommendation',
+      );
+    const outcome =
+      dto.internshipOutcome !== undefined
+        ? dto.internshipOutcome
+        : ((row.internshipOutcome ?? null) as InternshipOutcomeValue | null);
+    const stored = (d: Date | null) => (d ? dateColumnToIso(d) : null);
+    if (dto.proposedProbationStart && outcome !== 'MOVE_TO_PROBATION')
+      throw new BadRequestException(
+        'proposedProbationStart is only used with MOVE_TO_PROBATION',
+      );
+    if (dto.proposedInternshipEnd && outcome !== 'EXTEND_INTERNSHIP')
+      throw new BadRequestException(
+        'proposedInternshipEnd is only used with EXTEND_INTERNSHIP',
+      );
+    const probationStart =
+      outcome !== 'MOVE_TO_PROBATION'
+        ? null
+        : dto.proposedProbationStart !== undefined
+          ? dto.proposedProbationStart
+          : (stored(row.proposedProbationStart) ?? ctx.defaultProbationStart);
+    const newEnd =
+      outcome !== 'EXTEND_INTERNSHIP'
+        ? null
+        : dto.proposedInternshipEnd !== undefined
+          ? dto.proposedInternshipEnd
+          : stored(row.proposedInternshipEnd);
+    const joinDate = dateColumnToIso(row.employee.joinDate);
+    if (probationStart && probationStart < joinDate)
+      throw new BadRequestException(
+        'The probation start cannot be before the employee joined',
+      );
+    if (newEnd && newEnd <= ctx.currentEndDate)
+      throw new BadRequestException(
+        `The new internship end must be after the current one (${ctx.currentEndDate})`,
+      );
+    return {
+      internshipOutcome: outcome,
+      proposedProbationStart: probationStart
+        ? isoToDateColumn(probationStart)
+        : null,
+      proposedInternshipEnd: newEnd ? isoToDateColumn(newEnd) : null,
+    };
+  }
+
+  /**
+   * An internship review's outcome date, stored at sign-off: an approved move
+   * to probation takes effect on the chosen probation start; anything else on
+   * the sign-off date.
+   */
+  private internshipEffectiveDate(row: AppraisalRow): {
+    ok: true;
+    mode: AppraisalEffectiveDateValue;
+    date: string;
+  } {
+    const start = row.proposedProbationStart
+      ? dateColumnToIso(row.proposedProbationStart)
+      : null;
+    return row.approvalDecision === 'APPROVED' &&
+      row.internshipOutcome === 'MOVE_TO_PROBATION' &&
+      start
+      ? { ok: true, mode: 'CUSTOM', date: start }
+      : { ok: true, mode: 'APPROVAL_DATE', date: this.today() };
   }
 
   /**
@@ -1065,7 +1188,36 @@ export class AppraisalsService {
     const effectiveDate =
       effectiveOf(row, this.today())?.date ??
       dhakaDateOf(row.signedOffAt ?? new Date());
-    if (modeOf(row) === 'FORM_100') {
+    const internship = internshipContextOf(row);
+    if (internship) {
+      const plan = internshipOutcomePlan({
+        decision: row.approvalDecision,
+        outcome: (row.internshipOutcome ??
+          null) as InternshipOutcomeValue | null,
+        probationStart: row.proposedProbationStart
+          ? dateColumnToIso(row.proposedProbationStart)
+          : null,
+        newEndDate: row.proposedInternshipEnd
+          ? dateColumnToIso(row.proposedInternshipEnd)
+          : null,
+        employeeStatus: row.employee.status,
+        currentEndDate: internship.currentEndDate,
+        cycleName: row.cycle.name,
+        effectiveDate,
+      });
+      if (plan.events.length > 0)
+        await this.employees.recordAppraisalOutcome(
+          principal,
+          row.employeeId,
+          plan.events.map((e) => ({
+            type: e.type,
+            effectiveDate: e.effectiveDate,
+            ...(e.fromValue !== undefined ? { fromValue: e.fromValue } : {}),
+            toValue: e.toValue,
+            notes: e.notes,
+          })),
+        );
+    } else if (modeOf(row) === 'FORM_100') {
       const plan = formOutcomePlan({
         decision: row.approvalDecision,
         actions: (row.actions ?? []) as AppraisalActionValue[],
@@ -1182,6 +1334,23 @@ export class AppraisalsService {
     if (start < addDays(end, -800))
       throw new BadRequestException(
         'A cycle cannot span more than about two years',
+      );
+  }
+
+  /** An internship review is on the form and counted from each intern's own dates. */
+  private assertTypeFits(
+    type: AppraisalTypeValue,
+    scoringMode: ScoringModeValue,
+    periodBasis: AppraisalPeriodBasisValue,
+  ): void {
+    if (type !== 'INTERNSHIP') return;
+    if (scoringMode !== 'FORM_100')
+      throw new BadRequestException(
+        'An internship review is scored on the form (scoringMode FORM_100)',
+      );
+    if (periodBasis !== 'JOIN_DATE')
+      throw new BadRequestException(
+        'An internship review is counted from each intern’s own dates (periodBasis JOIN_DATE)',
       );
   }
 

@@ -131,3 +131,51 @@ describe('toProfile nextAppraisal', () => {
     expect(p.upcomingAppraisals).toEqual([]);
   });
 });
+
+describe('toProfile: the intern lifecycle (0034)', () => {
+  const d = (iso: string) => new Date(`${iso}T00:00:00Z`);
+  it('an intern: the internship review only, and no probation start yet', () => {
+    const p = toProfile(
+      row({
+        status: 'INTERN',
+        joinDate: d('2026-01-01'),
+        probationStartDate: null,
+        internshipEndDate: null,
+        events: [],
+      }),
+      '2026-02-01',
+    );
+    expect(p.probationStartDate).toBeNull();
+    expect(p.internshipEndDate).toBe('2026-04-01');
+    expect(p.nextAppraisal).toEqual({
+      type: 'INTERNSHIP',
+      dueDate: '2026-04-01',
+      periodStart: '2026-01-01',
+      periodEnd: '2026-03-31',
+      overdue: false,
+    });
+  });
+
+  it('on probation after an internship: confirmation 6 months after the probation start', () => {
+    const p = toProfile(
+      row({
+        status: 'PROBATION',
+        joinDate: d('2025-01-01'),
+        probationStartDate: d('2025-04-01'),
+      }),
+      '2025-06-01',
+    );
+    expect(p.probationStartDate).toBe('2025-04-01');
+    expect(p.nextAppraisal).toMatchObject({
+      type: 'CONFIRMATION',
+      dueDate: '2025-10-01',
+      periodStart: '2025-04-01',
+    });
+  });
+
+  it('no stored probation start reads as the join date', () => {
+    expect(toProfile(row(), '2026-10-12').probationStartDate).toBe(
+      '2025-04-15',
+    );
+  });
+});
