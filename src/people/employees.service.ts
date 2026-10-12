@@ -686,20 +686,22 @@ export class EmployeesService {
 
   private translate(e: unknown): Error {
     if (isUniqueViolation(e)) {
-      const target = String(
-        (e as { meta?: { target?: unknown } }).meta?.target ?? '',
+      // Under the pg driver adapter the column names are not in `meta.target` but nested in
+      // `meta.driverAdapterError` (constraint fields/name), so match against the whole meta.
+      const target = JSON.stringify(
+        (e as { meta?: unknown }).meta ?? '',
       );
-      const field = /email/.test(target)
+      const field = /email/i.test(target)
         ? 'email'
-        : /employee_code/.test(target)
+        : /employee_?code/i.test(target)
           ? 'employee code'
-          : /clickup/.test(target)
+          : /clickup/i.test(target)
             ? 'ClickUp user'
             : /attendance_?id/i.test(target)
               ? 'Stellar ID'
-            : /user_id/.test(target)
-              ? 'login'
-              : 'value';
+              : /user_?id/i.test(target)
+                ? 'login'
+                : 'value';
       return new ConflictException(
         `An employee with this ${field} already exists`,
       );
