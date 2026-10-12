@@ -497,6 +497,8 @@ describe('edits and clearance items', () => {
     const { svc, repo } = make();
     await svc.addClearanceItem('org', 'x1', '  Parking pass ', 'ASSETS');
     expect(repo.addItem).toHaveBeenCalledWith('x1', 'Parking pass', 'ASSETS');
+    await svc.addClearanceItem('org', 'x1', 'Call the client', undefined);
+    expect(repo.addItem).toHaveBeenLastCalledWith('x1', 'Call the client', 'PROCESS');
     await expect(svc.addClearanceItem('org', 'x1', '   ', 'PROCESS')).rejects.toBeInstanceOf(BadRequestException);
   });
 

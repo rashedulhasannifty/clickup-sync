@@ -236,7 +236,7 @@ export class ExitsService {
     orgId: string,
     id: string,
     label: string,
-    group: ExitChecklistGroupValue,
+    group: ExitChecklistGroupValue = 'PROCESS',
   ): Promise<ExitView> {
     const row = await this.require(orgId, id);
     this.assertCan(row, 'edit');

@@ -104,12 +104,7 @@ export class ExitsController {
     @Param('id') id: string,
     @Body() dto: AddClearanceItemDto,
   ): Promise<ExitView> {
-    return this.exits.addClearanceItem(
-      user.orgId,
-      id,
-      dto.label,
-      dto.group ?? 'PROCESS',
-    );
+    return this.exits.addClearanceItem(user.orgId, id, dto.label, dto.group);
   }
 
   @Patch('exits/:id/clearance-items/:itemId')
