@@ -14,6 +14,7 @@ import {
 import type { EmployeeStatusValue } from '../people.types';
 import {
   activeEvents,
+  joinEvent,
   recomputeEmployee,
   sortHistory,
   type HistoryBaselines,
@@ -516,7 +517,16 @@ export function planEmployeeImport(args: {
       notes: record.notes,
     };
     if (record.type === 'JOINED' && record.date === employee.stored.joinDate) {
-      alreadyRecorded.push(row);
+      const joinedAs = joinEvent(employee.events)?.toValue ?? null;
+      if (record.toValue !== null && norm(record.toValue) !== norm(joinedAs))
+        // Never drop the designation silently: the join itself is already on file.
+        rowErrors.push({
+          row,
+          field: 'to',
+          message:
+            'This join date is already on file: set "Joined as" by editing the Joined entry on the employee page',
+        });
+      else alreadyRecorded.push(row);
       continue;
     }
     const sameDay = employee.events.find(

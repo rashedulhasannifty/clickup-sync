@@ -367,3 +367,28 @@ describe('the app’s own events and new past records together', () => {
     expect(fixed.evaluation.after).toMatchObject({ status: 'ACTIVE', probationStartDate: '2024-08-01', confirmationDate: '2024-11-01' });
   });
 });
+
+describe('planEmployeeImport: a Joined row on the join date already on file (0037)', () => {
+  it('is skipped when it says nothing new, and an error (not silently dropped) when it carries a designation', () => {
+    const employee = {
+      id: 'e1',
+      stored: {
+        joinDate: '2024-05-01', status: 'ACTIVE' as const, probationStartDate: '2024-05-01', internshipEndDate: null,
+        confirmationDate: null, designation: 'Unassigned', teamId: null, grossSalary: null,
+      },
+      baselines: null,
+      events: [{ key: 'event:1', type: 'JOINED' as const, source: 'APP' as const, effectiveDate: '2024-05-01', fromValue: null, toValue: null, order: 1 }],
+      pastAppraisals: [],
+      systemAppraisals: [],
+      noticeDate: null,
+    };
+    const join = (to: string | null) => ({
+      row: 2,
+      record: { kind: 'event' as const, type: 'JOINED' as const, date: '2024-05-01', fromValue: null, toValue: to, notes: null },
+    });
+    const plain = planEmployeeImport({ employee, rows: [join(null)], today: '2026-10-12', teamIdsByName: new Map() });
+    expect(plain.alreadyRecorded).toEqual([2]);
+    const withTitle = planEmployeeImport({ employee, rows: [join('Senior Software Engineer')], today: '2026-10-12', teamIdsByName: new Map() });
+    expect(withTitle.rowErrors).toEqual([expect.objectContaining({ row: 2, field: 'to', message: expect.stringMatching(/edit.*Joined entry/) })]);
+  });
+});

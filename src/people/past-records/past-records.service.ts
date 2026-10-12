@@ -344,7 +344,9 @@ export class PastRecordsService {
     const record = await this.planned(ctx, dto, 'new:1');
     const { events, appraisals } = this.withRecord(ctx.history, record, null);
     if (record.kind === 'event' && record.event.type === 'JOINED' && record.event.date === ctx.history.stored.joinDate)
-      throw new ConflictException(`Already recorded: ${record.event.date} is the join date`);
+      throw new ConflictException(
+        `Already recorded: ${record.event.date} is the join date. To change it or set "Joined as", edit the Joined entry on the timeline`,
+      );
     await this.commit(ctx, events, appraisals, [], async (tx) => {
       if (record.kind === 'event')
         await this.repo.addEvents(tx, employeeId, actorId(principal), [record.event]);
