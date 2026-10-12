@@ -1028,6 +1028,14 @@ enum AppraisalType {
   YEARLY
 }
 
+/// How a cycle's period is read. CALENDAR: the cycle's period is everyone's review period.
+/// JOIN_DATE: appraisals are counted from each employee's join date; the cycle's period is the
+/// window the due dates fall in, and each appraisal carries its own review period and due date.
+enum AppraisalPeriodBasis {
+  CALENDAR
+  JOIN_DATE
+}
+
 /// FORM_100: the paper form's 100-mark total and A-F grade are the official result; the KPI
 /// score is shown beside it as a reference. KPI_BLEND: the original 0-5 KPI/competency blend.
 enum AppraisalScoringMode {
@@ -1059,6 +1067,9 @@ model AppraisalCycle {
   periodEnd    DateTime             @map("period_end") @db.Date
   status       AppraisalCycleStatus @default(DRAFT)
   type         AppraisalType        @default(YEARLY)
+  /// Cycles created before 0032 were backfilled CALENDAR; new cycles default to JOIN_DATE, where
+  /// periodStart/periodEnd mean "due between".
+  periodBasis  AppraisalPeriodBasis @default(JOIN_DATE) @map("period_basis")
   /// Cycles created before 0031 were backfilled KPI_BLEND; new cycles default to the form.
   scoringMode  AppraisalScoringMode @default(FORM_100) @map("scoring_mode")
   /// 0-100: share of the final score that comes from the KPIs; the rest is competencies. KPI_BLEND only.
@@ -1084,6 +1095,12 @@ model Appraisal {
   /// Another employee (defaults to the employee's manager at launch).
   reviewerId String?         @map("reviewer_id")
   status     AppraisalStatus @default(SELF_REVIEW)
+
+  /// JOIN_DATE cycles: this employee's own review period and due date (from the join date).
+  /// Null means the cycle's period applies (calendar cycles and appraisals created before 0032).
+  periodStart DateTime? @map("period_start") @db.Date
+  periodEnd   DateTime? @map("period_end") @db.Date
+  dueDate     DateTime? @map("due_date") @db.Date
 
   /// `{ [competencyKey]: rating }`: 1-5 (KPI_BLEND) or 2/4/6/8/10 (FORM_100). A missing key is unrated.
   selfRatings     Json                     @default("{}") @map("self_ratings")
