@@ -13,6 +13,7 @@ import {
 } from '../employee-mapper';
 import type { EmployeeStatusValue } from '../people.types';
 import {
+  activeEvents,
   recomputeEmployee,
   sortHistory,
   type HistoryBaselines,
@@ -195,11 +196,7 @@ export function evaluateHistory(args: {
   );
 
   const byType = (t: string) => events.filter((e) => e.type === t);
-  const joins = events.filter(
-    (e) =>
-      e.type === 'JOINED_AS_INTERN' ||
-      (e.type === 'JOINED' && e.source === 'PAST_RECORD'),
-  );
+  const joins = activeEvents(events).filter((e) => JOIN_TYPES.has(e.type));
   const internAt = byType('JOINED_AS_INTERN')[0]?.effectiveDate ?? null;
   const probations = byType('PROBATION_STARTED');
   const confirmations = byType('CONFIRMED');

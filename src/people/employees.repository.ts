@@ -87,6 +87,8 @@ export interface NewEmployee {
   /** INTERN: the expected internship end. */
   internshipEndDate?: string | null;
   createdBy: string | null;
+  /** The designation they joined as, kept on the join event ("Joined as ..."). */
+  joinedAs?: string | null;
   concernName?: string | null;
   academicQualification?: string | null;
   experienceBeforeJoiningMonths?: number | null;
@@ -126,6 +128,8 @@ export interface NewEmploymentEvent {
   fromValue: string | null;
   toValue: string | null;
   notes: string | null;
+  /** Set when an approved appraisal writes it (0037). */
+  appraisalId?: string | null;
   patch: EmployeePatch;
 }
 
@@ -285,8 +289,9 @@ export class EmployeesRepository {
         ...(data.status ? { status: data.status } : {}),
         events: {
           create: {
-            type: 'JOINED',
+            type: data.status === 'INTERN' ? 'JOINED_AS_INTERN' : 'JOINED',
             effectiveDate: isoToDateColumn(data.joinDate),
+            toValue: data.joinedAs ?? null,
             createdBy: data.createdBy,
           },
         },
@@ -296,21 +301,55 @@ export class EmployeesRepository {
     });
   }
 
-  update(id: string, data: EmployeeProfileUpdate): Promise<EmployeeRow> {
+  /**
+   * `moveJoinEvent`: a corrected join date also moves the app's own join row, in
+   * the same transaction, unless a past record gives the real join (the app's
+   * row then says when they were added here).
+   */
+  update(
+    id: string,
+    data: EmployeeProfileUpdate,
+    opts: { moveJoinEvent?: boolean } = {},
+  ): Promise<EmployeeRow> {
     const { joinDate, probationStartDate, internshipEndDate, ...rest } = data;
     const date = (v: string | null) => (v ? isoToDateColumn(v) : null);
+    const changes = {
+      ...rest,
+      ...(joinDate ? { joinDate: isoToDateColumn(joinDate) } : {}),
+      ...(probationStartDate !== undefined
+        ? { probationStartDate: date(probationStartDate) }
+        : {}),
+      ...(internshipEndDate !== undefined
+        ? { internshipEndDate: date(internshipEndDate) }
+        : {}),
+    };
+    if (opts.moveJoinEvent && joinDate)
+      return this.prisma.$transaction(async (tx) => {
+        const pastJoin = await tx.employmentEvent.count({
+          where: {
+            employeeId: id,
+            source: 'PAST_RECORD',
+            type: { in: ['JOINED', 'JOINED_AS_INTERN'] },
+          },
+        });
+        if (pastJoin === 0)
+          await tx.employmentEvent.updateMany({
+            where: {
+              employeeId: id,
+              source: 'APP',
+              type: { in: ['JOINED', 'JOINED_AS_INTERN'] },
+            },
+            data: { effectiveDate: isoToDateColumn(joinDate) },
+          });
+        return tx.employee.update({
+          where: { id },
+          data: changes,
+          include: PROFILE_INCLUDE,
+        });
+      });
     return this.prisma.employee.update({
       where: { id },
-      data: {
-        ...rest,
-        ...(joinDate ? { joinDate: isoToDateColumn(joinDate) } : {}),
-        ...(probationStartDate !== undefined
-          ? { probationStartDate: date(probationStartDate) }
-          : {}),
-        ...(internshipEndDate !== undefined
-          ? { internshipEndDate: date(internshipEndDate) }
-          : {}),
-      },
+      data: changes,
       include: PROFILE_INCLUDE,
     });
   }
@@ -384,6 +423,7 @@ export class EmployeesRepository {
               fromValue: e.fromValue,
               toValue: e.toValue,
               notes: e.notes,
+              appraisalId: e.appraisalId ?? null,
               createdBy,
             },
           }),

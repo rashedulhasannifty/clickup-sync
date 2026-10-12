@@ -1,4 +1,5 @@
 import {
+  activeEvents,
   foldEmployeeHistory,
   groupOf,
   recomputeEmployee,
@@ -110,10 +111,16 @@ describe('foldEmployeeHistory', () => {
     expect(foldEmployeeHistory(own, [ev('JOINED', '2020-03-01')], opts).probationStartDate).toBe('2024-06-01');
   });
 
-  it('the app’s own JOINED drives nothing (it carries the join date as it was at creation)', () => {
-    const app = ev('JOINED', '2019-01-01', null, { source: 'APP' });
-    expect(groupOf(app)).toBeNull();
-    expect(foldEmployeeHistory(imported, [app], opts)).toEqual(imported);
+  it('the app’s own JOINED drives the join date, unless a past record gives the real one', () => {
+    const app = ev('JOINED', '2024-06-01', null, { source: 'APP' });
+    expect(groupOf(app)).toBe('lifecycle');
+    expect(foldEmployeeHistory(imported, [app], opts)).toMatchObject({
+      joinDate: '2024-06-01',
+      probationStartDate: '2024-06-01',
+    });
+    const past = ev('JOINED', '2019-01-01');
+    expect(foldEmployeeHistory(imported, [past, app], opts).joinDate).toBe('2019-01-01');
+    expect(activeEvents([past, app])).toEqual([past]);
   });
 
   it('designation, team and gross: the latest event wins, in date order not input order', () => {
@@ -305,5 +312,121 @@ describe('profile edits and the remembered baseline', () => {
     });
     expect(r.state.joinDate).toBe('2024-04-01');
     expect(r.changes.joinDate).toBeUndefined();
+  });
+});
+
+describe('recomputeEmployee: editing the app’s own events (0037)', () => {
+  // The profile in question: an app JOINED, a past "Moved to probation", and a bulk
+  // CONFIRMED the app wrote at join + 6 months; the baseline was remembered while
+  // that confirmation was already in effect.
+  const app = (type: HistoryEvent['type'], d: string, extra: Partial<HistoryEvent> = {}) =>
+    ev(type, d, null, { source: 'APP', ...extra });
+  const joined = app('JOINED', '2025-09-30', { key: 'event:1', order: 1 });
+  const probation = ev('PROBATION_STARTED', '2026-02-01', null, { key: 'event:2', order: 2 });
+  const confirmed = app('CONFIRMED', '2026-03-30', { key: 'event:3', order: 3 });
+  const stored: HistoryState = {
+    joinDate: '2025-09-30',
+    status: 'ACTIVE',
+    probationStartDate: '2026-02-01',
+    internshipEndDate: null,
+    confirmationDate: '2026-03-30',
+    designation: 'To be set',
+    teamId: null,
+    grossSalary: null,
+  };
+  const baselines = {
+    lifecycle: {
+      joinDate: '2025-09-30',
+      status: 'ACTIVE' as const,
+      probationStartDate: '2025-09-30',
+      internshipEndDate: null,
+      confirmationDate: '2026-03-30',
+    },
+  };
+  const before = [joined, probation, confirmed];
+  const run = (after: HistoryEvent[]) =>
+    recomputeEmployee({ stored, baselines, before, after, knownTeamIds: TEAMS }).state;
+
+  it('deleting the bulk confirmation puts them back on probation, with no confirmation date', () => {
+    expect(run([joined, probation])).toMatchObject({
+      status: 'PROBATION',
+      confirmationDate: null,
+      probationStartDate: '2026-02-01',
+    });
+  });
+
+  it('moving the confirmation moves the confirmation date', () => {
+    expect(run([joined, probation, { ...confirmed, effectiveDate: '2026-08-01' }])).toMatchObject({
+      status: 'ACTIVE',
+      confirmationDate: '2026-08-01',
+      probationStartDate: '2026-02-01',
+    });
+  });
+
+  it('switching the join to "Joined as intern" keeps the probation and confirmation after it', () => {
+    const s = run([{ ...joined, type: 'JOINED_AS_INTERN' }, probation, confirmed]);
+    expect(s).toMatchObject({
+      status: 'ACTIVE',
+      joinDate: '2025-09-30',
+      probationStartDate: '2026-02-01',
+      confirmationDate: '2026-03-30',
+    });
+  });
+
+  it('switching back from "Joined as intern" clears the internship end', () => {
+    const intern: HistoryState = { ...stored, status: 'INTERN', probationStartDate: null, confirmationDate: null, internshipEndDate: '2025-12-30' };
+    const i = app('JOINED_AS_INTERN', '2025-09-30', { key: 'event:1', order: 1 });
+    const s = recomputeEmployee({
+      stored: intern,
+      baselines: null,
+      before: [i],
+      after: [{ ...i, type: 'JOINED' }],
+      knownTeamIds: TEAMS,
+    }).state;
+    expect(s).toMatchObject({ status: 'PROBATION', internshipEndDate: null, probationStartDate: '2025-09-30' });
+  });
+
+  it('moving the app’s join moves a probation start that sat on it, and nothing else', () => {
+    const plain: HistoryState = { ...stored, status: 'PROBATION', probationStartDate: '2025-09-30', confirmationDate: null };
+    const s = recomputeEmployee({
+      stored: plain,
+      baselines: null,
+      before: [joined],
+      after: [{ ...joined, effectiveDate: '2025-07-01' }],
+      knownTeamIds: TEAMS,
+    });
+    expect(s.changes).toEqual({ joinDate: '2025-07-01', probationStartDate: '2025-07-01' });
+  });
+
+  it('"Joined as <designation>" sets the designation while nothing has changed it since', () => {
+    const r = recomputeEmployee({
+      stored,
+      baselines,
+      before,
+      after: [{ ...joined, toValue: 'Senior Software Engineer' }, probation, confirmed],
+      knownTeamIds: TEAMS,
+    });
+    expect(r.changes).toEqual({ designation: 'Senior Software Engineer' });
+    const promoted = app('PROMOTED', '2026-06-01', { toValue: 'Lead', fromValue: 'Senior Software Engineer' });
+    const r2 = recomputeEmployee({
+      stored: { ...stored, designation: 'Lead' },
+      baselines,
+      before: [...before, promoted],
+      after: [{ ...joined, toValue: 'Software Engineer' }, probation, confirmed, promoted],
+      knownTeamIds: TEAMS,
+    });
+    expect(r2.changes.designation).toBeUndefined();
+  });
+
+  it('deleting an app promotion goes back to the designation it replaced', () => {
+    const promoted = app('PROMOTED', '2026-06-01', { toValue: 'Lead', fromValue: 'Developer' });
+    const r = recomputeEmployee({
+      stored: { ...stored, designation: 'Lead' },
+      baselines: null,
+      before: [joined, promoted],
+      after: [joined],
+      knownTeamIds: TEAMS,
+    });
+    expect(r.changes).toEqual({ designation: 'Developer' });
   });
 });

@@ -22,11 +22,13 @@ import type {
  * - team: TRANSFERRED (the latest one whose team still exists).
  * - gross: INCREMENT (the latest whole-taka `toValue`).
  *
- * The app's own JOINED event is written at creation with the join date as it
- * was then; it drives nothing (a profile edit can move the join date without
- * it). Notice, exit and the NOTE a cancelled offboarding writes never take
- * part: past records never move anyone into or out of NOTICE/EXITED, so an
- * employee on notice keeps that status whatever the fold says.
+ * The app's own JOINED (or JOINED_AS_INTERN) event is written at creation and
+ * kept on the join date by a profile edit (0037), so it drives the join like a
+ * past one, unless a past record gives the real join: then the app's row only
+ * says when they were added here and takes no part (`activeEvents`). Notice,
+ * exit and the NOTE a cancelled offboarding writes never take part: the
+ * timeline never moves anyone into or out of NOTICE/EXITED, so an employee on
+ * notice keeps that status whatever the fold says.
  */
 
 export interface HistoryState {
@@ -78,13 +80,38 @@ export type HistoryBaselines = Partial<
   Record<HistoryGroup, Partial<HistoryState>>
 >;
 
-/** The group an event drives, or null (notes, notice, exit, the app's JOINED). */
+const JOIN_TYPES: ReadonlySet<EmploymentEventTypeValue> = new Set([
+  'JOINED',
+  'JOINED_AS_INTERN',
+]);
+export const isJoin = (e: Pick<HistoryEvent, 'type'>): boolean =>
+  JOIN_TYPES.has(e.type);
+
+/**
+ * The events that take part in the history: all of them, except the app's own
+ * join row once a past record gives the real join date (it then only says when
+ * they were added to this system).
+ */
+export function activeEvents<T extends Pick<HistoryEvent, 'type' | 'source'>>(
+  events: readonly T[],
+): T[] {
+  const pastJoin = events.some((e) => isJoin(e) && e.source === 'PAST_RECORD');
+  return pastJoin
+    ? events.filter((e) => !(isJoin(e) && e.source === 'APP'))
+    : [...events];
+}
+
+/** The join event in effect (the earliest active one), or null. */
+export function joinEvent<T extends HistoryEvent>(events: readonly T[]): T | null {
+  return sortHistory(activeEvents(events).filter(isJoin))[0] ?? null;
+}
+
+/** The group an event drives, or null (notes, notice, exit). */
 export function groupOf(
   e: Pick<HistoryEvent, 'type' | 'source'>,
 ): HistoryGroup | null {
   switch (e.type) {
     case 'JOINED':
-      return e.source === 'PAST_RECORD' ? 'lifecycle' : null;
     case 'JOINED_AS_INTERN':
     case 'PROBATION_STARTED':
     case 'INTERNSHIP_EXTENDED':
@@ -155,7 +182,7 @@ export function foldWithTrace(
   const s: HistoryState = { ...baseline };
   const frozen = FROZEN.has(baseline.status);
   const steps: FoldStep[] = [];
-  for (const e of sortHistory(events)) {
+  for (const e of sortHistory(activeEvents(events))) {
     if (groupOf(e) === null) continue;
     steps.push({ key: e.key, statusBefore: s.status });
     const d = e.effectiveDate;
@@ -213,8 +240,13 @@ const signature = (events: readonly HistoryEvent[], g: HistoryGroup): string =>
     .sort()
     .join('\n');
 
+/**
+ * Whether the group has events that call for a remembered baseline. The app's
+ * own join row does not: every employee has one, and it only moves the join
+ * date the profile already holds.
+ */
 const hasGroup = (events: readonly HistoryEvent[], g: HistoryGroup) =>
-  events.some((e) => groupOf(e) === g);
+  events.some((e) => groupOf(e) === g && !(isJoin(e) && e.source === 'APP'));
 
 function pick(s: HistoryState, g: HistoryGroup): Partial<HistoryState> {
   const out: Partial<HistoryState> = {};
@@ -234,21 +266,75 @@ function drives(e: Pick<HistoryEvent, 'type' | 'source'>, field: keyof HistorySt
   const g = groupOf(e);
   if (g === null) return false;
   if (g !== 'lifecycle') return GROUP_FIELDS[g].includes(field);
-  const pastJoin = e.type === 'JOINED' && e.source === 'PAST_RECORD';
+  const join = e.type === 'JOINED';
   switch (field) {
     case 'joinDate':
-      return pastJoin || e.type === 'JOINED_AS_INTERN';
+      return join || e.type === 'JOINED_AS_INTERN';
     case 'status':
       return ['JOINED_AS_INTERN', 'PROBATION_STARTED', 'CONFIRMED'].includes(e.type);
     case 'probationStartDate':
-      return pastJoin || ['JOINED_AS_INTERN', 'PROBATION_STARTED'].includes(e.type);
+      return join || ['JOINED_AS_INTERN', 'PROBATION_STARTED'].includes(e.type);
     case 'internshipEndDate':
-      return pastJoin || ['JOINED_AS_INTERN', 'INTERNSHIP_EXTENDED'].includes(e.type);
+      return join || ['JOINED_AS_INTERN', 'INTERNSHIP_EXTENDED'].includes(e.type);
     case 'confirmationDate':
       return ['JOINED_AS_INTERN', 'CONFIRMED'].includes(e.type);
     default:
       return false;
   }
+}
+
+const STATUS_DRIVERS: ReadonlySet<EmploymentEventTypeValue> = new Set([
+  'JOINED_AS_INTERN',
+  'PROBATION_STARTED',
+  'CONFIRMED',
+]);
+
+/**
+ * Where group `g` starts when the app's own events in it are being changed
+ * (an APP event of the group in `before` or `after`): the values before its
+ * first event, as far as the events tell them. Empty otherwise, so a history
+ * made only of past records keeps its remembered baseline.
+ *
+ * - lifecycle: a status-changing APP event means the start status is the one
+ *   before the earliest such change (an intern before "Moved to probation",
+ *   else probation), with no confirmation; an APP "Moved to probation" or
+ *   "Joined as intern" means probation starts on the join date until an event
+ *   says otherwise (`probationStartDate` is a marker here: the caller sets it
+ *   to the base join date); switching an app join away from "Joined as intern"
+ *   clears the internship end.
+ * - designation, team, gross: the earliest event's `fromValue`, when it has one.
+ */
+function appEventStart(
+  g: HistoryGroup,
+  before: readonly HistoryEvent[],
+  after: readonly HistoryEvent[],
+  knownTeamIds: ReadonlySet<string>,
+): Partial<HistoryState> {
+  const all = [...before, ...after];
+  const app = all.filter((e) => e.source === 'APP' && groupOf(e) === g);
+  if (g === 'lifecycle') {
+    const out: Partial<HistoryState> = {};
+    if (app.some((e) => STATUS_DRIVERS.has(e.type))) {
+      const first = sortHistory(all.filter((e) => STATUS_DRIVERS.has(e.type)))[0];
+      out.status = first?.type === 'PROBATION_STARTED' ? 'INTERN' : 'PROBATION';
+      out.confirmationDate = null;
+    }
+    if (app.some((e) => e.type === 'PROBATION_STARTED' || e.type === 'JOINED_AS_INTERN'))
+      out.probationStartDate = null;
+    if (
+      app.some((e) => e.type === 'JOINED_AS_INTERN') &&
+      !after.some((e) => e.type === 'JOINED_AS_INTERN' || e.type === 'INTERNSHIP_EXTENDED')
+    )
+      out.internshipEndDate = null;
+    return out;
+  }
+  if (!before.some((e) => e.source === 'APP' && groupOf(e) === g)) return {};
+  const first = sortHistory(before.filter((e) => groupOf(e) === g))[0];
+  const from = first?.fromValue ?? null;
+  if (from === null) return {};
+  if (g === 'designation') return { designation: from };
+  if (g === 'team') return knownTeamIds.has(from) ? { teamId: from } : {};
+  return /^\d+$/.test(from) ? { grossSalary: Number(from) } : {};
 }
 
 export interface Recomputed {
@@ -280,7 +366,9 @@ export function recomputeEmployee(args: {
   after: readonly HistoryEvent[];
   knownTeamIds: ReadonlySet<string>;
 }): Recomputed {
-  const { stored, before, after } = args;
+  const { stored } = args;
+  const before = activeEvents(args.before);
+  const after = activeEvents(args.after);
   const saved = args.baselines ?? {};
   const nextBaselines: HistoryBaselines = { ...saved };
   const composite: HistoryState = { ...stored };
@@ -298,7 +386,12 @@ export function recomputeEmployee(args: {
     for (const f of GROUP_FIELDS[g])
       if (!before.some((e) => drives(e, f)) && !after.some((e) => drives(e, f)))
         (base as Record<string, unknown>)[f] = stored[f];
+    // A remembered baseline was taken with the app's own events already applied; once one of
+    // those is edited or deleted the group starts from before its first event instead.
+    const appStart = appEventStart(g, before, after, args.knownTeamIds);
+    Object.assign(base, appStart);
     if (g === 'lifecycle') {
+      if ('probationStartDate' in appStart) base.probationStartDate = base.joinDate;
       // A status from before a notice (or a stray value) never comes back over a stored one.
       if (FROZEN.has(stored.status) || !RESTORABLE.has(String(base.status)))
         base.status = stored.status;
@@ -315,6 +408,15 @@ export function recomputeEmployee(args: {
     for (const f of GROUP_FIELDS[g])
       if (folded[f] !== stored[f])
         (changes as Record<string, unknown>)[f] = folded[f];
+  // "Joined as <designation>": the designation they still hold when nothing has changed it since.
+  const joinedAs = joinEvent(after)?.toValue ?? null;
+  if (
+    joinedAs !== null &&
+    joinedAs !== (joinEvent(before)?.toValue ?? null) &&
+    !after.some((e) => groupOf(e) === 'designation') &&
+    joinedAs !== stored.designation
+  )
+    changes.designation = joinedAs;
   return {
     state: { ...stored, ...changes },
     changes,

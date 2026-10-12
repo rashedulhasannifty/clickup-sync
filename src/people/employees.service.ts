@@ -17,6 +17,7 @@ import {
   EVENT_REQUIRES_TO_VALUE,
   eventEffects,
   eventPreconditionError,
+  eventEditability,
 } from './employment-events';
 import {
   EmployeesRepository,
@@ -207,6 +208,7 @@ export class EmployeesService {
           ? { probationStartDate: dto.probationStartDate }
           : {}),
         internshipEndDate,
+        joinedAs: dto.designation.trim(),
         createdBy: actorId(principal),
         concernName: dto.concernName?.trim() || null,
         academicQualification: dto.academicQualification?.trim() || null,
@@ -286,7 +288,8 @@ export class EmployeesService {
     }
     try {
       return toProfile(
-        await this.repo.update(id, data),
+        // The app's own join row follows a corrected join date (0037).
+        await this.repo.update(id, data, { moveJoinEvent: dto.joinDate !== undefined }),
         dhakaDateOf(new Date()),
       );
     } catch (e) {
@@ -461,6 +464,8 @@ export class EmployeesService {
     principal: AuthPrincipal,
     id: string,
     events: AppraisalOutcomeEvent[],
+    /** Marks the events as the appraisal's (0037): they stay locked on the timeline. */
+    appraisalId: string,
   ): Promise<void> {
     const employee = await this.require(principal.orgId, id);
     assertNotExited(employee);
@@ -497,6 +502,7 @@ export class EmployeesService {
         fromValue,
         toValue,
         notes: e.notes.trim() || null,
+        appraisalId,
         patch,
       };
     });
@@ -615,8 +621,14 @@ export class EmployeesService {
       createdBy: string | null;
       createdAt: Date;
       source?: EventSourceValue;
+      appraisalId?: string | null;
     }[],
   ): Promise<EmploymentEventView[]> {
+    const hasPastJoin = events.some(
+      (e) =>
+        e.source === 'PAST_RECORD' &&
+        (e.type === 'JOINED' || e.type === 'JOINED_AS_INTERN'),
+    );
     const teamIds = new Set<string>();
     const userIds = new Set<string>();
     for (const e of events) {
@@ -648,6 +660,14 @@ export class EmployeesService {
       createdByName: e.createdBy ? (userName.get(e.createdBy) ?? null) : null,
       createdAt: e.createdAt.toISOString(),
       source: e.source ?? 'APP',
+      ...eventEditability(
+        {
+          type: e.type,
+          source: e.source ?? 'APP',
+          appraisalId: e.appraisalId ?? null,
+        },
+        hasPastJoin,
+      ),
     }));
   }
 

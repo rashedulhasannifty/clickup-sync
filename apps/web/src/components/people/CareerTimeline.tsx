@@ -1,4 +1,4 @@
-import { Pencil, Trash2 } from 'lucide-react';
+import { Lock, Pencil, Trash2 } from 'lucide-react';
 import type { EmploymentEventView } from '../../api/people';
 import { eventTitle, formatDate } from '../../lib/people';
 
@@ -6,10 +6,11 @@ const JOIN_TYPES = new Set(['JOINED', 'JOINED_AS_INTERN']);
 
 /**
  * Employment history, newest first: a vertical rail with one dot per event.
- * Past records (history entered by HR) carry a small "From records" tag and,
- * when `onEdit`/`onDelete` are given, their own edit and delete buttons; what
- * the system recorded itself never does. Once a past record gives the real
- * join date, the app's own JOINED row reads as when they were added here.
+ * Past records (history entered by HR) carry a small "From records" tag. When
+ * `onEdit`/`onDelete` are given, every entry the server marks editable or
+ * deletable gets its own buttons, and a locked one a lock that says why. Once a
+ * past record gives the real join date, the app's own JOINED row reads as when
+ * they were added here.
  */
 export function CareerTimeline({
   events,
@@ -28,7 +29,9 @@ export function CareerTimeline({
     <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column' }}>
       {events.map((e, i) => {
         const past = e.source === 'PAST_RECORD';
-        const title = !past && e.type === 'JOINED' && pastJoin ? 'Added to this system' : eventTitle(e);
+        const title = !past && JOIN_TYPES.has(e.type) && pastJoin ? 'Added to this system' : eventTitle(e);
+        const canEdit = !!onEdit && e.editable;
+        const canDelete = !!onDelete && e.deletable;
         return (
           <li key={e.id} style={{ display: 'flex', gap: 12, position: 'relative', paddingBottom: i === events.length - 1 ? 0 : 16 }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0, width: 10 }}>
@@ -54,18 +57,23 @@ export function CareerTimeline({
                     From records
                   </span>
                 )}
-                {past && (onEdit || onDelete) && (
+                {(canEdit || canDelete) && (
                   <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 2 }}>
-                    {onEdit && (
+                    {canEdit && (
                       <button type="button" aria-label={`Edit ${title}`} title="Edit" onClick={() => onEdit(e)} style={iconButton}>
                         <Pencil size={12} />
                       </button>
                     )}
-                    {onDelete && (
+                    {canDelete && (
                       <button type="button" aria-label={`Delete ${title}`} title="Delete" onClick={() => onDelete(e)} style={iconButton}>
                         <Trash2 size={12} />
                       </button>
                     )}
+                  </span>
+                )}
+                {(onEdit || onDelete) && !canEdit && !canDelete && e.lockedReason && (
+                  <span title={e.lockedReason} aria-label={`Locked: ${e.lockedReason}`} style={{ marginLeft: 'auto', display: 'inline-flex', color: 'var(--text-muted)', opacity: 0.7 }}>
+                    <Lock size={11} />
                   </span>
                 )}
               </div>

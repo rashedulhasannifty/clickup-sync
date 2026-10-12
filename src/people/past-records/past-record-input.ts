@@ -524,8 +524,13 @@ export function normalizeRow(
         });
       break;
     }
+    case 'JOINED':
+    case 'JOINED_AS_INTERN':
+      // Optional: the designation they joined as ("Joined as Senior Software Engineer").
+      toValue = text(row.to, 'Joined as', MAX_TEXT, errors);
+      break;
     default:
-      // Joined, joined as intern, moved to probation, confirmed: the date is the record.
+      // Moved to probation, confirmed: the date is the record.
       break;
   }
   if (type !== 'INCREMENT' && cellText(row.amount) !== null)

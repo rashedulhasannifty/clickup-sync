@@ -8,6 +8,7 @@ import type { AuthPrincipal } from '../../auth/auth.types';
 import type { FormGrade } from '../../appraisals/appraisals.types';
 import { assertNotExited } from '../employee-readonly';
 import { EmployeesService } from '../employees.service';
+import { eventEditability } from '../employment-events';
 import { dateColumnToIso, dhakaDateOf } from '../people-dates';
 import type { EmploymentEventTypeValue } from '../people.types';
 import type { HistoryEvent, HistoryState } from './employee-history';
@@ -344,7 +345,7 @@ export class PastRecordsService {
     const { events, appraisals } = this.withRecord(ctx.history, record, null);
     if (record.kind === 'event' && record.event.type === 'JOINED' && record.event.date === ctx.history.stored.joinDate)
       throw new ConflictException(`Already recorded: ${record.event.date} is the join date`);
-    await this.commit(ctx, events, appraisals, async (tx) => {
+    await this.commit(ctx, events, appraisals, [], async (tx) => {
       if (record.kind === 'event')
         await this.repo.addEvents(tx, employeeId, actorId(principal), [record.event]);
       else
@@ -364,14 +365,23 @@ export class PastRecordsService {
     const target = parseRecordId(recordId);
     const ctx = await this.context(principal.orgId, employeeId);
     const key = `${target.kind}:${target.id}`;
-    this.requirePastRecord(ctx.history, target, key);
+    const stored = this.requireEditable(ctx, target, key, 'edit');
     const record = await this.planned(ctx, dto, key);
     if (record.kind !== target.kind)
       throw new BadRequestException(
         'A past event cannot become an appraisal (or the other way round): delete it and add a new one',
       );
+    if (record.kind === 'event' && stored?.source === 'APP') {
+      const join = (t: string) => t === 'JOINED' || t === 'JOINED_AS_INTERN';
+      if (join(stored.type) ? !join(record.event.type) : record.event.type !== stored.type)
+        throw new BadRequestException(
+          join(stored.type)
+            ? 'The join can switch between "Joined" and "Joined as intern" only'
+            : 'This entry keeps its type: delete it and add the other one instead',
+        );
+    }
     const { events, appraisals } = this.withRecord(ctx.history, record, key);
-    await this.commit(ctx, events, appraisals, async (tx) => {
+    await this.commit(ctx, events, appraisals, [key], async (tx) => {
       const ok =
         record.kind === 'event'
           ? await this.repo.updateEvent(tx, employeeId, target.id as bigint, record.event)
@@ -388,10 +398,10 @@ export class PastRecordsService {
     const target = parseRecordId(recordId);
     const ctx = await this.context(principal.orgId, employeeId);
     const key = `${target.kind}:${target.id}`;
-    this.requirePastRecord(ctx.history, target, key);
+    this.requireEditable(ctx, target, key, 'delete');
     const events = ctx.history.events.filter((e) => e.key !== key);
     const appraisals = ctx.history.pastAppraisals.filter((a) => a.key !== key);
-    await this.commit(ctx, events, appraisals, async (tx) => {
+    await this.commit(ctx, events, appraisals, [], async (tx) => {
       const ok =
         target.kind === 'event'
           ? await this.repo.deleteEvent(tx, employeeId, target.id)
@@ -411,23 +421,38 @@ export class PastRecordsService {
     return { row, history: historyOf(row, notice), teams };
   }
 
-  /** Only a PAST_RECORD event or a past appraisal of this employee; the app's own events stay as they are. */
-  private requirePastRecord(
-    history: EmployeeHistory,
+  /**
+   * A past appraisal of this employee, or an event the timeline lets HR change
+   * (`eventEditability`: past records, and the app's own events except notice,
+   * exit, notes and an approved appraisal's). Returns the stored event.
+   */
+  private requireEditable(
+    ctx: Awaited<ReturnType<PastRecordsService['context']>>,
     target: ReturnType<typeof parseRecordId>,
     key: string,
-  ): void {
+    action: 'edit' | 'delete',
+  ): HistoryRow['events'][number] | null {
     if (target.kind === 'appraisal') {
-      if (!history.pastAppraisals.some((a) => a.key === key))
+      if (!ctx.history.pastAppraisals.some((a) => a.key === key))
         throw new NotFoundException('Past record not found');
-      return;
+      return null;
     }
-    const e = history.events.find((x) => x.key === key);
+    const e = ctx.row.events.find((x) => x.id === target.id);
     if (!e) throw new NotFoundException('Past record not found');
-    if (e.source !== 'PAST_RECORD')
+    const hasPastJoin = ctx.row.events.some(
+      (x) => x.source === 'PAST_RECORD' && (x.type === 'JOINED' || x.type === 'JOINED_AS_INTERN'),
+    );
+    const rules = eventEditability(
+      { type: e.type as EmploymentEventTypeValue, source: e.source, appraisalId: e.appraisalId ?? null },
+      hasPastJoin,
+    );
+    if (action === 'edit' && !rules.editable)
+      throw new BadRequestException(rules.lockedReason ?? 'This entry cannot be edited: delete it and add a new one');
+    if (action === 'delete' && !rules.deletable)
       throw new BadRequestException(
-        'Only past records can be edited or deleted here; events the system recorded stay as they are',
+        rules.lockedReason ?? 'The join cannot be deleted: change its date or type instead',
       );
+    return e;
   }
 
   /** The dialog's fields -> a planned record (team name or id resolved; the scan checked). */
@@ -493,7 +518,7 @@ export class PastRecordsService {
       const next: HistoryEvent = {
         key: e.key,
         type: e.type,
-        source: 'PAST_RECORD',
+        source: old?.source ?? 'PAST_RECORD',
         effectiveDate: e.date,
         fromValue: e.fromValue,
         toValue: e.toValue,
@@ -531,12 +556,15 @@ export class PastRecordsService {
     ctx: Awaited<ReturnType<PastRecordsService['context']>>,
     events: HistoryEvent[],
     appraisals: StoredPastAppraisal[],
+    /** Edited app events: checked like the past records. */
+    alsoChanged: string[],
     write: (tx: Parameters<Parameters<PastRecordsRepository['transaction']>[0]>[0]) => Promise<void>,
   ): Promise<void> {
     const history = ctx.history;
     const changed = new Set([
       ...events.filter((e) => e.source === 'PAST_RECORD').map((e) => e.key),
       ...appraisals.map((a) => a.key),
+      ...alsoChanged,
     ]);
     const evaluation = evaluateHistory({
       employee: history,

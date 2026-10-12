@@ -93,7 +93,7 @@ export class PeoplePastRecordsController {
   }
 
   @Delete('employees/:id/past-records/:recordId')
-  @ApiOperation({ summary: 'Delete one past record; events the system recorded cannot be deleted' })
+  @ApiOperation({ summary: 'Delete one past record or timeline entry (offboarding, appraisal outcomes, notes and the app join stay)' })
   remove(
     @CurrentUser() user: AuthPrincipal,
     @Param('id') id: string,

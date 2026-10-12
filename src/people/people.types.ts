@@ -253,8 +253,12 @@ export interface EmploymentEventView {
   /** Actor's name (or email); null for a machine credential or a deleted user. */
   createdByName: string | null;
   createdAt: string;
-  /** PAST_RECORD: entered as history ("From records"); only these can be edited or deleted. */
+  /** PAST_RECORD: entered as history ("From records"). */
   source: EventSourceValue;
+  /** The timeline's edit rules (0037, `eventEditability`). */
+  editable: boolean;
+  deletable: boolean;
+  lockedReason: string | null;
 }
 
 export interface SummaryHours {

@@ -14,6 +14,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import {
   BAND_LABEL,
   bandColor,
+  eventTitle,
   formatDate,
   formatMonth,
   formatShortDate,
@@ -408,7 +409,7 @@ export function EmployeeDetailPage() {
               <CareerTimeline
                 events={summary.events}
                 onEdit={readOnly ? undefined : (ev) => setPastTarget({ kind: 'event', event: ev })}
-                onDelete={readOnly ? undefined : (ev) => setDeletingPast({ recordId: `event:${ev.id}`, label: `this ${formatDate(ev.effectiveDate)} record` })}
+                onDelete={readOnly ? undefined : (ev) => setDeletingPast({ recordId: `event:${ev.id}`, label: `“${eventTitle(ev)}” of ${formatDate(ev.effectiveDate)}` })}
               />
             </Card>
           </div>
@@ -500,7 +501,13 @@ export function EmployeeDetailPage() {
             const done = {
               onSuccess: () => {
                 setPastTarget(undefined);
-                toast.success(pastTarget ? 'Past record updated.' : 'Past record added. The profile follows the whole history.');
+                toast.success(
+                  pastTarget?.kind === 'event' && pastTarget.event.source === 'APP'
+                    ? 'Timeline updated. The profile follows the whole history.'
+                    : pastTarget
+                      ? 'Past record updated.'
+                      : 'Past record added. The profile follows the whole history.',
+                );
               },
             };
             if (pastTarget === null) past.add.mutate(body, done);
@@ -518,7 +525,7 @@ export function EmployeeDetailPage() {
             setDeletingPast(null);
             past.remove.reset();
           }}
-          title="Delete this past record?"
+          title="Delete this entry?"
           width={440}
           footer={
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
@@ -537,7 +544,7 @@ export function EmployeeDetailPage() {
                   past.remove.mutate(deletingPast.recordId, {
                     onSuccess: () => {
                       setDeletingPast(null);
-                      toast.success('Past record deleted.');
+                      toast.success('Deleted. The profile follows the rest of the history.');
                     },
                   })
                 }
@@ -548,8 +555,8 @@ export function EmployeeDetailPage() {
           }
         >
           <p style={{ fontSize: 13, margin: 0, lineHeight: 1.5 }}>
-            Delete {deletingPast.label}? The employee’s status, designation, team and gross salary are worked out again
-            from the rest of their history. Records the system made itself are not affected.
+            Delete {deletingPast.label}? The employee’s status, confirmation date, designation, team and gross salary are
+            worked out again from the rest of their history.
           </p>
         </Modal>
       )}

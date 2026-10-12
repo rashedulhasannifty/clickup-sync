@@ -117,3 +117,48 @@ export function eventEffects(args: {
       return {};
   }
 }
+
+/** Whether a timeline event can be edited or deleted, and why not (0037). */
+export interface EventEditability {
+  editable: boolean;
+  deletable: boolean;
+  /** Plain words for a locked event; null when it can be edited. */
+  lockedReason: string | null;
+}
+
+/**
+ * The career timeline's edit rules. Most events, the app's own included, can be
+ * corrected and the employee is re-derived from the whole history. Locked:
+ * notice and exit (the offboarding flow owns them), anything an approved
+ * appraisal wrote (it backs the signed form), notes, and the app's join row
+ * once a past record gives the real join. A join is never deleted, only
+ * changed; an internship extension can be deleted but not edited.
+ */
+export function eventEditability(
+  e: {
+    type: EmploymentEventTypeValue;
+    source: 'APP' | 'PAST_RECORD';
+    appraisalId: string | null;
+  },
+  hasPastJoin: boolean,
+): EventEditability {
+  const locked = (lockedReason: string): EventEditability => ({
+    editable: false,
+    deletable: false,
+    lockedReason,
+  });
+  if (e.type === 'NOTICE_GIVEN' || e.type === 'EXITED')
+    return locked('Recorded by offboarding. Change it there.');
+  if (e.appraisalId !== null)
+    return locked('Recorded by an approved appraisal.');
+  if (e.type === 'NOTE') return locked('Notes stay as written.');
+  const join = e.type === 'JOINED' || e.type === 'JOINED_AS_INTERN';
+  if (join && e.source === 'APP') {
+    if (hasPastJoin)
+      return locked('When they were added to this system. The real join is the record from before.');
+    return { editable: true, deletable: false, lockedReason: null };
+  }
+  if (e.type === 'INTERNSHIP_EXTENDED')
+    return { editable: false, deletable: true, lockedReason: null };
+  return { editable: true, deletable: true, lockedReason: null };
+}

@@ -245,3 +245,12 @@ describe('normalizeRow', () => {
     });
   });
 });
+
+describe('normalizeRow: the designation they joined as (0037)', () => {
+  it('keeps "to" on a join as the designation, and leaves it null when empty', () => {
+    const r = normalizeRow({ record: 'Joined', date: '2024-01-01', to: ' Senior Software Engineer ' }, { requireEmployee: false });
+    expect(r.ok && r.record.kind === 'event' && r.record.toValue).toBe('Senior Software Engineer');
+    const i = normalizeRow({ record: 'Joined as intern', date: '2024-01-01' }, { requireEmployee: false });
+    expect(i.ok && i.record.kind === 'event' && i.record.toValue).toBeNull();
+  });
+});

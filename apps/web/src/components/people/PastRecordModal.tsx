@@ -169,14 +169,22 @@ export function PastRecordModal({
     onSubmit(body);
   }
 
-  const kinds = target?.kind === 'event' ? RECORD_KINDS.filter((k) => k.kind !== 'APPRAISAL') : RECORD_KINDS;
+  // An entry the app recorded keeps its type; its join can switch between the two join types.
+  const appEvent = target?.kind === 'event' && target.event.source === 'APP' ? target.event : null;
+  const appJoin = appEvent !== null && (appEvent.type === 'JOINED' || appEvent.type === 'JOINED_AS_INTERN');
+  const kinds =
+    target?.kind === 'event'
+      ? RECORD_KINDS.filter((k) => (appJoin ? k.kind === 'JOINED' || k.kind === 'JOINED_AS_INTERN' : k.kind !== 'APPRAISAL'))
+      : RECORD_KINDS;
+  const showKinds = target?.kind !== 'appraisal' && !(appEvent && !appJoin);
+  const joining = f.kind === 'JOINED' || f.kind === 'JOINED_AS_INTERN';
 
   return (
     <>
       <Modal
         onClose={onClose}
-        title={editing ? `Edit past record` : 'Add past record'}
-        subtitle={`${employee.fullName} · history from before this system`}
+        title={appEvent ? 'Edit timeline entry' : editing ? 'Edit past record' : 'Add past record'}
+        subtitle={appEvent ? `${employee.fullName} · the profile follows the whole history` : `${employee.fullName} · history from before this system`}
         width={620}
         onSubmit={submit}
         footer={
@@ -197,7 +205,7 @@ export function PastRecordModal({
       >
         <style>{CHOICE_CARD_CSS}</style>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {target?.kind !== 'appraisal' && (
+          {showKinds && (
             <div role="radiogroup" aria-label="Record type" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 170px), 1fr))', gap: 8 }}>
               {kinds.map((k) => (
                 <ChoiceCard
@@ -206,7 +214,13 @@ export function PastRecordModal({
                   checked={f.kind === k.kind}
                   title={k.label}
                   hint={k.hint}
-                  onSelect={() => setF((x) => ({ ...x, kind: k.kind, from: '', to: '', amount: '' }))}
+                  onSelect={() =>
+                    setF((x) => {
+                      // Switching between the two join types keeps the designation typed.
+                      const keepTo = (x.kind === 'JOINED' || x.kind === 'JOINED_AS_INTERN') && (k.kind === 'JOINED' || k.kind === 'JOINED_AS_INTERN');
+                      return { ...x, kind: k.kind, from: '', to: keepTo ? x.to : '', amount: '' };
+                    })
+                  }
                 />
               ))}
             </div>
@@ -228,6 +242,12 @@ export function PastRecordModal({
               </Field>
             )}
           </FormRow>
+
+          {joining && (
+            <Field label="Joined as" hint="Optional: the designation they joined with. It becomes the current designation while no promotion or change comes after it.">
+              <Input value={f.to} maxLength={200} placeholder="e.g. Senior Software Engineer" onChange={(e) => set('to', e.target.value)} />
+            </Field>
+          )}
 
           {(f.kind === 'PROMOTED' || f.kind === 'DESIGNATION_CHANGED') && (
             <FormRow>
@@ -335,7 +355,9 @@ export function PastRecordModal({
           <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
             {f.kind === 'APPRAISAL'
               ? 'Counts as already appraised for the due date it stands for. It never runs an outcome or changes the salary.'
-              : 'The employee’s status, designation, team and gross salary follow their whole history, oldest first, so a record dated before a newer one does not replace it. Notice and exits go through Start offboarding.'}
+              : f.kind === 'JOINED_AS_INTERN'
+                ? 'They started as an intern: add "Moved to probation" for the day probation began, or they stay an intern. Status, designation, team and gross salary follow the whole history, oldest first.'
+                : 'The employee’s status, designation, team and gross salary follow their whole history, oldest first, so a record dated before a newer one does not replace it. Notice and exits go through Start offboarding.'}
           </div>
         </div>
       </Modal>

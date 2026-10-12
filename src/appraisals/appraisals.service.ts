@@ -1227,6 +1227,7 @@ export class AppraisalsService {
             toValue: e.toValue,
             notes: e.notes,
           })),
+          row.id,
         );
     } else if (modeOf(row) === 'FORM_100') {
       const plan = formOutcomePlan({
@@ -1250,6 +1251,7 @@ export class AppraisalsService {
             toValue: e.toValue,
             notes: e.notes,
           })),
+          row.id,
         );
       }
     } else {

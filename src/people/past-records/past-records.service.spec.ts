@@ -21,7 +21,10 @@ type EventRow = {
   notes: string | null;
   createdBy: string | null;
   createdAt: Date;
+  appraisalId?: string | null;
 };
+/** What the repository may change: never an appraisal's event, notice, exit or a note. */
+const changeable = (x: EventRow) => !x.appraisalId && !['NOTICE_GIVEN', 'EXITED', 'NOTE'].includes(x.type);
 type AppraisalRow = {
   id: string;
   type: string;
@@ -111,7 +114,7 @@ class FakeRepo {
     return Promise.resolve([]);
   }
   updateEvent(_db: unknown, employeeId: string, id: bigint, e: PlannedEvent) {
-    const row = (this.employee(employeeId).events as EventRow[]).find((x) => x.id === id && x.source === 'PAST_RECORD');
+    const row = (this.employee(employeeId).events as EventRow[]).find((x) => x.id === id && changeable(x));
     if (!row) return Promise.resolve(false);
     Object.assign(row, { type: e.type, effectiveDate: isoToDateColumn(e.date), fromValue: e.fromValue, toValue: e.toValue, notes: e.notes });
     return Promise.resolve(true);
@@ -119,7 +122,7 @@ class FakeRepo {
   deleteEvent(_db: unknown, employeeId: string, id: bigint) {
     const emp = this.employee(employeeId);
     const before = emp.events.length;
-    emp.events = (emp.events as EventRow[]).filter((x) => !(x.id === id && x.source === 'PAST_RECORD'));
+    emp.events = (emp.events as EventRow[]).filter((x) => !(x.id === id && changeable(x)));
     return Promise.resolve(emp.events.length < before);
   }
   updateAppraisal(_db: unknown, employeeId: string, id: string, a: PlannedAppraisal) {
@@ -340,7 +343,7 @@ describe('PastRecordsService: one employee', () => {
     expect(r.appraisals).toEqual([expect.objectContaining({ id: 'appraisal:pa1', grade: 'B', type: 'YEARLY' })]);
   });
 
-  it('refuses invalid records with every reason, and never edits the app’s own events', async () => {
+  it('refuses invalid records with every reason', async () => {
     const repo = new FakeRepo();
     const id = seedEmployee(repo);
     const svc = makeService(repo);
@@ -348,13 +351,56 @@ describe('PastRecordsService: one employee', () => {
       'The date is in the future',
     );
     await expect(svc.add(principal, id, { record: 'Joined', date: '2024-05-01' })).rejects.toThrow(/already/i);
-    const appEvent = `event:${(repo.employee(id).events as EventRow[])[0].id}`;
-    await expect(svc.update(principal, id, appEvent, { record: 'Joined', date: '2023-01-01' })).rejects.toThrow(
-      /Only past records can be edited/,
-    );
-    await expect(svc.remove(principal, id, appEvent)).rejects.toThrow(/Only past records/);
     await expect(svc.remove(principal, id, 'event:999')).rejects.toBeInstanceOf(NotFoundException);
     await expect(svc.remove(principal, id, 'nonsense')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('the app’s join: date, "Joined as intern" and the designation can change; it is never deleted', async () => {
+    const repo = new FakeRepo();
+    const id = seedEmployee(repo, { status: 'PROBATION' });
+    const svc = makeService(repo);
+    const join = `event:${(repo.employee(id).events as EventRow[])[0].id}`;
+    await svc.update(principal, id, join, { record: 'Joined', date: '2024-03-01', to: 'Senior Software Engineer' });
+    expect(repo.employee(id)).toMatchObject({
+      joinDate: isoToDateColumn('2024-03-01'),
+      probationStartDate: isoToDateColumn('2024-03-01'),
+      designation: 'Senior Software Engineer',
+      status: 'PROBATION',
+    });
+    // The app's own row stays the app's: no "From records" tag appears.
+    expect((repo.employee(id).events as EventRow[])[0]).toMatchObject({ source: 'APP', toValue: 'Senior Software Engineer' });
+    await svc.update(principal, id, join, { record: 'Joined as intern', date: '2024-03-01' });
+    expect(repo.employee(id)).toMatchObject({ status: 'INTERN', probationStartDate: null });
+    await expect(svc.update(principal, id, join, { record: 'Confirmed', date: '2024-09-01' })).rejects.toThrow(
+      /"Joined" and "Joined as intern" only/,
+    );
+    await expect(svc.remove(principal, id, join)).rejects.toThrow(/cannot be deleted/);
+  });
+
+  it('the app’s confirmation can be moved or deleted; offboarding and appraisal events stay locked', async () => {
+    const repo = new FakeRepo();
+    const id = seedEmployee(repo, { confirmationDate: isoToDateColumn('2024-11-01') });
+    const app = (n: bigint, type: string, date: string, extra: Partial<EventRow> = {}): EventRow => ({
+      id: n, type, source: 'APP', effectiveDate: isoToDateColumn(date), fromValue: null, toValue: null,
+      notes: null, createdBy: null, createdAt: new Date(), ...extra,
+    });
+    (repo.employee(id).events as EventRow[]).push(
+      app(50n, 'CONFIRMED', '2024-11-01'),
+      app(51n, 'PROMOTED', '2025-06-01', { toValue: 'Lead', fromValue: 'Unassigned', appraisalId: 'appr-1' }),
+      app(52n, 'NOTE', '2025-07-01', { notes: 'hi' }),
+    );
+    const svc = makeService(repo);
+    await svc.update(principal, id, 'event:50', { record: 'Confirmed', date: '2024-12-01' });
+    expect(repo.employee(id)).toMatchObject({ status: 'ACTIVE', confirmationDate: isoToDateColumn('2024-12-01') });
+    await expect(svc.update(principal, id, 'event:50', { record: 'Promotion', date: '2024-12-01', to: 'X' })).rejects.toThrow(
+      /keeps its type/,
+    );
+    await expect(svc.update(principal, id, 'event:51', { record: 'Promotion', date: '2025-06-01', to: 'Boss' })).rejects.toThrow(
+      /approved appraisal/,
+    );
+    await expect(svc.remove(principal, id, 'event:52')).rejects.toThrow(/Notes stay/);
+    await svc.remove(principal, id, 'event:50');
+    expect(repo.employee(id)).toMatchObject({ status: 'PROBATION', confirmationDate: null });
   });
 
   it('refuses a delete that would leave another record invalid', async () => {

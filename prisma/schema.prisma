@@ -813,8 +813,9 @@ enum EmploymentEventType {
 }
 
 /// Where an employment event came from (0035). APP: written by this system (every row before
-/// 0035). PAST_RECORD: history before the system, entered by HR (import or "Add past record");
-/// only these can be edited or deleted, and the employee is re-derived by folding every event.
+/// 0035). PAST_RECORD: history before the system, entered by HR (import or "Add past record").
+/// Since 0037 most APP events can be edited too (see `eventLock`); either way the employee is
+/// re-derived by folding every event.
 enum EventSource {
   APP
   PAST_RECORD
@@ -918,6 +919,9 @@ model EmploymentEvent {
   createdBy     String?             @map("created_by")
   createdAt     DateTime            @default(now()) @map("created_at")
   source        EventSource         @default(APP)
+  /// The approved appraisal whose outcome wrote this event (0037). Such events back a signed
+  /// form, so they stay locked on the timeline. Deliberately no FK.
+  appraisalId   String?             @map("appraisal_id")
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 

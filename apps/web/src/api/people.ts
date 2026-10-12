@@ -221,8 +221,12 @@ export type EmploymentEventView = {
   notes: string | null;
   createdByName: string | null;
   createdAt: string;
-  /** PAST_RECORD events can be edited and deleted (as `event:<id>`); APP events never. */
+  /** PAST_RECORD: history entered by HR ("From records"). */
   source: EventSourceValue;
+  /** Whether the timeline can change it (as `event:<id>`), and why not. */
+  editable: boolean;
+  deletable: boolean;
+  lockedReason: string | null;
 };
 
 export type SummaryHours = {

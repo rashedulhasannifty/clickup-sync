@@ -1,4 +1,4 @@
-import { eventEffects, eventPreconditionError } from './employment-events';
+import { eventEditability, eventEffects, eventPreconditionError } from './employment-events';
 
 const e = (
   type: Parameters<typeof eventEffects>[0]['type'],
@@ -97,5 +97,29 @@ describe('the intern lifecycle events (0034)', () => {
   });
   it('other events have no lifecycle precondition', () => {
     expect(pre('PROMOTED')).toBeNull();
+  });
+});
+
+describe('eventEditability (0037)', () => {
+  const ev = (type: Parameters<typeof eventEditability>[0]['type'], extra: Partial<Parameters<typeof eventEditability>[0]> = {}) => ({
+    type,
+    source: 'APP' as const,
+    appraisalId: null,
+    ...extra,
+  });
+  it('locks offboarding, appraisal outcomes and notes', () => {
+    expect(eventEditability(ev('NOTICE_GIVEN'), false)).toMatchObject({ editable: false, deletable: false });
+    expect(eventEditability(ev('EXITED'), false).lockedReason).toMatch(/offboarding/);
+    expect(eventEditability(ev('PROMOTED', { appraisalId: 'a1' }), false).lockedReason).toMatch(/appraisal/);
+    expect(eventEditability(ev('NOTE'), false).editable).toBe(false);
+  });
+  it('the app’s join: editable, never deleted; locked once a past record gives the real join', () => {
+    expect(eventEditability(ev('JOINED'), false)).toEqual({ editable: true, deletable: false, lockedReason: null });
+    expect(eventEditability(ev('JOINED_AS_INTERN'), true).editable).toBe(false);
+    expect(eventEditability(ev('JOINED', { source: 'PAST_RECORD' }), true)).toMatchObject({ editable: true, deletable: true });
+  });
+  it('everything else can be edited and deleted (an extension only deleted)', () => {
+    expect(eventEditability(ev('CONFIRMED'), false)).toMatchObject({ editable: true, deletable: true });
+    expect(eventEditability(ev('INTERNSHIP_EXTENDED'), false)).toMatchObject({ editable: false, deletable: true });
   });
 });

@@ -318,6 +318,8 @@ export function eventTitle(e: {
       return e.toLabel ? `Moved to ${e.toLabel}` : 'Transferred';
     case 'JOINED':
       return e.toLabel ? `Joined as ${e.toLabel}` : 'Joined';
+    case 'JOINED_AS_INTERN':
+      return e.toLabel ? `Joined as intern (${e.toLabel})` : 'Joined as intern';
     case 'INTERNSHIP_EXTENDED':
       return e.toLabel && /^\d{4}-\d{2}-\d{2}$/.test(e.toLabel)
         ? `Internship extended to ${formatDate(e.toLabel)}`

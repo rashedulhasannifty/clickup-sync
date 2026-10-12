@@ -32,6 +32,7 @@ const HISTORY_SELECT = {
       effectiveDate: true,
       fromValue: true,
       toValue: true,
+      appraisalId: true,
     },
     orderBy: { id: 'asc' },
   },
@@ -69,6 +70,12 @@ export type PastAppraisalRow = Prisma.PastAppraisalGetPayload<{
 const date = (v: string | null) => (v ? isoToDateColumn(v) : null);
 
 /** Owns every write of a past record and of the employee fields a re-fold changes. */
+/** The events the timeline may change or delete (the service checks the finer rules). */
+const EDITABLE_EVENT = {
+  appraisalId: null,
+  type: { notIn: ['NOTICE_GIVEN', 'EXITED', 'NOTE'] },
+} satisfies Prisma.EmploymentEventWhereInput;
+
 @Injectable()
 export class PastRecordsRepository {
   constructor(readonly prisma: PrismaService) {}
@@ -156,10 +163,13 @@ export class PastRecordsRepository {
     return out;
   }
 
-  /** Only a PAST_RECORD event of this employee; returns whether a row changed. */
+  /**
+   * An event of this employee the timeline may change (`eventEditability`, re-checked here as a
+   * backstop: never an appraisal's, notice, exit or note). Returns whether a row changed.
+   */
   async updateEvent(db: Db, employeeId: string, id: bigint, e: PlannedEvent) {
     const r = await db.employmentEvent.updateMany({
-      where: { id, employeeId, source: 'PAST_RECORD' },
+      where: { id, employeeId, ...EDITABLE_EVENT },
       data: {
         type: e.type,
         effectiveDate: isoToDateColumn(e.date),
@@ -173,7 +183,7 @@ export class PastRecordsRepository {
 
   async deleteEvent(db: Db, employeeId: string, id: bigint) {
     const r = await db.employmentEvent.deleteMany({
-      where: { id, employeeId, source: 'PAST_RECORD' },
+      where: { id, employeeId, ...EDITABLE_EVENT },
     });
     return r.count > 0;
   }

@@ -268,16 +268,17 @@ describe('EmployeesService.create / update', () => {
   it('accepts a manager whose chain does not reach this employee', async () => {
     const { svc, repo } = make({ managerChain: jest.fn().mockResolvedValue(['m3', 'm2']) });
     await svc.update('org', 'e1', { managerId: 'm3' } as never);
-    expect(repo.update).toHaveBeenCalledWith('e1', { managerId: 'm3' });
+    expect(repo.update).toHaveBeenCalledWith('e1', { managerId: 'm3' }, { moveJoinEvent: false });
   });
 
   it('null clears a nullable field; omitted leaves it alone', async () => {
     const { svc, repo } = make();
     await svc.update('org', 'e1', { grade: null, teamId: null } as never);
-    expect(repo.update).toHaveBeenCalledWith('e1', {
-      grade: null,
-      teamId: null,
-    });
+    expect(repo.update).toHaveBeenCalledWith(
+      'e1',
+      { grade: null, teamId: null },
+      { moveJoinEvent: false },
+    );
   });
 });
 
@@ -439,12 +440,13 @@ describe('EmployeesService.recordAppraisalOutcome', () => {
       { type: 'CONFIRMED', effectiveDate: '2026-12-31', toValue: null, notes: 'Appraisal H2 outcome' },
       { type: 'PROMOTED', effectiveDate: '2026-12-31', toValue: 'Senior Engineer', notes: 'Appraisal H2 outcome' },
       { type: 'INCREMENT', effectiveDate: '2026-12-31', fromValue: '80000', toValue: '90400', notes: '13%' },
-    ]);
+    ], 'appr-1');
     expect(addEvents).toHaveBeenCalledTimes(1);
     const [id, by, batch] = addEvents.mock.calls[0];
     expect([id, by]).toEqual(['e1', 'u-admin']);
     expect(batch).toEqual([
-      expect.objectContaining({ type: 'CONFIRMED', patch: { confirmationDate: '2026-12-31', status: 'ACTIVE' } }),
+      // Every event is marked as the appraisal's, so the timeline keeps it locked.
+      expect.objectContaining({ type: 'CONFIRMED', appraisalId: 'appr-1', patch: { confirmationDate: '2026-12-31', status: 'ACTIVE' } }),
       // fromValue defaults to the designation the promotion replaces.
       expect.objectContaining({ type: 'PROMOTED', fromValue: 'Engineer', toValue: 'Senior Engineer', patch: { designation: 'Senior Engineer' } }),
       expect.objectContaining({ type: 'INCREMENT', fromValue: '80000', toValue: '90400', notes: '13%', patch: { grossSalary: 90400 } }),
@@ -456,12 +458,12 @@ describe('EmployeesService.recordAppraisalOutcome', () => {
     await expect(
       make({ findById: jest.fn().mockResolvedValue(row({ status: 'EXITED' })), addEvents }).svc.recordAppraisalOutcome(admin, 'e1', [
         { type: 'CONFIRMED', effectiveDate: '2026-12-31', toValue: null, notes: 'x' },
-      ]),
+      ], 'appr-1'),
     ).rejects.toBeInstanceOf(ConflictException);
     await expect(
       make({ addEvents }).svc.recordAppraisalOutcome(admin, 'e1', [
         { type: 'PROMOTED', effectiveDate: '2026-12-31', toValue: ' ', notes: 'x' },
-      ]),
+      ], 'appr-1'),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(addEvents).not.toHaveBeenCalled();
   });
@@ -488,7 +490,7 @@ describe('EmployeesService: the appraisal form profile fields', () => {
       experienceBeforeJoiningMonths: 30,
       startingSalary: 50000,
       grossSalary: null,
-    });
+    }, { moveJoinEvent: false });
   });
 });
 
@@ -572,6 +574,8 @@ describe('EmployeesService: the intern lifecycle (0034)', () => {
       joinDate: '2025-02-01',
       probationStartDate: '2025-02-01',
     });
+    // The app's own join row moves with it (0037).
+    expect(repo.update.mock.calls[0][2]).toEqual({ moveJoinEvent: true });
     const other = make({
       findById: jest
         .fn()
