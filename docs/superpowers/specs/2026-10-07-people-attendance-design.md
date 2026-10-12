@@ -19,6 +19,7 @@ glance" with KPIs. The end goal is tracking KPIs for every employee.
 | 4 | Exit (see "Slice 4 — exit") | done |
 | 5 | Nifty Timer sync (activity %, timer hours, idle) | later; Nifty Timer has no API key auth today |
 | 6 | Configurable KPI targets/weights per designation; lead visibility | later |
+| 7 | Real attendance and leave from **Stellar HRM** (CSV import now, API later), work shifts (see "Stellar HRM" below) | CSV import done; API later |
 
 The real office entry/exit + leave API does not exist yet (Nifty Timer has no
 attendance or leave model). Slice 1 ships a provider interface and a dummy
@@ -919,3 +920,156 @@ list.
 In the UI, Upload on a document line reuses the Documents upload dialog. The dialog is titled with the line,
 and the category and type are pre-filled. After the upload, the UI PATCHes the new document's id onto the
 line. If document storage is not configured, lines can still be ticked but nothing can be uploaded.
+
+## Stellar HRM: real attendance, leave and shifts (migration `0036_stellar_attendance`)
+
+Stellar HRM is the office door and attendance system. Every employee has a
+numeric Stellar User ID. The real integration will be Stellar's API, built
+later; until then Owner/Admin import its CSV exports. The API client is a stub
+(`src/people/stellar/stellar-api.client.ts`, TODO).
+
+### Data model
+
+- `employees.attendance_id` (text, unique, nullable): the Stellar User ID.
+  Imports match on it **only**; unmatched ids are reported, never guessed.
+- `work_shifts` (org-scoped, `@@unique([orgId, name])`): `start_minutes`,
+  `end_minutes` (minutes after Dhaka midnight, 0-1439; end before start
+  crosses midnight), `grace_minutes` (default 15), `track_punctuality`
+  (default true). Nothing is seeded. `employees.shift_id` is a nullable FK,
+  `ON DELETE SET NULL`.
+- `attendance_days.source` is now the enum `AttendanceSource { DUMMY
+  STELLAR_CSV STELLAR_API }`, converted in place (every existing row became
+  DUMMY; Prisma's generated DROP/ADD was replaced by `ALTER ... TYPE ...
+  USING`). New columns: `sessions`, `worked_minutes` (sum of the sessions),
+  `missing_out` (the last session has an in but no out), `note`.
+  `minutes_in_office` stays the first-in to last-out span. The API keeps
+  reporting lowercase labels (`dummy`, `stellar-csv`, `stellar-api`).
+- Leave keeps `leave_records.source` as text: imported leave is `stellar`,
+  with `external_id = stellar:<id>:<start>:<TYPE>` (status appended on a clash).
+
+### Real data wins over simulated data
+
+- The provider upsert's `ON CONFLICT ... WHERE attendance_days.source <=
+  EXCLUDED.source` relies on Postgres ordering enum values by declaration
+  (DUMMY < STELLAR_CSV < STELLAR_API): the dummy sync can never overwrite an
+  imported day, and a future API row can overwrite a CSV one.
+- The dummy sync skips simulated leave on any (employee, date) that has
+  non-DUMMY attendance, so a dev box still on `ATTENDANCE_PROVIDER=dummy`
+  does not re-create the leave an import removed. (A leave-only import is not
+  covered by this guard: under `dummy`, simulated leave can come back on days
+  with no real attendance row.)
+
+### Provider
+
+`ATTENDANCE_PROVIDER=dummy|none|stellar`. Providers now declare
+`attendanceSource` (the enum they write) and `canSync`. `stellar` has
+`canSync=false` until its API client exists: the crons log and skip, and the
+manual `POST /people/attendance/sync` answers 409 pointing at the import.
+
+### Attendance CSV
+
+Header `"","User ID","User Name","Department","Date","In Time","Out Time","Total Hour","Note"`,
+one row per in/out session. Parsed by `stellar/stellar-csv.ts` (pure,
+RFC 4180, BOM-tolerant):
+
+- `-` is missing. The `EXIT` user (the door) and rows without a numeric id are ignored.
+- Times are Dhaka 12-hour clocks, stored as UTC instants exactly like the dummy.
+  An out earlier than its in crossed midnight and stays on the listed date.
+- Per (user, date): `firstIn` = earliest in; `lastOut` = latest out seen,
+  `missingOut` when the latest session (by in) has no out; `workedMinutes` =
+  sum of `Total Hour`, or out-in where Total is `-` but both times exist,
+  rounded once; `sessions` = rows with a punch; notes de-duplicated and joined.
+- A day of only `-` rows is a day with no presence (sessions 0).
+
+### Leave CSV
+
+Header `"","User Name","Leave Type","Date","Apply Date","Description","Status","Action"`,
+one row per leave day (`stellar/stellar-leaves-csv.ts`):
+
+- `User Name` is `Name (41)`; the id in parentheses is the Stellar ID.
+- `Casual Leave` -> CASUAL, `Sick Leave` -> SICK (annual/unpaid wording maps
+  too); anything else becomes OTHER, is flagged in the preview, and the
+  wording is kept at the front of `reason`.
+- `approved`/`rejected` are stored as APPROVED/REJECTED; rejected leave never
+  counts (only APPROVED reduces availability or colours the strip).
+- Weekend rows are flagged and skipped. Consecutive business days (a weekend
+  in between does not break a run) with the same person, type, status,
+  description and apply **date** (the export stamps each day seconds apart)
+  merge into one record; `days` = its business days.
+- `Description` can hold health and family details: stored in `reason`,
+  shown only under `/people` (Owner/Admin), never logged. `Action` is ignored.
+
+### Import endpoints (Owner/Admin, audited, multipart `file`, max 10 MB)
+
+- `POST /people/attendance/import/stellar[?dryRun=true]`
+- `POST /people/attendance/import/stellar-leaves[?dryRun=true]`
+
+The file must be UTF-8 and its header must be the right export (the wrong one
+is a 400 naming the right import). Pure planners
+(`stellar/stellar-import-plan.ts`) decide everything; the service applies
+the plan in one transaction:
+
+- **Attendance:** for matched employees over the file's date range, delete
+  DUMMY and STELLAR_CSV rows (never STELLAR_API), insert the file's days as
+  STELLAR_CSV (a STELLAR_API day is skipped and reported), and delete their
+  `source='dummy'` leave overlapping the range (fabricated; the dummy writes
+  leave on days it writes no attendance, so this is by range, not by replaced
+  day). It never creates or touches any other leave.
+- **Leave:** delete `stellar` and `dummy` leave of matched employees
+  overlapping the range (a source guard in the DELETE makes manual leave
+  undeletable here), insert the file's records.
+- Days or records outside the employee's employment are skipped and counted.
+  A weekend day with no punches is dropped; one with punches is kept as weekend work.
+- Re-importing the same file converges on the same rows (idempotent).
+- A dry run returns the date range, matched (Stellar id -> employee, with
+  per-employee day counts), unmatched ids with name and department, and what
+  would be replaced; it writes nothing.
+
+### Shifts and punctuality (`shift-math.ts`)
+
+- `punctualityOf(shift)`: late = first-in after `start + grace` (fractional
+  minutes: one second over is late). No shift = the old rule (after 09:30,
+  8-hour day), so nothing changes for anyone without a shift.
+- `trackPunctuality=false`: days show `present` (neither on time nor late),
+  the punctuality KPI is null with reason `not-tracked`, and the overall score
+  is marked partial (like `not-linked`).
+- Expected hours per working day = the shift length, replacing the 8-hour
+  constant in the utilisation denominator for people with a shift. Note a
+  09:30-18:30 shift is 9 hours including breaks, so it raises the denominator.
+- The strip, today's state, the door log's late badges, the summary, the
+  directory and appraisal KPI snapshots all use the employee's shift.
+- `/people/shifts` (Owner/Admin, audited): `GET` (with assigned counts),
+  `POST`, `PATCH /:id`, `DELETE /:id`, `POST /assign` (bulk), and
+  `GET /suggestions`: each non-exited employee's median first-in over real
+  (non-DUMMY) business days in the last 90 days (at least 5 days), matched to
+  the nearest shift start around the clock; arrivals with an IQR above 3 hours
+  prefer a non-tracked shift. Proposals only: accepting calls `/assign`.
+
+### Weekends
+
+The office works Mon-Fri. Weekend punches are kept as weekend work: state
+`weekend` in the strip (listed only when there are punches, not counted toward
+the 30 business days) and in today's door log (not in the expected total).
+They never count as late (the punctuality KPI only counts business days),
+never as absent, and are never expected hours. Utilisation comes from ClickUp
+hours, so weekend door time is displayed, not added to a KPI.
+
+### UI
+
+The Attendance page has "Import from Stellar HRM": one dialog that detects
+attendance vs leave from the header, previews the dry run (matched, unmatched,
+replaced), and imports on confirm. The page says where its data comes from
+("Stellar HRM import, 1 Jul - 12 Oct", or "Simulated"). Door-log rows show
+worked time, sessions, a missing-out warning and notes. A Shifts card lists,
+adds, edits and deletes shifts with assigned counts, and "Suggest shifts from
+attendance" offers accept-per-person and accept-all. The employee form has
+"Stellar ID" and "Shift". On the strip, a working day with real data, no
+punch and no approved leave reads "Absent, no leave recorded"; with an
+approved leave it shows that leave.
+
+### Not done
+
+- The Stellar API client (`StellarApiClient`) and leave sync from the API.
+- A partial re-import whose range cuts through a multi-day Stellar leave
+  replaces the whole record but only re-inserts the part in the new file.
+
