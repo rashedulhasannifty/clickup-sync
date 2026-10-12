@@ -35,6 +35,7 @@ import { AttendanceStrip } from '../components/people/AttendanceStrip';
 import { CareerTimeline } from '../components/people/CareerTimeline';
 import { EmployeeDocumentsTab } from '../components/people/EmployeeDocumentsTab';
 import { EmployeeAppraisalsTab } from '../components/people/EmployeeAppraisalsTab';
+import { EmployeeOnboardingTab } from '../components/people/EmployeeOnboardingTab';
 import { StartOffboardingButton } from '../components/people/StartOffboardingButton';
 import { EmployeeFormModal } from '../components/people/EmployeeFormModal';
 import { HeaderActions } from '../components/people/FormBits';
@@ -42,8 +43,8 @@ import { KpiTile } from '../components/people/KpiTile';
 import { LeaveBalanceCard } from '../components/people/LeaveBalanceCard';
 import { DemoDataBadge, EmployeeStatusPill, LinkedIndicators } from '../components/people/PeoplePills';
 
-type TabValue = 'overview' | 'documents' | 'appraisals';
-const TABS: TabValue[] = ['overview', 'documents', 'appraisals'];
+type TabValue = 'overview' | 'onboarding' | 'documents' | 'appraisals';
+const TABS: TabValue[] = ['overview', 'onboarding', 'documents', 'appraisals'];
 
 function Chip({ children }: { children: ReactNode }) {
   return (
@@ -256,7 +257,7 @@ export function EmployeeDetailPage() {
         <Callout tone="neutral" icon={<UserX size={15} />}>
           <strong>Former employee — read-only.</strong>{' '}
           {e.exitDate ? `Exited ${formatDate(e.exitDate)}. ` : ''}
-          The profile, timeline and documents can be viewed but not changed.
+          The profile, timeline, onboarding checklist and documents can be viewed but not changed.
         </Callout>
       )}
 
@@ -294,12 +295,15 @@ export function EmployeeDetailPage() {
         }}
         items={[
           { value: 'overview', label: 'Overview' },
+          { value: 'onboarding', label: 'Onboarding' },
           { value: 'documents', label: 'Documents' },
           { value: 'appraisals', label: 'Appraisals' },
         ]}
       />
 
-      {tab === 'documents' ? (
+      {tab === 'onboarding' ? (
+        <EmployeeOnboardingTab employeeId={e.id} readOnly={readOnly} />
+      ) : tab === 'documents' ? (
         <EmployeeDocumentsTab employeeId={e.id} readOnly={readOnly} />
       ) : tab === 'appraisals' ? (
         <EmployeeAppraisalsTab employeeId={e.id} />

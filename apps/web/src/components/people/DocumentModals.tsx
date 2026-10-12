@@ -74,17 +74,23 @@ function CategoryDocType({ docTypes, value, onChange }: { docTypes: DocTypes; va
 const grid = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 } as const;
 
 export function UploadDocumentModal({
-  docTypes, defaultCategory, onClose, onSubmit, submitting,
+  docTypes, defaultCategory, defaultDocType, title = 'Upload document', subtitle, onClose, onSubmit, submitting,
 }: {
   docTypes: DocTypes;
   defaultCategory?: DocumentCategory;
+  /** Pre-selects a type in `defaultCategory` (ignored if the category doesn't offer it). */
+  defaultDocType?: string;
+  title?: string;
+  subtitle?: string;
   onClose: () => void;
   onSubmit: (input: UploadInput) => Promise<unknown>;
   submitting: boolean;
 }) {
   const startCategory = defaultCategory ?? 'IDENTITY';
   const [file, setFile] = useState<File | null>(null);
-  const [cat, setCat] = useState<CategoryFields>({ category: startCategory, docType: docTypes[startCategory]?.[0]?.key ?? 'OTHER' });
+  const startDocType =
+    defaultDocType && docTypes[startCategory]?.some((t) => t.key === defaultDocType) ? defaultDocType : docTypes[startCategory]?.[0]?.key ?? 'OTHER';
+  const [cat, setCat] = useState<CategoryFields>({ category: startCategory, docType: startDocType });
   const [expiresOn, setExpiresOn] = useState('');
   const [visibility, setVisibility] = useState<DocumentVisibility>('HR_ONLY');
   const [error, setError] = useState('');
@@ -104,7 +110,7 @@ export function UploadDocumentModal({
 
   return (
     <Modal
-      open onClose={onClose} width={520} title="Upload document" onSubmit={save}
+      open onClose={onClose} width={520} title={title} subtitle={subtitle} onSubmit={save}
       footer={
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <Button variant="ghost" onClick={onClose} disabled={submitting}>Cancel</Button>
