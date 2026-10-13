@@ -119,10 +119,10 @@ describe('Stellar HRM import (e2e)', () => {
     // The page header's "Stellar HRM import, 6 Jul - 8 Jul" comes from the coverage query.
     const today = await app.get(PeopleAttendanceService).today(orgId);
     expect(today.coverage).toEqual(
-      expect.arrayContaining([{ source: 'stellar-csv', from: '2026-07-06', to: '2026-07-07', rows: 2 }]),
+      expect.arrayContaining([expect.objectContaining({ source: 'stellar-csv', from: '2026-07-06', to: '2026-07-07', rows: 2 })]),
     );
     expect(today.coverage).toEqual(
-      expect.arrayContaining([{ source: 'stellar-api', from: '2026-07-08', to: '2026-07-08', rows: 1 }]),
+      expect.arrayContaining([expect.objectContaining({ source: 'stellar-api', from: '2026-07-08', to: '2026-07-08', rows: 1 })]),
     );
 
     const again = await importer.importAttendance(orgId, file(ATT()), false);

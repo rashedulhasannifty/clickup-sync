@@ -49,6 +49,8 @@ export interface AttendanceCoverage {
   from: string;
   to: string;
   rows: number;
+  /** When a row of this source was last written (sync or import), ISO. */
+  lastSyncedAt: string;
 }
 
 /** KPI score band. Also used as a KPI's own `status` (derived from that KPI's score). */

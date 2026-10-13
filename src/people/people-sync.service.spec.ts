@@ -236,7 +236,7 @@ describe('PeopleSyncService.run', () => {
 });
 
 describe('PeopleSyncService.enqueueDaily', () => {
-  it('enqueues the 7-day job on the people-sync queue, not maintenance, and skips when one is live', async () => {
+  it('enqueues the 7 days up to yesterday on the people-sync queue, not maintenance, and skips when one is live', async () => {
     const { svc, queues } = make();
     const queue = {
       add: jest.fn().mockResolvedValue({ id: '1' }),
@@ -247,13 +247,35 @@ describe('PeopleSyncService.enqueueDaily', () => {
     expect(queues.get).toHaveBeenCalledWith('people-sync');
     expect(queue.add).toHaveBeenCalledWith(
       'sync-attendance',
-      { entity: 'attendance', lookbackDays: 7, trigger: 'cron' },
+      // NOW is Wed 7 Oct: the window ends yesterday.
+      { entity: 'attendance', lookbackDays: 7, trigger: 'cron', from: '2026-09-30', to: '2026-10-06' },
       {},
     );
     queue.getJobs.mockResolvedValue([{ name: 'sync-attendance' }]);
     queue.add.mockClear();
     expect(await svc.enqueueDaily()).toBe(false);
     expect(queue.add).not.toHaveBeenCalled();
+  });
+
+  it('a provider limited per fetch gets exactly one fetch: yesterday and the two days before', async () => {
+    const provider = {
+      source: 'stellar',
+      attendanceSource: 'STELLAR_API' as const,
+      canSync: true,
+      maxDaysPerFetch: 3,
+      fetch: jest.fn(),
+    };
+    const { svc, queues } = make(provider as never);
+    const queue = { add: jest.fn().mockResolvedValue({ id: '1' }), getJobs: jest.fn().mockResolvedValue([]) };
+    queues.get.mockReturnValue(queue);
+    expect(await svc.enqueueDaily()).toBe(true);
+    expect(queue.add.mock.calls[0][1]).toEqual({
+      entity: 'attendance',
+      lookbackDays: 3,
+      trigger: 'cron',
+      from: '2026-10-04',
+      to: '2026-10-06',
+    });
   });
 
   it('intraday enqueues a today-only job, with the same in-flight skip', async () => {

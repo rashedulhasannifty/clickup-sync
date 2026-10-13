@@ -203,7 +203,14 @@ export type AttendanceDayView = AttendanceDetail & {
   minutesInOffice: number | null;
 };
 
-export type AttendanceCoverage = { source: AttendanceRowSource; from: string; to: string; rows: number };
+export type AttendanceCoverage = {
+  source: AttendanceRowSource;
+  from: string;
+  to: string;
+  rows: number;
+  /** When a row of this source was last written (sync or import), ISO. */
+  lastSyncedAt: string;
+};
 
 export type LeaveBalance = {
   year: number;

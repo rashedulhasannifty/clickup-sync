@@ -92,8 +92,18 @@ export class PeopleSyncService {
   }
 
   /** Nightly cron: the last 7 days, so yesterday's door log is complete. */
+  /**
+   * Nightly: the days up to and including yesterday, so yesterday is stored
+   * complete and late punches of the days before are picked up. A week, or
+   * for a provider limited per fetch (Stellar: 3 days) exactly one fetch.
+   */
   enqueueDaily(): Promise<boolean> {
-    return this.enqueueScheduled(SYNC_CRON_LOOKBACK_DAYS, 'cron');
+    const days = this.provider.maxDaysPerFetch ?? SYNC_CRON_LOOKBACK_DAYS;
+    const to = addDays(dhakaDateOf(new Date()), -1);
+    return this.enqueueScheduled(days, 'cron', {
+      from: addDays(to, -(days - 1)),
+      to,
+    });
   }
 
   /** Hourly office-hours cron: today only, so today's in/out shows up during the day. */
@@ -105,6 +115,7 @@ export class PeopleSyncService {
   private async enqueueScheduled(
     lookbackDays: number,
     trigger: PeopleSyncJobData['trigger'],
+    window?: { from: string; to: string },
   ): Promise<boolean> {
     if (!this.provider.canSync) {
       // `none`: nothing configured. `stellar` without API credentials: rows come from the CSV import.
@@ -128,7 +139,7 @@ export class PeopleSyncService {
       );
       return false;
     }
-    await this.enqueue(lookbackDays, trigger);
+    await this.enqueue(lookbackDays, trigger, window);
     return true;
   }
 

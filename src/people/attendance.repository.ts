@@ -32,6 +32,7 @@ export interface SourceCoverage {
   from: string;
   to: string;
   rows: number;
+  lastSyncedAt: string;
 }
 
 /** The columns every attendance read returns. */
@@ -269,14 +270,21 @@ export class AttendanceRepository {
   /** Per-source date span of the org's attendance rows, newest data first. */
   async coverage(orgId: string): Promise<SourceCoverage[]> {
     const rows = await this.prisma.$queryRaw<
-      { source: AttendanceSource; from: string; to: string; rows: number }[]
+      {
+        source: AttendanceSource;
+        from: string;
+        to: string;
+        rows: number;
+        last_synced_at: Date;
+      }[]
     >`
       -- Dates as text and the enum/count cast explicitly, like people-metrics:
       -- the driver adapter's raw DATE/BIGINT/enum types are not relied on.
       SELECT a.source::text AS source,
              to_char(min(a.date), 'YYYY-MM-DD') AS "from",
              to_char(max(a.date), 'YYYY-MM-DD') AS "to",
-             count(*)::int AS "rows"
+             count(*)::int AS "rows",
+             max(a.synced_at) AS last_synced_at
       FROM attendance_days a
       JOIN employees e ON e.id = a.employee_id
       WHERE e.org_id = ${orgId}
@@ -287,6 +295,7 @@ export class AttendanceRepository {
       from: r.from,
       to: r.to,
       rows: Number(r.rows),
+      lastSyncedAt: new Date(r.last_synced_at).toISOString(),
     }));
   }
 

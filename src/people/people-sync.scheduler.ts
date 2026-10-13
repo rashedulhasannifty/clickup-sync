@@ -13,8 +13,11 @@ const DHAKA = 'Asia/Dhaka';
 export class PeopleScheduler {
   constructor(private readonly sync: PeopleSyncService) {}
 
-  /** 00:30 Dhaka: yesterday's door log is complete, and it is inside the closed-office window. */
-  @Cron('0 30 0 * * *', { name: 'people-attendance-sync', timeZone: DHAKA })
+  /**
+   * 01:00 Dhaka every day (weekends too: weekend work is recorded): yesterday's
+   * door log is complete, and the office is closed. See `enqueueDaily`.
+   */
+  @Cron('0 0 1 * * *', { name: 'people-attendance-sync', timeZone: DHAKA })
   dailyAttendanceSync() {
     return this.sync.enqueueDaily();
   }

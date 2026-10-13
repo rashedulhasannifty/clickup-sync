@@ -297,7 +297,26 @@ const SOURCE_LABEL: Record<AttendanceCoverage['source'], string> = {
  */
 export function coverageText(coverage: AttendanceCoverage[] | undefined): string | null {
   if (!coverage || coverage.length === 0) return null;
-  return coverage.map((c) => (c.source === 'dummy' ? 'Simulated' : `${SOURCE_LABEL[c.source]}, ${formatDateSpan(c.from, c.to)}`)).join(' · ');
+  return coverage
+    .map((c) => {
+      if (c.source === 'dummy') return 'Simulated';
+      const text = `${SOURCE_LABEL[c.source]}, ${formatDateSpan(c.from, c.to)}`;
+      // The API syncs on its own: say when, so a missed nightly run is visible.
+      return c.source === 'stellar-api' ? `${text} (last synced ${syncedWhen(c.lastSyncedAt)})` : text;
+    })
+    .join(' · ');
+}
+
+/** `today 13:37`, `yesterday 01:00`, or `12 Oct 01:00` (Dhaka). */
+function syncedWhen(iso: string): string {
+  const day = dhakaToday(new Date(iso));
+  const today = dhakaToday();
+  const label = day === today ? 'today' : day === addDaysYmd(today, -1) ? 'yesterday' : formatShortDate(day);
+  return `${label} ${formatClock(iso)}`;
+}
+
+function addDaysYmd(ymd: string, n: number): string {
+  return new Date(Date.parse(`${ymd}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 }
 
 /** Short source label of one day's row. */
