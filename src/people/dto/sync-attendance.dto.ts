@@ -7,7 +7,7 @@ import {
 
 export class SyncAttendanceDto {
   @ApiPropertyOptional({
-    default: SYNC_DEFAULT_LOOKBACK_DAYS,
+    description: `Default ${SYNC_DEFAULT_LOOKBACK_DAYS}; 7 for Stellar HRM (a few days per rate-limited call).`,
     maximum: SYNC_MAX_LOOKBACK_DAYS,
   })
   @IsOptional()

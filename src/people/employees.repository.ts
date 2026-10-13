@@ -244,7 +244,13 @@ export class EmployeesRepository {
         joinDate: { lte: isoToDateColumn(to) },
         OR: [{ exitDate: null }, { exitDate: { gte: isoToDateColumn(from) } }],
       },
-      select: { id: true, email: true, joinDate: true, exitDate: true },
+      select: {
+        id: true,
+        email: true,
+        attendanceId: true,
+        joinDate: true,
+        exitDate: true,
+      },
     });
   }
 

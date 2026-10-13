@@ -20,11 +20,12 @@ export class PeopleScheduler {
   }
 
   /**
-   * :05 past each hour 09:00-20:00 Dhaka, Mon-Fri: re-sync today only, so the
-   * door log and "late today" are live instead of appearing the next morning.
-   * One day of rows is cheap enough for office hours.
+   * Every 15 minutes 09:00-23:45 Dhaka (the office runs until ~23:00), Mon-Fri:
+   * re-sync today only, so the door log and "late today" are live instead of
+   * appearing the next morning. One day is one Stellar call, well inside its
+   * one-call-per-5-minutes limit; a run that finds the slot taken waits for it.
    */
-  @Cron('0 5 9-20 * * 1-5', { name: 'people-attendance-intraday', timeZone: DHAKA })
+  @Cron('0 */15 9-23 * * 1-5', { name: 'people-attendance-intraday', timeZone: DHAKA })
   intradayAttendanceSync() {
     return this.sync.enqueueIntraday();
   }

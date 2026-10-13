@@ -7,11 +7,11 @@ import {
 } from './people-dates';
 
 const people = [
-  { email: 'a@x.test', joinDate: '2026-01-01', exitDate: null },
-  { email: 'b@x.test', joinDate: '2026-08-10', exitDate: null },
-  { email: 'c@x.test', joinDate: '2025-01-01', exitDate: '2026-09-15' },
-  { email: 'd@x.test', joinDate: '2025-01-01', exitDate: null },
-  { email: 'e@x.test', joinDate: '2025-01-01', exitDate: null },
+  { email: 'a@x.test', attendanceId: null, joinDate: '2026-01-01', exitDate: null },
+  { email: 'b@x.test', attendanceId: null, joinDate: '2026-08-10', exitDate: null },
+  { email: 'c@x.test', attendanceId: null, joinDate: '2025-01-01', exitDate: '2026-09-15' },
+  { email: 'd@x.test', attendanceId: null, joinDate: '2025-01-01', exitDate: null },
+  { email: 'e@x.test', attendanceId: null, joinDate: '2025-01-01', exitDate: null },
 ];
 // Wed 2026-10-07 18:00 Dhaka: after the earliest last-out (17:30), before the latest (19:30).
 const NOW = dhakaInstant('2026-10-07', 18 * 60);
@@ -101,6 +101,7 @@ describe('DummyAttendanceProvider', () => {
   it('keeps pending requests stable across days (same externalId), so re-syncs do not pile them up', async () => {
     const many = Array.from({ length: 60 }, (_, i) => ({
       email: `p${i}@x.test`,
+      attendanceId: null,
       joinDate: '2025-01-01',
       exitDate: null,
     }));
@@ -139,6 +140,7 @@ describe('DummyAttendanceProvider', () => {
   it('a request that was PENDING becomes APPROVED (same externalId) once its day arrives, and that day has no attendance', async () => {
     const many = Array.from({ length: 60 }, (_, i) => ({
       email: `p${i}@x.test`,
+      attendanceId: null,
       joinDate: '2025-01-01',
       exitDate: null,
     }));

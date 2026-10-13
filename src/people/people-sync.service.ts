@@ -17,13 +17,25 @@ import {
   SYNC_INTRADAY_LOOKBACK_DAYS,
   SYNC_DEFAULT_LOOKBACK_DAYS,
 } from './people.constants';
-import { addDays, dateColumnToIso, dhakaDateOf } from './people-dates';
+import {
+  addDays,
+  dateColumnToIso,
+  dhakaDateOf,
+  diffDays,
+} from './people-dates';
 import type { AttendanceSyncResult, SyncEnqueued } from './people.types';
 
 export interface PeopleSyncJobData {
   entity: 'attendance';
   lookbackDays: number;
   trigger: 'cron' | 'cron-intraday' | 'manual';
+  /**
+   * An explicit window instead of the last `lookbackDays` days: set on the
+   * follow-up job that fetches the older part of a window too long for one
+   * provider call (`maxDaysPerFetch`).
+   */
+  from?: string;
+  to?: string;
 }
 
 /**
@@ -46,18 +58,32 @@ export class PeopleSyncService {
     return this.provider.source;
   }
 
+  /**
+   * Default window of a manual sync: 90 days, or a week for a provider that can
+   * only fetch a few days per rate-limited call (Stellar: 3 calls, ~11 minutes).
+   */
+  get defaultLookbackDays(): number {
+    return this.provider.maxDaysPerFetch
+      ? SYNC_CRON_LOOKBACK_DAYS
+      : SYNC_DEFAULT_LOOKBACK_DAYS;
+  }
+
   async enqueue(
-    lookbackDays = SYNC_DEFAULT_LOOKBACK_DAYS,
+    lookbackDays = this.defaultLookbackDays,
     trigger: PeopleSyncJobData['trigger'] = 'manual',
+    window?: { from: string; to: string },
   ): Promise<SyncEnqueued> {
     if (!this.provider.canSync && this.provider.source !== 'none')
       throw new ConflictException(
-        `The '${this.provider.source}' provider cannot sync yet: import its CSV export from the Attendance page`,
+        this.provider.source === 'stellar'
+          ? 'Stellar HRM API credentials are not set (STELLAR_AUTH_USER, STELLAR_AUTH_CODE): import its CSV export from the Attendance page'
+          : `The '${this.provider.source}' provider cannot sync yet: import its CSV export from the Attendance page`,
       );
     const data: PeopleSyncJobData = {
       entity: 'attendance',
       lookbackDays,
       trigger,
+      ...(window ?? {}),
     };
     const job = await this.queues
       .get(QUEUES.PEOPLE_SYNC)
@@ -81,7 +107,7 @@ export class PeopleSyncService {
     trigger: PeopleSyncJobData['trigger'],
   ): Promise<boolean> {
     if (!this.provider.canSync) {
-      // `none`: nothing configured. `stellar`: no API client yet; rows come from the CSV import.
+      // `none`: nothing configured. `stellar` without API credentials: rows come from the CSV import.
       if (this.provider.source !== 'none')
         this.logger.log(
           `Skipping scheduled ${JOBS.SYNC_ATTENDANCE}: provider '${this.provider.source}' cannot sync yet (use the CSV import)`,
@@ -106,9 +132,26 @@ export class PeopleSyncService {
     return true;
   }
 
-  async run(lookbackDays: number): Promise<AttendanceSyncResult> {
-    const to = dhakaDateOf(new Date());
-    const from = addDays(to, -(lookbackDays - 1));
+  /**
+   * Sync the last `lookbackDays` days, or `window` when given. A provider with
+   * `maxDaysPerFetch` gets only the newest part of a longer window (so today
+   * lands first); `remaining` is the older part, for a follow-up job.
+   */
+  async run(
+    lookbackDays: number,
+    window?: { from: string; to: string },
+  ): Promise<AttendanceSyncResult> {
+    const to = window?.to ?? dhakaDateOf(new Date());
+    const requestedFrom = window?.from ?? addDays(to, -(lookbackDays - 1));
+    const max = this.provider.maxDaysPerFetch;
+    const from =
+      max && diffDays(requestedFrom, to) + 1 > max
+        ? addDays(to, -(max - 1))
+        : requestedFrom;
+    const remaining =
+      from > requestedFrom
+        ? { from: requestedFrom, to: addDays(from, -1) }
+        : null;
     const employees = await this.employees.listForSync(from, to);
     const result: AttendanceSyncResult = {
       source: this.provider.source,
@@ -119,6 +162,7 @@ export class PeopleSyncService {
       leavesCreated: 0,
       leavesUpdated: 0,
       leavesPreserved: 0,
+      remaining,
     };
     if (employees.length === 0) return result;
     const attendanceSource = this.provider.attendanceSource;
@@ -135,6 +179,7 @@ export class PeopleSyncService {
     const fetched = await this.provider.fetch(
       employees.map((e) => ({
         email: e.email,
+        attendanceId: e.attendanceId,
         joinDate: dateColumnToIso(e.joinDate),
         exitDate: e.exitDate ? dateColumnToIso(e.exitDate) : null,
       })),
@@ -153,6 +198,10 @@ export class PeopleSyncService {
         firstIn: row.firstIn,
         lastOut: row.lastOut,
         minutesInOffice: minutesBetween(row.firstIn, row.lastOut),
+        sessions: row.sessions,
+        workedMinutes: row.workedMinutes,
+        missingOut: row.missingOut,
+        note: row.note,
         source: attendanceSource,
       });
     }
@@ -186,9 +235,13 @@ export class PeopleSyncService {
     result.leavesUpdated = leaveResult.updated;
     result.leavesPreserved = leaveResult.preserved;
 
+    const unmatched = fetched.unmatchedIds?.length
+      ? `, ${fetched.unmatchedIds.length} door id(s) matching no employee: ${fetched.unmatchedIds.join(', ')}`
+      : '';
     this.logger.log(
       `attendance sync (${result.source}) ${from}..${to}: ${result.employees} employees, ${result.attendanceRows} attendance rows, ` +
-        `leave +${result.leavesCreated} ~${result.leavesUpdated} kept ${result.leavesPreserved}`,
+        `leave +${result.leavesCreated} ~${result.leavesUpdated} kept ${result.leavesPreserved}${unmatched}` +
+        (remaining ? `; ${remaining.from}..${remaining.to} follows` : ''),
     );
     return result;
   }

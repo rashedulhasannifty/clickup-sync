@@ -20,6 +20,18 @@ describe('validateEnv — Xero', () => {
   });
 });
 
+describe('validateEnv — Stellar HRM API', () => {
+  it('both empty by default, both set (trimmed) accepted, one alone refused', () => {
+    expect(validateEnv({ ...base })).toMatchObject({ STELLAR_AUTH_USER: '', STELLAR_AUTH_CODE: '' });
+    expect(validateEnv({ ...base, STELLAR_AUTH_USER: ' u ', STELLAR_AUTH_CODE: 'c' })).toMatchObject({
+      STELLAR_AUTH_USER: 'u',
+      STELLAR_AUTH_CODE: 'c',
+    });
+    expect(() => validateEnv({ ...base, STELLAR_AUTH_USER: 'u' })).toThrow(/STELLAR_AUTH_CODE/);
+    expect(() => validateEnv({ ...base, STELLAR_AUTH_CODE: 'c' })).toThrow(/STELLAR_AUTH_USER/);
+  });
+});
+
 describe('validateEnv — MAIL_FROM in production', () => {
   const prod = {
     ...base,

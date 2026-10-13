@@ -64,6 +64,11 @@ const schema = z.object({
   ATTENDANCE_PROVIDER: z.preprocess((v) => (v === '' ? undefined : v), z.enum(['dummy', 'none', 'stellar']).optional()),
   // Same enum+transform pattern as WEBHOOK_AUTOHEAL_ENABLED (z.coerce.boolean treats "false" as true).
   ATTENDANCE_DUMMY_ALLOW_IN_PROD: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
+  // Stellar HRM (RAMS) API: the web-login username and the API auth code from the
+  // manufacturer. Both or neither; without them ATTENDANCE_PROVIDER=stellar uses the
+  // CSV imports only. The code is a password: only StellarApiClient reads it; never log it.
+  STELLAR_AUTH_USER: z.string().trim().optional().default(''),
+  STELLAR_AUTH_CODE: z.string().trim().optional().default(''),
   // Employee documents live in a private S3-compatible bucket (MinIO). All five of the
   // values below or none: unset = the documents feature is off (API 503, UI notice).
   // The secret key is only ever read by S3DocumentStorage; never log it.
@@ -79,6 +84,13 @@ const schema = z.object({
   // Half-configured Xero is always a mistake, in every environment.
   if (env.XERO_CLIENT_ID && !env.XERO_CLIENT_SECRET) {
     ctx.addIssue({ code: 'custom', path: ['XERO_CLIENT_SECRET'], message: 'XERO_CLIENT_SECRET is required when XERO_CLIENT_ID is set' });
+  }
+  if (!!env.STELLAR_AUTH_USER !== !!env.STELLAR_AUTH_CODE) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [env.STELLAR_AUTH_USER ? 'STELLAR_AUTH_CODE' : 'STELLAR_AUTH_USER'],
+      message: 'STELLAR_AUTH_USER and STELLAR_AUTH_CODE must be set together',
+    });
   }
   if (env.XERO_CLIENT_SECRET && !env.XERO_CLIENT_ID) {
     ctx.addIssue({ code: 'custom', path: ['XERO_CLIENT_ID'], message: 'XERO_CLIENT_ID is required when XERO_CLIENT_SECRET is set' });

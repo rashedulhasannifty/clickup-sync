@@ -12,12 +12,14 @@ function make(
     {
       id: 'e1',
       email: 'a@x.test',
+      attendanceId: '66',
       joinDate: new Date('2026-01-01T00:00:00Z'),
       exitDate: null,
     },
     {
       id: 'e2',
       email: 'b@x.test',
+      attendanceId: null,
       joinDate: new Date('2026-01-01T00:00:00Z'),
       exitDate: null,
     },
@@ -217,10 +219,13 @@ describe('PeopleSyncService.run', () => {
     expect([...stores.leaves.keys()]).toEqual(['dummy:a@x.test:2026-10-06']);
   });
 
-  it('with the stellar provider (no API yet) a run fetches and writes nothing', async () => {
+  it('with the stellar provider and no API credentials a run fetches and writes nothing', async () => {
     const { StellarAttendanceProvider } =
       await import('./stellar/stellar-attendance.provider');
-    const provider = new StellarAttendanceProvider();
+    const { StellarApiClient } = await import('./stellar/stellar-api.client');
+    const provider = new StellarAttendanceProvider(
+      new StellarApiClient(null, () => Promise.reject(new Error('unused'))),
+    );
     const fetch = jest.spyOn(provider, 'fetch');
     const { svc, attendance } = make(provider as never);
     const r = await svc.run(7);
@@ -278,12 +283,71 @@ describe('PeopleSyncService.enqueueDaily', () => {
     expect(queues.get).not.toHaveBeenCalled();
   });
 
-  it('logs and skips the crons under the stellar provider until its API exists', async () => {
+  it('logs and skips the crons under the stellar provider without API credentials', async () => {
     const { StellarAttendanceProvider } =
       await import('./stellar/stellar-attendance.provider');
-    const { svc, queues } = make(new StellarAttendanceProvider() as never);
+    const { StellarApiClient } = await import('./stellar/stellar-api.client');
+    const { svc, queues } = make(
+      new StellarAttendanceProvider(
+        new StellarApiClient(null, () => Promise.reject(new Error('unused'))),
+      ) as never,
+    );
     expect(await svc.enqueueDaily()).toBe(false);
     expect(await svc.enqueueIntraday()).toBe(false);
     expect(queues.get).not.toHaveBeenCalled();
+  });
+});
+
+describe('PeopleSyncService with a provider limited to a few days per fetch', () => {
+  function limited() {
+    const calls: [string, string][] = [];
+    const provider = {
+      source: 'stellar',
+      attendanceSource: 'STELLAR_API' as const,
+      canSync: true,
+      maxDaysPerFetch: 3,
+      fetch: jest.fn(async (people: { email: string; attendanceId: string | null }[], from: string, to: string) => {
+        calls.push([from, to]);
+        return {
+          attendance: [
+            { email: people[0].email, date: to, firstIn: null, lastOut: null, sessions: 2, workedMinutes: 300, missingOut: true, note: null },
+          ],
+          leaves: [],
+          unmatchedIds: ['100'],
+        };
+      }),
+    };
+    return { provider, calls, ...make(provider as never) };
+  }
+
+  it('fetches the newest days first and hands the older part back as `remaining`', async () => {
+    const { svc, calls, attendance } = limited();
+    const r = await svc.run(7);
+    expect(calls).toEqual([['2026-10-05', '2026-10-07']]);
+    expect(r).toMatchObject({ from: '2026-10-05', to: '2026-10-07', remaining: { from: '2026-10-01', to: '2026-10-04' } });
+    // Door detail reaches the table.
+    expect(attendance.upsertAttendance.mock.calls[0][0][0]).toMatchObject({
+      sessions: 2,
+      workedMinutes: 300,
+      missingOut: true,
+      source: 'STELLAR_API',
+    });
+
+    const next = await svc.run(7, r.remaining!);
+    expect(calls[1]).toEqual(['2026-10-02', '2026-10-04']);
+    expect(next.remaining).toEqual({ from: '2026-10-01', to: '2026-10-01' });
+    const last = await svc.run(7, next.remaining!);
+    expect(calls[2]).toEqual(['2026-10-01', '2026-10-01']);
+    expect(last.remaining).toBeNull();
+  });
+
+  it('a manual sync defaults to a week, and passes the employees’ door ids to the provider', async () => {
+    const { svc, provider } = limited();
+    expect(svc.defaultLookbackDays).toBe(7);
+    await svc.run(1);
+    expect(provider.fetch.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ email: 'a@x.test', attendanceId: '66' }),
+      expect.objectContaining({ email: 'b@x.test', attendanceId: null }),
+    ]);
   });
 });

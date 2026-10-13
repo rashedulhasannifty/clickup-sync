@@ -9,6 +9,7 @@ import { isWorker } from '../config/role';
 import { DatabaseModule } from '../database/database.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { QueuesModule } from '../queues/queues.module';
+import { QueueService } from '../queues/queue.service';
 import { ATTENDANCE_PROVIDER } from './attendance-provider';
 import { createAttendanceProvider } from './attendance-provider.factory';
 import { AttendanceRepository } from './attendance.repository';
@@ -35,6 +36,10 @@ import { HolidaysService } from './holidays.service';
 import { ShiftsRepository } from './shifts.repository';
 import { ShiftsService } from './shifts.service';
 import { StellarImportService } from './stellar/stellar-import.service';
+import {
+  StellarApiClient,
+  type SlotRedis,
+} from './stellar/stellar-api.client';
 
 @Module({
   // AuditLogInterceptor/AuditLogRepository come from AdminModule (see its exports).
@@ -67,13 +72,20 @@ import { StellarImportService } from './stellar/stellar-import.service';
     {
       // The provider is chosen by env, not by code: ATTENDANCE_PROVIDER=dummy|none|stellar.
       provide: ATTENDANCE_PROVIDER,
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => {
+      inject: [ConfigService, QueueService],
+      useFactory: (config: ConfigService, queues: QueueService) => {
         const name = resolveAttendanceProvider(
           config.get<AttendanceProviderName>('ATTENDANCE_PROVIDER'),
           config.get<string>('NODE_ENV') ?? 'development',
         );
-        return createAttendanceProvider(name);
+        const authUser = config.get<string>('STELLAR_AUTH_USER') ?? '';
+        const authCode = config.get<string>('STELLAR_AUTH_CODE') ?? '';
+        // The rate-limit slot lives in Redis so the web and worker processes, and restarts, share it.
+        const stellar = new StellarApiClient(
+          authUser && authCode ? { authUser, authCode } : null,
+          async () => (await queues.redis()) as unknown as SlotRedis,
+        );
+        return createAttendanceProvider(name, { stellar });
       },
     },
     // Consumers and crons run only in the worker role, like XeroModule / SyncModule:

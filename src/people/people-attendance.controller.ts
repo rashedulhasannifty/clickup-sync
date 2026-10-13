@@ -27,7 +27,6 @@ import { ListLeavesQuery } from './dto/list-leaves.query';
 import { SyncAttendanceDto } from './dto/sync-attendance.dto';
 import { PeopleAttendanceService } from './people-attendance.service';
 import { PeopleSyncService } from './people-sync.service';
-import { SYNC_DEFAULT_LOOKBACK_DAYS } from './people.constants';
 import {
   MAX_STELLAR_CSV_BYTES,
   StellarImportService,
@@ -87,7 +86,7 @@ export class PeopleAttendanceController {
   })
   enqueueSync(@Body() dto: SyncAttendanceDto): Promise<SyncEnqueued> {
     return this.sync.enqueue(
-      dto.lookbackDays ?? SYNC_DEFAULT_LOOKBACK_DAYS,
+      dto.lookbackDays ?? this.sync.defaultLookbackDays,
       'manual',
     );
   }

@@ -366,4 +366,6 @@ export interface AttendanceSyncResult {
   leavesUpdated: number;
   /** Provider leave rows left alone because a person already decided them. */
   leavesPreserved: number;
+  /** The older part of the window, left for a follow-up job (a provider with `maxDaysPerFetch`). */
+  remaining: { from: string; to: string } | null;
 }
