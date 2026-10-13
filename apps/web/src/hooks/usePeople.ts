@@ -7,6 +7,7 @@ import {
   type CreateEmployeeBody,
   type EmployeeListParams,
   type LeaveListParams,
+  type HolidayBody,
   type ShiftBody,
   type UpdateEmployeeBody,
 } from '../api/people';
@@ -110,6 +111,34 @@ export function useUpdateShift() {
 export function useDeleteShift() {
   const invalidate = useInvalidatePeople();
   return useMutation({ mutationFn: (id: string) => peopleApi.deleteShift(id), onSuccess: invalidate });
+}
+
+// Holidays change attendance states and every score, so a write refreshes all of People.
+export function useHolidays(year: number) {
+  return useQuery({ queryKey: [...ROOT, 'holidays', year], queryFn: () => peopleApi.holidays(year) });
+}
+
+export function useCreateHoliday() {
+  const invalidate = useInvalidatePeople();
+  return useMutation({ mutationFn: (body: HolidayBody) => peopleApi.createHoliday(body), onSuccess: invalidate });
+}
+
+export function useUpdateHolidays() {
+  const invalidate = useInvalidatePeople();
+  return useMutation({
+    mutationFn: (body: { ids: string[]; name?: string; tentative?: boolean }) => peopleApi.updateHolidays(body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteHolidays() {
+  const invalidate = useInvalidatePeople();
+  return useMutation({ mutationFn: (ids: string[]) => peopleApi.deleteHolidays(ids), onSuccess: invalidate });
+}
+
+export function usePrefillHolidays() {
+  const invalidate = useInvalidatePeople();
+  return useMutation({ mutationFn: (year: number) => peopleApi.prefillHolidays(year), onSuccess: invalidate });
 }
 
 /** Suggestions are computed on demand (button), never polled. */

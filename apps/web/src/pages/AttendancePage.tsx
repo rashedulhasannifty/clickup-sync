@@ -24,6 +24,7 @@ import { HeaderActions } from '../components/people/FormBits';
 import { DemoDataBadge, LeaveStatusPill, LeaveTypePill, RealDataBadge, TodayStatePill } from '../components/people/PeoplePills';
 import { StellarImportModal } from '../components/people/StellarImportModal';
 import { ShiftsSection } from '../components/people/ShiftsSection';
+import { HolidaysSection } from '../components/people/HolidaysSection';
 
 const STATUS_FILTER = [
   { value: 'PENDING', label: 'Pending' },
@@ -275,7 +276,9 @@ export function AttendancePage() {
 
       {t && !t.workingDay ? (
         <Callout tone="neutral" icon={<CalendarDays size={14} />}>
-          Today is not a working day (the office runs Monday to Friday). Anyone who comes in shows below as weekend work; nobody is expected or late.
+          {t.holiday
+            ? `Today is a holiday: ${t.holiday}. Anyone who comes in shows below as off-day work; nobody is expected or late.`
+            : 'Today is not a working day (the office runs Monday to Friday). Anyone who comes in shows below as off-day work; nobody is expected or late.'}
         </Callout>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))', gap: 12 }}>
@@ -309,10 +312,12 @@ export function AttendancePage() {
             columns={DOOR_COLUMNS}
             data={t?.rows ?? []}
             loading={today.isLoading}
-            emptyTitle={t && !t.workingDay ? 'Day off' : 'No door entries yet'}
+            emptyTitle={t && !t.workingDay ? (t.holiday ? 'Holiday' : 'Day off') : 'No door entries yet'}
             emptyBody={
               t && !t.workingDay
-                ? 'Nobody is expected in on a weekend.'
+                ? t.holiday
+                  ? 'Nobody is expected in on a holiday.'
+                  : 'Nobody is expected in on a weekend.'
                 : 'Entries appear as people badge in, after an attendance sync, or after a Stellar HRM import.'
             }
             emptyIcon={<CalendarDays size={20} strokeWidth={1.5} />}
@@ -339,6 +344,8 @@ export function AttendancePage() {
         </Section>
 
         <ShiftsSection />
+
+        <HolidaysSection />
       </div>
 
       {importing && <StellarImportModal onClose={() => setImporting(false)} onDone={(m) => toast.success(m)} />}

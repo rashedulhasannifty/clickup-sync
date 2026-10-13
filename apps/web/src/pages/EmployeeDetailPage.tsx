@@ -379,7 +379,7 @@ export function EmployeeDetailPage() {
                 <TrendCard summary={summary} />
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>
-                    Attendance · last {summary.attendance.length || 30} working days
+                    Attendance · last {summary.attendance.filter((d) => d.state !== 'weekend' && d.state !== 'holiday').length || 30} working days
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
                     Hover a day for the in and out times, sessions and notes.{' '}

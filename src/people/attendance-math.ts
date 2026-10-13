@@ -1,10 +1,13 @@
-import { countBusinessDays } from '../budgets/budget-forecast';
 import { LEAVE_ENTITLEMENT, STRIP_BUSINESS_DAYS } from './people.constants';
 import {
   addDays,
+  countWorkingDays,
   intersect,
   isBusinessDay,
+  isWorkingDay,
+  NO_HOLIDAYS,
   type DateRange,
+  type Holidays,
 } from './people-dates';
 import type { AttendanceSource } from '@prisma/client';
 import type { LeaveSpan } from './kpi-math';
@@ -90,7 +93,9 @@ export function leaveCovering(
 }
 
 /**
- * State of one business day. A first-in beats leave (they came in); leave beats
+ * State of one day. A weekend or holiday with punches is `weekend` (extra work,
+ * never late); a Mon-Fri holiday without is `holiday`. On a working day a
+ * first-in beats leave (they came in); leave beats
  * absence; a day with nothing recorded is `absent` only once it is over. Today
  * with no row is `future` ("not closed yet"): attendance for the current day
  * arrives with the next sync, so calling it absent would accuse everyone every
@@ -103,10 +108,13 @@ export function classifyDay(args: {
   row: AttendanceRow | undefined;
   leaves: TypedLeave[];
   punctuality?: Punctuality;
+  holidays?: Holidays;
 }): AttendanceDayState {
   const { date, today, row, leaves } = args;
+  const holidays = args.holidays ?? NO_HOLIDAYS;
   if (date > today) return 'future';
   if (!isBusinessDay(date)) return punched(row) ? 'weekend' : 'future';
+  if (holidays.has(date)) return punched(row) ? 'weekend' : 'holiday';
   if (row?.firstIn)
     return arrivalState(row.firstIn, args.punctuality ?? DEFAULT_PUNCTUALITY);
   // Only an exit punch (the entry was missed): they came in, at an unknown time.
@@ -117,10 +125,11 @@ export function classifyDay(args: {
 }
 
 /**
- * The last `STRIP_BUSINESS_DAYS` business days up to and including `today`,
+ * The last `STRIP_BUSINESS_DAYS` working days up to and including `today`,
  * limited to days within employment (a new joiner has a shorter strip). Oldest
- * first. Weekend days in that span appear only when someone punched in (state
- * `weekend`, extra work) and do not count toward the limit.
+ * first. Mon-Fri holidays in that span always appear (state `holiday`, or
+ * `weekend` when someone came in); weekend days appear only when someone
+ * punched in. Neither counts toward the limit.
  */
 export function buildAttendanceStrip(args: {
   today: string;
@@ -129,6 +138,7 @@ export function buildAttendanceStrip(args: {
   leaves: TypedLeave[];
   limit?: number;
   punctuality?: Punctuality;
+  holidays: Holidays;
 }): AttendanceDayView[] {
   const limit = args.limit ?? STRIP_BUSINESS_DAYS;
   const latest =
@@ -143,10 +153,10 @@ export function buildAttendanceStrip(args: {
     businessDays < limit && d >= args.employment.joinDate;
     d = addDays(d, -1)
   ) {
-    if (isBusinessDay(d)) {
+    if (isWorkingDay(d, args.holidays)) {
       days.push(d);
       businessDays++;
-    } else if (byDate.get(d)?.firstIn) days.push(d);
+    } else if (isBusinessDay(d) || byDate.get(d)?.firstIn) days.push(d);
   }
   days.reverse();
   return days.map((date) => {
@@ -159,7 +169,9 @@ export function buildAttendanceStrip(args: {
         row,
         leaves: args.leaves,
         punctuality: args.punctuality,
+        holidays: args.holidays,
       }),
+      holiday: args.holidays.get(date) ?? null,
       firstIn: row?.firstIn ? row.firstIn.toISOString() : null,
       lastOut: row?.lastOut ? row.lastOut.toISOString() : null,
       minutesInOffice: row?.minutesInOffice ?? null,
@@ -169,9 +181,9 @@ export function buildAttendanceStrip(args: {
 }
 
 /**
- * Today's state for the directory and door log. `non-working` covers weekends
- * and anyone outside their employment today; someone who punches in on a
- * weekend is `weekend` (extra work, never late). No row and no leave is
+ * Today's state for the directory and door log. `non-working` covers weekends,
+ * holidays and anyone outside their employment today; someone who punches in
+ * on a weekend or holiday is `weekend` (extra work, never late). No row and no leave is
  * `not-in` (neutral — see `classifyDay`).
  */
 export function classifyToday(args: {
@@ -180,6 +192,7 @@ export function classifyToday(args: {
   row: AttendanceRow | undefined;
   leaves: TypedLeave[];
   punctuality?: Punctuality;
+  holidays: Holidays;
 }): TodayState {
   const { today, employment, row, leaves } = args;
   if (
@@ -187,7 +200,8 @@ export function classifyToday(args: {
     (employment.exitDate !== null && today > employment.exitDate)
   )
     return 'non-working';
-  if (!isBusinessDay(today)) return punched(row) ? 'weekend' : 'non-working';
+  if (!isWorkingDay(today, args.holidays))
+    return punched(row) ? 'weekend' : 'non-working';
   if (row?.firstIn)
     return arrivalState(row.firstIn, args.punctuality ?? DEFAULT_PUNCTUALITY);
   if (punched(row)) return 'present';
@@ -207,21 +221,23 @@ export function minutesBetween(
 
 /**
  * Approved days used in `year`, by bucket. A leave of `days` over a span of N
- * business days spreads `days / N` over each, so a leave that straddles New
- * Year is split between the two years rather than counted wholly in one.
+ * working days spreads `days / N` over each, so a leave that straddles New
+ * Year is split between the two years rather than counted wholly in one. A
+ * holiday inside a leave is not a leave day, even when `days` counted it.
  */
 export function computeLeaveBalance(
   year: number,
   approved: TypedLeave[],
+  holidays: Holidays,
 ): LeaveBalance {
   const yearRange: DateRange = { from: `${year}-01-01`, to: `${year}-12-31` };
   const used = { casual: 0, sick: 0, other: 0 };
   for (const l of approved) {
     const clipped = intersect(yearRange, { from: l.startDate, to: l.endDate });
     if (!clipped) continue;
-    const span = countBusinessDays(l.startDate, l.endDate);
+    const span = countWorkingDays(l.startDate, l.endDate, holidays);
     if (span === 0) continue;
-    const inYear = countBusinessDays(clipped.from, clipped.to);
+    const inYear = countWorkingDays(clipped.from, clipped.to, holidays);
     const days = (Math.min(l.days, span) / span) * inYear;
     if (l.type === 'CASUAL') used.casual += days;
     else if (l.type === 'SICK') used.sick += days;

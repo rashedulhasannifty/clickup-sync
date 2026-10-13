@@ -29,6 +29,9 @@ import { PeoplePastRecordsController } from './past-records/past-records.control
 import { PastRecordsRepository } from './past-records/past-records.repository';
 import { PastRecordsService } from './past-records/past-records.service';
 import { PeopleShiftsController } from './people-shifts.controller';
+import { PeopleHolidaysController } from './people-holidays.controller';
+import { HolidaysRepository } from './holidays.repository';
+import { HolidaysService } from './holidays.service';
 import { ShiftsRepository } from './shifts.repository';
 import { ShiftsService } from './shifts.service';
 import { StellarImportService } from './stellar/stellar-import.service';
@@ -42,6 +45,7 @@ import { StellarImportService } from './stellar/stellar-import.service';
     PeopleOnboardingController,
     PeoplePastRecordsController,
     PeopleShiftsController,
+    PeopleHolidaysController,
   ],
   providers: [
     EmployeesRepository,
@@ -57,6 +61,8 @@ import { StellarImportService } from './stellar/stellar-import.service';
     PastRecordsService,
     ShiftsRepository,
     ShiftsService,
+    HolidaysRepository,
+    HolidaysService,
     StellarImportService,
     {
       // The provider is chosen by env, not by code: ATTENDANCE_PROVIDER=dummy|none|stellar.

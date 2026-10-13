@@ -202,8 +202,10 @@ export type AttendanceDayState =
   | 'late'
   /** Came in; the shift does not track punctuality. */
   | 'present'
-  /** Punches on a weekend: extra work. Only listed when there are punches. */
+  /** Punches on a weekend or holiday: extra work. Only listed when there are punches. */
   | 'weekend'
+  /** A Mon-Fri office holiday with no punches: nobody is expected in. */
+  | 'holiday'
   | 'absent'
   | 'sick'
   | 'casual'
@@ -226,6 +228,8 @@ export interface AttendanceDetail {
 export interface AttendanceDayView extends AttendanceDetail {
   date: string;
   state: AttendanceDayState;
+  /** The holiday's name when the date is an office holiday. */
+  holiday: string | null;
   firstIn: string | null;
   lastOut: string | null;
   minutesInOffice: number | null;
@@ -311,8 +315,10 @@ export interface TodayCounts {
 
 export interface TodayAttendance {
   date: string;
-  /** Mon-Fri. On a weekend `rows` is empty and every count is 0. */
+  /** Mon-Fri and not an office holiday. Otherwise only people who came in are listed, and nobody counts as expected. */
   workingDay: boolean;
+  /** Today's holiday name, when today is a Mon-Fri office holiday. */
+  holiday: string | null;
   attendanceSource: AttendanceSource;
   /** The configured provider can pull attendance itself; false = import its export instead. */
   canSync: boolean;

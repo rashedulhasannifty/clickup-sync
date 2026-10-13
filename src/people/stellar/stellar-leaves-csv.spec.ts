@@ -1,3 +1,4 @@
+import { NO_HOLIDAYS } from '../people-dates';
 import { StellarCsvError } from './csv';
 import {
   mapLeaveStatus,
@@ -53,7 +54,7 @@ describe('splitUserName / mapLeaveType / mapLeaveStatus', () => {
 });
 
 describe('parseStellarLeavesCsv', () => {
-  const r = parseStellarLeavesCsv(FIXTURE);
+  const r = parseStellarLeavesCsv(FIXTURE, NO_HOLIDAYS);
 
   it('merges consecutive business days across a weekend into one record', () => {
     const alpha = r.records.filter((x) => x.attendanceId === '7');
@@ -109,12 +110,12 @@ describe('parseStellarLeavesCsv', () => {
   });
 
   it('is deterministic: the same file gives the same external ids', () => {
-    expect(parseStellarLeavesCsv(FIXTURE).records).toEqual(r.records);
+    expect(parseStellarLeavesCsv(FIXTURE, NO_HOLIDAYS).records).toEqual(r.records);
   });
 
   it('refuses an attendance export', () => {
     expect(() =>
-      parseStellarLeavesCsv('"","User ID","User Name","Date","In Time"\n'),
+      parseStellarLeavesCsv('"","User ID","User Name","Date","In Time"\n', NO_HOLIDAYS),
     ).toThrow(StellarCsvError);
   });
 });
@@ -137,7 +138,7 @@ describe('mergeLeaveDays', () => {
       d('2026-07-06'),
       d('2026-07-06'),
       d('2026-07-06', { status: 'REJECTED' }),
-    ]);
+    ], NO_HOLIDAYS);
     expect(recs).toHaveLength(2);
     expect(recs.map((x) => x.days)).toEqual([1, 1]);
     expect(new Set(recs.map((x) => x.externalId)).size).toBe(2);
@@ -145,7 +146,22 @@ describe('mergeLeaveDays', () => {
 
   it('does not merge different descriptions', () => {
     expect(
-      mergeLeaveDays([d('2026-07-06'), d('2026-07-07', { description: 'x' })]),
+      mergeLeaveDays([d('2026-07-06'), d('2026-07-07', { description: 'x' })], NO_HOLIDAYS),
     ).toHaveLength(2);
+  });
+});
+
+describe('office holidays', () => {
+  it('skips a leave day on a holiday and lets a run continue across it', () => {
+    // Tue 2026-07-07 is a holiday: Gamma's day is skipped, and Alpha's Wed joins the run.
+    const r = parseStellarLeavesCsv(FIXTURE, new Map([['2026-07-07', 'Test Day']]));
+    const alpha = r.records.filter((x) => x.attendanceId === '7');
+    expect(alpha.map((x) => [x.startDate, x.endDate, x.days])).toEqual([
+      ['2026-07-02', '2026-07-08', 4],
+    ]);
+    expect(r.records.some((x) => x.attendanceId === '9')).toBe(false);
+    expect(r.skipped).toContainEqual(
+      expect.objectContaining({ attendanceId: '9', reason: 'holiday' }),
+    );
   });
 });

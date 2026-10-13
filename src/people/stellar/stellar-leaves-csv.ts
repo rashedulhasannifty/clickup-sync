@@ -1,4 +1,9 @@
-import { addDays, isBusinessDay } from '../people-dates';
+import {
+  addDays,
+  isBusinessDay,
+  isWorkingDay,
+  type Holidays,
+} from '../people-dates';
 import type { LeaveStatusValue, LeaveTypeValue } from '../people.types';
 import { headerIndex, parseCsv, parseIsoDate, stellarId } from './csv';
 
@@ -53,6 +58,7 @@ export interface StellarLeaveFlag {
   rawType: string;
   reason:
     | 'weekend'
+    | 'holiday'
     | 'unknown-type'
     | 'unknown-status'
     | 'bad-date'
@@ -64,7 +70,7 @@ export interface StellarLeaveParse {
   users: { attendanceId: string; name: string }[];
   range: { from: string; to: string } | null;
   rowsRead: number;
-  /** Rows skipped (weekend, unreadable). */
+  /** Rows skipped (weekend, office holiday, unreadable). */
   skipped: StellarLeaveFlag[];
   /** Rows imported but worth a look (leave type mapped to OTHER). */
   warnings: StellarLeaveFlag[];
@@ -103,8 +109,11 @@ export function mapLeaveStatus(raw: string): LeaveStatusValue | null {
   return null;
 }
 
-/** Read the export into leave days; weekend and unreadable rows are reported, not imported. */
-export function parseStellarLeaveDays(text: string): {
+/** Read the export into leave days; weekend, holiday and unreadable rows are reported, not imported. */
+export function parseStellarLeaveDays(
+  text: string,
+  holidays: Holidays,
+): {
   days: StellarLeaveDay[];
   rowsRead: number;
   skipped: StellarLeaveFlag[];
@@ -155,6 +164,11 @@ export function parseStellarLeaveDays(text: string): {
       skipped.push(flag('weekend'));
       continue;
     }
+    // The office is closed anyway: a holiday is never a leave day.
+    if (!isWorkingDay(date, holidays)) {
+      skipped.push(flag('holiday'));
+      continue;
+    }
     const { type, known } = mapLeaveType(rawType);
     if (!known) warnings.push(flag('unknown-type'));
     const apply = cell(r, col.apply);
@@ -172,21 +186,24 @@ export function parseStellarLeaveDays(text: string): {
   return { days, rowsRead: rows.length - 1, skipped, warnings };
 }
 
-/** The next Mon-Fri date after `iso`. */
-function nextBusinessDay(iso: string): string {
+/** The next working day (Mon-Fri, not a holiday) after `iso`. */
+function nextWorkingDay(iso: string, holidays: Holidays): string {
   let d = addDays(iso, 1);
-  while (!isBusinessDay(d)) d = addDays(d, 1);
+  while (!isWorkingDay(d, holidays)) d = addDays(d, 1);
   return d;
 }
 
 /**
- * Merge leave days into ranges: consecutive business days (a weekend in
- * between does not break a run) for the same person, type, status,
+ * Merge leave days into ranges: consecutive working days (a weekend or
+ * holiday in between does not break a run) for the same person, type, status,
  * description and apply date become one record. Duplicate rows for the same
  * day collapse. `externalId` is `stellar:<id>:<start>:<TYPE>`, made unique
  * with the status if two records would share it.
  */
-export function mergeLeaveDays(days: StellarLeaveDay[]): StellarLeaveRecord[] {
+export function mergeLeaveDays(
+  days: StellarLeaveDay[],
+  holidays: Holidays,
+): StellarLeaveRecord[] {
   const groups = new Map<string, StellarLeaveDay[]>();
   for (const d of days) {
     const key = JSON.stringify([
@@ -223,7 +240,7 @@ export function mergeLeaveDays(days: StellarLeaveDay[]): StellarLeaveRecord[] {
         externalId: '',
       });
     for (const date of dates.slice(1)) {
-      if (date === nextBusinessDay(prev)) {
+      if (date === nextWorkingDay(prev, holidays)) {
         prev = date;
         count++;
         continue;
@@ -255,9 +272,12 @@ export function mergeLeaveDays(days: StellarLeaveDay[]): StellarLeaveRecord[] {
 }
 
 /** Parse, flag and merge a whole leave export. Throws `StellarCsvError` for a file of the wrong shape. */
-export function parseStellarLeavesCsv(text: string): StellarLeaveParse {
-  const parsed = parseStellarLeaveDays(text);
-  const records = mergeLeaveDays(parsed.days);
+export function parseStellarLeavesCsv(
+  text: string,
+  holidays: Holidays,
+): StellarLeaveParse {
+  const parsed = parseStellarLeaveDays(text, holidays);
+  const records = mergeLeaveDays(parsed.days, holidays);
   const users = new Map<string, { attendanceId: string; name: string }>();
   let from: string | null = null;
   let to: string | null = null;

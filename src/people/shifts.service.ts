@@ -15,8 +15,9 @@ import {
   dateColumnToIso,
   dhakaDateOf,
   dhakaMinutesOfDay,
-  isBusinessDay,
+  isWorkingDay,
 } from './people-dates';
+import { HolidaysRepository } from './holidays.repository';
 import { formatMinutes, shiftLengthMinutes } from './shift-math';
 import { suggestShifts, type ShiftSuggestion } from './shift-suggestions';
 import { ShiftsRepository } from './shifts.repository';
@@ -75,7 +76,10 @@ function isUniqueViolation(e: unknown): boolean {
 /** Work shifts (0036): CRUD, bulk assignment, and suggestions from imported attendance. */
 @Injectable()
 export class ShiftsService {
-  constructor(private readonly repo: ShiftsRepository) {}
+  constructor(
+    private readonly repo: ShiftsRepository,
+    private readonly holidays: HolidaysRepository,
+  ) {}
 
   async list(orgId: string): Promise<ShiftView[]> {
     return (await this.repo.list(orgId)).map(toShiftView);
@@ -157,9 +161,10 @@ export class ShiftsService {
       throw new BadRequestException(
         `The period cannot exceed ${SUGGEST_MAX_DAYS} days`,
       );
-    const [shifts, employees] = await Promise.all([
+    const [shifts, employees, holidays] = await Promise.all([
       this.repo.list(orgId),
       this.repo.employeesWithRealFirstIns(orgId, from, to),
+      this.holidays.map(orgId, from, to),
     ]);
     return {
       period: { from, to },
@@ -168,9 +173,12 @@ export class ShiftsService {
           id: e.id,
           fullName: e.fullName,
           shiftId: e.shiftId,
-          // Weekend work is extra, not the shift: only business days count.
+          // Weekend and holiday work is extra, not the shift: only working days count.
           firstIns: e.attendances
-            .filter((a) => a.firstIn && isBusinessDay(dateColumnToIso(a.date)))
+            .filter(
+              (a) =>
+                a.firstIn && isWorkingDay(dateColumnToIso(a.date), holidays),
+            )
             .map((a) => dhakaMinutesOfDay(a.firstIn as Date)),
         })),
         shifts,

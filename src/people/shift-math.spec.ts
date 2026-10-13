@@ -5,7 +5,7 @@ import {
   isInOffice,
 } from "./attendance-math";
 import { computeKpis, overallOf } from "./kpi-math";
-import { dhakaInstant } from "./people-dates";
+import { dhakaInstant, NO_HOLIDAYS } from "./people-dates";
 import {
   DEFAULT_PUNCTUALITY,
   formatMinutes,
@@ -86,6 +86,7 @@ describe("shift-aware classification", () => {
     const employment = { joinDate: "2026-01-01", exitDate: null };
     expect(
       classifyToday({
+        holidays: NO_HOLIDAYS,
         today: MON,
         employment,
         row: row(14 * 60 + 20),
@@ -95,6 +96,7 @@ describe("shift-aware classification", () => {
     ).toBe("late");
     expect(
       classifyToday({
+        holidays: NO_HOLIDAYS,
         today: MON,
         employment,
         row: row(16 * 60),
@@ -104,6 +106,7 @@ describe("shift-aware classification", () => {
     ).toBe("present");
     expect(
       classifyToday({
+        holidays: NO_HOLIDAYS,
         today: SAT,
         employment,
         row: {
@@ -115,7 +118,7 @@ describe("shift-aware classification", () => {
       }),
     ).toBe("weekend");
     expect(
-      classifyToday({ today: SAT, employment, row: undefined, leaves: [] }),
+      classifyToday({ holidays: NO_HOLIDAYS, today: SAT, employment, row: undefined, leaves: [] }),
     ).toBe("non-working");
   });
 
@@ -136,6 +139,7 @@ describe("shift-aware classification", () => {
 
   it("the strip lists weekend days only when someone punched in, without shortening the business days", () => {
     const strip = buildAttendanceStrip({
+      holidays: NO_HOLIDAYS,
       today: "2026-10-12",
       employment: { joinDate: "2026-01-01", exitDate: null },
       rows: [
@@ -203,6 +207,7 @@ describe("shift-aware KPIs", () => {
     hours: [{ date: MON, hours: 9, chargeableHours: 9 }],
     deliveries: [],
     approvedLeave: [],
+    holidays: NO_HOLIDAYS,
     attendance: [
       { date: MON, firstIn: dhakaInstant(MON, 14 * 60 + 10) },
       { date: "2026-10-06", firstIn: dhakaInstant("2026-10-06", 14 * 60 + 30) },

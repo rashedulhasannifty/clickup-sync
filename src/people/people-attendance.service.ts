@@ -20,9 +20,15 @@ import {
 import { AttendanceRepository } from './attendance.repository';
 import { sourceLabel } from './attendance-source';
 import { EmployeesRepository } from './employees.repository';
+import { HolidaysRepository } from './holidays.repository';
 import { assertNotExited } from './employee-readonly';
 import { LEAVE_LIST_LIMIT } from './people.constants';
-import { dateColumnToIso, dhakaDateOf, isBusinessDay } from './people-dates';
+import {
+  dateColumnToIso,
+  dhakaDateOf,
+  isBusinessDay,
+  isWorkingDay,
+} from './people-dates';
 import type {
   LeaveRecordView,
   LeaveStatusValue,
@@ -72,6 +78,7 @@ export class PeopleAttendanceService {
   constructor(
     private readonly employees: EmployeesRepository,
     private readonly attendance: AttendanceRepository,
+    private readonly holidays: HolidaysRepository,
     @Inject(ATTENDANCE_PROVIDER) private readonly provider: AttendanceProvider,
   ) {}
 
@@ -79,13 +86,14 @@ export class PeopleAttendanceService {
     const today = dhakaDateOf(new Date());
     const employees = await this.employees.list(orgId, {});
     const ids = employees.map((e) => e.id);
-    const [attendanceRows, approved, pending, latest, coverage] =
+    const [attendanceRows, approved, pending, latest, coverage, holidays] =
       await Promise.all([
         this.attendance.attendanceRows(ids, today, today),
         this.attendance.approvedLeaves(ids, today, today),
         this.attendance.countPendingFrom(orgId, today),
         this.attendance.latestSource(orgId),
         this.attendance.coverage(orgId),
+        this.holidays.map(orgId, today, today),
       ]);
     const rows = new Map<string, AttendanceRow>(
       attendanceRows.map((r) => [
@@ -124,10 +132,11 @@ export class PeopleAttendanceService {
         row,
         leaves: leaves.get(e.id) ?? [],
         punctuality: punctualityOf(e.shift),
+        holidays,
       });
       if (state === 'non-working') continue;
       const inOffice = isInOffice(row);
-      // Weekend work is listed, but nobody is expected: it is not in the total.
+      // Weekend and holiday work is listed, but nobody is expected: it is not in the total.
       if (state !== 'weekend') counts.total++;
       if (inOffice) counts.inOffice++;
       if (state === 'late') counts.late++;
@@ -155,7 +164,8 @@ export class PeopleAttendanceService {
     });
     return {
       date: today,
-      workingDay: isBusinessDay(today),
+      workingDay: isWorkingDay(today, holidays),
+      holiday: isBusinessDay(today) ? (holidays.get(today) ?? null) : null,
       attendanceSource: latest ? sourceLabel(latest) : this.provider.source,
       canSync: this.provider.canSync,
       coverage: coverage.map((c) => ({ ...c, source: sourceLabel(c.source) })),

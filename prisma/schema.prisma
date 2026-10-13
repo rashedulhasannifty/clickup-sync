@@ -392,6 +392,7 @@ model Organization {
   teams           Team[]
   employees       Employee[]
   workShifts      WorkShift[]
+  holidays        Holiday[]
   appraisalCycles AppraisalCycle[]
 
   @@map("organizations")
@@ -956,6 +957,26 @@ model WorkShift {
 
   @@unique([orgId, name])
   @@map("work_shifts")
+}
+
+/// Office holidays (0039): one row per date the office is closed. A holiday on a
+/// Mon-Fri date is not a working day: nobody is absent or late, it is not an
+/// available day for utilisation, and leave across it does not count it.
+model Holiday {
+  id        String   @id @default(cuid())
+  orgId     String   @map("org_id")
+  date      DateTime @db.Date
+  name      String
+  /// A projected date (moon-dependent, or before the official list is out) still to be confirmed.
+  tentative Boolean  @default(false)
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, date])
+  @@map("holidays")
 }
 
 model AttendanceDay {

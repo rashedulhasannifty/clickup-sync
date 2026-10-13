@@ -20,6 +20,7 @@ type Result = AttendanceImportResult | LeaveImportResult;
 
 const FLAG_LABEL: Record<string, string> = {
   weekend: 'on a weekend (skipped)',
+  holiday: 'on an office holiday (skipped)',
   'unknown-type': 'unknown leave type, imported as Other',
   'unknown-status': 'unknown status (skipped)',
   'bad-date': 'unreadable date (skipped)',

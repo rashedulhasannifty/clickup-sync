@@ -6,7 +6,7 @@ import {
   minutesBetween,
   type TypedLeave,
 } from './attendance-math';
-import { dhakaInstant } from './people-dates';
+import { dhakaInstant, NO_HOLIDAYS } from './people-dates';
 
 const row = (
   date: string,
@@ -83,6 +83,7 @@ describe('classifyDay', () => {
 describe('buildAttendanceStrip', () => {
   it('returns the last 30 business days, oldest first, none on weekends', () => {
     const strip = buildAttendanceStrip({
+      holidays: NO_HOLIDAYS,
       today: '2026-10-07',
       employment: { joinDate: '2020-01-01', exitDate: null },
       rows: [row('2026-10-06', 9 * 60, 18 * 60)],
@@ -108,6 +109,7 @@ describe('buildAttendanceStrip', () => {
 
   it('clips to employment (new joiner, leaver)', () => {
     const joiner = buildAttendanceStrip({
+      holidays: NO_HOLIDAYS,
       today: '2026-10-07',
       employment: { joinDate: '2026-10-05', exitDate: null },
       rows: [],
@@ -119,6 +121,7 @@ describe('buildAttendanceStrip', () => {
       '2026-10-07',
     ]);
     const leaver = buildAttendanceStrip({
+      holidays: NO_HOLIDAYS,
       today: '2026-10-07',
       employment: { joinDate: '2026-10-01', exitDate: '2026-10-02' },
       rows: [],
@@ -133,6 +136,7 @@ describe('classifyToday', () => {
   it('covers weekend, leave, late, not-in', () => {
     expect(
       classifyToday({
+        holidays: NO_HOLIDAYS,
         today: '2026-10-10',
         employment,
         row: undefined,
@@ -141,6 +145,7 @@ describe('classifyToday', () => {
     ).toBe('non-working');
     expect(
       classifyToday({
+        holidays: NO_HOLIDAYS,
         today: '2026-10-07',
         employment: { joinDate: '2026-10-08', exitDate: null },
         row: undefined,
@@ -149,6 +154,7 @@ describe('classifyToday', () => {
     ).toBe('non-working');
     expect(
       classifyToday({
+        holidays: NO_HOLIDAYS,
         today: '2026-10-07',
         employment,
         row: undefined,
@@ -157,6 +163,7 @@ describe('classifyToday', () => {
     ).toBe('leave');
     expect(
       classifyToday({
+        holidays: NO_HOLIDAYS,
         today: '2026-10-07',
         employment,
         row: row('2026-10-07', 600),
@@ -165,6 +172,7 @@ describe('classifyToday', () => {
     ).toBe('late');
     expect(
       classifyToday({
+        holidays: NO_HOLIDAYS,
         today: '2026-10-07',
         employment,
         row: undefined,
@@ -184,7 +192,7 @@ describe('computeLeaveBalance', () => {
       // Thu 31 Dec 2026 .. Mon 4 Jan 2027: 3 business days (Dec 31, Jan 1, Jan 4); only Dec 31 is in 2026.
       leave('CASUAL', '2026-12-31', '2027-01-04', 3),
       leave('CASUAL', '2025-01-06'),
-    ]);
+    ], NO_HOLIDAYS);
     expect(b).toEqual({
       year: 2026,
       casual: { used: 3, entitlement: 10 },
@@ -212,6 +220,49 @@ describe('an exit punch with no entry (the entry was missed)', () => {
     const outOnly = (d: string) => row(d, null, 18 * 60);
     expect(classifyDay({ date: '2026-10-05', today: '2026-10-07', row: outOnly('2026-10-05'), leaves: [] })).toBe('present');
     expect(classifyDay({ date: '2026-10-03', today: '2026-10-07', row: outOnly('2026-10-03'), leaves: [] })).toBe('weekend');
-    expect(classifyToday({ today: '2026-10-07', employment, row: outOnly('2026-10-07'), leaves: [] })).toBe('present');
+    expect(classifyToday({ holidays: NO_HOLIDAYS, today: '2026-10-07', employment, row: outOnly('2026-10-07'), leaves: [] })).toBe('present');
+  });
+});
+
+describe('office holidays', () => {
+  const holidays = new Map([['2026-10-06', 'Test Day']]); // a Tuesday
+  const employment = { joinDate: '2020-01-01', exitDate: null };
+
+  it('a holiday is never absent; coming in is off-day work, never late', () => {
+    const base = { date: '2026-10-06', today: '2026-10-07', leaves: [], holidays };
+    expect(classifyDay({ ...base, row: undefined })).toBe('holiday');
+    expect(classifyDay({ ...base, row: row('2026-10-06', 13 * 60) })).toBe('weekend');
+    // Leave across a holiday does not turn it into a leave day.
+    expect(
+      classifyDay({ ...base, row: undefined, leaves: [leave('CASUAL', '2026-10-05', '2026-10-07', 2)] }),
+    ).toBe('holiday');
+  });
+
+  it('today on a holiday nobody is expected', () => {
+    const t = { today: '2026-10-06', employment, leaves: [], holidays };
+    expect(classifyToday({ ...t, row: undefined })).toBe('non-working');
+    expect(classifyToday({ ...t, row: row('2026-10-06', 13 * 60) })).toBe('weekend');
+  });
+
+  it('the strip shows the holiday with its name and still holds the full number of working days', () => {
+    const strip = buildAttendanceStrip({
+      today: '2026-10-07',
+      employment,
+      rows: [],
+      leaves: [],
+      limit: 3,
+      holidays,
+    });
+    expect(strip.map((d) => [d.date, d.state, d.holiday])).toEqual([
+      ['2026-10-02', 'absent', null],
+      ['2026-10-05', 'absent', null],
+      ['2026-10-06', 'holiday', 'Test Day'],
+      ['2026-10-07', 'future', null],
+    ]);
+  });
+
+  it('a holiday inside a leave is not a leave day, even when the record counted it', () => {
+    const b = computeLeaveBalance(2026, [leave('CASUAL', '2026-10-05', '2026-10-07', 3)], holidays);
+    expect(b.casual.used).toBe(2);
   });
 });

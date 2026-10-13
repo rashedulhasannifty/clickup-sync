@@ -1,4 +1,3 @@
-import { countBusinessDays } from '../budgets/budget-forecast';
 import {
   BAND_ON_TRACK_MIN,
   BAND_WATCH_MIN,
@@ -6,11 +5,13 @@ import {
   LATE_AFTER_MINUTES,
 } from './people.constants';
 import {
-  businessDaysIn,
+  countWorkingDays,
   dhakaMinutesOfDay,
   intersect,
-  isBusinessDay,
+  isWorkingDay,
+  workingDaysIn,
   type DateRange,
+  type Holidays,
 } from './people-dates';
 import {
   DEFAULT_PUNCTUALITY,
@@ -54,6 +55,8 @@ export interface KpiInput {
   approvedLeave: LeaveSpan[];
   /** The employee's shift rule (`punctualityOf`). Default: late after 09:30, 8-hour days. */
   punctuality?: Punctuality;
+  /** Office holidays: not available days, never late, never a leave day. */
+  holidays: Holidays;
 }
 
 export interface KpiComputation {
@@ -96,23 +99,25 @@ export function employmentWindow(
 }
 
 /**
- * Business days in the window covered by approved leave, counting half days
- * fractionally. A leave of `days` over a span with N business days takes
- * `days / N` of each of them; where spans overlap the larger share wins, so
- * double-booked leave is never subtracted twice.
+ * Working days in the window covered by approved leave, counting half days
+ * fractionally. A leave of `days` over a span with N working days takes
+ * `days / N` of each of them (capped at a whole day, so a leave whose `days`
+ * still counts a holiday inside it takes each remaining day once); where spans
+ * overlap the larger share wins, so double-booked leave is never subtracted twice.
  */
 export function leaveBusinessDays(
   window: DateRange,
   leaves: LeaveSpan[],
+  holidays: Holidays,
 ): number {
   const share = new Map<string, number>();
   for (const l of leaves) {
-    const span = countBusinessDays(l.startDate, l.endDate);
+    const span = countWorkingDays(l.startDate, l.endDate, holidays);
     if (span === 0) continue;
     const perDay = Math.min(1, l.days / span);
     const clipped = intersect(window, { from: l.startDate, to: l.endDate });
     if (!clipped) continue;
-    for (const d of businessDaysIn(clipped.from, clipped.to)) {
+    for (const d of workingDaysIn(clipped.from, clipped.to, holidays)) {
       share.set(d, Math.max(share.get(d) ?? 0, perDay));
     }
   }
@@ -121,14 +126,17 @@ export function leaveBusinessDays(
   return total;
 }
 
-/** Business days in the period, within employment, minus approved leave. 0 when never employed in the period. */
+/** Working days (Mon-Fri, not a holiday) in the period, within employment, minus approved leave. 0 when never employed in the period. */
 export function availableBusinessDays(
-  input: Pick<KpiInput, 'period' | 'employment' | 'approvedLeave'>,
+  input: Pick<KpiInput, 'period' | 'employment' | 'approvedLeave' | 'holidays'>,
 ): number {
   const window = employmentWindow(input.period, input.employment);
   if (!window) return 0;
-  const days = countBusinessDays(window.from, window.to);
-  return Math.max(0, days - leaveBusinessDays(window, input.approvedLeave));
+  const days = countWorkingDays(window.from, window.to, input.holidays);
+  return Math.max(
+    0,
+    days - leaveBusinessDays(window, input.approvedLeave, input.holidays),
+  );
 }
 
 function kpi(
@@ -188,8 +196,13 @@ export function computeKpis(input: KpiInput): KpiComputation {
   let arrivals = 0;
   let onTimeArrivals = 0;
   for (const a of input.attendance) {
-    // Weekend work is extra: it is never late, so it never counts toward punctuality.
-    if (!inPeriod(a.date) || !a.firstIn || !isBusinessDay(a.date)) continue;
+    // Weekend and holiday work is extra: never late, so it never counts toward punctuality.
+    if (
+      !inPeriod(a.date) ||
+      !a.firstIn ||
+      !isWorkingDay(a.date, input.holidays)
+    )
+      continue;
     arrivals++;
     if (isOnTimeFor(a.firstIn, rule)) onTimeArrivals++;
   }

@@ -7,7 +7,7 @@ import {
   overallOf,
   type KpiInput,
 } from './kpi-math';
-import { dhakaInstant } from './people-dates';
+import { dhakaInstant, NO_HOLIDAYS } from './people-dates';
 
 // 2026-10-05 is a Monday; 2026-10-05..2026-10-16 = 10 business days.
 const period = { from: '2026-10-05', to: '2026-10-16' };
@@ -19,6 +19,7 @@ const base: KpiInput = {
   deliveries: [],
   attendance: [],
   approvedLeave: [],
+  holidays: NO_HOLIDAYS,
 };
 
 describe('bandOf', () => {
@@ -72,7 +73,7 @@ describe('availability', () => {
     const before = [
       { startDate: '2026-09-28', endDate: '2026-10-06', days: 7 },
     ];
-    expect(leaveBusinessDays(period, before)).toBe(2);
+    expect(leaveBusinessDays(period, before, NO_HOLIDAYS)).toBe(2);
   });
 
   it('does not subtract overlapping leave twice, and prorates half days', () => {
@@ -274,5 +275,32 @@ describe('overallOf', () => {
         punctuality: k(null, 90),
       }).band,
     ).toBe('at-risk');
+  });
+});
+
+describe('office holidays', () => {
+  const holidays = new Map([['2026-10-06', 'Test Day']]); // a Tuesday in the period
+
+  it('are not available days, and leave over one only takes the working days', () => {
+    expect(availableBusinessDays({ ...base, holidays })).toBe(9);
+    // Mon-Wed leave stored as 3 days: only Mon and Wed are leave.
+    const leave = [{ startDate: '2026-10-05', endDate: '2026-10-07', days: 3 }];
+    expect(availableBusinessDays({ ...base, holidays, approvedLeave: leave })).toBe(7);
+    // A Saturday holiday changes nothing.
+    expect(
+      availableBusinessDays({ ...base, holidays: new Map([['2026-10-10', 'Sat']]) }),
+    ).toBe(10);
+  });
+
+  it('a holiday arrival never counts toward punctuality', () => {
+    const r = computeKpis({
+      ...base,
+      holidays,
+      attendance: [
+        { date: '2026-10-05', firstIn: dhakaInstant('2026-10-05', 9 * 60) },
+        { date: '2026-10-06', firstIn: dhakaInstant('2026-10-06', 13 * 60) },
+      ],
+    });
+    expect(r.kpis.punctuality).toMatchObject({ numerator: 1, denominator: 1 });
   });
 });

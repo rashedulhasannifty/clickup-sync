@@ -9,11 +9,12 @@ import {
   STRIP_STATE,
 } from '../../lib/people';
 
-const LEGEND_ORDER = ['on-time', 'late', 'present', 'weekend', 'sick', 'casual', 'leave', 'absent'] as const;
+const LEGEND_ORDER = ['on-time', 'late', 'present', 'weekend', 'holiday', 'sick', 'casual', 'leave', 'absent'] as const;
 
 /** Real door data with no punch and no leave: say so plainly, it is not a data gap. */
 function stateLabel(d: AttendanceDayView): string {
   if (d.state === 'absent' && (d.source === 'stellar-csv' || d.source === 'stellar-api')) return 'Absent, no leave recorded';
+  if (d.holiday) return d.state === 'holiday' ? `Holiday: ${d.holiday}` : `${STRIP_STATE[d.state].label} on a holiday (${d.holiday})`;
   return STRIP_STATE[d.state].label;
 }
 
@@ -40,12 +41,13 @@ export function AttendanceStrip({ days }: { days: AttendanceDayView[] }) {
   }
   const counts = new Map<string, number>();
   for (const d of days) counts.set(d.state, (counts.get(d.state) ?? 0) + 1);
+  const workingDays = days.filter((d) => d.state !== 'weekend' && d.state !== 'holiday').length;
 
   return (
     <div>
       <div
         role="list"
-        aria-label={`Attendance for the last ${days.length} working days`}
+        aria-label={`Attendance for the last ${workingDays} working days`}
         style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(22px, 26px))', gap: 4 }}
       >
         {days.map((d) => (

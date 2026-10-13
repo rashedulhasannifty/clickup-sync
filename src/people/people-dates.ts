@@ -73,6 +73,33 @@ export function businessDaysIn(from: string, to: string): string[] {
   return out;
 }
 
+/** Office holidays: Dhaka date → name. Only Mon-Fri dates change anything. */
+export type Holidays = ReadonlyMap<string, string>;
+
+export const NO_HOLIDAYS: Holidays = new Map();
+
+/** A day the office expects people in: Mon-Fri and not a holiday. */
+export function isWorkingDay(iso: string, holidays: Holidays): boolean {
+  return isBusinessDay(iso) && !holidays.has(iso);
+}
+
+/** Every working day in [from, to], oldest first. Empty when to < from. */
+export function workingDaysIn(
+  from: string,
+  to: string,
+  holidays: Holidays,
+): string[] {
+  return businessDaysIn(from, to).filter((d) => !holidays.has(d));
+}
+
+export function countWorkingDays(
+  from: string,
+  to: string,
+  holidays: Holidays,
+): number {
+  return workingDaysIn(from, to, holidays).length;
+}
+
 export interface DateRange {
   from: string;
   to: string;
@@ -116,4 +143,11 @@ export function tenureMonths(join: string, end: string): number {
   let months = (ey - jy) * 12 + (em - jm);
   if (ed < jd) months -= 1;
   return Math.max(0, months);
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** `2026-03-26` → `26 Mar 2026`, for messages. */
+export function formatDay(iso: string): string {
+  return `${Number(iso.slice(8, 10))} ${MONTH_NAMES[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
 }

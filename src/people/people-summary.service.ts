@@ -25,6 +25,7 @@ import {
   type EmployeeRow,
 } from './employees.repository';
 import { EmployeesService } from './employees.service';
+import { HolidaysRepository } from './holidays.repository';
 import { OnboardingRepository } from './onboarding.repository';
 import { computeKpis, type KpiComputation, type KpiInput } from './kpi-math';
 import { DEFAULT_PERIOD_DAYS, TREND_MONTHS } from './people.constants';
@@ -35,6 +36,7 @@ import {
   dhakaDateOf,
   lastMonths,
   type DateRange,
+  type Holidays,
 } from './people-dates';
 import {
   PeopleMetricsRepository,
@@ -78,6 +80,7 @@ export class PeopleSummaryService {
     private readonly attendance: AttendanceRepository,
     private readonly metrics: PeopleMetricsRepository,
     private readonly onboarding: OnboardingRepository,
+    private readonly holidays: HolidaysRepository,
     @Inject(ATTENDANCE_PROVIDER) private readonly provider: AttendanceProvider,
   ) {}
 
@@ -110,9 +113,10 @@ export class PeopleSummaryService {
     const fetchTo = to > today ? to : today;
 
     const data = await this.loadOne(row, fetchFrom, fetchTo);
-    const [events, latestSource] = await Promise.all([
+    const [events, latestSource, holidays] = await Promise.all([
       this.employeesRepo.listEvents(id),
       this.attendance.latestSource(orgId, id),
+      this.holidays.map(orgId, fetchFrom, fetchTo),
     ]);
 
     const employment = {
@@ -120,7 +124,7 @@ export class PeopleSummaryService {
       exitDate: profile.exitDate,
     };
     const compute = (period: DateRange): KpiComputation =>
-      computeKpis(this.input(period, employment, row, data));
+      computeKpis(this.input(period, employment, row, data, holidays));
 
     const main = compute({ from, to });
     const trend: TrendPoint[] = months.map(({ year: y, month0 }) => {
@@ -152,8 +156,9 @@ export class PeopleSummaryService {
         rows: data.attendance,
         leaves: data.leaves,
         punctuality: punctualityOf(row.shift),
+        holidays,
       }),
-      leaveBalance: computeLeaveBalance(year, data.leaves),
+      leaveBalance: computeLeaveBalance(year, data.leaves, holidays),
       events: await this.employees.eventViews(orgId, events),
       attendanceSource: latestSource ? sourceLabel(latestSource) : this.provider.source,
       hours: main.hours,
@@ -173,13 +178,17 @@ export class PeopleSummaryService {
     const row = await this.employeesRepo.findById(orgId, id);
     if (!row) throw new NotFoundException('Employee not found');
     const profile = toProfile(row, dhakaDateOf(new Date()));
-    const data = await this.loadOne(row, period.from, period.to);
+    const [data, holidays] = await Promise.all([
+      this.loadOne(row, period.from, period.to),
+      this.holidays.map(orgId, period.from, period.to),
+    ]);
     return computeKpis(
       this.input(
         period,
         { joinDate: profile.joinDate, exitDate: profile.exitDate },
         row,
         data,
+        holidays,
       ),
     );
   }
@@ -197,9 +206,10 @@ export class PeopleSummaryService {
     const rows = await this.employeesRepo.list(orgId, filter);
     if (rows.length === 0) return [];
 
-    const [byEmployee, onboarding] = await Promise.all([
+    const [byEmployee, onboarding, holidays] = await Promise.all([
       this.loadMany(rows, period.from, period.to),
       this.onboarding.progressFor(rows.map((r) => r.id)),
+      this.holidays.map(orgId, period.from, period.to),
     ]);
     return rows.map((row) => {
       const profile = toProfile(row, today);
@@ -213,7 +223,9 @@ export class PeopleSummaryService {
         joinDate: profile.joinDate,
         exitDate: profile.exitDate,
       };
-      const c = computeKpis(this.input(period, employment, row, data));
+      const c = computeKpis(
+        this.input(period, employment, row, data, holidays),
+      );
       return {
         ...profile,
         today: classifyToday({
@@ -222,6 +234,7 @@ export class PeopleSummaryService {
           row: data.attendance.find((a) => a.date === today),
           leaves: data.leaves,
           punctuality: punctualityOf(row.shift),
+          holidays,
         }),
         score: c.overall.score,
         band: c.overall.band,
@@ -236,6 +249,7 @@ export class PeopleSummaryService {
     employment: { joinDate: string; exitDate: string | null },
     row: EmployeeRow,
     data: EmployeeData,
+    holidays: Holidays,
   ): KpiInput {
     return {
       period,
@@ -256,6 +270,7 @@ export class PeopleSummaryService {
       })),
       approvedLeave: data.leaves,
       punctuality: punctualityOf(row.shift),
+      holidays,
     };
   }
 

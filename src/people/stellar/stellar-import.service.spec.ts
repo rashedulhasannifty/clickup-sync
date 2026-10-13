@@ -36,7 +36,11 @@ function make() {
     applyStellarLeaveImport: jest.fn().mockResolvedValue({ deleted: 0, inserted: 1 }),
   };
   const log = jest.fn();
-  const svc = new StellarImportService(employees as never, attendance as never);
+  const svc = new StellarImportService(
+    employees as never,
+    attendance as never,
+    { map: jest.fn().mockResolvedValue(new Map()) } as never,
+  );
   (svc as unknown as { logger: { log: jest.Mock } }).logger = { log };
   return { svc, employees, attendance, log };
 }

@@ -1,3 +1,4 @@
+import { dhakaDateOf, diffDays } from '../people/people-dates';
 import {
   BadRequestException,
   ConflictException,
@@ -1651,7 +1652,11 @@ describe('AppraisalsService outcome effective date (0033)', () => {
       backdated: true,
       arrearsMonths: 2,
     });
-    expect(v.timing).toEqual({ status: 'LATE', days: 84 });
+    // Signed off today: late by the days since the due date (not a fixed number, or the test expires).
+    expect(v.timing).toEqual({
+      status: 'LATE',
+      days: diffDays('2026-07-20', dhakaDateOf(new Date())),
+    });
   });
 
   it('an on-time appraisal defaults to the approval date', async () => {

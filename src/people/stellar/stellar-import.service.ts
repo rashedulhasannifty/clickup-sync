@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { AttendanceRepository } from '../attendance.repository';
 import { EmployeesRepository } from '../employees.repository';
+import { HolidaysRepository } from '../holidays.repository';
 import {
   detectStellarExport,
   StellarCsvError,
@@ -66,6 +67,7 @@ export class StellarImportService {
   constructor(
     private readonly employees: EmployeesRepository,
     private readonly attendance: AttendanceRepository,
+    private readonly holidays: HolidaysRepository,
   ) {}
 
   async importAttendance(
@@ -129,7 +131,9 @@ export class StellarImportService {
     dryRun: boolean,
   ): Promise<LeaveImportResult> {
     const text = this.read(file, 'leaves');
-    const parse = this.parsed(() => parseStellarLeavesCsv(text));
+    // Every holiday the org has: the file's range is only known once it is parsed.
+    const holidays = await this.holidays.map(orgId, '1970-01-01', '2999-12-31');
+    const parse = this.parsed(() => parseStellarLeavesCsv(text, holidays));
     const employees = await this.employees.byAttendanceIds(
       orgId,
       parse.users.map((u) => u.attendanceId),

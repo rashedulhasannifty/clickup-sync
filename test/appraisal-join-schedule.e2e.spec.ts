@@ -8,6 +8,7 @@ import { AppModule } from '../src/app.module';
 import { AppraisalsService } from '../src/appraisals/appraisals.service';
 import { PrismaService } from '../src/database/prisma.service';
 import { DocumentsService } from '../src/documents/documents.service';
+import { dhakaDateOf, diffDays } from '../src/people/people-dates';
 
 /** Overdue, timing and the effective date count from today: pin it so the dates below never rot. */
 const TODAY = '2026-10-12';
@@ -169,7 +170,8 @@ describe('Appraisals counted from join dates (e2e)', () => {
     expect(before.effective).toMatchObject({ mode: 'DUE_DATE', date: '2026-08-31', defaulted: true, backdated: true });
     const signed = await svc.advance(principal(), row.id);
     expect(signed.status).toBe('SIGNED_OFF');
-    expect(signed.timing).toEqual({ status: 'LATE', days: 42 });
+    // Signed off today: late by the days since the due date (a fixed number would expire).
+    expect(signed.timing).toEqual({ status: 'LATE', days: diffDays('2026-08-31', dhakaDateOf(new Date())) });
 
     const stored = await prisma.appraisal.findUniqueOrThrow({ where: { id: row.id } });
     expect(stored.effectiveDateMode).toBe('DUE_DATE');

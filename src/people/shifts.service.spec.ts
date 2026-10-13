@@ -24,7 +24,7 @@ function make() {
     assign: jest.fn().mockResolvedValue(1),
     employeesWithRealFirstIns: jest.fn().mockResolvedValue([]),
   };
-  return { svc: new ShiftsService(repo as never), repo };
+  return { svc: new ShiftsService(repo as never, { map: jest.fn().mockResolvedValue(new Map()) } as never), repo };
 }
 
 describe('ShiftsService', () => {

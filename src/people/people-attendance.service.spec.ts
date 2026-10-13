@@ -12,7 +12,7 @@ function make(employeeStatus: string) {
     }),
     decide: jest.fn().mockResolvedValue(true),
   };
-  const svc = new PeopleAttendanceService({} as never, attendance as never, {} as never);
+  const svc = new PeopleAttendanceService({} as never, attendance as never, {} as never, {} as never);
   return { svc, attendance };
 }
 

@@ -48,7 +48,7 @@ export type AttendanceSource = string;
 export type AttendanceRowSource = 'dummy' | 'stellar-csv' | 'stellar-api';
 
 export type Band = 'on-track' | 'watch' | 'at-risk' | 'no-data';
-/** `present`: in, on a shift that does not track punctuality. `weekend`: punched in on Sat/Sun (extra work). */
+/** `present`: in, on a shift that does not track punctuality. `weekend`: punched in on a weekend or holiday (extra work). */
 export type TodayState = 'on-time' | 'late' | 'present' | 'weekend' | 'leave' | 'not-in' | 'non-working';
 /** `not-tracked`: the employee's shift does not track punctuality. */
 export type KpiReason = 'not-linked' | 'no-data' | 'not-tracked';
@@ -173,6 +173,8 @@ export type AttendanceDayState =
   | 'late'
   | 'present'
   | 'weekend'
+  /** A Mon-Fri office holiday nobody came in on. */
+  | 'holiday'
   | 'absent'
   | 'sick'
   | 'casual'
@@ -194,6 +196,8 @@ export type AttendanceDetail = {
 export type AttendanceDayView = AttendanceDetail & {
   date: string;
   state: AttendanceDayState;
+  /** The holiday's name when the date is an office holiday. */
+  holiday: string | null;
   firstIn: string | null;
   lastOut: string | null;
   minutesInOffice: number | null;
@@ -275,8 +279,10 @@ export type TodayCounts = {
 
 export type TodayAttendance = {
   date: string;
-  /** Mon-Fri. On a weekend `rows` is empty and every count is 0. */
+  /** Mon-Fri and not an office holiday. Otherwise only people who came in are listed. */
   workingDay: boolean;
+  /** Today's holiday name when today is a Mon-Fri office holiday. */
+  holiday: string | null;
   attendanceSource: AttendanceSource;
   /** The provider can pull attendance itself; false = import its export (Stellar until its API is built). */
   canSync: boolean;
@@ -426,6 +432,28 @@ export type ShiftSuggestion = {
 
 export type ShiftSuggestions = { period: { from: string; to: string }; suggestions: ShiftSuggestion[] };
 
+/** Consecutive same-name dates, shown and edited as one holiday. */
+export type HolidayGroup = {
+  ids: string[];
+  name: string;
+  from: string;
+  to: string;
+  days: number;
+  /** Mon-Fri days in the group: the ones that change attendance and scores. */
+  workingDaysOff: number;
+  /** A date still to be confirmed (moon-dependent or projected). */
+  tentative: boolean;
+};
+
+export type HolidayYear = {
+  year: number;
+  holidays: HolidayGroup[];
+  /** Preset Bangladesh dates for the year not in the list yet; null = no preset for the year. */
+  presetMissing: number | null;
+};
+
+export type HolidayBody = { name: string; from: string; to: string; tentative?: boolean };
+
 export type UnmatchedStellarUser = { attendanceId: string; name: string; department: string | null; count: number };
 
 export type AttendanceImportResult = {
@@ -468,7 +496,7 @@ export type StellarLeaveFlag = {
   name: string;
   date: string | null;
   rawType: string;
-  reason: 'weekend' | 'unknown-type' | 'unknown-status' | 'bad-date' | 'no-user-id';
+  reason: 'weekend' | 'holiday' | 'unknown-type' | 'unknown-status' | 'bad-date' | 'no-user-id';
 };
 
 export type LeaveImportResult = {
@@ -582,4 +610,12 @@ export const peopleApi = {
   shiftSuggestions: () => apiClient.get<ShiftSuggestions>('/people/shifts/suggestions').then((r) => r.data),
   assignShifts: (assignments: { employeeId: string; shiftId: string | null }[]) =>
     apiClient.post<{ updated: number }>('/people/shifts/assign', { assignments }).then((r) => r.data),
+  holidays: (year: number) => apiClient.get<HolidayYear>('/people/holidays', { params: { year } }).then((r) => r.data),
+  createHoliday: (body: HolidayBody) => apiClient.post<{ added: number }>('/people/holidays', body).then((r) => r.data),
+  updateHolidays: (body: { ids: string[]; name?: string; tentative?: boolean }) =>
+    apiClient.patch<{ updated: number }>('/people/holidays', body).then((r) => r.data),
+  deleteHolidays: (ids: string[]) =>
+    apiClient.post<{ deleted: number }>('/people/holidays/delete', { ids }).then((r) => r.data),
+  prefillHolidays: (year: number) =>
+    apiClient.post<{ added: number; skipped: number }>('/people/holidays/prefill', { year }).then((r) => r.data),
 };
