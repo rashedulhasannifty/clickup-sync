@@ -251,7 +251,11 @@ describe('PeopleSyncService.enqueueDaily', () => {
       { entity: 'attendance', lookbackDays: 7, trigger: 'cron', from: '2026-09-30', to: '2026-10-06' },
       {},
     );
-    queue.getJobs.mockResolvedValue([{ name: 'sync-attendance' }]);
+    // A manual sync or a long backfill in flight does not stop the nightly run.
+    queue.getJobs.mockResolvedValue([{ name: 'sync-attendance', data: { trigger: 'manual' } }]);
+    queue.add.mockClear();
+    expect(await svc.enqueueDaily()).toBe(true);
+    queue.getJobs.mockResolvedValue([{ name: 'sync-attendance', data: { trigger: 'cron' } }]);
     queue.add.mockClear();
     expect(await svc.enqueueDaily()).toBe(false);
     expect(queue.add).not.toHaveBeenCalled();
@@ -291,7 +295,7 @@ describe('PeopleSyncService.enqueueDaily', () => {
       { entity: 'attendance', lookbackDays: 1, trigger: 'cron-intraday' },
       {},
     );
-    queue.getJobs.mockResolvedValue([{ name: 'sync-attendance' }]);
+    queue.getJobs.mockResolvedValue([{ name: 'sync-attendance', data: { trigger: 'cron-intraday' } }]);
     queue.add.mockClear();
     expect(await svc.enqueueIntraday()).toBe(false);
     expect(queue.add).not.toHaveBeenCalled();

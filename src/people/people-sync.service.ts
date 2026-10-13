@@ -111,7 +111,11 @@ export class PeopleSyncService {
     return this.enqueueScheduled(SYNC_INTRADAY_LOOKBACK_DAYS, 'cron-intraday');
   }
 
-  /** Enqueue a scheduled window, unless a sync is already queued/running. */
+  /**
+   * Enqueue a scheduled window, unless the previous run of the same cron is
+   * still queued/running. Other syncs (a manual sync, a long backfill) do not
+   * block it: they share the provider's rate limit and take turns.
+   */
   private async enqueueScheduled(
     lookbackDays: number,
     trigger: PeopleSyncJobData['trigger'],
@@ -133,7 +137,14 @@ export class PeopleSyncService {
       'delayed',
       'prioritized',
     ]);
-    if (live.some((j) => j?.name === JOBS.SYNC_ATTENDANCE)) {
+    if (
+      live.some(
+        (j) =>
+          j?.name === JOBS.SYNC_ATTENDANCE &&
+          (j.data as Partial<PeopleSyncJobData> | undefined)?.trigger ===
+            trigger,
+      )
+    ) {
       this.logger.warn(
         `Skipping ${JOBS.SYNC_ATTENDANCE}: the previous one is still in flight`,
       );
@@ -141,6 +152,33 @@ export class PeopleSyncService {
     }
     await this.enqueue(lookbackDays, trigger, window);
     return true;
+  }
+
+  /**
+   * The part of a sync window one fetch covers (the newest days, for a provider
+   * with `maxDaysPerFetch`) and the older rest, or null when one fetch covers it all.
+   */
+  split(
+    lookbackDays: number,
+    window?: { from: string; to: string },
+  ): {
+    chunk: { from: string; to: string };
+    remaining: { from: string; to: string } | null;
+  } {
+    const to = window?.to ?? dhakaDateOf(new Date());
+    const requestedFrom = window?.from ?? addDays(to, -(lookbackDays - 1));
+    const max = this.provider.maxDaysPerFetch;
+    const from =
+      max && diffDays(requestedFrom, to) + 1 > max
+        ? addDays(to, -(max - 1))
+        : requestedFrom;
+    return {
+      chunk: { from, to },
+      remaining:
+        from > requestedFrom
+          ? { from: requestedFrom, to: addDays(from, -1) }
+          : null,
+    };
   }
 
   /**
@@ -152,17 +190,8 @@ export class PeopleSyncService {
     lookbackDays: number,
     window?: { from: string; to: string },
   ): Promise<AttendanceSyncResult> {
-    const to = window?.to ?? dhakaDateOf(new Date());
-    const requestedFrom = window?.from ?? addDays(to, -(lookbackDays - 1));
-    const max = this.provider.maxDaysPerFetch;
-    const from =
-      max && diffDays(requestedFrom, to) + 1 > max
-        ? addDays(to, -(max - 1))
-        : requestedFrom;
-    const remaining =
-      from > requestedFrom
-        ? { from: requestedFrom, to: addDays(from, -1) }
-        : null;
+    const { chunk, remaining } = this.split(lookbackDays, window);
+    const { from, to } = chunk;
     const employees = await this.employees.listForSync(from, to);
     const result: AttendanceSyncResult = {
       source: this.provider.source,

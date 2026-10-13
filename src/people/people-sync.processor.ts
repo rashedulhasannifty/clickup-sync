@@ -85,6 +85,15 @@ export class PeopleSyncProcessor extends WorkerHost {
         throw new DelayedError();
       }
       await this.jobLogs.failed(log.id, e);
+      // Last attempt of one piece of a long window: the older days still get
+      // fetched, and the dead letter names only this piece, to retry later.
+      if ((job.attemptsMade ?? 0) + 1 >= (job.opts?.attempts ?? 1)) {
+        const { chunk, remaining } = this.sync.split(lookbackDays, window);
+        if (remaining) {
+          await job.updateData({ ...job.data, ...chunk });
+          await this.sync.enqueue(lookbackDays, trigger, remaining);
+        }
+      }
       throw e;
     }
   }

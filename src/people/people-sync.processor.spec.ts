@@ -3,7 +3,11 @@ import { ProviderRateLimitedError } from './attendance-provider';
 import { PeopleSyncProcessor } from './people-sync.processor';
 
 function make(run: jest.Mock) {
-  const sync = { run, enqueue: jest.fn().mockResolvedValue({ queued: true }) };
+  const sync = {
+    run,
+    enqueue: jest.fn().mockResolvedValue({ queued: true }),
+    split: jest.fn(),
+  };
   const jobLogs = {
     started: jest.fn().mockResolvedValue({ id: 1n }),
     finished: jest.fn().mockResolvedValue(undefined),
@@ -17,6 +21,9 @@ const job = (data: Record<string, unknown>) => ({
   name: 'sync-attendance',
   data: { entity: 'attendance', lookbackDays: 7, trigger: 'cron', ...data },
   moveToDelayed: jest.fn().mockResolvedValue(undefined),
+  updateData: jest.fn().mockResolvedValue(undefined),
+  attemptsMade: 0,
+  opts: { attempts: 5 },
 });
 
 describe('PeopleSyncProcessor', () => {
@@ -45,5 +52,22 @@ describe('PeopleSyncProcessor', () => {
     expect(j.moveToDelayed).toHaveBeenCalledWith(retryAt.getTime() + 1_000, 'tok');
     expect(jobLogs.failed).not.toHaveBeenCalled();
     expect(jobLogs.finished).toHaveBeenCalledWith(1n, undefined, 'delayed', 'wait');
+  });
+
+  it('a piece that fails for good still lets the older days be fetched, and only names itself', async () => {
+    const { processor, sync, jobLogs } = make(jest.fn().mockRejectedValue(new Error('HTTP 502')));
+    sync.split.mockReturnValue({
+      chunk: { from: '2026-10-05', to: '2026-10-07' },
+      remaining: { from: '2026-10-01', to: '2026-10-04' },
+    });
+    const early = job({ from: '2026-10-01', to: '2026-10-07' });
+    await expect(processor.process(early as never, 'tok')).rejects.toThrow('HTTP 502');
+    expect(sync.enqueue).not.toHaveBeenCalled(); // attempts left: BullMQ retries it
+
+    const last = { ...job({ from: '2026-10-01', to: '2026-10-07' }), attemptsMade: 4 };
+    await expect(processor.process(last as never, 'tok')).rejects.toThrow('HTTP 502');
+    expect(jobLogs.failed).toHaveBeenCalled();
+    expect(last.updateData).toHaveBeenCalledWith(expect.objectContaining({ from: '2026-10-05', to: '2026-10-07' }));
+    expect(sync.enqueue).toHaveBeenCalledWith(7, 'cron', { from: '2026-10-01', to: '2026-10-04' });
   });
 });
