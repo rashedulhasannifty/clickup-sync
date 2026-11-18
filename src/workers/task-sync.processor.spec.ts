@@ -7,9 +7,11 @@ function httpError(status: number) {
 }
 
 function makeDeps() {
-  const syncTask = jest.fn().mockResolvedValue({ taskId: 't1' });
+  // syncTask returns the full normalized task (description, custom fields…),
+  // which can be megabytes — the job must not hand that to BullMQ.
+  const syncTask = jest.fn().mockResolvedValue({ taskId: 't1', description: 'x'.repeat(100_000), customFields: [{}] });
   const exists = jest.fn().mockResolvedValue(true);
-  const softDeleteTask = jest.fn().mockResolvedValue({});
+  const softDeleteTask = jest.fn().mockResolvedValue({ taskId: 't1', description: 'x'.repeat(100_000) });
   const deleteByTaskId = jest.fn().mockResolvedValue(0);
   const started = jest.fn().mockResolvedValue({ id: 1n });
   const finished = jest.fn().mockResolvedValue({});
@@ -79,5 +81,15 @@ describe('TaskSyncProcessor — sync-clickup-task', () => {
     expect(softDeleteTask).not.toHaveBeenCalled();
     expect(deleteByTaskId).not.toHaveBeenCalled();
     expect(failed).toHaveBeenCalledWith(1n, err);
+  });
+});
+
+describe('TaskSyncProcessor — delete-clickup-task', () => {
+  it('returns a small summary, not the deleted task row', async () => {
+    const { proc, softDeleteTask, deleteByTaskId } = makeDeps();
+    const res = await proc.process({ id: '9', name: 'delete-clickup-task', data: { taskId: 't1' } } as never);
+    expect(deleteByTaskId).toHaveBeenCalledWith('t1');
+    expect(softDeleteTask).toHaveBeenCalledWith('t1');
+    expect(res).toEqual({ taskId: 't1', deleted: true });
   });
 });
