@@ -27,19 +27,25 @@ export class TaskSyncProcessor extends WorkerHost {
   async process(job: Job<{ taskId: string }>) {
     const log = await this.jobLogs.started({ jobId: job.id?.toString(), queueName: QUEUES.CLICKUP_TASKS, jobName: job.name, entityType: 'task', entityId: job.data.taskId });
     try {
-      let result;
+      // The return value is stored by BullMQ on the job hash AND on the queue's
+      // events stream (~10k entries). Return a small summary only — returning
+      // the full normalized task (multi-MB descriptions) filled Redis to its
+      // maxmemory and blocked every queue.
+      let result: { taskId: string; deleted?: boolean; timeEntriesSynced?: number };
       if (job.name === JOBS.DELETE_CLICKUP_TASK) {
         // A deleted task's tracked time must go too — ClickUp removes the
         // entries with the task but emits no per-entry delete event. Delete
         // them first; the task row survives (soft delete) so the FK holds.
         await this.timeEntries.deleteByTaskId(job.data.taskId);
-        result = await this.tasks.softDeleteTask(job.data.taskId);
+        await this.tasks.softDeleteTask(job.data.taskId);
+        result = { taskId: job.data.taskId, deleted: true };
       } else if (job.name === JOBS.RECONCILE_CLICKUP_TASK) {
         const { startDate, endDate } = job.data as { taskId: string; startDate: number; endDate: number };
         result = await this.reconciliation.reconcileTask(job.data.taskId, startDate, endDate);
       } else {
         try {
-          result = await this.tasks.syncTask(job.data.taskId);
+          await this.tasks.syncTask(job.data.taskId);
+          result = { taskId: job.data.taskId };
         } catch (err) {
           // A ClickUp 404 means the task no longer exists there. Don't retry it
           // into a dead letter — handle it like the delete path: drop its tracked
