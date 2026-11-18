@@ -34,7 +34,7 @@ services:
     image: redis:8-alpine
     restart: unless-stopped
     # noeviction: BullMQ must never have job keys evicted (corrupts queues).
-    command: ['redis-server', '--appendonly', 'yes', '--maxmemory', '256mb', '--maxmemory-policy', 'noeviction']
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory', '1gb', '--maxmemory-policy', 'noeviction']
     ports: ['127.0.0.1:6380:6379']
     volumes: ['redisdata:/data']
     healthcheck:
